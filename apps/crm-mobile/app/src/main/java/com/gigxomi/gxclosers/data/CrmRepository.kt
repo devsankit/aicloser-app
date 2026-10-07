@@ -12,8 +12,9 @@ class CrmRepository(context: Context) {
     private val offline = OfflineEventStore(context)
     private val appContext = context.applicationContext
 
-    fun login(identifier: String, password: String): Session {
-        val response = api.post("/mobile/auth/login", JSONObject().put("identifier", identifier).put("password", password).put("loginScope", "sales"))
+    fun login(identifier: String, password: String, installationId: String, deviceName: String, appVersion: String): Session {
+        val response = api.post("/mobile/auth/login", JSONObject().put("identifier", identifier).put("password", password).put("loginScope", "sales")
+            .put("clientType", "MOBILE").put("installationId", installationId).put("deviceName", deviceName).put("appVersion", appVersion))
         val session = parseSession(response.getJSONObject("session"))
         sessionStore.saveLogin(response.getString("token"), session)
         return session
@@ -87,7 +88,7 @@ class CrmRepository(context: Context) {
         val pending = CallAudioRecorder.pending(appContext) ?: return false
         val file = File(pending.path)
         if (!file.exists()) return false
-        api.uploadRecording(pending.callId, file, pending.durationMs)
+        api.uploadRecording(pending.callId, pending.clientUploadId, file, pending.durationMs)
         CallAudioRecorder.clearPending(appContext)
         return true
     }
@@ -122,7 +123,11 @@ class CrmRepository(context: Context) {
             .put("watchedSeconds", watchedSeconds).put("durationSeconds", durationSeconds).put("positionSeconds", positionSeconds).put("confirmComplete", confirmComplete))
     }
 
-    fun logout() { sessionStore.clear(); offline.clear() }
+    fun logout() {
+        runCatching { api.post("/auth/logout") }
+        sessionStore.clear()
+        offline.clear()
+    }
 }
 
 class SavedOfflineException(message: String) : Exception(message)

@@ -3,6 +3,7 @@ import type { NextResponse } from "next/server";
 
 import { createSessionToken, verifySessionToken } from "@/lib/auth/token";
 import { repairAgencyTenantIsolation } from "@/lib/auth/store";
+import { isAppClientSessionActive } from "@/lib/auth/client-sessions";
 import type { AppRole, PackageAudience, PackageStatus, SessionUser, WorkspaceMode } from "@/lib/auth/types";
 
 export type UserRole = AppRole | "GUEST";
@@ -187,6 +188,28 @@ export async function getSessionContext(): Promise<SessionContext> {
   const verified = await verifySessionToken(token);
 
   if (verified) {
+    const licensedSessionActive = verified.licensedSession
+      ? await isAppClientSessionActive(verified.sessionId, verified.userId).catch(() => false)
+      : true;
+    if (!licensedSessionActive) {
+      return {
+        userId: null,
+        role: "GUEST",
+        assignedRole: null,
+        tenantId: null,
+        displayName: null,
+        email: null,
+        phone: null,
+        packageId: null,
+        packageName: null,
+        packageAudience: null,
+        packageStatus: null,
+        packageExpiresAt: null,
+        workspaceMode: null,
+        sessionId: null,
+        expiresAt: null,
+      };
+    }
     const repairedAgencyUser =
       verified.packageAudience === "AGENCY" && verified.tenantId === DEFAULT_TENANT_ID
         ? await repairAgencyTenantIsolation(verified.userId).catch(() => null)

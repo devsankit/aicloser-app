@@ -8,10 +8,11 @@ export async function POST(request: Request) {
   try {
     const form = await request.formData();
     const callId = String(form.get("callSessionId") ?? form.get("callId") ?? "");
+    const clientUploadId = String(form.get("clientUploadId") ?? "");
     const recordingDurationMs = Number(form.get("recordingDurationMs") ?? 0);
     const file = form.get("recording");
     if (!(file instanceof File)) return NextResponse.json({ ok: false, error: "Attach the recording file." }, { status: 400 });
-    return NextResponse.json({ ok: true, call: await saveSalesMobileRecording(auth.actor, callId, file, recordingDurationMs) });
+    return NextResponse.json({ ok: true, call: await saveSalesMobileRecording(auth.actor, callId, file, recordingDurationMs, clientUploadId) });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Recording upload failed." }, { status: 400 });
   }

@@ -79,9 +79,9 @@ const DEFAULT_MATRIX: RolePermissionsMatrix = {
     calls: true,
     conversations: true,
     whatsapp_marketing: false,
-    ai_bot_beta: true,
+    ai_bot_beta: false,
     deals: false,
-    referrals: true,
+    referrals: false,
     role_management: false,
   },
 };

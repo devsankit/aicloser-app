@@ -21,6 +21,7 @@ export type SessionUser = {
   packageExpiresAt: string | null;
   workspaceMode: WorkspaceMode;
   sessionId: string;
+  licensedSession?: boolean;
   expiresAt: number;
 };
 

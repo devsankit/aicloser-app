@@ -39,12 +39,14 @@ test("commission engine enforces 20% on purchases and 0% on freemium/freelancer"
 
 test("GXcloser dashboard renders dual referral links, 20% commission rules, and withdrawal request", async () => {
   const dashboard = await source("src/components/sales/sales-dashboard.tsx");
-  assert.match(dashboard, /Referrals & Commission/);
-  assert.match(dashboard, /Website Referral Link/);
-  assert.match(dashboard, /Android App Referral Link/);
-  assert.match(dashboard, /Direct Client Sale/);
-  assert.match(dashboard, /Available for Withdrawal/);
-  assert.match(dashboard, /Request Withdrawal/);
-  assert.match(dashboard, /Pending Maturation/);
-  assert.match(dashboard, /Total Amount Withdrawn/);
+  const referralPanel = await source("src/components/sales/referral-commission-panel.tsx");
+  assert.match(dashboard, /ReferralCommissionPanel/);
+  assert.match(referralPanel, /Referrals &amp; Commission/);
+  assert.match(referralPanel, /Website Referral Link/);
+  assert.match(referralPanel, /Android App Referral Link/);
+  assert.match(referralPanel, /Direct Client Sale/);
+  assert.match(referralPanel, /Available for Withdrawal/);
+  assert.match(referralPanel, /Request Withdrawal/);
+  assert.match(referralPanel, /Pending Maturation/);
+  assert.match(referralPanel, /Total Amount Withdrawn/);
 });

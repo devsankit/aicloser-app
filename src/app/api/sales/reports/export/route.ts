@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requireSessionRole } from "@/lib/api/require-session-role";
 import { generateLeadsCsv, generateCallsCsv, generateContactsCsv } from "@/lib/gigxomi/advanced-reports-store";
 import { getSalesSnapshotForRole } from "@/lib/gigxomi/sales-store";
+import { readRoundRobinSettings } from "@/lib/gigxomi/round-robin-service";
+import { resolveSessionTenantId } from "@/lib/api/resolve-session-tenant";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -18,6 +20,13 @@ export async function GET(request: Request) {
         return NextResponse.redirect(new URL(`/login?redirectTo=${encodeURIComponent(url.pathname + url.search)}`, request.url));
       }
       return auth.response;
+    }
+  }
+
+  if (auth.ok && auth.session.role !== "ADMIN" && auth.session.role !== "SUPER_ADMIN") {
+    const settings = await readRoundRobinSettings(resolveSessionTenantId(auth.session));
+    if (!settings.allowNonAdminExportData) {
+      return NextResponse.json({ ok: false, error: "Lead export is disabled for your role. Ask a workspace administrator to enable it." }, { status: 403 });
     }
   }
 

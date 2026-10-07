@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 
 import { requireSessionRole } from "@/lib/api/require-session-role";
 import { claimSalesLeadPoolItem, createSalesLead, createSalesLeadPoolItem, getSalesSnapshotForRole, reassignSalesLead, updateSalesLead, updateSalesLeadStage, type SalesLeadStage } from "@/lib/gigxomi/sales-store";
+import { readRoundRobinSettings } from "@/lib/gigxomi/round-robin-service";
+import { resolveSessionTenantId } from "@/lib/api/resolve-session-tenant";
 
 const salesLeadStages = new Set<SalesLeadStage>([
   "NEW", "ASSIGNED", "CONTACTED", "INTERESTED", "WEBINAR_INVITED", "WEBINAR_ATTENDED", "FOLLOW_UP", "NEGOTIATION", "CLOSED_WON", "CLOSED_LOST", "NOT_REACHABLE", "RECYCLED", "QUALIFIED", "QUOTE_SENT", "PAYMENT_PENDING", "PAID", "HANDOFF", "CONVERTED_FREE", "CLOSED", "LOST",
@@ -23,7 +25,15 @@ export async function POST(request: Request) {
   if (!body) return NextResponse.json({ ok: false, error: "Send valid lead details." }, { status: 400 });
   const snapshot = await getSalesSnapshotForRole(authorization.session);
 
+  const canModifyLeadData =
+    authorization.session.role === "ADMIN" ||
+    authorization.session.role === "SUPER_ADMIN" ||
+    (await readRoundRobinSettings(resolveSessionTenantId(authorization.session))).allowNonAdminModifyLeads;
+
   if (body.action === "stage") {
+    if (!canModifyLeadData) {
+      return NextResponse.json({ ok: false, error: "Lead updates are disabled for your role. Ask a workspace administrator to enable them." }, { status: 403 });
+    }
     const leadId = String(body.leadId ?? "");
     if (!snapshot.visibleLeads.some((lead) => lead.id === leadId)) {
       return NextResponse.json({ ok: false, error: "You do not have access to this lead." }, { status: 403 });
@@ -131,6 +141,9 @@ export async function POST(request: Request) {
   }
 
   if (body.action === "update") {
+    if (!canModifyLeadData) {
+      return NextResponse.json({ ok: false, error: "Lead updates are disabled for your role. Ask a workspace administrator to enable them." }, { status: 403 });
+    }
     const leadId = String(body.leadId ?? "");
     if (!snapshot.visibleLeads.some((lead) => lead.id === leadId)) {
       return NextResponse.json({ ok: false, error: "You do not have access to this lead." }, { status: 403 });

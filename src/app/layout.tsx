@@ -47,6 +47,7 @@ export const viewport: Viewport = {
 };
 
 import { ImpersonationBanner } from "@/components/super-admin/impersonation-banner";
+import { ClientSessionHeartbeat } from "@/components/auth/client-session-heartbeat";
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
@@ -79,6 +80,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         />
       </head>
       <body suppressHydrationWarning>
+        <ClientSessionHeartbeat />
         <ImpersonationBanner />
         {children}
       </body>

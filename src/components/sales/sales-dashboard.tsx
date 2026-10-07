@@ -3,13 +3,14 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { DndContext, type DragEndEvent, useDroppable } from "@dnd-kit/core";
+import { closestCorners, DndContext, type DragEndEvent, useDroppable } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
   BarChart3,
   Bot,
   Building2,
+  CalendarPlus,
   CalendarClock,
   CheckCircle2,
   Clock,
@@ -19,13 +20,19 @@ import {
   Download,
   Edit3,
   ExternalLink,
+  Facebook,
   Flame,
+  FileText,
   FileSpreadsheet,
   GripVertical,
+  Hand,
   Headphones,
   KanbanSquare,
   LayoutDashboard,
   LayoutList,
+  Instagram,
+  Mail,
+  Megaphone,
   MapPin,
   MessageSquare,
   MessageCircle,
@@ -63,6 +70,7 @@ import { CallingCampaignsPanel } from "@/components/sales/calling-campaigns-pane
 import { MissedCallsQueue } from "@/components/sales/missed-calls-queue";
 import { AutomationWorkflowsPanel } from "@/components/sales/automation-workflows-panel";
 import { AdvancedReportsPanel } from "@/components/sales/advanced-reports-panel";
+import { ReferralCommissionPanel } from "@/components/sales/referral-commission-panel";
 import { CustomFieldsPanel } from "@/components/sales/custom-fields-panel";
 import { LeadCustomFieldsEditor } from "@/components/sales/lead-custom-fields-editor";
 import { LeadIqCard } from "@/components/sales/lead-iq-card";
@@ -71,6 +79,7 @@ import { ContactsHub } from "@/components/sales/contacts-hub";
 import { PluginsHub } from "@/components/sales/plugins-hub";
 import { LeadFormBuilder } from "@/components/sales/lead-form-builder";
 import { CrmSettingsPanel } from "@/components/sales/crm-settings-panel";
+import { TeamActivityPanel } from "@/components/sales/team-activity-panel";
 import type { AgencyTenant } from "@/lib/gigxomi/agency-network-data";
 import type { DummyWhatsAppConnectionState } from "@/lib/gigxomi/dummy-platform-store";
 import type { SalesOperatingSnapshot } from "@/lib/gigxomi/sales-operating-system-store";
@@ -80,6 +89,7 @@ import type { SuperAdminWhatsAppFlow, SuperAdminWhatsAppFlowRun } from "@/lib/gi
 type SalesTab =
   | "dashboard"
   | "crm"
+  | "grab-leads"
   | "contacts"
   | "lead-import"
   | "calls"
@@ -112,9 +122,32 @@ type SalesOperationsPayload = {
   chatbotAgencies: AgencyTenant[];
 };
 
+type SalesRoundRobinAccess = {
+  enabled: boolean;
+  allowNonAdminModifyLeads: boolean;
+  allowNonAdminImportData: boolean;
+  allowNonAdminExportData: boolean;
+};
+
+type SavedLeadView = {
+  id: string;
+  name: string;
+  search: string;
+  status: string;
+  group: string;
+  source: string;
+  segment: string;
+  ownership: "all" | "mine";
+  quickPill: "all" | "today-leads" | "today-followups";
+  dateRange: "all" | "today" | "yesterday" | "last7" | "month" | "custom";
+  customStartDate: string;
+  customEndDate: string;
+};
+
 const tabs: Array<{ id: SalesTab; label: string; icon: typeof Users; badge?: string; group?: "crm" | "growth" | "system" | "workspace" | "beta" }> = [
   { id: "dashboard", label: "Dashboard Overview", icon: LayoutDashboard, group: "crm" },
   { id: "crm", label: "CRM Pipeline & Kanban", icon: KanbanSquare, group: "crm" },
+  { id: "grab-leads", label: "Grab Leads", icon: Hand, badge: "Queue", group: "crm" },
   { id: "contacts", label: "Contacts & Import Hub", icon: Users, badge: "All Sources", group: "crm" },
   { id: "lead-import", label: "Lead Import", icon: Upload, badge: "5 Sources", group: "crm" },
   { id: "calls", label: "Calls & Power Dialer", icon: PhoneCall, group: "crm" },
@@ -385,6 +418,10 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   const [activeTab, setActiveTab] = useState<SalesTab>("dashboard");
   const [crmView, setCrmView] = useState<CrmView>("kanban");
   const [viewingAgentId, setViewingAgentId] = useState("all");
+  const [crmSearch, setCrmSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [groupFilter, setGroupFilter] = useState("all");
+  const [sourceFilter, setSourceFilter] = useState("all");
   const [segmentFilter, setSegmentFilter] = useState("all");
   const [dateRangeFilter, setDateRangeFilter] = useState<"all" | "today" | "yesterday" | "last7" | "month" | "custom">("all");
   const [customStartDate, setCustomStartDate] = useState("");
@@ -398,6 +435,12 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   const [isStatusLabelsModalOpen, setIsStatusLabelsModalOpen] = useState(false);
   const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false);
   const [isLeadExportMenuOpen, setIsLeadExportMenuOpen] = useState(false);
+  const [roundRobinAccess, setRoundRobinAccess] = useState<SalesRoundRobinAccess>({
+    enabled: false,
+    allowNonAdminModifyLeads: false,
+    allowNonAdminImportData: false,
+    allowNonAdminExportData: false,
+  });
   const restoredNavigation = useRef(false);
   const hydratedTabs = useRef<Set<SalesTab>>(new Set(["dashboard"]));
   const currentAgent = snapshot.currentAgent;
@@ -408,9 +451,16 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     sessionRole === "SUPER_ADMIN" ||
     currentAgentPermissions?.workspaceAdmin === true ||
     String(currentAgentPermissions?.workspaceRole ?? "").toUpperCase() === "ADMIN";
+  const isCloser = !isWorkspaceAdmin && (sessionRole === "SALES_AGENT" || String(currentAgentPermissions?.workspaceRole ?? "").toUpperCase() === "SALES_AGENT");
   const navigationTabs = isWorkspaceAdmin
     ? tabs
-    : tabs.filter((tab) => tab.id !== "roles" && tab.id !== "profile" && tab.id !== "developer");
+    : isCloser
+      ? tabs.filter((tab) => ["dashboard", "crm", "grab-leads", "conversations"].includes(tab.id))
+      : tabs.filter((tab) => !["roles", "profile", "developer", "grab-leads"].includes(tab.id));
+  const canImportLeads = isWorkspaceAdmin || roundRobinAccess.allowNonAdminImportData;
+  const canExportLeads = isWorkspaceAdmin || roundRobinAccess.allowNonAdminExportData;
+  const canModifyLeads = isWorkspaceAdmin || roundRobinAccess.allowNonAdminModifyLeads;
+  const canUseGrabLeads = roundRobinAccess.enabled && Boolean(currentAgent?.canClaimLeads);
   const canViewTeamData = isWorkspaceAdmin || sessionRole === "MANAGER";
   const viewingAgent = viewingAgentId === "all"
     ? null
@@ -536,9 +586,10 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   const [leadOwnershipScope, setLeadOwnershipScope] = useState<"all" | "mine">("all");
 
   const baseLeads = useMemo(() => {
+    if (isCloser) return snapshot.visibleLeads;
     if (leadOwnershipScope === "mine") return snapshot.visibleLeads;
     return snapshot.leads && snapshot.leads.length > 0 ? snapshot.leads : snapshot.visibleLeads;
-  }, [leadOwnershipScope, snapshot.leads, snapshot.visibleLeads]);
+  }, [isCloser, leadOwnershipScope, snapshot.leads, snapshot.visibleLeads]);
 
   const todayLeadsCount = useMemo(
     () => baseLeads.filter((lead) => isDateToday(lead.createdAt)).length,
@@ -550,10 +601,8 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     [baseLeads],
   );
 
-  const [savedCustomSegments, setSavedCustomSegments] = useState<string[]>([
-    "High-Ticket Agencies",
-    "Retargeting Cohort",
-  ]);
+  const [savedLeadViews, setSavedLeadViews] = useState<SavedLeadView[]>([]);
+  const [savedViewSelection, setSavedViewSelection] = useState("all");
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(true);
   const [enforceWorkspace2FA, setEnforceWorkspace2FA] = useState(true);
   const [requireFieldVisitGps, setRequireFieldVisitGps] = useState(true);
@@ -571,12 +620,40 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     salesOperations.instagramConnection?.pluginEnabled &&
       salesOperations.instagramConnection.status === "Connected",
   );
-  const segments = useMemo(
-    () => Array.from(new Set([...baseLeads.map((lead) => lead.segment).filter(Boolean), ...savedCustomSegments])).sort(),
-    [baseLeads, savedCustomSegments],
+  const leadSegments = useMemo(
+    () => Array.from(new Set(baseLeads.map((lead) => lead.segment).filter(Boolean))).sort(),
+    [baseLeads],
   );
   const filteredLeads = useMemo(() => {
     return baseLeads.filter((lead) => {
+      const search = crmSearch.trim().toLowerCase();
+      if (search) {
+        const haystack = [
+          lead.customerName,
+          lead.customerPhone,
+          lead.customerEmail,
+          lead.source,
+          lead.serviceInterest,
+          lead.segment,
+          lead.notes,
+          ...(lead.tags || []),
+        ].join(" ").toLowerCase();
+        if (!haystack.includes(search)) return false;
+      }
+
+      if (statusFilter !== "all") {
+        const selectedColumn = pipelineColumns.find((column) => column.key === statusFilter);
+        if (selectedColumn && !selectedColumn.matchingStages.includes(lead.stage)) return false;
+      }
+
+      if (groupFilter !== "all") {
+        const assignedAgent = snapshot.agents.find((agent) => agent.id === lead.assignedAgentId);
+        const leadGroupId = assignedAgent?.groupId ?? "unassigned";
+        if (leadGroupId !== groupFilter) return false;
+      }
+
+      if (sourceFilter !== "all" && (lead.source || "manual") !== sourceFilter) return false;
+
       // 1. Segment & Smart Reusable Cohort filter
       if (segmentFilter === "smart:high-value") {
         if ((lead.budgetAmount || 0) < 25000 && lead.priority !== "hot") return false;
@@ -625,7 +702,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
 
       return true;
     });
-  }, [baseLeads, segmentFilter, quickPillFilter, dateRangeFilter, customStartDate, customEndDate]);
+  }, [baseLeads, crmSearch, statusFilter, groupFilter, sourceFilter, snapshot.agents, segmentFilter, quickPillFilter, dateRangeFilter, customStartDate, customEndDate]);
   const listLeads = useMemo(
     () => [...filteredLeads].sort((left, right) => {
       const leftCall = snapshot.mobileCalls.find((call) => call.assignmentId === left.id)?.startedAt;
@@ -646,6 +723,67 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     [snapshot.visibleLeadPool],
   );
   const selectedLead = selectedLeadId ? baseLeads.find((lead) => lead.id === selectedLeadId) ?? null : null;
+  const sourceOptions = useMemo(
+    () => Array.from(new Set(baseLeads.map((lead) => lead.source || "manual"))).sort(),
+    [baseLeads],
+  );
+  const groupOptions = useMemo(
+    () => snapshot.groups.filter((group) => group.isActive).map((group) => ({ id: group.id, name: group.name })),
+    [snapshot.groups],
+  );
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem("gxclosers-saved-lead-views");
+      if (!stored) return;
+      const parsed = JSON.parse(stored) as unknown;
+      if (Array.isArray(parsed)) setSavedLeadViews(parsed as SavedLeadView[]);
+    } catch {
+      // Saved views are a convenience; malformed local data should not block CRM loading.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof EventSource === "undefined") return;
+    const source = new EventSource("/api/sales/realtime");
+    let refreshTimer: number | undefined;
+    const onEvent = (event: MessageEvent<string>) => {
+      try {
+        const payload = JSON.parse(event.data) as { type?: string; eventType?: string };
+        const eventType = payload.eventType ?? payload.type;
+        if (!eventType || ["lead.created", "lead.updated", "call.started", "call.ended", "recording.uploaded", "recording.failed", "conversation.created", "message.created"].includes(eventType)) {
+          if (refreshTimer) window.clearTimeout(refreshTimer);
+          refreshTimer = window.setTimeout(() => { void refresh().catch(() => undefined); }, 250);
+        }
+      } catch {
+        // A malformed realtime event must not interrupt the dashboard stream.
+      }
+    };
+    source.addEventListener("crm", onEvent);
+    return () => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      source.close();
+    };
+  }, [viewingAgentId]);
+
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/sales/round-robin", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((payload) => {
+        if (!active || !payload?.ok || !payload.settings) return;
+        setRoundRobinAccess({
+          enabled: payload.settings.enabled !== false,
+          allowNonAdminModifyLeads: payload.settings.allowNonAdminModifyLeads !== false,
+          allowNonAdminImportData: payload.settings.allowNonAdminImportData === true,
+          allowNonAdminExportData: payload.settings.allowNonAdminExportData === true,
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -671,8 +809,10 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
         setSettingsHubView("custom-fields");
       } else if (savedTab === "leads" || savedTab === "queue" || savedTab === "deals") {
         setActiveTab("crm");
-      } else if (tabs.some((tab) => tab.id === savedTab)) {
+      } else if (tabs.some((tab) => tab.id === savedTab) && (!isCloser || navigationTabs.some((tab) => tab.id === savedTab))) {
         setActiveTab(savedTab as SalesTab);
+      } else if (isCloser) {
+        setActiveTab("dashboard");
       }
       if (savedView === "kanban" || savedView === "list") setCrmView(savedView);
       restoredNavigation.current = true;
@@ -703,6 +843,79 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     void refresh().catch(() => setStatus("Unable to refresh this CRM view."));
   }, [activeTab]);
 
+  function resetLeadFilters() {
+    setCrmSearch("");
+    setStatusFilter("all");
+    setGroupFilter("all");
+    setSourceFilter("all");
+    setSegmentFilter("all");
+    setLeadOwnershipScope("all");
+    setQuickPillFilter("all");
+    setDateRangeFilter("all");
+    setCustomStartDate("");
+    setCustomEndDate("");
+  }
+
+  function applySavedLeadView(view: SavedLeadView) {
+    setCrmSearch(view.search);
+    setStatusFilter(view.status);
+    setGroupFilter(view.group);
+    setSourceFilter(view.source);
+    setSegmentFilter(view.segment);
+    setLeadOwnershipScope(view.ownership);
+    setQuickPillFilter(view.quickPill);
+    setDateRangeFilter(view.dateRange);
+    setCustomStartDate(view.customStartDate);
+    setCustomEndDate(view.customEndDate);
+  }
+
+  function handleSavedViewChange(value: string) {
+    setSavedViewSelection(value);
+    resetLeadFilters();
+    if (value === "all") {
+      return;
+    }
+    if (value === "builtin:high-value") {
+      setSegmentFilter("smart:high-value");
+      return;
+    }
+    if (value === "builtin:recaptured") {
+      setSegmentFilter("smart:recaptured");
+      return;
+    }
+    if (value === "builtin:callback-due") {
+      setSegmentFilter("smart:callback-due");
+      return;
+    }
+    const view = savedLeadViews.find((item) => item.id === value);
+    if (view) applySavedLeadView(view);
+  }
+
+  function saveCurrentLeadView() {
+    const name = typeof window !== "undefined" ? window.prompt("Name this saved lead view:") : null;
+    const trimmed = name?.trim();
+    if (!trimmed) return;
+    const view: SavedLeadView = {
+      id: `saved-view-${Date.now()}`,
+      name: trimmed,
+      search: crmSearch,
+      status: statusFilter,
+      group: groupFilter,
+      source: sourceFilter,
+      segment: segmentFilter,
+      ownership: leadOwnershipScope,
+      quickPill: quickPillFilter,
+      dateRange: dateRangeFilter,
+      customStartDate,
+      customEndDate,
+    };
+    const nextViews = [...savedLeadViews.filter((item) => item.name.toLowerCase() !== trimmed.toLowerCase()), view];
+    setSavedLeadViews(nextViews);
+    window.localStorage.setItem("gxclosers-saved-lead-views", JSON.stringify(nextViews));
+    setSavedViewSelection(view.id);
+    setStatus(`Saved lead view "${trimmed}".`);
+  }
+
   async function refresh(agentId = viewingAgentId) {
     const params = new URLSearchParams();
     if (agentId && agentId !== "all") params.set("agentId", agentId);
@@ -722,6 +935,10 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   }
 
   async function exportLeads(format: "csv" | "excel") {
+    if (!canExportLeads) {
+      setStatus("Lead export is disabled for your role. Ask an administrator to enable it.");
+      return;
+    }
     try {
       setStatus(`Exporting leads ${format === "excel" ? "Excel" : "CSV"}...`);
       const res = await fetch("/api/sales/reports/export?type=leads");
@@ -810,6 +1027,10 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
 
   async function importContacts(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canImportLeads) {
+      setStatus("Lead import is disabled for your role. Ask an administrator to enable it.");
+      return;
+    }
     const formElement = event.currentTarget;
     const formData = new FormData(formElement);
     setIsImporting(true);
@@ -868,7 +1089,9 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
 
   function handleLeadDragEnd(event: DragEndEvent) {
     const leadId = String(event.active.id);
-    const overStage = event.over?.data.current?.stage as SalesLeadStage | undefined;
+    const overId = String(event.over?.id ?? "");
+    const overStage = (event.over?.data.current?.stage as SalesLeadStage | undefined) ??
+      (overId.startsWith("stage:") ? overId.slice("stage:".length) as SalesLeadStage : undefined);
     if (overStage) moveLeadStage(leadId, overStage).catch(() => setStatus("Lead stage update failed."));
   }
 
@@ -978,6 +1201,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       headerPills={activeTab === "dashboard" ? headerPills : []}
       homeHref="/"
       navItems={navigationTabs}
+      navigationOrderKey={`sales-${sessionRole}-${currentAgent?.id ?? "workspace"}`}
       onNavigate={navigateSales}
       profileMeta={currentAgent?.agentCode ?? "Sales agent"}
       profilePlan={profilePlan}
@@ -1045,13 +1269,23 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
               >
                 <KanbanSquare size={16} /> Open CRM Pipeline
               </button>
-              <button
-                className="sales-hero-btn secondary"
-                onClick={() => navigateSales("calls")}
-                type="button"
-              >
-                <PhoneCall size={16} /> SIM Call History &amp; Audio
-              </button>
+              {isCloser ? (
+                <button
+                  className="sales-hero-btn secondary"
+                  onClick={() => navigateSales("grab-leads")}
+                  type="button"
+                >
+                  <Hand size={16} /> Grab next lead
+                </button>
+              ) : (
+                <button
+                  className="sales-hero-btn secondary"
+                  onClick={() => navigateSales("calls")}
+                  type="button"
+                >
+                  <PhoneCall size={16} /> SIM Call History &amp; Audio
+                </button>
+              )}
               <button
                 className="sales-hero-btn secondary"
                 onClick={() => navigateSales("conversations")}
@@ -1528,9 +1762,66 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
         </section>
       ) : null}
 
+      {activeTab === "grab-leads" ? (
+        <section className="sales-tool-workspace sales-grab-leads-workspace" style={{ width: "100%", maxWidth: "var(--crm-content-max)", margin: "0 auto", padding: "24px 20px" }}>
+          <div className="sales-grab-leads-hero">
+            <div>
+              <span className="sales-section-eyebrow">Round-robin queue</span>
+              <h2>Grab your next lead</h2>
+              <p>Claim one of the leads waiting in the shared queue. Once claimed, it moves into your CRM pipeline.</p>
+            </div>
+            <div className="sales-grab-leads-count"><strong>{openLeadPool.length}</strong><span>available now</span></div>
+          </div>
+          {!canUseGrabLeads ? (
+            <div className="sales-empty-state">
+              <Hand size={22} />
+              <strong>Lead grabbing is not enabled</strong>
+              <p>Ask your workspace administrator to enable round-robin grab lead mode for your role.</p>
+            </div>
+          ) : openLeadPool.length ? (
+            <div className="sales-grab-leads-grid">
+              {openLeadPool.map((item) => (
+                <article className="sales-grab-lead-card" key={item.id}>
+                  <div className="sales-grab-lead-card-head">
+                    <div>
+                      <strong>{item.customerName}</strong>
+                      <span>{item.customerPhone || item.customerEmail || "Contact details pending"}</span>
+                    </div>
+                    <LeadSourceBadge source={item.source} />
+                  </div>
+                  <div className="sales-lead-meta">
+                    <span>{item.priority || "normal"} priority</span>
+                    <span>{formatDate(item.createdAt)}</span>
+                  </div>
+                  <p>{item.notes || item.serviceInterest || "New lead from shared intake"}</p>
+                  <button
+                    className="sales-primary-button compact"
+                    disabled={!snapshot.currentAgent?.id}
+                    onClick={() => void submitJson(
+                      "/api/sales/leads",
+                      { action: "claim", poolItemId: item.id, agentId: snapshot.currentAgent?.id },
+                      "Lead claimed and added to your pipeline.",
+                    )}
+                    type="button"
+                  >
+                    <Hand size={15} /> Grab lead
+                  </button>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="sales-empty-state">
+              <CheckCircle2 size={22} />
+              <strong>No leads are waiting right now</strong>
+              <p>New round-robin leads will appear here when the admin adds them to the shared queue.</p>
+            </div>
+          )}
+        </section>
+      ) : null}
+
       {activeTab === "crm" ? (
         <section className="sales-crm-workspace">
-            <div className="sales-toolbar sales-crm-toolbar" style={{ flexWrap: "wrap", gap: "10px" }}>
+            <div className={`sales-toolbar sales-crm-toolbar${isCloser ? " is-closer" : ""}`} style={{ flexWrap: "wrap", gap: "10px" }}>
               <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
                 <button className={crmView === "list" ? "sales-icon-button active" : "sales-icon-button"} onClick={() => setCrmView("list")} type="button" title="List view">
                   <LayoutList size={16} />
@@ -1543,9 +1834,9 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
               {/* Quick Filter Pills */}
               <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
                 <div style={{ display: "inline-flex", gap: "4px", background: "var(--closer-soft, rgba(255, 255, 255, 0.05))", padding: "2px 4px", borderRadius: "22px", border: "1px solid var(--closer-line, rgba(255, 255, 255, 0.1))" }}>
-                  <button
+                  {!isCloser ? <button
                     type="button"
-                    onClick={() => { setLeadOwnershipScope("all"); setQuickPillFilter("all"); }}
+                    onClick={() => { setSavedViewSelection("all"); setLeadOwnershipScope("all"); setQuickPillFilter("all"); }}
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
@@ -1562,10 +1853,10 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                     }}
                   >
                     <Building2 size={13} style={{ flexShrink: 0 }} /> All Company Leads ({snapshot.leads?.length || snapshot.visibleLeads.length})
-                  </button>
+                  </button> : null}
                   <button
                     type="button"
-                    onClick={() => { setLeadOwnershipScope("mine"); setQuickPillFilter("all"); }}
+                    onClick={() => { setSavedViewSelection("all"); setLeadOwnershipScope("mine"); setQuickPillFilter("all"); }}
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
@@ -1581,13 +1872,13 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                       transition: "all 0.15s ease",
                     }}
                   >
-                    <User size={13} style={{ flexShrink: 0 }} /> My Assigned ({snapshot.visibleLeads.length})
+                    <User size={13} style={{ flexShrink: 0 }} /> {isCloser ? "My Leads" : "My Assigned"} ({snapshot.visibleLeads.length})
                   </button>
                 </div>
 
                 <button
                   type="button"
-                  onClick={() => { setQuickPillFilter("today-leads"); setDateRangeFilter("all"); }}
+                  onClick={() => { setSavedViewSelection("all"); setQuickPillFilter("today-leads"); setDateRangeFilter("all"); }}
                   className={`sales-filter-pill ${quickPillFilter === "today-leads" ? "active" : ""}`}
                   style={{
                     display: "inline-flex",
@@ -1609,7 +1900,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
 
                 <button
                   type="button"
-                  onClick={() => { setQuickPillFilter("today-followups"); setDateRangeFilter("all"); }}
+                  onClick={() => { setSavedViewSelection("all"); setQuickPillFilter("today-followups"); setDateRangeFilter("all"); }}
                   className={`sales-filter-pill ${quickPillFilter === "today-followups" ? "active" : ""}`}
                   style={{
                     display: "inline-flex",
@@ -1633,21 +1924,16 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
               {/* Date Range Selector */}
               <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
                 <select
+                  aria-label="Filter leads by date"
+                  className="sales-crm-select"
                   value={dateRangeFilter}
                   onChange={(event) => {
+                    setSavedViewSelection("all");
                     setDateRangeFilter(event.target.value as any);
                     setQuickPillFilter("all");
                   }}
-                  style={{
-                    padding: "6px 10px",
-                    borderRadius: "8px",
-                    background: "var(--closer-surface, #0c110e)",
-                    border: "1px solid var(--closer-line, rgba(255, 255, 255, 0.15))",
-                    color: "var(--closer-ink, #fff)",
-                    fontSize: "12px",
-                  }}
                 >
-                  <option value="all">Date: All Time</option>
+                  <option value="all">All time</option>
                   <option value="today">Today</option>
                   <option value="yesterday">Yesterday</option>
                   <option value="last7">Last 7 Days</option>
@@ -1658,94 +1944,84 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                 {dateRangeFilter === "custom" ? (
                   <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
                     <input
+                      className="sales-crm-date-input"
                       type="date"
                       value={customStartDate}
                       onChange={(e) => setCustomStartDate(e.target.value)}
-                      style={{ padding: "4px 6px", borderRadius: "6px", background: "var(--closer-surface, #0c110e)", border: "1px solid var(--closer-line, rgba(255, 255, 255, 0.2))", color: "var(--closer-ink, #fff)", fontSize: "11px" }}
                     />
                     <span style={{ fontSize: "11px", opacity: 0.6 }}>to</span>
                     <input
+                      className="sales-crm-date-input"
                       type="date"
                       value={customEndDate}
                       onChange={(e) => setCustomEndDate(e.target.value)}
-                      style={{ padding: "4px 6px", borderRadius: "6px", background: "var(--closer-surface, #0c110e)", border: "1px solid var(--closer-line, rgba(255, 255, 255, 0.2))", color: "var(--closer-ink, #fff)", fontSize: "11px" }}
                     />
                   </div>
                 ) : null}
               </div>
 
-              {/* Reusable Saved Segments & Recapture Filter */}
-              <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+              {/* Saved lead views */}
+              <div className="sales-saved-view-control">
+                <div className="sales-saved-view-copy">
+                  <strong>Saved lead views</strong>
+                  <span>Search presets you saved</span>
+                </div>
                 <select
-                  value={segmentFilter}
-                  onChange={(event) => setSegmentFilter(event.target.value)}
-                  style={{
-                    padding: "6px 10px",
-                    borderRadius: "8px",
-                    background: "var(--closer-surface, #0c110e)",
-                    border: "1px solid var(--closer-line, rgba(255, 255, 255, 0.15))",
-                    color: "var(--closer-ink, #fff)",
-                    fontSize: "12px",
-                    fontWeight: 600,
-                  }}
+                  aria-label="Choose a saved lead view"
+                  className="sales-crm-select"
+                  value={savedViewSelection}
+                  onChange={(event) => handleSavedViewChange(event.target.value)}
                 >
-                  <option value="all">All Segments &amp; Cohorts</option>
-                  <optgroup label="Smart Reusable Segments">
-                    <option value="smart:high-value">High-Value (&gt; ₹25k / Hot)</option>
-                    <option value="smart:recaptured">Recaptured / Re-Inquired Leads</option>
-                    <option value="smart:callback-due">Callback Due Today</option>
+                  <option value="all">All leads</option>
+                  <optgroup label="Built-in views">
+                    <option value="builtin:high-value">Hot / high-value leads</option>
+                    <option value="builtin:recaptured">Re-engaged leads</option>
+                    <option value="builtin:callback-due">Callbacks due</option>
                   </optgroup>
-                  <optgroup label="Saved Custom Segments">
-                    {segments.map((segment) => (
-                      <option key={segment} value={segment}>
-                        {segment}
-                      </option>
-                    ))}
-                  </optgroup>
+                  {savedLeadViews.length ? (
+                    <optgroup label="Your saved views">
+                      {savedLeadViews.map((view) => (
+                        <option key={view.id} value={view.id}>
+                          {view.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null}
                 </select>
                 <button
                   type="button"
-                  onClick={() => {
-                    const name = typeof window !== "undefined" ? window.prompt("Save current filter as a reusable segment name:") : null;
-                    if (name && name.trim()) {
-                      const trimmed = name.trim();
-                      setSavedCustomSegments((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
-                      setSegmentFilter(trimmed);
-                      setStatus(`Saved reusable segment "${trimmed}".`);
-                    }
-                  }}
-                  className="sales-secondary-button compact"
-                  title="Save current filter as a reusable segment"
-                  style={{ padding: "5px 9px", fontSize: "11px" }}
+                  onClick={saveCurrentLeadView}
+                  className="sales-secondary-button compact sales-save-view-button"
+                  title="Save the current CRM filters for later"
                 >
-                  + Save Segment
+                  <Tags size={14} /> Save current
                 </button>
               </div>
 
               <div style={{ marginLeft: "auto", display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
-                <button
+                {!isCloser ? <button
                   className="sales-secondary-button compact"
                   onClick={() => setIsStatusLabelsModalOpen(true)}
                   type="button"
                   title="Manage custom status labels and tags"
                 >
                   <Tags size={15} /> Status Labels
-                </button>
-                <button
+                </button> : null}
+                {!isCloser ? <button
                   className="sales-secondary-button compact"
                   onClick={() => setIsDuplicateModalOpen(true)}
                   type="button"
                   title="Scan and merge duplicate leads"
                 >
                   <Users2 size={15} /> Deduplicate
-                </button>
-                <button className="sales-primary-button compact" onClick={() => setDrawer("lead-create")} type="button">
+                </button> : null}
+                {!isCloser ? <button className="sales-primary-button compact" onClick={() => setDrawer("lead-create")} type="button">
                   <Plus size={15} /> Add lead
-                </button>
-                <button className="sales-secondary-button compact" onClick={() => setDrawer("lead-import")} type="button">
+                </button> : null}
+                {canImportLeads ? <button className="sales-secondary-button compact" onClick={() => setDrawer("lead-import")} type="button">
                   <Upload size={15} /> Import
-                </button>
-                <div className="sales-export-menu">
+                </button> : null}
+                {canExportLeads ? <div className="sales-export-menu">
                   <button
                     aria-expanded={isLeadExportMenuOpen}
                     className="sales-secondary-button compact"
@@ -1762,14 +2038,71 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                       <small>{filteredLeads.length} filtered leads</small>
                     </div>
                   ) : null}
-                </div>
+                </div> : null}
                 <span className="sales-crm-count" style={{ marginLeft: "6px", fontWeight: 700, color: "var(--color-primary)" }}>
                   {filteredLeads.length} leads
                 </span>
               </div>
           </div>
 
-          {openLeadPool.length ? (
+          <div className="sales-crm-filter-bar" aria-label="CRM lead filters">
+            <label className="sales-crm-search-field">
+              <Search size={16} aria-hidden="true" />
+              <input
+                aria-label="Search CRM leads"
+                onChange={(event) => { setSavedViewSelection("all"); setCrmSearch(event.target.value); }}
+                placeholder="Search name, phone, email, source, notes..."
+                type="search"
+                value={crmSearch}
+              />
+            </label>
+            <label className="sales-crm-filter-field">
+              <span>Status</span>
+              <select aria-label="Filter leads by status" className="sales-crm-select" onChange={(event) => { setSavedViewSelection("all"); setStatusFilter(event.target.value); }} value={statusFilter}>
+                <option value="all">All statuses</option>
+                {pipelineColumns.map((column) => <option key={column.key} value={column.key}>{column.label}</option>)}
+              </select>
+            </label>
+            <label className="sales-crm-filter-field">
+              <span>Team group</span>
+              <select aria-label="Filter leads by team group" className="sales-crm-select" onChange={(event) => { setSavedViewSelection("all"); setGroupFilter(event.target.value); }} value={groupFilter}>
+                <option value="all">All groups</option>
+                {groupOptions.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+                {baseLeads.some((lead) => {
+                  const assignedAgent = snapshot.agents.find((agent) => agent.id === lead.assignedAgentId);
+                  return !assignedAgent?.groupId;
+                }) ? <option value="unassigned">Unassigned group</option> : null}
+              </select>
+            </label>
+            <label className="sales-crm-filter-field">
+              <span>Lead source</span>
+              <select aria-label="Filter leads by source" className="sales-crm-select" onChange={(event) => { setSavedViewSelection("all"); setSourceFilter(event.target.value); }} value={sourceFilter}>
+                <option value="all">All sources</option>
+                {sourceOptions.map((source) => <option key={source} value={source}>{label(source)}</option>)}
+              </select>
+            </label>
+            <label className="sales-crm-filter-field">
+              <span>Segment / cohort</span>
+              <select aria-label="Filter leads by segment or cohort" className="sales-crm-select" onChange={(event) => { setSavedViewSelection("all"); setSegmentFilter(event.target.value); }} value={segmentFilter}>
+                <option value="all">All segments</option>
+                <option value="smart:high-value">Hot / high-value</option>
+                <option value="smart:recaptured">Re-engaged</option>
+                <option value="smart:callback-due">Callbacks due</option>
+                {leadSegments.map((segment) => <option key={segment} value={segment}>{segment}</option>)}
+              </select>
+            </label>
+            {(crmSearch || statusFilter !== "all" || groupFilter !== "all" || sourceFilter !== "all" || segmentFilter !== "all" || leadOwnershipScope !== "all" || quickPillFilter !== "all" || dateRangeFilter !== "all") ? (
+              <button
+                className="sales-secondary-button compact"
+                onClick={() => { setSavedViewSelection("all"); setCrmSearch(""); setStatusFilter("all"); setGroupFilter("all"); setSourceFilter("all"); setSegmentFilter("all"); setLeadOwnershipScope("all"); setQuickPillFilter("all"); setDateRangeFilter("all"); setCustomStartDate(""); setCustomEndDate(""); }}
+                type="button"
+              >
+                Clear filters
+              </button>
+            ) : null}
+          </div>
+
+          {!isCloser && openLeadPool.length ? (
             <section className="sales-lead-queue-strip" aria-label="Unclaimed lead queue">
               <div className="sales-lead-queue-heading">
                 <div>
@@ -1804,9 +2137,23 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
             </section>
           ) : null}
 
+          <div className="sales-crm-stage-summary" aria-label="Lead status counts">
+            {pipelineColumns.map((column) => (
+              <button
+                className={crmView === "list" ? "sales-stage-summary-item" : "sales-stage-summary-item is-kanban"}
+                key={column.key}
+                onClick={() => setSegmentFilter("all")}
+                type="button"
+              >
+                <span>{column.label}</span>
+                <strong>{filteredLeads.filter((lead) => column.matchingStages.includes(lead.stage)).length}</strong>
+              </button>
+            ))}
+          </div>
+
           <div className="sales-crm-surface">
             {crmView === "kanban" ? (
-              <DndContext onDragEnd={handleLeadDragEnd}>
+              <DndContext collisionDetection={closestCorners} onDragEnd={handleLeadDragEnd}>
                 <div className="sales-kanban">
                   {pipelineColumns.map((col) => {
                     const colLeads = filteredLeads.filter((lead) => col.matchingStages.includes(lead.stage));
@@ -1819,6 +2166,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                         leads={colLeads}
                         onOpen={setSelectedLeadId}
                         onStage={updateLeadStage}
+                        canModifyLeads={canModifyLeads}
                         snapshot={snapshot}
                         stage={col.stage}
                         totalValue={totalColValue}
@@ -1831,9 +2179,9 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
               <div className="sales-table">
                 <div className="sales-crm-list-header" aria-hidden="true">
                   <span>Lead</span>
-                  <span>Latest call</span>
+                  <span>Source &amp; activity</span>
                   <span>Stage</span>
-                  <span>Recording</span>
+                  <span>Actions</span>
                 </div>
                 {listLeads.map((lead) => {
                   const call = latestCallByLead.get(lead.id);
@@ -1841,6 +2189,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                     <button className="sales-crm-list-main" onClick={() => setSelectedLeadId(lead.id)} type="button">
                       <strong>{lead.customerName}</strong>
                       <span>{lead.customerPhone || lead.customerEmail || "No contact"} - {lead.serviceInterest || "Agency services"}</span>
+                      <span className="sales-crm-list-source"><LeadSourceBadge source={lead.source} /></span>
                       <small>{lead.notes || call?.note || "No note added yet"}</small>
                     </button>
                     <div className="sales-crm-call-summary">
@@ -1848,10 +2197,17 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                       <span>{call?.outcome ? label(call.outcome) : "Outcome pending"}</span>
                       <small>Follow-up {formatDate(lead.followUpAt)}</small>
                     </div>
-                    <select onClick={(event) => event.stopPropagation()} onChange={(event) => updateLeadStage(lead.id, event.target.value as SalesLeadStage)} value={lead.stage}>
+                    <select disabled={!canModifyLeads} onClick={(event) => event.stopPropagation()} onChange={(event) => updateLeadStage(lead.id, event.target.value as SalesLeadStage)} value={lead.stage}>
                       {leadStages.map((stage) => <option key={stage} value={stage}>{label(stage)}</option>)}
                     </select>
-                    {call?.recordingStatus === "UPLOADED" ? <CallRecordingPlayer callId={call.id} expectedDurationSeconds={call.durationSeconds} labelText={`${lead.customerName} recording`} /> : <span className={`sales-chip ${call?.recordingStatus === "FAILED" ? "danger" : "warning"}`}>{call ? label(call.recordingStatus) : "No recording"}</span>}
+                    <div className="sales-crm-list-actions">
+                      {lead.customerEmail ? <a aria-label={`Email ${lead.customerName}`} className="sales-secondary-button compact crm-list-action" href={`mailto:${lead.customerEmail}`} onClick={(event) => event.stopPropagation()} title={`Email ${lead.customerEmail}`}><Mail size={13} /> Email</a> : null}
+                      {lead.customerPhone ? <a aria-label={`WhatsApp ${lead.customerName}`} className="sales-secondary-button compact crm-list-action" href={`https://wa.me/${cleanPhone(lead.customerPhone)}`} onClick={(event) => event.stopPropagation()} rel="noreferrer" target="_blank" title={`Open WhatsApp for ${lead.customerPhone}`}><MessageCircle size={13} /> WhatsApp</a> : null}
+                      <button aria-label={`Add note to ${lead.customerName}`} className="sales-secondary-button compact crm-list-action" onClick={() => setSelectedLeadId(lead.id)} title="Open notes and activity" type="button"><FileText size={13} /> Notes</button>
+                      <button aria-label={`Schedule follow-up for ${lead.customerName}`} className="sales-secondary-button compact crm-list-action" onClick={() => setSelectedLeadId(lead.id)} title="Open follow-up and lead details" type="button"><CalendarPlus size={13} /> Follow-up</button>
+                      <button aria-label={`Open details for ${lead.customerName}`} className="sales-secondary-button compact crm-list-action" onClick={() => setSelectedLeadId(lead.id)} title="Open full lead details" type="button"><ExternalLink size={13} /> Details</button>
+                      {call?.recordingStatus === "UPLOADED" ? <CallRecordingPlayer callId={call.id} expectedDurationSeconds={call.durationSeconds} labelText={`${lead.customerName} recording`} /> : <span className={`sales-chip ${call?.recordingStatus === "FAILED" ? "danger" : "warning"}`}>{call ? label(call.recordingStatus) : "No recording"}</span>}
+                    </div>
                   </article>;
                 })}
               </div>
@@ -2025,19 +2381,28 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
 
       {activeTab === "reports" ? (
         <section className="sales-tool-workspace" style={{ padding: "20px", width: "100%", maxWidth: "1280px", margin: "0 auto" }}>
+          <ReferralCommissionPanel snapshot={snapshot} canRequestWithdrawal={sessionRole === "SALES_AGENT"} />
           <AdvancedReportsPanel selectedAgentId={viewingAgentId === "all" ? null : viewingAgentId} selectedAgentName={viewingAgent?.displayName ?? null} />
+          {canViewTeamData ? <TeamActivityPanel /> : null}
         </section>
       ) : null}
 
-      {activeTab === "profile" || activeTab === "roles" || activeTab === "custom-fields" ? (
+      {activeTab === "roles" ? (
+        <section className="sales-tool-workspace sales-team-users-workspace" style={{ padding: "16px 24px 28px", width: "100%", maxWidth: "none", margin: 0 }}>
+          <RolePermissionsPanel canManageUsers={isWorkspaceAdmin} />
+          {isWorkspaceAdmin ? <TeamActivityPanel /> : null}
+        </section>
+      ) : null}
+
+      {activeTab === "profile" || activeTab === "custom-fields" ? (
         <section className="sales-tool-workspace sales-settings-workspace" style={{ padding: "16px 20px", width: "100%", maxWidth: "1350px", margin: "0 auto" }}>
           <CrmSettingsPanel
+            key={activeTab}
             isAdmin={isWorkspaceAdmin}
-            initialTab={activeTab === "roles" ? "team" : undefined}
-            showRolePermissionsTab={activeTab === "roles"}
-            showTeamTab={activeTab === "roles"}
+            initialTab={activeTab === "custom-fields" ? "custom_fields" : undefined}
+            showRolePermissionsTab={false}
+            showTeamTab={false}
             tenantId={salesOperations.tenantId}
-            rolePermissionsComponent={<RolePermissionsPanel canManageUsers={isWorkspaceAdmin} />}
             whatsAppSetupComponent={
               <AdminWhatsAppSetupPanel
                 fallbackPhoneNumber={salesOperations.whatsAppConnection?.phoneNumber}
@@ -2336,6 +2701,7 @@ function formatDateTime(value: string | null) {
 }
 
 function LeadKanbanColumn({
+  canModifyLeads,
   calls,
   columnLabel,
   leads,
@@ -2345,6 +2711,7 @@ function LeadKanbanColumn({
   stage,
   totalValue = 0,
 }: {
+  canModifyLeads: boolean;
   calls: Map<string, SalesDashboardSnapshot["mobileCalls"][number]>;
   columnLabel?: string;
   leads: SalesDashboardSnapshot["visibleLeads"];
@@ -2367,7 +2734,7 @@ function LeadKanbanColumn({
         ) : null}
       </header>
       <SortableContext items={leads.map((lead) => lead.id)} strategy={verticalListSortingStrategy}>
-        {leads.map((lead) => <LeadCrmCard call={calls.get(lead.id)} key={lead.id} lead={lead} onOpen={onOpen} onStage={onStage} snapshot={snapshot} />)}
+        {leads.map((lead) => <LeadCrmCard call={calls.get(lead.id)} canModifyLeads={canModifyLeads} key={lead.id} lead={lead} onOpen={onOpen} onStage={onStage} snapshot={snapshot} />)}
       </SortableContext>
       {!leads.length ? <p className="sales-kanban-empty">Drop leads here</p> : null}
     </section>
@@ -2375,12 +2742,14 @@ function LeadKanbanColumn({
 }
 
 function LeadCrmCard({
+  canModifyLeads,
   call,
   lead,
   onOpen,
   onStage,
   snapshot,
 }: {
+  canModifyLeads: boolean;
   call?: SalesDashboardSnapshot["mobileCalls"][number];
   lead: SalesDashboardSnapshot["visibleLeads"][number];
   onOpen: (leadId: string) => void;
@@ -2405,6 +2774,7 @@ function LeadCrmCard({
           </button>
           <select
             aria-label={`Change ${lead.customerName} stage`}
+            disabled={!canModifyLeads}
             onChange={(event) => onStage(lead.id, event.target.value as SalesLeadStage)}
             onClick={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
@@ -2479,8 +2849,24 @@ function LeadSourceBadge({ source }: { source?: string | null }) {
   const normalized = String(source || "manual").trim().toLowerCase();
   const descriptor = normalized.includes("whatsapp") || normalized.includes("ctwa")
     ? { key: "whatsapp", label: "WhatsApp Business", Icon: MessageCircle }
-    : normalized.includes("meta") || normalized.includes("facebook") || normalized.includes("instagram")
-      ? { key: "meta", label: normalized.includes("instagram") ? "Instagram" : "Meta Ads", Icon: Target }
+    : normalized.includes("facebook")
+      ? {
+        key: "facebook",
+        label: "Facebook",
+        Icon: Facebook,
+      }
+      : normalized.includes("instagram")
+        ? {
+          key: "instagram",
+          label: "Instagram",
+          Icon: Instagram,
+        }
+        : normalized.includes("meta")
+          ? {
+            key: "meta",
+            label: "Meta Ads",
+            Icon: Megaphone,
+          }
       : normalized.includes("google") || normalized.includes("ads")
         ? { key: "google", label: "Google Ads", Icon: Search }
         : normalized.includes("sheet") || normalized.includes("excel") || normalized.includes("csv")

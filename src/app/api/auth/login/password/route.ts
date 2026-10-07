@@ -1,8 +1,11 @@
 import { createPublicRedirect, sanitizePublicAuthError } from "@/lib/auth/public-redirect";
+import { cookies } from "next/headers";
 import { SUPER_ADMIN_HOME_ROUTE, SUPER_ADMIN_LOGIN_ROUTE } from "@/lib/auth/super-admin-config";
 import { authenticatePassword, findUserByIdentifier } from "@/lib/auth/store";
 import { applySessionCookie, getDashboardPathForIdentity, getDefaultDashboardPath, getSafeRedirectPath } from "@/lib/auth/session";
 import { getSalesAgentAccess } from "@/lib/gigxomi/sales-store";
+import { acquireAppClientSession, ClientSlotOccupiedError } from "@/lib/auth/client-sessions";
+import { prisma } from "@/lib/prisma";
 
 export async function POST(request: Request) {
   let loginPath = "/login";
@@ -11,6 +14,8 @@ export async function POST(request: Request) {
     let password = "";
     let redirectTo = "";
     let rawLoginScope = "";
+    let clientType: "MOBILE" | "DESKTOP" = "DESKTOP";
+    let installationId = "";
 
     const contentType = request.headers.get("content-type") || "";
     if (contentType.includes("application/json")) {
@@ -19,13 +24,20 @@ export async function POST(request: Request) {
       password = String(body.password ?? "").trim();
       redirectTo = String(body.redirectTo ?? "").trim();
       rawLoginScope = String(body.loginScope ?? "").trim();
+      clientType = body.clientType === "MOBILE" ? "MOBILE" : "DESKTOP";
+      installationId = String(body.installationId ?? "").trim();
     } else {
       const formData = await request.formData();
       identifier = String(formData.get("identifier") ?? "").trim();
       password = String(formData.get("password") ?? "").trim();
       redirectTo = String(formData.get("redirectTo") ?? "").trim();
       rawLoginScope = String(formData.get("loginScope") ?? "").trim();
+      clientType = String(formData.get("clientType") ?? "").trim().toUpperCase() === "MOBILE" ? "MOBILE" : "DESKTOP";
+      installationId = String(formData.get("installationId") ?? "").trim();
     }
+
+    const requestCookies = await cookies();
+    installationId = installationId || request.headers.get("x-installation-id")?.trim() || requestCookies.get("gx_client_installation")?.value?.trim() || (clientType === "DESKTOP" ? crypto.randomUUID() : "");
 
     const loginScope = rawLoginScope === "super-admin" || rawLoginScope === "manager" || rawLoginScope === "sales" ? rawLoginScope : "public";
     loginPath = loginScope === "super-admin" ? SUPER_ADMIN_LOGIN_ROUTE : loginScope === "manager" ? "/manager-login" : "/login";
@@ -46,9 +58,13 @@ export async function POST(request: Request) {
       return createPublicRedirect(SUPER_ADMIN_LOGIN_ROUTE, { error: "Only the authorized super-admin account can sign in here." });
     }
 
-    const user = await authenticatePassword(identifier, password);
+    const user = await authenticatePassword(identifier, password, { updateLastLogin: false });
     if (!user) {
-      return createPublicRedirect(loginPath, { error: "Password login failed. Check your credentials and try again." });
+      return createPublicRedirect(loginPath, { error: "InvalidCredentials: Invalid email/phone or password." });
+    }
+
+    if (!installationId) {
+      return createPublicRedirect(loginPath, { error: "MissingClientIdentity: This app must provide its installation ID." });
     }
     let effectiveRole = user.role;
     let effectiveAssignedRole = user.assignedRole;
@@ -80,6 +96,25 @@ export async function POST(request: Request) {
         });
       }
     }
+
+    let clientSession;
+    try {
+      clientSession = await acquireAppClientSession({
+        userId: user.id,
+        tenantId: user.tenantId,
+        channel: clientType,
+        installationId,
+        deviceId: clientType === "MOBILE" ? installationId : null,
+        deviceName: clientType === "MOBILE" ? "Mobile App" : "Desktop Web",
+        platform: clientType === "MOBILE" ? "ANDROID" : "WEB",
+      });
+    } catch (error) {
+      if (error instanceof ClientSlotOccupiedError) {
+        return createPublicRedirect(loginPath, { error: `ClientSlotOccupied: This user already has an active ${clientType.toLowerCase()} session.` });
+      }
+      throw error;
+    }
+    await prisma.appAuthUser.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 
     const destination =
       loginScope === "super-admin"
@@ -117,6 +152,15 @@ export async function POST(request: Request) {
       packageStatus: user.packageStatus,
       packageExpiresAt: user.packageExpiresAt,
       workspaceMode: user.workspaceMode,
+      sessionId: clientSession.session.sessionId,
+      licensedSession: true,
+    });
+    response.cookies.set("gx_client_installation", installationId, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 60 * 60 * 24 * 365,
     });
 
     return response;

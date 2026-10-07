@@ -3,8 +3,12 @@ import { NextResponse } from "next/server";
 import { clearImpersonationCookies } from "@/lib/auth/impersonation";
 import { getPublicRequestUrl } from "@/lib/auth/request-url";
 import { clearSessionCookie } from "@/lib/auth/session";
+import { getSessionContext } from "@/lib/auth/session";
+import { closeAppClientSession } from "@/lib/auth/client-sessions";
 
-function createLogoutResponse(request: Request) {
+async function createLogoutResponse(request: Request) {
+  const session = await getSessionContext();
+  if (session.sessionId) await closeAppClientSession(session.sessionId, "LOGGED_OUT").catch(() => undefined);
   const url = new URL(request.url);
   const redirectTo = url.searchParams.get("redirectTo")?.trim() || "/";
   const safeTarget = redirectTo.startsWith("/") && !redirectTo.startsWith("//") ? redirectTo : "/";

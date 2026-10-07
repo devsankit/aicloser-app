@@ -62,6 +62,7 @@ export async function persistRealtimeEvent(input: PersistRealtimeEventInput) {
 }
 
 export async function listRealtimeEvents<TPayload = unknown>(input: {
+  afterId?: string;
   limit?: number;
   since?: Date;
   topic: string;
@@ -93,8 +94,9 @@ export async function listRealtimeEvents<TPayload = unknown>(input: {
       "createdAt"
     FROM "AppRealtimeEvent"
     WHERE "topic" = ${input.topic}
-      AND "createdAt" > ${since}
-    ORDER BY "createdAt" ASC
+      AND ("createdAt" > ${since}
+        OR ("createdAt" = ${since} AND "id" > ${input.afterId ?? ""}))
+    ORDER BY "createdAt" ASC, "id" ASC
     LIMIT ${limit}
   `;
 

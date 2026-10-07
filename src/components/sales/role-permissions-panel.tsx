@@ -400,8 +400,8 @@ export function RolePermissionsPanel({
         display: "grid",
         gap: "24px",
         width: "100%",
-        maxWidth: "1280px",
-        margin: "0 auto",
+        maxWidth: "none",
+        margin: 0,
         gridColumn: "1 / -1",
       }}
     >

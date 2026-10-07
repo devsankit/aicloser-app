@@ -165,7 +165,7 @@ export function SalesSignupForm() {
       <SalesPasswordField autoComplete="new-password" label="Confirm password" name="confirmPassword" placeholder="Enter the same password again" />
       <button className="sales-primary-button" disabled={isSubmitting} type="submit" style={primaryButtonStyle}>
         <Send size={16} />
-        {isSubmitting ? "Provisioning workspace..." : "Create AI Closer Workspace"}
+        {isSubmitting ? "Provisioning workspace..." : "Create Sales Workspace"}
       </button>
       {status ? (
         <p className="sales-form-status" style={{ margin: 0, fontSize: "0.84rem", color: status.includes("created") ? "#10b981" : "#ef4444", fontWeight: 600 }}>

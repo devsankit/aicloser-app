@@ -35184,6 +35184,278 @@ body,
   .crm-contacts-hub .crm-import-card:hover { transform: none; }
 }
 
+/* Closer desk: keep the pipeline header focused on the work surface. */
+.sales-crm-toolbar.is-closer > div:nth-child(2),
+.sales-crm-toolbar.is-closer > div:nth-child(3),
+.sales-crm-toolbar.is-closer > div:nth-child(4) {
+  display: none;
+}
+
+.sales-crm-toolbar.is-closer > div:last-child {
+  margin-left: auto;
+}
+
+.sales-crm-stage-summary {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(112px, 1fr));
+  gap: 8px;
+  overflow-x: auto;
+  padding: 12px 0;
+}
+
+.sales-stage-summary-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid var(--closer-line, #d7dee8);
+  border-radius: 10px;
+  background: var(--closer-surface, #fff);
+  color: var(--closer-ink, #13233d);
+  font-size: 11px;
+  text-align: left;
+}
+
+.sales-stage-summary-item strong {
+  color: var(--closer-orange, #ff6b2f);
+  font-size: 14px;
+}
+
+.sales-stage-summary-item:hover,
+.sales-stage-summary-item:focus-visible {
+  border-color: var(--closer-orange, #ff6b2f);
+  outline: none;
+}
+
+.sales-grab-leads-hero,
+.sales-grab-lead-card,
+.sales-empty-state {
+  border: 1px solid var(--closer-line, #d7dee8);
+  background: var(--closer-surface, #fff);
+  border-radius: 16px;
+}
+
+.sales-grab-leads-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 22px;
+}
+
+.sales-grab-leads-hero h2 {
+  margin: 3px 0 5px;
+  color: var(--closer-ink, #13233d);
+  font-size: clamp(1.25rem, 2vw, 1.7rem);
+}
+
+.sales-grab-leads-hero p,
+.sales-grab-lead-card p,
+.sales-empty-state p {
+  margin: 0;
+  color: var(--closer-muted, #64748b);
+  font-size: 0.88rem;
+}
+
+.sales-section-eyebrow {
+  color: var(--closer-orange, #ff6b2f);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sales-grab-leads-count {
+  display: grid;
+  min-width: 110px;
+  padding: 12px 15px;
+  border-radius: 12px;
+  background: var(--closer-orange-soft, rgba(255, 107, 47, 0.1));
+  color: var(--closer-orange, #ff6b2f);
+  text-align: center;
+}
+
+.sales-grab-leads-count strong {
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.sales-grab-leads-count span {
+  margin-top: 5px;
+  font-size: 0.72rem;
+}
+
+.sales-grab-leads-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.sales-grab-lead-card {
+  display: grid;
+  gap: 13px;
+  padding: 17px;
+}
+
+.sales-grab-lead-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sales-grab-lead-card-head > div {
+  display: grid;
+  gap: 4px;
+}
+
+.sales-grab-lead-card-head span {
+  color: var(--closer-muted, #64748b);
+  font-size: 0.78rem;
+}
+
+.sales-empty-state {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 42px 20px;
+  color: var(--closer-orange, #ff6b2f);
+  text-align: center;
+}
+
+.sales-empty-state strong {
+  color: var(--closer-ink, #13233d);
+}
+
+.sales-crm-list-source {
+  display: inline-flex;
+  margin-top: 3px;
+}
+
+.sales-crm-list-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.sales-crm-list-header {
+  overflow: hidden;
+  border-radius: 12px 12px 0 0;
+}
+
+.sales-crm-list-row {
+  overflow: hidden;
+  border-radius: 10px;
+}
+
+[draggable="true"] {
+  cursor: grab;
+}
+
+[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+@media (max-width: 900px) {
+  .sales-crm-filter-bar {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .sales-crm-stage-summary {
+    grid-template-columns: repeat(7, minmax(130px, 1fr));
+  }
+
+  .sales-grab-leads-hero {
+    align-items: flex-start;
+  }
+}
+
+.sales-crm-filter-bar {
+  display: grid;
+  grid-template-columns: minmax(240px, 1.6fr) repeat(4, minmax(135px, 1fr)) auto;
+  align-items: end;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--closer-line, #d7dee8);
+  border-radius: 12px;
+  background: var(--closer-surface, #fff);
+}
+
+.sales-crm-search-field,
+.sales-crm-filter-field {
+  display: grid;
+  gap: 5px;
+}
+
+.sales-crm-search-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.sales-crm-search-field svg {
+  position: absolute;
+  left: 10px;
+  color: var(--closer-muted, #64748b);
+  pointer-events: none;
+}
+
+.sales-crm-search-field input,
+.sales-crm-filter-field select {
+  min-height: 36px;
+  width: 100%;
+  border: 1px solid var(--closer-line, #d7dee8);
+  border-radius: 8px;
+  background: var(--closer-surface, #fff);
+  color: var(--closer-ink, #13233d);
+  font-size: 0.8rem;
+}
+
+.sales-crm-search-field input {
+  padding: 8px 10px 8px 34px;
+}
+
+.sales-crm-filter-field span {
+  color: var(--closer-muted, #64748b);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sales-crm-filter-field select {
+  padding: 7px 9px;
+}
+
+.sales-crm-date-input {
+  min-height: 32px;
+  padding: 5px 7px;
+  border: 1px solid var(--crm-border, #cbd5e1);
+  border-radius: 8px;
+  background: var(--crm-surface-soft, #f8fafc);
+  color: var(--crm-text, #13233d);
+  font-size: 0.72rem;
+}
+
+.sales-crm-date-input:focus-visible {
+  border-color: var(--crm-primary, #ff6b2f);
+  outline: none;
+  box-shadow: var(--crm-shadow-focus, 0 0 0 3px rgba(255, 107, 47, 0.14));
+}
+
+.sales-crm-search-field input:focus-visible,
+.sales-crm-filter-field select:focus-visible {
+  border-color: var(--closer-orange, #ff6b2f);
+  outline: none;
+  box-shadow: var(--crm-shadow-focus, 0 0 0 3px rgba(255, 107, 47, 0.14));
+}
+
 /* Contacts Hub detail layer: shared visual language for launchers, filters, and directory rows. */
 .crm-contacts-hub .crm-contacts-hero-row {
   display: flex;
@@ -35500,8 +35772,37 @@ body,
   color: var(--crm-primary) !important;
 }
 
-.whatsapp-marketing-root [class*="bg-[#ff6b2f]"] {
+.whatsapp-marketing-root [class~="bg-[#ff6b2f]"] {
   background: var(--crm-primary) !important;
+}
+
+/* Keep the orange brand tints distinct from solid action buttons. A partial
+   class match here used to turn /10, /15 and /20 surfaces into solid orange,
+   hiding their icons and labels. */
+.whatsapp-marketing-root [class~="bg-[#ff6b2f]/10"] {
+  background: color-mix(in srgb, var(--crm-primary) 10%, transparent) !important;
+}
+
+.whatsapp-marketing-root [class~="bg-[#ff6b2f]/15"] {
+  background: color-mix(in srgb, var(--crm-primary) 15%, transparent) !important;
+}
+
+.whatsapp-marketing-root [class~="bg-[#ff6b2f]/20"] {
+  background: color-mix(in srgb, var(--crm-primary) 20%, transparent) !important;
+}
+
+.whatsapp-marketing-root [class~="bg-[#ff6b2f]/25"] {
+  background: color-mix(in srgb, var(--crm-primary) 25%, transparent) !important;
+}
+
+.whatsapp-marketing-root [class~="bg-[#ff6b2f]/40"] {
+  background: color-mix(in srgb, var(--crm-primary) 40%, transparent) !important;
+}
+
+.whatsapp-marketing-root .whatsapp-subtab-btn.is-active,
+.whatsapp-marketing-root .whatsapp-subtab-btn.is-active [class~="text-white"],
+.whatsapp-marketing-root button[class~="bg-[#ff6b2f]"] {
+  color: #ffffff !important;
 }
 
 @media (max-width: 1200px) {
@@ -36899,7 +37200,7 @@ body,
 }
 
 .internal-theme-root .internal-nav {
-  gap: 12px !important;
+  gap: 6px !important;
   padding: 0 !important;
 }
 
@@ -36910,8 +37211,46 @@ body,
 
 .internal-theme-root .sidebar-nav-section.is-spaced {
   margin-top: 2px !important;
-  padding-top: 12px !important;
+  padding-top: 6px !important;
   border-top: 0 !important;
+}
+
+/* Keep the icon rail compact without changing the expanded menu rhythm. */
+.internal-theme-root .internal-sidebar-collapsed .internal-nav {
+  gap: 4px !important;
+}
+
+.internal-theme-root .internal-sidebar-collapsed .sidebar-nav-section.is-spaced {
+  margin-top: 0 !important;
+  padding-top: 3px !important;
+}
+
+/* The collapsed rail uses a tighter icon rhythm and keeps the nav itself
+   scrollable when the viewport cannot fit every menu item. */
+.internal-theme-root .internal-sidebar.internal-sidebar-collapsed .internal-nav {
+  min-height: 0 !important;
+  max-height: 100% !important;
+  align-self: stretch !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  gap: 2px !important;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--crm-border-strong) transparent;
+}
+
+.internal-theme-root .internal-sidebar.internal-sidebar-collapsed .sidebar-nav-section {
+  width: 100% !important;
+  gap: 1px !important;
+}
+
+.internal-theme-root .internal-sidebar.internal-sidebar-collapsed .sidebar-nav-item.internal-nav-item {
+  width: 36px !important;
+  height: 34px !important;
+  min-height: 34px !important;
+  max-width: 36px !important;
+  margin: 0 auto !important;
+  padding: 0 !important;
 }
 
 .internal-theme-root .sidebar-nav-label {
@@ -37658,5 +37997,102 @@ body,
   .admin-viewing-context,
   .admin-report-viewing-badge {
     transition: none !important;
+  }
+}
+
+/* CRM controls: consistent branded dropdowns and plain-language saved views. */
+.sales-theme-scope select {
+  color-scheme: light;
+}
+
+.sales-theme-scope .sales-crm-select,
+.sales-theme-scope .sales-crm-filter-field select {
+  appearance: none;
+  min-height: 36px;
+  padding: 7px 34px 7px 11px !important;
+  border: 1px solid var(--crm-border, #cbd5e1) !important;
+  border-radius: var(--crm-radius-control, 10px) !important;
+  background-color: var(--crm-surface-soft, #f8fafc) !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2364758b' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") !important;
+  background-position: right 10px center !important;
+  background-repeat: no-repeat !important;
+  background-size: 14px !important;
+  color: var(--crm-text, #13233d) !important;
+  cursor: pointer;
+}
+
+.sales-theme-scope .sales-crm-select:focus-visible,
+.sales-theme-scope .sales-crm-filter-field select:focus-visible {
+  border-color: var(--crm-primary, #ff6b2f) !important;
+  outline: none;
+  box-shadow: var(--crm-shadow-focus, 0 0 0 3px rgba(255, 107, 47, 0.14));
+}
+
+.sales-theme-scope .sales-crm-select option,
+.sales-theme-scope .sales-crm-select optgroup,
+.sales-theme-scope .sales-crm-filter-field select option,
+.sales-theme-scope .sales-crm-filter-field select optgroup {
+  background: var(--crm-surface, #ffffff);
+  color: var(--crm-text, #13233d);
+}
+
+.sales-saved-view-control {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.sales-saved-view-copy {
+  display: grid;
+  gap: 1px;
+  min-width: 116px;
+}
+
+.sales-saved-view-copy strong {
+  color: var(--crm-text, #13233d);
+  font-size: 0.74rem;
+  line-height: 1.1;
+}
+
+.sales-saved-view-copy span {
+  color: var(--crm-text-muted, #64748b);
+  font-size: 0.66rem;
+  white-space: nowrap;
+}
+
+.sales-save-view-button,
+.crm-list-action {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.sales-crm-list-actions {
+  gap: 6px;
+}
+
+.sales-crm-list-row,
+.sales-crm-list-header {
+  grid-template-columns: minmax(240px, 1.1fr) minmax(180px, 0.8fr) minmax(130px, 150px) minmax(360px, 1.45fr);
+}
+
+.sales-table {
+  overflow-x: auto;
+}
+
+@media (max-width: 900px) {
+  .sales-saved-view-control {
+    flex-wrap: wrap;
+  }
+
+  .sales-saved-view-copy {
+    min-width: 0;
+  }
+
+  .sales-crm-list-row {
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 }

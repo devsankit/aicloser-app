@@ -1,9 +1,10 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import path from "node:path";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 
+import { Prisma } from "@prisma/client";
+
+import { prisma } from "@/lib/prisma";
 import type {
   SuperAdminWhatsAppFlow,
   SuperAdminWhatsAppFlowEdge,
@@ -20,20 +21,8 @@ type SalesWhatsAppFlowSnapshot = {
 type SalesWhatsAppFlowInput = Partial<SuperAdminWhatsAppFlow> &
   Pick<SuperAdminWhatsAppFlow, "name" | "summary" | "status" | "triggerMode" | "triggerKeyword" | "nodes" | "edges">;
 
-const STORE_DIRECTORY = path.join(process.cwd(), ".gigxomi", "sales-whatsapp-flows");
-
 function nowIso() {
   return new Date().toISOString();
-}
-
-function safeScopeKey(scopeId: string) {
-  return (
-    scopeId
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9_-]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "unknown-sales-account"
-  );
 }
 
 function slugify(value: string) {
@@ -44,10 +33,6 @@ function slugify(value: string) {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "") || `plugin-${randomUUID().slice(0, 8)}`
   );
-}
-
-function storePathForScope(scopeId: string) {
-  return path.join(STORE_DIRECTORY, `${safeScopeKey(scopeId)}.json`);
 }
 
 function emptySnapshot(): SalesWhatsAppFlowSnapshot {
@@ -141,21 +126,139 @@ function normalizeFlow(flow: SuperAdminWhatsAppFlow): SuperAdminWhatsAppFlow {
 }
 
 async function readStore(scopeId: string): Promise<SalesWhatsAppFlowSnapshot> {
-  try {
-    const raw = await readFile(storePathForScope(scopeId), "utf8");
-    const parsed = JSON.parse(raw) as Partial<SalesWhatsAppFlowSnapshot>;
-    return {
-      flows: Array.isArray(parsed.flows) ? parsed.flows.map((flow) => normalizeFlow(flow as SuperAdminWhatsAppFlow)) : [],
-      runs: Array.isArray(parsed.runs) ? parsed.runs : [],
-    };
-  } catch {
-    return emptySnapshot();
-  }
+  const [flowRows, runRows, runFlowRows] = await Promise.all([
+    prisma.whatsAppFlow.findMany({
+      where: { platformScope: "sales", agencyId: scopeId, channel: "whatsapp" },
+      orderBy: { updatedAt: "desc" },
+    }),
+    prisma.whatsAppFlowRun.findMany({
+      where: { agencyId: scopeId, channel: "whatsapp" },
+      orderBy: { updatedAt: "desc" },
+      take: 40,
+    }),
+    prisma.whatsAppFlow.findMany({
+      where: { platformScope: "sales", agencyId: scopeId, channel: "whatsapp" },
+      select: { id: true, name: true },
+    }),
+  ]);
+  const flowNames = new Map(runFlowRows.map((flow) => [flow.id, flow.name]));
+
+  return {
+    flows: flowRows.map((row) => flowFromDatabase(row)),
+    // Only persisted workflow runs are returned. The old file store created a
+    // synthetic run every time a flow was saved, which made an empty account
+    // look active on first login.
+    runs: runRows.map((row) => ({
+      id: row.id,
+      flowId: row.flowId,
+      flowName: flowNames.get(row.flowId) ?? "WhatsApp flow",
+      status: row.status === "WAITING" ? "WAITING" : row.status === "FAILED" ? "FAILED" : "SUCCESS",
+      summary: row.errorMessage ?? "Persisted WhatsApp flow run.",
+      createdAt: row.startedAt.toISOString(),
+    })),
+  };
+}
+
+function jsonObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function flowFromDatabase(row: {
+  id: string;
+  name: string;
+  description: string;
+  status: string;
+  nodesJson: unknown;
+  edgesJson: unknown;
+  settingsJson: unknown;
+  version: number;
+  createdAt: Date;
+  updatedAt: Date;
+  publishedAt: Date | null;
+}): SuperAdminWhatsAppFlow {
+  const settings = jsonObject(row.settingsJson);
+  const status = row.status.toUpperCase();
+  return normalizeFlow({
+    id: row.id,
+    name: row.name,
+    summary: row.description,
+    status: status === "ACTIVE" || status === "PAUSED" ? status : "DRAFT",
+    triggerMode: settings.triggerMode === "ANY_INCOMING" ? "ANY_INCOMING" : "KEYWORD",
+    triggerKeyword: String(settings.triggerKeyword ?? ""),
+    channel: "OFFICIAL_GIGXOMI",
+    pluginKey: String(settings.pluginKey ?? ""),
+    pluginVersion: Number(settings.pluginVersion ?? row.version),
+    pluginStatus: settings.pluginStatus === "DEPLOYED" || settings.pluginStatus === "READY_TO_DEPLOY" ? settings.pluginStatus : "INTERNAL_ONLY",
+    testedAt: typeof settings.testedAt === "string" ? settings.testedAt : row.publishedAt?.toISOString() ?? null,
+    deployments: [],
+    nodes: Array.isArray(row.nodesJson) ? (row.nodesJson as SuperAdminWhatsAppFlowNode[]) : [],
+    edges: Array.isArray(row.edgesJson) ? (row.edgesJson as SuperAdminWhatsAppFlowEdge[]) : [],
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  });
 }
 
 async function writeStore(scopeId: string, snapshot: SalesWhatsAppFlowSnapshot) {
-  await mkdir(STORE_DIRECTORY, { recursive: true });
-  await writeFile(storePathForScope(scopeId), JSON.stringify(snapshot, null, 2), "utf8");
+  await prisma.$transaction(async (transaction) => {
+    const current = await transaction.whatsAppFlow.findMany({
+      where: { platformScope: "sales", agencyId: scopeId, channel: "whatsapp" },
+      select: { id: true },
+    });
+    const nextIds = snapshot.flows.map((flow) => flow.id);
+    if (current.length && nextIds.length) {
+      await transaction.whatsAppFlow.deleteMany({
+        where: { platformScope: "sales", agencyId: scopeId, channel: "whatsapp", id: { notIn: nextIds } },
+      });
+    } else if (current.length && !nextIds.length) {
+      await transaction.whatsAppFlow.deleteMany({ where: { platformScope: "sales", agencyId: scopeId, channel: "whatsapp" } });
+    }
+
+    for (const flow of snapshot.flows) {
+      await transaction.whatsAppFlow.upsert({
+        where: { id: flow.id },
+        update: {
+          agencyId: scopeId,
+          name: flow.name,
+          description: flow.summary,
+          status: flow.status.toLowerCase(),
+          nodesJson: flow.nodes as unknown as Prisma.InputJsonValue,
+          edgesJson: flow.edges as unknown as Prisma.InputJsonValue,
+          settingsJson: {
+            triggerMode: flow.triggerMode,
+            triggerKeyword: flow.triggerKeyword,
+            channel: flow.channel,
+            pluginKey: flow.pluginKey,
+            pluginVersion: flow.pluginVersion,
+            pluginStatus: flow.pluginStatus,
+            testedAt: flow.testedAt,
+          } as Prisma.InputJsonObject,
+          updatedAt: new Date(flow.updatedAt),
+        },
+        create: {
+          id: flow.id,
+          platformScope: "sales",
+          agencyId: scopeId,
+          name: flow.name,
+          description: flow.summary,
+          status: flow.status.toLowerCase(),
+          channel: "whatsapp",
+          nodesJson: flow.nodes as unknown as Prisma.InputJsonValue,
+          edgesJson: flow.edges as unknown as Prisma.InputJsonValue,
+          settingsJson: {
+            triggerMode: flow.triggerMode,
+            triggerKeyword: flow.triggerKeyword,
+            channel: flow.channel,
+            pluginKey: flow.pluginKey,
+            pluginVersion: flow.pluginVersion,
+            pluginStatus: flow.pluginStatus,
+            testedAt: flow.testedAt,
+          } as Prisma.InputJsonObject,
+          createdAt: new Date(flow.createdAt),
+          updatedAt: new Date(flow.updatedAt),
+        },
+      });
+    }
+  });
 }
 
 export async function listSalesWhatsAppFlows(scopeId: string) {
@@ -237,28 +340,10 @@ export async function deleteSalesWhatsAppFlow(scopeId: string, flowId: string) {
 }
 
 export async function listAllActiveSalesWhatsAppFlows(): Promise<SuperAdminWhatsAppFlow[]> {
-  try {
-    const entries = await readdir(STORE_DIRECTORY).catch(() => [] as string[]);
-    const jsonFiles = entries.filter((file) => file.endsWith(".json"));
-    const allFlows: SuperAdminWhatsAppFlow[] = [];
-    for (const file of jsonFiles) {
-      try {
-        const raw = await readFile(path.join(STORE_DIRECTORY, file), "utf8");
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed?.flows)) {
-          for (const flow of parsed.flows) {
-            if (flow && (flow.status === "ACTIVE" || flow.status === "DRAFT")) {
-              allFlows.push(normalizeFlow(flow));
-            }
-          }
-        }
-      } catch {
-        // ignore unreadable file
-      }
-    }
-    return allFlows;
-  } catch {
-    return [];
-  }
+  const rows = await prisma.whatsAppFlow.findMany({
+    where: { platformScope: "sales", channel: "whatsapp", status: { in: ["active", "draft"] } },
+    orderBy: { updatedAt: "desc" },
+  });
+  return rows.map((row) => flowFromDatabase(row));
 }
 

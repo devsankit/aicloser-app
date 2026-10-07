@@ -32,7 +32,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
             val callId = prefs.getString("activeCallId", null)
             if (!callId.isNullOrBlank()) {
                 val started = prefs.getLong("activeStartedAt", System.currentTimeMillis())
-                OfflineEventStore(context).enqueue("call-end-$callId", "CALL_END", JSONObject().put("callSessionId", callId).put("status", "COMPLETED").put("endedAt", Instant.now().toString()).put("durationSeconds", ((System.currentTimeMillis() - started) / 1000).coerceAtLeast(0)).put("recordingStatus", if (pending != null) "PENDING_UPLOAD" else "FAILED"))
+                OfflineEventStore(context).enqueue("call-end-$callId", "CALL_END", JSONObject().put("callSessionId", callId).put("status", "COMPLETED").put("endedAt", Instant.now().toString()).put("durationSeconds", ((System.currentTimeMillis() - started) / 1000).coerceAtLeast(0)).put("recordingStatus", if (pending != null) "LOCAL_PENDING" else "FAILED"))
                 LeadCallNotification.show(context, phone, ended = true, callId = callId)
             }
             prefs.edit().remove("activeCallId").remove("activeLeadId").remove("activePhone").remove("activeStartedAt").apply()

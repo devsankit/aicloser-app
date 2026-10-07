@@ -4,9 +4,13 @@ import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.media.MediaRecorder
 import android.os.Build
+import com.gigxomi.gxclosers.data.OfflineEventStore
+import com.gigxomi.gxclosers.data.QueuedRecording
+import com.gigxomi.gxclosers.data.RecordingUploadWorker
 import java.io.File
+import java.util.UUID
 
-data class PendingRecording(val callId: String, val path: String, val size: Long, val durationMs: Long)
+data class PendingRecording(val callId: String, val path: String, val size: Long, val durationMs: Long, val clientUploadId: String)
 
 object CallAudioRecorder {
     private var recorder: MediaRecorder? = null
@@ -46,23 +50,24 @@ object CallAudioRecorder {
         return runCatching {
             recorder?.stop(); release()
             if (file == null || callId.isNullOrBlank() || file.length() <= 0) return@runCatching null
-            val pending = PendingRecording(callId, file.absolutePath, file.length(), duration(file))
-            prefs.edit().putString("pendingRecordingCallId", callId).putString("pendingRecordingPath", file.absolutePath)
-                .putLong("pendingRecordingSize", pending.size).putLong("pendingRecordingDurationMs", pending.durationMs).putString("recordingState", "LOCAL_PENDING").apply()
+            val pending = PendingRecording(callId, file.absolutePath, file.length(), duration(file), UUID.randomUUID().toString())
+            OfflineEventStore(context).enqueueRecording(QueuedRecording(pending.clientUploadId, pending.callId, pending.path, pending.size, pending.durationMs))
+            RecordingUploadWorker.enqueue(context)
+            prefs.edit().putString("recordingState", "LOCAL_PENDING").apply()
             pending
         }.getOrElse { release(); null }
     }
 
     fun pending(context: Context): PendingRecording? {
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val callId = prefs.getString("pendingRecordingCallId", null) ?: return null
-        val path = prefs.getString("pendingRecordingPath", null) ?: return null
-        return PendingRecording(callId, path, prefs.getLong("pendingRecordingSize", 0), prefs.getLong("pendingRecordingDurationMs", 0))
+        val queued = OfflineEventStore(context).pendingRecordings().firstOrNull() ?: return null
+        return PendingRecording(queued.callId, queued.path, queued.size, queued.durationMs, queued.clientUploadId)
     }
 
     fun clearPending(context: Context) {
-        pending(context)?.let { runCatching { File(it.path).delete() } }
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove("pendingRecordingCallId").remove("pendingRecordingPath").remove("pendingRecordingSize").remove("pendingRecordingDurationMs").apply()
+        pending(context)?.let { recording ->
+            runCatching { File(recording.path).delete() }
+            OfflineEventStore(context).removeRecording(recording.clientUploadId)
+        }
     }
 
     private fun duration(file: File) = runCatching {

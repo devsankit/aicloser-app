@@ -14,6 +14,7 @@ export type MobileSession = {
   packageStatus: SessionUser["packageStatus"];
   packageExpiresAt: string | null;
   workspaceMode: SessionUser["workspaceMode"];
+  sessionId: string;
   expiresAt: number;
 };
 
@@ -32,6 +33,7 @@ export function toMobileSession(session: SessionUser): MobileSession {
     packageStatus: session.packageStatus,
     packageExpiresAt: session.packageExpiresAt,
     workspaceMode: session.workspaceMode,
+    sessionId: session.sessionId,
     expiresAt: session.expiresAt,
   };
 }

@@ -727,11 +727,12 @@ export async function findUserByIdentifier(identifier: string) {
   return (await findUserRecord(identifier))?.managed ?? null;
 }
 
-export async function authenticatePassword(identifier: string, password: string) {
+export async function authenticatePassword(identifier: string, password: string, options: { updateLastLogin?: boolean } = {}) {
   const user = await findUserRecord(identifier);
   if (!user) return null;
   const expectedHash = hashPassword(password, user.raw.passwordSalt);
   if (!safeCompare(expectedHash, user.raw.passwordHash)) return null;
+  if (options.updateLastLogin === false) return user.managed;
   const updated = await prisma.appAuthUser.update({ where: { id: user.raw.id }, data: { lastLoginAt: new Date() } });
   return fromDbUser(updated).managed;
 }

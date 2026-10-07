@@ -12,6 +12,7 @@ export type RoundRobinSettings = {
   lastAssignedIndex: number;
   allowNonAdminModifyLeads: boolean;
   allowNonAdminDeleteLeads: boolean;
+  allowNonAdminImportData: boolean;
   allowNonAdminExportData: boolean;
   allowNonAdminBulkCampaigns: boolean;
   fallbackAgentId?: string | null;
@@ -32,6 +33,7 @@ export function getDefaultRoundRobinSettings(tenantId: string): RoundRobinSettin
     lastAssignedIndex: -1,
     allowNonAdminModifyLeads: true,
     allowNonAdminDeleteLeads: false,
+    allowNonAdminImportData: false,
     allowNonAdminExportData: false,
     allowNonAdminBulkCampaigns: false,
     fallbackAgentId: null,

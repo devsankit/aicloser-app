@@ -244,6 +244,22 @@ enum SalesMobilePlatform {
   ANDROID
 }
 
+enum AppClientChannel {
+  MOBILE
+  DESKTOP
+}
+
+enum AppClientSlotStatus {
+  AVAILABLE
+  ACTIVE
+}
+
+enum AppClientSessionStatus {
+  ACTIVE
+  LOGGED_OUT
+  REVOKED
+}
+
 enum SalesMobileCallDirection {
   INBOUND
   OUTBOUND
@@ -261,6 +277,13 @@ enum SalesMobileCallStatus {
 enum SalesMobileRecordingStatus {
   NONE
   RECORDING_UNAVAILABLE
+  LOCAL_PENDING
+  UPLOADING
+  UPLOADED
+  FAILED
+}
+
+enum CallRecordingUploadStatus {
   LOCAL_PENDING
   UPLOADING
   UPLOADED
@@ -535,6 +558,7 @@ model User {
 
 model SalesSettings {
   id                       String   @id @default("sales-settings")
+  tenantId                 String?  @unique
   moduleEnabled            Boolean  @default(true)
   signupRequiresApproval   Boolean  @default(true)
   defaultCommissionPercent Decimal  @default(10) @db.Decimal(5, 2)
@@ -562,6 +586,7 @@ model SalesSettings {
 
 model SalesAgentGroup {
   id                       String                @id @default(cuid())
+  tenantId                 String?
   name                     String
   description              String?
   defaultCommissionPercent Decimal               @default(10) @db.Decimal(5, 2)
@@ -574,10 +599,13 @@ model SalesAgentGroup {
   commissionRules          SalesCommissionRule[]
   salesGoals               SalesGoal[]
   salesRewards             SalesReward[]
+
+  @@index([tenantId])
 }
 
 model SalesAgentProfile {
   id                  String                    @id @default(cuid())
+  tenantId            String?
   userId              String                    @unique
   groupId             String?
   parentAgentId       String?
@@ -614,6 +642,7 @@ model SalesAgentProfile {
   mobileEvents        SalesMobileOfflineEvent[]
   mobileLeadPacks     SalesMobileLeadPack[]
 
+  @@index([tenantId])
   @@index([groupId])
   @@index([parentAgentId])
   @@index([status])
@@ -621,6 +650,7 @@ model SalesAgentProfile {
 
 model SalesLeadAssignment {
   id              String             @id @default(cuid())
+  tenantId        String?
   leadId          String?
   assignedAgentId String
   createdById     String?
@@ -648,6 +678,10 @@ model SalesLeadAssignment {
   claimedPoolItem SalesLeadPoolItem? @relation("SalesPoolConvertedAssignment")
   mobileCalls     SalesMobileCall[]
 
+  @@index([tenantId, createdAt])
+  @@index([tenantId, stage])
+  @@index([tenantId, customerPhone])
+  @@index([tenantId, conversationId])
   @@index([assignedAgentId, stage])
   @@index([leadId])
   @@index([conversationId])
@@ -655,6 +689,7 @@ model SalesLeadAssignment {
 
 model SalesLeadPoolItem {
   id                    String               @id @default(cuid())
+  tenantId              String?
   assignedAgentId       String?
   claimedByAgentId      String?
   convertedAssignmentId String?              @unique
@@ -675,6 +710,8 @@ model SalesLeadPoolItem {
   claimedByAgent        SalesAgentProfile?   @relation("SalesPoolClaimedAgent", fields: [claimedByAgentId], references: [id], onDelete: SetNull)
   convertedAssignment   SalesLeadAssignment? @relation("SalesPoolConvertedAssignment", fields: [convertedAssignmentId], references: [id], onDelete: SetNull)
 
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
   @@index([status, createdAt])
   @@index([assignedAgentId, status])
   @@index([claimedByAgentId])
@@ -708,6 +745,7 @@ model MetaConversionEvent {
 
 model SalesDeal {
   id                   String               @id @default(cuid())
+  tenantId             String?
   assignmentId         String
   agentId              String
   packageId            String?
@@ -734,6 +772,8 @@ model SalesDeal {
   earnings             SalesEarning[]
   referralEvents       SalesReferralEvent[]
 
+  @@index([tenantId, createdAt])
+  @@index([tenantId, status])
   @@index([agentId, status])
   @@index([assignmentId])
   @@index([paymentTransactionId])
@@ -742,6 +782,7 @@ model SalesDeal {
 
 model SalesCommissionRule {
   id                      String                   @id @default(cuid())
+  tenantId                String?
   name                    String
   type                    SalesCommissionRuleType
   scope                   SalesCommissionScope     @default(ALL_AGENTS)
@@ -765,6 +806,7 @@ model SalesCommissionRule {
   package                 Package?                 @relation(fields: [packageId], references: [id])
   service                 Service?                 @relation(fields: [serviceId], references: [id])
 
+  @@index([tenantId])
   @@index([scope, isActive, priority])
   @@index([agentId])
   @@index([packageId])
@@ -773,6 +815,7 @@ model SalesCommissionRule {
 
 model SalesEarning {
   id           String             @id @default(cuid())
+  tenantId     String?
   dealId       String
   agentId      String
   ruleId       String?
@@ -788,12 +831,14 @@ model SalesEarning {
   payout       SalesPayout?       @relation(fields: [payoutId], references: [id])
   payoutId     String?
 
+  @@index([tenantId, createdAt])
   @@index([agentId, status])
   @@index([dealId])
 }
 
 model SalesPayout {
   id          String            @id @default(cuid())
+  tenantId    String?
   agentId     String
   amount      Decimal           @db.Decimal(12, 2)
   status      SalesPayoutStatus @default(REQUESTED)
@@ -806,11 +851,13 @@ model SalesPayout {
   agent       SalesAgentProfile @relation(fields: [agentId], references: [id], onDelete: Cascade)
   earnings    SalesEarning[]
 
+  @@index([tenantId, createdAt])
   @@index([agentId, status])
 }
 
 model SalesReferralCode {
   id                 String               @id @default(cuid())
+  tenantId           String?
   agentId            String
   campaignId         String?
   code               String               @unique
@@ -832,11 +879,13 @@ model SalesReferralCode {
   events             SalesReferralEvent[]
   redemptions        CouponRedemption[]
 
+  @@index([tenantId])
   @@index([campaignId])
 }
 
 model CouponCampaign {
   id                 String              @id @default(cuid())
+  tenantId           String?
   name               String
   discountType       CouponDiscountType
   discountValue      Decimal             @db.Decimal(12, 2)
@@ -852,11 +901,13 @@ model CouponCampaign {
   updatedAt          DateTime            @updatedAt
   codes              SalesReferralCode[]
 
+  @@index([tenantId])
   @@index([isActive, startsAt, expiresAt])
 }
 
 model CouponRedemption {
   id                   String              @id @default(cuid())
+  tenantId             String?
   referralCodeId       String
   userId               String
   packageId            String
@@ -873,6 +924,7 @@ model CouponRedemption {
   package              Package             @relation(fields: [packageId], references: [id], onDelete: Restrict)
   paymentTransaction   PaymentTransaction? @relation(fields: [paymentTransactionId], references: [id], onDelete: SetNull)
 
+  @@index([tenantId])
   @@index([referralCodeId, status])
   @@index([userId, createdAt])
   @@index([packageId])
@@ -880,6 +932,7 @@ model CouponRedemption {
 
 model SalesReferralEvent {
   id                   String                 @id @default(cuid())
+  tenantId             String?
   referralCodeId       String
   agentId              String
   userId               String?
@@ -898,6 +951,7 @@ model SalesReferralEvent {
   paymentTransaction   PaymentTransaction?    @relation(fields: [paymentTransactionId], references: [id], onDelete: SetNull)
   deal                 SalesDeal?             @relation(fields: [dealId], references: [id], onDelete: SetNull)
 
+  @@index([tenantId, createdAt])
   @@index([referralCodeId, eventType])
   @@index([agentId, createdAt])
   @@index([packageId])
@@ -906,6 +960,7 @@ model SalesReferralEvent {
 
 model SalesGoal {
   id         String             @id @default(cuid())
+  tenantId   String?
   name       String
   metric     SalesGoalMetric
   scope      SalesGoalScope     @default(INDIVIDUAL_AGENT)
@@ -922,6 +977,7 @@ model SalesGoal {
   agent      SalesAgentProfile? @relation(fields: [agentId], references: [id], onDelete: Cascade)
   group      SalesAgentGroup?   @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
+  @@index([tenantId])
   @@index([scope, isActive])
   @@index([agentId])
   @@index([groupId])
@@ -929,6 +985,7 @@ model SalesGoal {
 
 model SalesReward {
   id         String             @id @default(cuid())
+  tenantId   String?
   title      String
   body       String
   agentId    String?
@@ -941,22 +998,27 @@ model SalesReward {
   agent      SalesAgentProfile? @relation(fields: [agentId], references: [id], onDelete: Cascade)
   group      SalesAgentGroup?   @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
+  @@index([tenantId])
   @@index([agentId, isActive])
   @@index([groupId, isActive])
 }
 
 model SalesAnnouncement {
   id        String   @id @default(cuid())
+  tenantId  String?
   title     String
   body      String
   audience  String   @default("all")
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
 }
 
 model SalesMessageThread {
   id        String             @id @default(cuid())
+  tenantId  String?
   agentId   String?
   subject   String
   messages  Json
@@ -965,11 +1027,13 @@ model SalesMessageThread {
   updatedAt DateTime           @updatedAt
   agent     SalesAgentProfile? @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
+  @@index([tenantId])
   @@index([agentId, status])
 }
 
 model SalesActivityLog {
   id           String               @id @default(cuid())
+  tenantId     String?
   assignmentId String?
   actorUserId  String?
   action       String
@@ -979,12 +1043,14 @@ model SalesActivityLog {
   assignment   SalesLeadAssignment? @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
   actor        AppAuthUser?         @relation(fields: [actorUserId], references: [id])
 
+  @@index([tenantId, createdAt])
   @@index([assignmentId])
   @@index([actorUserId])
 }
 
 model SalesMobileDevice {
   id                  String                    @id @default(cuid())
+  tenantId            String?
   agentId             String
   deviceId            String                    @unique
   deviceName          String
@@ -1005,12 +1071,14 @@ model SalesMobileDevice {
   calls               SalesMobileCall[]
   events              SalesMobileOfflineEvent[]
 
+  @@index([tenantId])
   @@index([agentId, isActive])
   @@index([lastSeenAt])
 }
 
 model SalesMobileCall {
   id                 String                     @id @default(cuid())
+  tenantId           String?
   assignmentId       String
   agentId            String
   deviceId           String?
@@ -1037,13 +1105,41 @@ model SalesMobileCall {
   agent              SalesAgentProfile          @relation(fields: [agentId], references: [id], onDelete: Cascade)
   device             SalesMobileDevice?         @relation(fields: [deviceId], references: [id], onDelete: SetNull)
 
+  @@index([tenantId, startedAt])
+  @@index([tenantId, phoneNumber])
   @@index([assignmentId, startedAt])
   @@index([agentId, noteRequired, noteSubmitted])
   @@index([deviceId, startedAt])
 }
 
+model CallRecordingUpload {
+  id              String                    @id @default(cuid())
+  tenantId        String
+  callId          String
+  deviceId        String?
+  clientUploadId  String
+  objectKey       String
+  status          CallRecordingUploadStatus @default(LOCAL_PENDING)
+  mimeType        String?
+  sizeBytes       Int?
+  durationSeconds Int?
+  checksum        String?
+  attemptCount    Int                       @default(0)
+  lastError       String?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+
+  @@unique([tenantId, clientUploadId])
+  @@index([tenantId, status, updatedAt])
+  @@index([callId, createdAt])
+  @@index([deviceId, status, updatedAt])
+}
+
 model SalesMobileOfflineEvent {
   id             String                @id @default(cuid())
+  tenantId       String?
   idempotencyKey String                @unique
   agentId        String
   deviceId       String?
@@ -1059,12 +1155,14 @@ model SalesMobileOfflineEvent {
   agent          SalesAgentProfile     @relation(fields: [agentId], references: [id], onDelete: Cascade)
   device         SalesMobileDevice?    @relation(fields: [deviceId], references: [id], onDelete: SetNull)
 
+  @@index([tenantId])
   @@index([agentId, status, createdAt])
   @@index([deviceId, status])
 }
 
 model SalesMobileLeadPack {
   id          String                    @id @default(cuid())
+  tenantId    String?
   agentId     String
   status      SalesMobileLeadPackStatus @default(OFFERED)
   leadPoolIds String[]
@@ -1074,6 +1172,7 @@ model SalesMobileLeadPack {
   updatedAt   DateTime                  @updatedAt
   agent       SalesAgentProfile         @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
+  @@index([tenantId])
   @@index([agentId, status])
   @@index([expiresAt, status])
 }
@@ -1321,6 +1420,7 @@ model SalesWebinarInvite {
 
 model SalesLeadTimelineEntry {
   id        String   @id @default(cuid())
+  tenantId  String?
   leadId    String
   agentId   String?
   userId    String?
@@ -1329,12 +1429,15 @@ model SalesLeadTimelineEntry {
   metadata  Json?
   createdAt DateTime @default(now())
 
+  @@index([tenantId, createdAt])
+  @@index([tenantId, leadId])
   @@index([leadId, createdAt])
   @@index([agentId, createdAt])
 }
 
 model SalesRoundRobinRule {
   id                   String   @id @default(cuid())
+  tenantId             String?
   title                String
   teamId               String?
   isActive             Boolean  @default(true)
@@ -1345,6 +1448,7 @@ model SalesRoundRobinRule {
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
+  @@index([tenantId])
   @@index([isActive, teamId])
 }
 
@@ -2282,6 +2386,55 @@ model AppAuthUser {
   @@index([tenantId])
   @@index([role])
   @@index([assignedRole])
+}
+
+model AppClientSlot {
+  id              String             @id @default(cuid())
+  tenantId        String?
+  userId          String
+  channel         AppClientChannel
+  status          AppClientSlotStatus @default(AVAILABLE)
+  activeSessionId String?            @unique
+  installationId  String?
+  deviceId        String?
+  deviceName      String?
+  platform        String?
+  appVersion      String?
+  lastLoginAt     DateTime?
+  lastActiveAt    DateTime?
+  lastLogoutAt    DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@unique([userId, channel])
+  @@index([tenantId, channel, status])
+  @@index([tenantId, lastActiveAt])
+}
+
+model AppClientSession {
+  id             String                 @id @default(cuid())
+  sessionId      String                 @unique
+  tenantId       String?
+  userId         String
+  slotId         String
+  channel        AppClientChannel
+  installationId String
+  deviceId       String?
+  deviceName     String?
+  platform       String?
+  appVersion     String?
+  status         AppClientSessionStatus @default(ACTIVE)
+  loginAt        DateTime               @default(now())
+  lastActiveAt   DateTime               @default(now())
+  logoutAt       DateTime?
+  revokedAt      DateTime?
+  revokeReason   String?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  @@index([userId, channel, createdAt])
+  @@index([tenantId, lastActiveAt])
+  @@index([status, lastActiveAt])
 }
 
 model ConnectedOnboardingState {

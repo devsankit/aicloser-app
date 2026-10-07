@@ -516,65 +516,6 @@ async function runEnsureSalesDefaults() {
     },
   });
 
-  if (process.env.NODE_ENV !== "production") {
-    const poolCount = await prisma.salesLeadPoolItem.count();
-    if (poolCount === 0) {
-      await prisma.salesLeadPoolItem.createMany({
-        data: [
-          {
-            id: "sales-pool-sample-b2b-saas",
-            customerName: "Aarav Sharma",
-            customerPhone: "+919876543210",
-            customerEmail: "aarav.sharma@techscale.io",
-            source: "outbound-sim",
-            serviceInterest: "AI Telecalling CRM - 10 Caller Seats",
-            segment: "b2b-saas",
-            priority: "hot",
-            budgetAmount: 24000,
-            notes: "Demo requested: Android SIM call auto-sync and recording review.",
-          },
-          {
-            id: "sales-pool-sample-fintech-calling",
-            customerName: "Rohan Verma",
-            customerPhone: "+919812341111",
-            customerEmail: "rohan@fintechgrowth.in",
-            source: "sim-telecalling",
-            serviceInterest: "SIM AI Telecalling & Call Tracker",
-            segment: "fintech",
-            priority: "warm",
-            budgetAmount: 18000,
-            notes: "Wants automated call recording and WhatsApp follow-ups for telecallers.",
-          },
-          {
-            id: "sales-pool-sample-edtech-team",
-            customerName: "Priya Nair",
-            customerPhone: "+919900001234",
-            customerEmail: "priya@eduleap.in",
-            source: "inbound-callback",
-            serviceInterest: "Sales Team SIM Tracker & Lead Pipeline",
-            segment: "edtech",
-            priority: "hot",
-            budgetAmount: 48000,
-            notes: "Managing 15 sales callers; needs daily call duration and recording analytics.",
-          },
-          {
-            id: "sales-pool-sample-insurance-agency",
-            customerName: "Vikram Malhotra",
-            customerPhone: "+919700004321",
-            customerEmail: "vikram@malhotrainsurance.com",
-            source: "web-inquiry",
-            serviceInterest: "Telecalling SIM CRM with AI Audio Transcripts",
-            segment: "insurance",
-            priority: "normal",
-            budgetAmount: 32000,
-            notes: "Evaluating SIM dialer integration for insurance advisory sales.",
-          },
-        ],
-        skipDuplicates: true,
-      });
-    }
-  }
-
   return settings;
 }
 
@@ -1443,8 +1384,9 @@ export async function getSalesSnapshotForRole(
     .map(mapReward);
 
   const mobileCalls = await Promise.all(
-    mobileCallsRaw
-      .filter((call) => (isWorkspaceAdmin || isWorkspaceManager) ? (!isAgentView || observingAgentIds.has(call.agentId)) : call.agentId === currentAgent?.id)
+    mobileCallsRaw.filter((call) => isWorkspaceAdmin || isWorkspaceManager
+      ? (!isAgentView || observingAgentIds.has(call.agentId))
+      : call.agentId === currentAgent?.id)
       .map(async (call) => {
         let recordingStatus = call.recordingStatus;
         let recordingError = call.recordingError ?? "";
@@ -1521,7 +1463,7 @@ export async function getSalesSnapshotForRole(
     })),
     earnings: isAgentView ? visibleEarnings : earnings,
     payouts: isAgentView ? visiblePayouts : payouts,
-    referrals: referralsRaw.filter((referral) => !isAgentView || observingAgentIds.has(referral.agentId)).map((referral) => ({
+    referrals: referralsRaw.filter((referral) => (isWorkspaceAdmin || isWorkspaceManager) ? observingAgentIds.has(referral.agentId) : referral.agentId === currentAgent?.id).map((referral) => ({
       id: referral.id,
       agentId: referral.agentId,
       code: referral.code,
@@ -1554,7 +1496,9 @@ export async function getSalesSnapshotForRole(
     goals: visibleGoals,
     rewards: visibleRewards,
     mobileDevices: mobileDevicesRaw
-      .filter((device) => (isWorkspaceAdmin || isWorkspaceManager) ? (!isAgentView || observingAgentIds.has(device.agentId)) : device.agentId === currentAgent?.id)
+      .filter((device) => isWorkspaceAdmin || isWorkspaceManager
+        ? (!isAgentView || observingAgentIds.has(device.agentId))
+        : device.agentId === currentAgent?.id)
       .map((device) => ({ id: device.id, agentId: device.agentId, deviceId: device.deviceId, deviceName: device.deviceName, manufacturer: device.manufacturer ?? "", model: device.model ?? "", simLabel: device.simLabel ?? "", officeSimNumber: device.officeSimNumber ?? "", recordingCapability: device.recordingCapability, recordingEnabled: device.recordingEnabled, lastSeenAt: device.lastSeenAt.toISOString(), isActive: device.isActive })),
     mobileCalls,
     reports: buildReports({ agents: observingAgents, leadPool: visibleLeadPool, leads: visibleLeads, deals: visibleDeals, earnings: visibleEarnings, payouts: visiblePayouts, referralEvents: visibleReferralEvents, currentAgentId: isWorkspaceAdmin ? null : currentAgent?.id }),

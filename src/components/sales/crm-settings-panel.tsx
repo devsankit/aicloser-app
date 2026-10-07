@@ -79,6 +79,7 @@ export function CrmSettingsPanel({
     lastAssignedIndex: -1,
     allowNonAdminModifyLeads: true,
     allowNonAdminDeleteLeads: false,
+    allowNonAdminImportData: false,
     allowNonAdminExportData: false,
     allowNonAdminBulkCampaigns: false,
     fallbackAgentId: null,
@@ -617,6 +618,31 @@ export function CrmSettingsPanel({
                     type="checkbox"
                     checked={rrSettings.allowNonAdminExportData}
                     onChange={(e) => setRrSettings({ ...rrSettings, allowNonAdminExportData: e.target.checked })}
+                    style={{ width: 18, height: 18 }}
+                  />
+                </div>
+
+                <div
+                  style={{
+                    padding: 16,
+                    borderRadius: 14,
+                    background: "var(--closer-surface-soft)",
+                    border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.25))",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <div>
+                    <strong style={{ fontSize: "0.95rem" }}>Allow Non-Admins to Import Leads &amp; Contacts</strong>
+                    <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
+                      Keep importing disabled for closers unless the workspace administrator explicitly enables it.
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={rrSettings.allowNonAdminImportData}
+                    onChange={(e) => setRrSettings({ ...rrSettings, allowNonAdminImportData: e.target.checked })}
                     style={{ width: 18, height: 18 }}
                   />
                 </div>

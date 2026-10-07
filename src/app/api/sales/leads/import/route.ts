@@ -5,6 +5,7 @@ import { requireSessionRole } from "@/lib/api/require-session-role";
 import { resolveSessionTenantId } from "@/lib/api/resolve-session-tenant";
 import { normalizePhone } from "@/lib/auth/normalize";
 import { createSalesLead, createSalesLeadPoolItem, getSalesSnapshotForRole } from "@/lib/gigxomi/sales-store";
+import { readRoundRobinSettings } from "@/lib/gigxomi/round-robin-service";
 import { upsertMarketingContact } from "@/lib/whatsapp-marketing/contact-service";
 
 type ImportMode = "add_to_round_robin_queue" | "assign_to_selected_agent" | "add_directly_to_crm";
@@ -164,6 +165,13 @@ function parseImportPayload(row: ImportRow, index: number, sourceTag: string) {
 export async function POST(request: Request) {
   const authorization = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"]);
   if (!authorization.ok) return authorization.response;
+
+  if (authorization.session.role !== "ADMIN" && authorization.session.role !== "SUPER_ADMIN") {
+    const settings = await readRoundRobinSettings(resolveSessionTenantId(authorization.session));
+    if (!settings.allowNonAdminImportData) {
+      return NextResponse.json({ ok: false, error: "Lead import is disabled for your role. Ask a workspace administrator to enable it." }, { status: 403 });
+    }
+  }
 
   const form = await request.formData().catch(() => null);
   const file = form?.get("file");

@@ -77,11 +77,17 @@ export default async function SalesSignupPage({
             >
               <Sparkles size={11} /> 14-Day Free Trial
             </div>
+            <div style={{ marginBottom: "8px", color: "#64748b", fontSize: "0.72rem", fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+              SaaS Sales Workspace
+            </div>
             <h1 style={{ fontSize: "1.65rem", fontWeight: 800, color: "#0f172a", letterSpacing: "-0.03em", margin: "0 0 8px" }}>
               Create Your AI Closer Workspace
             </h1>
             <p style={{ fontSize: "13.5px", color: "#475569", lineHeight: 1.55, margin: 0 }}>
               Launch your isolated sales CRM with 1-click Android SIM dialer, automatic call recording, role-based access controls, and WhatsApp pipelines.
+            </p>
+            <p style={{ margin: "10px 0 0", color: "#64748b", fontSize: "0.76rem", fontWeight: 700 }}>
+              Zero cross-workspace data merge.
             </p>
           </div>
 

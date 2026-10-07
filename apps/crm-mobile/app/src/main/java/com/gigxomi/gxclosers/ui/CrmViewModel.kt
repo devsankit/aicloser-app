@@ -49,7 +49,7 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun login(identifier: String, password: String, done: () -> Unit) = launchWork {
-        val result = withContext(Dispatchers.IO) { repository.login(identifier.trim(), password) }
+        val result = withContext(Dispatchers.IO) { repository.login(identifier.trim(), password, deviceId(), "${Build.MANUFACTURER} ${Build.MODEL}", BuildConfig.VERSION_NAME) }
         session = result; authenticated = true; done()
     }
 

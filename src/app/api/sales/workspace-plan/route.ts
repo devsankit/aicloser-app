@@ -34,6 +34,19 @@ export async function GET() {
         })
       : null;
 
+    const ownerPermissions =
+      snapshot.currentAgent?.permissions && typeof snapshot.currentAgent.permissions === "object"
+        ? (snapshot.currentAgent.permissions as Record<string, unknown>)
+        : null;
+    const customSeatLimit =
+      typeof ownerPermissions?.seatLimit === "number" && ownerPermissions.seatLimit > 0
+        ? ownerPermissions.seatLimit
+        : typeof ownerPermissions?.maxUsers === "number" && ownerPermissions.maxUsers > 0
+          ? ownerPermissions.maxUsers
+          : typeof ownerPermissions?.seats === "number" && ownerPermissions.seats > 0
+            ? ownerPermissions.seats
+            : null;
+
     const users = snapshot.agents ?? [];
     const activeUsers = users.filter((user) => user.status === "ACTIVE").length;
     const planCounts = users.reduce<Record<string, number>>((counts, user) => {
@@ -48,8 +61,8 @@ export async function GET() {
         name: packageRecord?.name || authorization.session.packageName || snapshot.currentAgent?.packageName || "Free plan",
         status: authorization.session.packageStatus || snapshot.currentAgent?.packageStatus || "ACTIVE",
         expiresAt: authorization.session.packageExpiresAt || snapshot.currentAgent?.packageExpiresAt || null,
-        seatLimit: packageRecord?.teamMemberLimit ?? packageRecord?.staffAccountLimit ?? 1,
-        isUnlimited: packageRecord?.teamMemberLimit === null && packageRecord?.staffAccountLimit === null,
+        seatLimit: customSeatLimit ?? packageRecord?.teamMemberLimit ?? packageRecord?.staffAccountLimit ?? 1,
+        isUnlimited: customSeatLimit === null && packageRecord?.teamMemberLimit === null && packageRecord?.staffAccountLimit === null,
       },
       usage: { totalUsers: users.length, activeUsers, planCounts },
       entitlements: {

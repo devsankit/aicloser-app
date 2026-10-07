@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type DragEvent as ReactDragEvent, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { ArrowLeft, Bell, Check, Download, LogOut, Menu, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 
@@ -35,6 +35,7 @@ type InternalAppShellProps = {
   topbarAccessory?: ReactNode;
   topbarCenter?: ReactNode;
   rootClassName?: string;
+  navigationOrderKey?: string;
   children: ReactNode;
 };
 
@@ -78,6 +79,7 @@ export function InternalAppShell({
   topbarAccessory,
   topbarCenter,
   rootClassName,
+  navigationOrderKey,
   children,
 }: InternalAppShellProps) {
   const [internalSidebarMode, setInternalSidebarMode] = useState<"default" | "collapsed">(() => {
@@ -90,6 +92,49 @@ export function InternalAppShell({
     return sidebarMode === "collapsed" ? "collapsed" : "default";
   });
   const effectiveSidebarMode = internalSidebarMode;
+  const navigationStorageKey = `gx-sidebar-order-${navigationOrderKey ?? appLabel}`;
+  const [navigationOrder, setNavigationOrder] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved = localStorage.getItem(navigationStorageKey);
+      return saved ? JSON.parse(saved) as string[] : [];
+    } catch {
+      return [];
+    }
+  });
+  const [draggedNavId, setDraggedNavId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setNavigationOrder((current) => {
+      const available = new Set(navItems.map((item) => item.id));
+      const retained = current.filter((id) => available.has(id));
+      const missing = navItems.map((item) => item.id).filter((id) => !retained.includes(id));
+      const next = [...retained, ...missing];
+      return next.length === current.length && next.every((id, index) => id === current[index]) ? current : next;
+    });
+  }, [navItems]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !navigationOrder.length) return;
+    try {
+      localStorage.setItem(navigationStorageKey, JSON.stringify(navigationOrder));
+    } catch {}
+  }, [navigationOrder, navigationStorageKey]);
+
+  const orderedNavItems = [...navItems].sort((left, right) => {
+    const leftIndex = navigationOrder.indexOf(left.id);
+    const rightIndex = navigationOrder.indexOf(right.id);
+    return (leftIndex < 0 ? Number.MAX_SAFE_INTEGER : leftIndex) - (rightIndex < 0 ? Number.MAX_SAFE_INTEGER : rightIndex);
+  });
+
+  const moveNavItem = (targetId: string) => {
+    if (!draggedNavId || draggedNavId === targetId) return;
+    const next = orderedNavItems.map((item) => item.id).filter((id) => id !== draggedNavId);
+    const targetIndex = next.indexOf(targetId);
+    next.splice(targetIndex < 0 ? next.length : targetIndex, 0, draggedNavId);
+    setNavigationOrder(next);
+    setDraggedNavId(null);
+  };
 
   const toggleSidebar = () => {
     setInternalSidebarMode((current) => {
@@ -206,6 +251,16 @@ export function InternalAppShell({
         )}
       </>
     );
+    const dragProps = {
+      draggable: true,
+      onDragStart: () => setDraggedNavId(item.id),
+      onDragOver: (event: ReactDragEvent<HTMLElement>) => event.preventDefault(),
+      onDrop: (event: ReactDragEvent<HTMLElement>) => {
+        event.preventDefault();
+        moveNavItem(item.id);
+      },
+      onDragEnd: () => setDraggedNavId(null),
+    };
 
     if (item.href) {
       return (
@@ -213,6 +268,7 @@ export function InternalAppShell({
           className={activeSection === item.id ? "sidebar-nav-item internal-nav-item active" : "sidebar-nav-item internal-nav-item"}
           href={item.href}
           key={`${keyPrefix}-${item.id}`}
+          {...dragProps}
           onClick={closeAfterNavigate ? () => closeMobileMenu() : undefined}
           title={effectiveSidebarMode === "collapsed" ? item.label : undefined}
         >
@@ -225,6 +281,7 @@ export function InternalAppShell({
       <button
         className={activeSection === item.id ? "sidebar-nav-item internal-nav-item active" : "sidebar-nav-item internal-nav-item"}
         key={`${keyPrefix}-${item.id}`}
+        {...dragProps}
         onClick={() => {
           onNavigate(item.id);
           if (closeAfterNavigate) {
@@ -304,11 +361,11 @@ export function InternalAppShell({
           <nav aria-label={`${appLabel} navigation`} className="sidebar-nav secondary internal-nav">
             {(
               [
-                { key: "crm", title: "CRM & Telephony", items: navItems.filter((i) => i.group === "crm") },
-                { key: "growth", title: "Growth & Automation", items: navItems.filter((i) => i.group === "growth") },
-                { key: "system", title: "Analytics & Settings", items: navItems.filter((i) => i.group === "system") },
-                { key: "workspace", title: "Workspace", items: navItems.filter((i) => !i.group || i.group === "workspace") },
-                { key: "beta", title: "Beta Intelligence", items: navItems.filter((i) => i.group === "beta") },
+                { key: "crm", title: "CRM & Telephony", items: orderedNavItems.filter((i) => i.group === "crm") },
+                { key: "growth", title: "Growth & Automation", items: orderedNavItems.filter((i) => i.group === "growth") },
+                { key: "system", title: "Analytics & Settings", items: orderedNavItems.filter((i) => i.group === "system") },
+                { key: "workspace", title: "Workspace", items: orderedNavItems.filter((i) => !i.group || i.group === "workspace") },
+                { key: "beta", title: "Beta Intelligence", items: orderedNavItems.filter((i) => i.group === "beta") },
               ] as const
             )
               .filter((section) => section.items.length > 0)
@@ -545,11 +602,11 @@ export function InternalAppShell({
             <nav aria-label={`${appLabel} navigation`} className="sidebar-nav secondary internal-nav internal-mobile-nav">
               {(
                 [
-                  { key: "crm", title: "CRM & Telephony", items: navItems.filter((i) => i.group === "crm") },
-                  { key: "growth", title: "Growth & Automation", items: navItems.filter((i) => i.group === "growth") },
-                  { key: "system", title: "Analytics & Settings", items: navItems.filter((i) => i.group === "system") },
-                  { key: "workspace", title: "Workspace", items: navItems.filter((i) => !i.group || i.group === "workspace") },
-                  { key: "beta", title: "Beta Intelligence", items: navItems.filter((i) => i.group === "beta") },
+                  { key: "crm", title: "CRM & Telephony", items: orderedNavItems.filter((i) => i.group === "crm") },
+                  { key: "growth", title: "Growth & Automation", items: orderedNavItems.filter((i) => i.group === "growth") },
+                  { key: "system", title: "Analytics & Settings", items: orderedNavItems.filter((i) => i.group === "system") },
+                  { key: "workspace", title: "Workspace", items: orderedNavItems.filter((i) => !i.group || i.group === "workspace") },
+                  { key: "beta", title: "Beta Intelligence", items: orderedNavItems.filter((i) => i.group === "beta") },
                 ] as const
               )
                 .filter((section) => section.items.length > 0)

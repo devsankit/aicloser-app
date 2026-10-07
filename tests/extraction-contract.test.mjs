@@ -12,7 +12,7 @@ test("web CRM is hosted at the GXclosers root", async () => {
     source("src/app/login/page.tsx"),
     source("next.config.ts"),
   ]);
-  assert.match(page, /requirePageRole\(\["SALES_AGENT"\], "\/"\)/);
+  assert.match(page, /requirePageRole\(\["SALES_AGENT", "ADMIN", "MANAGER"\], "\/"\)/);
   assert.doesNotMatch(page, /redirect\(`\/sales/);
   assert.match(login, /redirectTo=\{value\(params\.redirectTo\) \|\| "\/"\}/);
   assert.match(nextConfig, /source: "\/sales", destination: "\/"/);

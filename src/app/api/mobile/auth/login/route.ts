@@ -4,6 +4,8 @@ import { toMobileSession } from "@/lib/auth/mobile-session";
 import { createSessionPayload } from "@/lib/auth/session";
 import { authenticatePassword } from "@/lib/auth/store";
 import { createSessionToken } from "@/lib/auth/token";
+import { acquireAppClientSession, ClientSlotOccupiedError } from "@/lib/auth/client-sessions";
+import { prisma } from "@/lib/prisma";
 
 type MobileLoginBody = {
   identifier?: unknown;
@@ -11,6 +13,9 @@ type MobileLoginBody = {
   password?: unknown;
   loginScope?: unknown;
   role?: unknown;
+  installationId?: unknown;
+  deviceName?: unknown;
+  appVersion?: unknown;
 };
 
 function readBodyString(value: unknown) {
@@ -31,14 +36,18 @@ export async function POST(request: Request) {
   const rawScope = (readBodyString(body.loginScope) || readBodyString(body.role)).trim().toLowerCase();
   const requireManager = rawScope === "manager";
   const requireSales = rawScope === "sales" || rawScope === "sales_agent";
+  const installationId = readBodyString(body.installationId).trim();
 
   if (!identifier || !password) {
     return NextResponse.json({ ok: false, error: "Email or phone and password are required." }, { status: 400 });
   }
 
-  const user = await authenticatePassword(identifier, password);
+  const user = await authenticatePassword(identifier, password, { updateLastLogin: false });
   if (!user) {
-    return NextResponse.json({ ok: false, error: "Invalid login details." }, { status: 401 });
+    return NextResponse.json({ ok: false, error: "InvalidCredentials", message: "Invalid email/phone or password" }, { status: 401 });
+  }
+  if (!installationId) {
+    return NextResponse.json({ ok: false, error: "MissingClientIdentity", message: "installationId is required for mobile login" }, { status: 400 });
   }
   if (requireManager && user.role !== "MANAGER") {
     return NextResponse.json({ ok: false, error: "This login is only for manager accounts." }, { status: 403 });
@@ -46,6 +55,26 @@ export async function POST(request: Request) {
   if (requireSales && user.role !== "SALES_AGENT") {
     return NextResponse.json({ ok: false, error: "This login is only for active GXClosers sales accounts." }, { status: 403 });
   }
+
+  let clientSession;
+  try {
+    clientSession = await acquireAppClientSession({
+      userId: user.id,
+      tenantId: user.tenantId,
+      channel: "MOBILE",
+      installationId,
+      deviceId: installationId,
+      deviceName: readBodyString(body.deviceName).trim() || "Mobile App",
+      platform: "ANDROID",
+      appVersion: readBodyString(body.appVersion).trim() || null,
+    });
+  } catch (error) {
+    if (error instanceof ClientSlotOccupiedError) {
+      return NextResponse.json({ ok: false, error: error.code, message: "This user already has an active mobile session" }, { status: 409 });
+    }
+    throw error;
+  }
+  await prisma.appAuthUser.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 
   const session = createSessionPayload({
     userId: user.id,
@@ -61,6 +90,8 @@ export async function POST(request: Request) {
     packageStatus: user.packageStatus,
     packageExpiresAt: user.packageExpiresAt,
     workspaceMode: user.workspaceMode,
+    sessionId: clientSession.session.sessionId,
+    licensedSession: true,
   });
   const token = await createSessionToken(session);
 

@@ -75,6 +75,6 @@ test("resolveWhatsAppSetupTenantId preserves custom SaaS tenantId", () => {
 
 test("role and route authorization allow workspace ADMIN alongside SALES_AGENT", () => {
   assert.match(requireSessionRole, /allowedRoles\.includes\("SALES_AGENT"\) && session\.role === "ADMIN"/);
-  assert.match(mainPage, /requirePageRole\(\["SALES_AGENT"\], "\/"\)/);
+  assert.match(mainPage, /requirePageRole\(\["SALES_AGENT", "ADMIN", "MANAGER"\], "\/"\)/);
   assert.match(leadsRoute, /snapshot\.visibleAgents\.some\(\(a\) => a\.id === assignedAgentId\)/);
 });

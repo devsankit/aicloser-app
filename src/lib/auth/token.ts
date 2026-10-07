@@ -84,6 +84,7 @@ export async function verifySessionToken(token?: string | null) {
       packageExpiresAt: raw.packageExpiresAt ?? null,
       workspaceMode: raw.workspaceMode ?? null,
       sessionId: raw.sessionId ?? crypto.randomUUID(),
+      licensedSession: raw.licensedSession === true,
       expiresAt: typeof raw.expiresAt === "number" ? raw.expiresAt : 0,
     };
 

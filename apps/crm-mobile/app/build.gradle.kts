@@ -17,6 +17,7 @@ android {
         versionCode = 1
         versionName = "1.0.0"
         buildConfigField("String", "GXCLOSERS_API_BASE", "\"https://closers.gigxomi.com/api\"")
+        buildConfigField("String", "AICLOSER_DEDICATED_API_BASE", "\"\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -53,6 +54,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
     implementation("androidx.navigation:navigation-compose:2.9.8")
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.foundation:foundation")
