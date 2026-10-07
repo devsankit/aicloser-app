@@ -146,23 +146,23 @@ export function LeadNotesManager({
   };
 
   return (
-    <div className="sales-panel nested" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <div className="sales-panel nested sales-lead-history">
+      <div className="sales-lead-history-header">
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <MessageSquare size={16} style={{ color: "var(--closer-orange, #ff6b2f)" }} />
-          <strong style={{ fontSize: "14px", color: "var(--color-text-primary, #fff)" }}>
+          <strong>
             Notes & Activity Timeline ({notes.length})
           </strong>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <span style={{ fontSize: "10px", fontWeight: 700, padding: "2px 7px", borderRadius: "12px", background: "rgba(34, 197, 94, 0.15)", color: "#4ade80", border: "1px solid rgba(34, 197, 94, 0.3)", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+        <div className="sales-lead-history-tools">
+          <span className="sales-lead-history-sync-badge">
             <Smartphone size={10} /> Phone Sync Active
           </span>
           <button
             type="button"
             onClick={() => void loadNotes()}
             title="Refresh notes"
-            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--closer-muted, #888)", padding: "2px" }}
+            className="sales-lead-history-refresh"
           >
             <RefreshCw size={13} className={isLoading ? "animate-spin" : ""} />
           </button>
@@ -176,8 +176,8 @@ export function LeadNotesManager({
       ) : null}
 
       {/* Add New Note Box */}
-      <form onSubmit={handleCreateNote} className="sales-form-grid" style={{ gap: "8px" }}>
-        <div style={{ display: "flex", gap: "6px" }}>
+      <form onSubmit={handleCreateNote} className="sales-form-grid sales-lead-history-composer">
+        <div className="sales-lead-history-composer-row">
           <select
             value={newNoteType}
             onChange={(e) => setNewNoteType(e.target.value)}
@@ -185,9 +185,9 @@ export function LeadNotesManager({
               width: "140px",
               padding: "6px 8px",
               borderRadius: "6px",
-              background: "var(--color-surface, #0d1410)",
-              border: "1px solid var(--closer-line, rgba(255, 255, 255, 0.15))",
-              color: "var(--color-text-primary, #fff)",
+              background: "var(--color-surface, #ffffff)",
+              border: "1px solid var(--color-border, #cbd5e1)",
+              color: "var(--foreground, #0f172a)",
               fontSize: "12px",
             }}
           >
@@ -205,9 +205,9 @@ export function LeadNotesManager({
               flex: 1,
               padding: "6px 10px",
               borderRadius: "6px",
-              background: "var(--color-surface, #0d1410)",
+              background: "var(--color-surface, #ffffff)",
               border: "1px solid var(--closer-orange-border, rgba(255, 107, 47, 0.3))",
-              color: "var(--color-text-primary, #fff)",
+              color: "var(--foreground, #0f172a)",
               fontSize: "12px",
             }}
           />
@@ -223,7 +223,7 @@ export function LeadNotesManager({
       </form>
 
       {/* Notes List with Inline Edit & Delete */}
-      <div style={{ display: "flex", flexDirection: "column", gap: "6px", maxHeight: "280px", overflowY: "auto", paddingRight: "4px" }}>
+      <div className="sales-lead-history-list">
         {notes.map((note) => {
           const isEditing = editingNoteId === note.id;
           const formattedDate = new Date(note.createdAt).toLocaleDateString("en-IN", {
@@ -236,58 +236,27 @@ export function LeadNotesManager({
           return (
             <div
               key={note.id}
-              style={{
-                padding: "8px 10px",
-                borderRadius: "8px",
-                background: "rgba(255, 255, 255, 0.03)",
-                border: "1px solid rgba(255, 255, 255, 0.08)",
-                display: "flex",
-                flexDirection: "column",
-                gap: "4px",
-              }}
+              className="sales-lead-history-item"
             >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <div className="sales-lead-history-item-head">
+                <div className="sales-lead-history-item-meta">
                   <span
-                    style={{
-                      fontSize: "10px",
-                      fontWeight: 700,
-                      padding: "1px 6px",
-                      borderRadius: "4px",
-                      background:
-                        note.type === "CALL"
-                          ? "rgba(56, 189, 248, 0.2)"
-                          : note.type === "OBJECTION"
-                          ? "rgba(239, 68, 68, 0.2)"
-                          : "rgba(255, 107, 47, 0.15)",
-                      color:
-                        note.type === "CALL"
-                          ? "#38bdf8"
-                          : note.type === "OBJECTION"
-                          ? "#f87171"
-                          : "var(--closer-orange, #ff6b2f)",
-                    }}
+                    className={`sales-lead-history-type ${note.type === "CALL" ? "is-call" : note.type === "OBJECTION" ? "is-objection" : ""}`}
                   >
                     {note.type}
                   </span>
-                  <span style={{ fontSize: "11px", color: "var(--closer-muted, rgba(255, 255, 255, 0.5))" }}>
+                  <span className="sales-lead-history-date">
                     {formattedDate}
                   </span>
                 </div>
-                <div style={{ display: "flex", gap: "4px" }}>
+                <div className="sales-lead-history-actions">
                   {!isEditing ? (
                     <>
                       <button
                         type="button"
                         onClick={() => handleStartEdit(note)}
                         title="Edit note"
-                        style={{
-                          background: "none",
-                          border: "none",
-                          cursor: "pointer",
-                          color: "rgba(255, 255, 255, 0.5)",
-                          padding: "2px",
-                        }}
+                        className="sales-lead-history-action"
                       >
                         <Edit3 size={12} />
                       </button>
@@ -295,13 +264,7 @@ export function LeadNotesManager({
                         type="button"
                         onClick={() => void handleDeleteNote(note.id)}
                         title="Delete note"
-                        style={{
-                          background: "none",
-                          border: "none",
-                          cursor: "pointer",
-                          color: "rgba(248, 113, 113, 0.7)",
-                          padding: "2px",
-                        }}
+                        className="sales-lead-history-action danger"
                       >
                         <Trash2 size={12} />
                       </button>
@@ -319,9 +282,9 @@ export function LeadNotesManager({
                     style={{
                       padding: "6px 8px",
                       borderRadius: "6px",
-                      background: "var(--color-surface, #0d1410)",
+                      background: "var(--color-surface, #ffffff)",
                       border: "1px solid var(--closer-orange, #ff6b2f)",
-                      color: "#fff",
+                      color: "var(--foreground, #0f172a)",
                       fontSize: "12px",
                     }}
                   />
@@ -346,7 +309,7 @@ export function LeadNotesManager({
                   </div>
                 </div>
               ) : (
-                <p style={{ margin: 0, fontSize: "12px", color: "var(--color-text-primary, #fff)", lineHeight: 1.4 }}>
+                <p className="sales-lead-history-body">
                   {note.body}
                 </p>
               )}
@@ -355,7 +318,7 @@ export function LeadNotesManager({
         })}
 
         {!notes.length && !isLoading ? (
-          <p style={{ margin: "6px 0", fontSize: "12px", color: "var(--closer-muted, rgba(255, 255, 255, 0.5))", textAlign: "center" }}>
+          <p className="sales-lead-history-empty">
             No notes yet. Add one above to sync with mobile app!
           </p>
         ) : null}

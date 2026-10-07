@@ -9,6 +9,14 @@ import { closeAppClientSession } from "@/lib/auth/client-sessions";
 async function createLogoutResponse(request: Request) {
   const session = await getSessionContext();
   if (session.sessionId) await closeAppClientSession(session.sessionId, "LOGGED_OUT").catch(() => undefined);
+  const acceptHeader = request.headers.get("accept") || "";
+  const authHeader = request.headers.get("authorization") || "";
+  if (acceptHeader.includes("application/json") || authHeader.startsWith("Bearer ")) {
+    const jsonResponse = NextResponse.json({ ok: true });
+    clearSessionCookie(jsonResponse);
+    clearImpersonationCookies(jsonResponse);
+    return jsonResponse;
+  }
   const url = new URL(request.url);
   const redirectTo = url.searchParams.get("redirectTo")?.trim() || "/";
   const safeTarget = redirectTo.startsWith("/") && !redirectTo.startsWith("//") ? redirectTo : "/";

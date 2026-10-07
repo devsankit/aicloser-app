@@ -23,6 +23,7 @@ type InternalAppShellProps = {
   profileName: string;
   profileMeta: string;
   profilePlan?: string;
+  hideSidebarIdentity?: boolean;
   navItems: ShellNavItem[];
   activeSection: string;
   onNavigate: (section: string) => void;
@@ -67,6 +68,7 @@ export function InternalAppShell({
   profileName,
   profileMeta,
   profilePlan,
+  hideSidebarIdentity = false,
   navItems,
   activeSection,
   onNavigate,
@@ -381,20 +383,22 @@ export function InternalAppShell({
 
           <div className="internal-sidebar-footer">
             <div className="internal-sidebar-account-controls">
-              <Link
-                aria-label={`Open ${profileName} profile`}
-                className="internal-sidebar-profile"
-                href={dashboardHomeHref}
-                title={`${profileName}${profileMeta ? ` · ${profileMeta}` : ""}`}
-              >
-                <div className="internal-avatar">{initials}</div>
-                {effectiveSidebarMode !== "collapsed" ? (
-                  <div className="internal-sidebar-profile-copy">
-                    <strong>{profileName}</strong>
-                    <span>{profilePlan ? `Active plan · ${profilePlan}` : profileMeta}</span>
-                  </div>
-                ) : null}
-              </Link>
+              {hideSidebarIdentity ? null : (
+                <Link
+                  aria-label={`Open ${profileName} profile`}
+                  className="internal-sidebar-profile"
+                  href={dashboardHomeHref}
+                  title={`${profileName}${profileMeta ? ` · ${profileMeta}` : ""}`}
+                >
+                  <div className="internal-avatar">{initials}</div>
+                  {effectiveSidebarMode !== "collapsed" ? (
+                    <div className="internal-sidebar-profile-copy">
+                      <strong>{profileName}</strong>
+                      <span>{profilePlan ? `Active plan · ${profilePlan}` : profileMeta}</span>
+                    </div>
+                  ) : null}
+                </Link>
+              )}
               <div className="internal-sidebar-quick-actions">
                 <a
                   aria-label="Download AIcloser mobile app"

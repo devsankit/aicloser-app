@@ -27,6 +27,14 @@ const nextConfig: NextConfig = {
       { source: "/sales/signup", destination: "/signup", permanent: true },
     ];
   },
+  async rewrites() {
+    return [
+      { source: "/api/v1/auth/login", destination: "/api/mobile/auth/login" },
+      { source: "/api/v1/auth/logout", destination: "/api/auth/logout" },
+      { source: "/api/v1/auth/heartbeat", destination: "/api/auth/heartbeat" },
+      { source: "/api/v1/mobile/sync", destination: "/api/sales/mobile/offline-events/sync" },
+    ];
+  },
   async headers() {
     return [
       {

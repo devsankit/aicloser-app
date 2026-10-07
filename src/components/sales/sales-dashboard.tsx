@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { closestCorners, DndContext, type DragEndEvent, useDroppable } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -54,32 +55,136 @@ import {
   Users2,
 } from "lucide-react";
 
-import { AdminWhatsAppSetupPanel } from "@/components/admin/admin-dummy-controls";
-import { ChatWorkspace } from "@/components/chat/chat-workspace";
-import { SuperAdminInstagramPluginCard, type InstagramPluginConnectionView, type InstagramSetupUrls } from "@/components/super-admin/super-admin-instagram-plugin-card";
-import { SuperAdminWhatsAppFlowBuilder } from "@/components/super-admin/super-admin-whatsapp-flow-builder";
-import { WhatsAppMarketingDashboard } from "@/components/whatsapp-marketing/whatsapp-marketing-dashboard";
+import type { InstagramPluginConnectionView, InstagramSetupUrls } from "@/components/super-admin/super-admin-instagram-plugin-card";
 import { InternalAppShell } from "@/components/ui/internal-app-shell";
 import { GlobalAiToggleButton } from "@/components/ai/global-ai-toggle-button";
-import { RolePermissionsPanel } from "@/components/sales/role-permissions-panel";
-import { AiBotBetaPanel } from "@/components/sales/ai-bot-beta-panel";
-import { StatusLabelsModal } from "@/components/sales/status-labels-modal";
 import { LeadNotesManager } from "@/components/sales/lead-notes-manager";
 import { LeadStatusTagsSelector } from "@/components/sales/lead-status-tags-selector";
-import { CallingCampaignsPanel } from "@/components/sales/calling-campaigns-panel";
-import { MissedCallsQueue } from "@/components/sales/missed-calls-queue";
-import { AutomationWorkflowsPanel } from "@/components/sales/automation-workflows-panel";
-import { AdvancedReportsPanel } from "@/components/sales/advanced-reports-panel";
-import { ReferralCommissionPanel } from "@/components/sales/referral-commission-panel";
-import { CustomFieldsPanel } from "@/components/sales/custom-fields-panel";
 import { LeadCustomFieldsEditor } from "@/components/sales/lead-custom-fields-editor";
 import { LeadIqCard } from "@/components/sales/lead-iq-card";
-import { DuplicateLeadsModal } from "@/components/sales/duplicate-leads-modal";
-import { ContactsHub } from "@/components/sales/contacts-hub";
-import { PluginsHub } from "@/components/sales/plugins-hub";
-import { LeadFormBuilder } from "@/components/sales/lead-form-builder";
-import { CrmSettingsPanel } from "@/components/sales/crm-settings-panel";
-import { TeamActivityPanel } from "@/components/sales/team-activity-panel";
+
+function PanelLoadingSkeleton({ label = "Loading..." }: { label?: string }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        minHeight: "360px",
+        padding: "48px 24px",
+        gap: "14px",
+        borderRadius: "14px",
+        border: "1px dashed var(--closer-line, rgba(148, 163, 184, 0.25))",
+        background: "var(--closer-surface, rgba(255, 255, 255, 0.45))",
+        margin: "16px auto",
+        maxWidth: "var(--crm-content-max, 1280px)",
+        width: "100%",
+      }}
+    >
+      <div
+        style={{
+          width: "32px",
+          height: "32px",
+          borderRadius: "50%",
+          border: "3px solid #6366f1",
+          borderTopColor: "transparent",
+          animation: "crmSpin 0.75s linear infinite",
+        }}
+      />
+      <div style={{ textAlign: "center" }}>
+        <strong style={{ display: "block", fontSize: "14px", color: "var(--closer-ink, #0f172a)", fontWeight: 600 }}>
+          {label}
+        </strong>
+        <span style={{ fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>
+          Loading module workspace...
+        </span>
+      </div>
+      <style>{`@keyframes crmSpin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
+
+const ChatWorkspace = dynamic(
+  () => import("@/components/chat/chat-workspace").then((m) => m.ChatWorkspace),
+  { ssr: false, loading: () => <PanelLoadingSkeleton label="Loading Social Inbox..." /> }
+);
+const SuperAdminWhatsAppFlowBuilder = dynamic(
+  () => import("@/components/super-admin/super-admin-whatsapp-flow-builder").then((m) => m.SuperAdminWhatsAppFlowBuilder),
+  { ssr: false, loading: () => <PanelLoadingSkeleton label="Loading Chatbot Builder..." /> }
+);
+const WhatsAppMarketingDashboard = dynamic(
+  () => import("@/components/whatsapp-marketing/whatsapp-marketing-dashboard").then((m) => m.WhatsAppMarketingDashboard),
+  { ssr: false, loading: () => <PanelLoadingSkeleton label="Loading WhatsApp Marketing..." /> }
+);
+const RolePermissionsPanel = dynamic(
+  () => import("@/components/sales/role-permissions-panel").then((m) => m.RolePermissionsPanel),
+  { ssr: false, loading: () => <PanelLoadingSkeleton label="Loading Roles & Permissions..." /> }
+);
+const AiBotBetaPanel = dynamic(
+  () => import("@/components/sales/ai-bot-beta-panel").then((m) => m.AiBotBetaPanel),
+  { ssr: false, loading: () => <PanelLoadingSkeleton label="Loading AI Assistant..." /> }
+);
+const StatusLabelsModal = dynamic(
+  () => import("@/components/sales/status-labels-modal").then((m) => m.StatusLabelsModal),
+  { ssr: false }
+);
+const CallingCampaignsPanel = dynamic(
+  () => import("@/components/sales/calling-campaigns-panel").then((m) => m.CallingCampaignsPanel),
+  { ssr: false, loading: () => <PanelLoadingSkeleton label="Loading Calling Campaigns..." /> }
+);
+const MissedCallsQueue = dynamic(
+  () => import("@/components/sales/missed-calls-queue").then((m) => m.MissedCallsQueue),
+  { ssr: false, loading: () => <PanelLoadingSkeleton label="Loading Missed Calls..." /> }
+);
+const AutomationWorkflowsPanel = dynamic(
+  () => import("@/components/sales/automation-workflows-panel").then((m) => m.AutomationWorkflowsPanel),
+  { ssr: false, loading: () => <PanelLoadingSkeleton label="Loading Automations..." /> }
+);
+const AdvancedReportsPanel = dynamic(
+  () => import("@/components/sales/advanced-reports-panel").then((m) => m.AdvancedReportsPanel),
+  { ssr: false, loading: () => <PanelLoadingSkeleton label="Loading Performance Reports..." /> }
+);
+const ReferralCommissionPanel = dynamic(
+  () => import("@/components/sales/referral-commission-panel").then((m) => m.ReferralCommissionPanel),
+  { ssr: false, loading: () => <PanelLoadingSkeleton label="Loading Commissions & Referrals..." /> }
+);
+const CustomFieldsPanel = dynamic(
+  () => import("@/components/sales/custom-fields-panel").then((m) => m.CustomFieldsPanel),
+  { ssr: false, loading: () => <PanelLoadingSkeleton label="Loading Custom Fields..." /> }
+);
+const DuplicateLeadsModal = dynamic(
+  () => import("@/components/sales/duplicate-leads-modal").then((m) => m.DuplicateLeadsModal),
+  { ssr: false }
+);
+const ContactsHub = dynamic(
+  () => import("@/components/sales/contacts-hub").then((m) => m.ContactsHub),
+  { ssr: false, loading: () => <PanelLoadingSkeleton label="Loading Contacts Hub..." /> }
+);
+const PluginsHub = dynamic(
+  () => import("@/components/sales/plugins-hub").then((m) => m.PluginsHub),
+  { ssr: false, loading: () => <PanelLoadingSkeleton label="Loading Integrations..." /> }
+);
+const LeadFormBuilder = dynamic(
+  () => import("@/components/sales/lead-form-builder").then((m) => m.LeadFormBuilder),
+  { ssr: false, loading: () => <PanelLoadingSkeleton label="Loading Lead Form Builder..." /> }
+);
+const CrmSettingsPanel = dynamic(
+  () => import("@/components/sales/crm-settings-panel").then((m) => m.CrmSettingsPanel),
+  { ssr: false, loading: () => <PanelLoadingSkeleton label="Loading Settings..." /> }
+);
+const TeamActivityPanel = dynamic(
+  () => import("@/components/sales/team-activity-panel").then((m) => m.TeamActivityPanel),
+  { ssr: false, loading: () => <PanelLoadingSkeleton label="Loading Team Activity..." /> }
+);
+const AdminWhatsAppSetupPanel = dynamic(
+  () => import("@/components/admin/admin-dummy-controls").then((m) => m.AdminWhatsAppSetupPanel),
+  { ssr: false, loading: () => <PanelLoadingSkeleton label="Loading WhatsApp Connection..." /> }
+);
+const SuperAdminInstagramPluginCard = dynamic(
+  () => import("@/components/super-admin/super-admin-instagram-plugin-card").then((m) => m.SuperAdminInstagramPluginCard),
+  { ssr: false, loading: () => <PanelLoadingSkeleton label="Loading Instagram Plugin..." /> }
+);
 import type { AgencyTenant } from "@/lib/gigxomi/agency-network-data";
 import type { DummyWhatsAppConnectionState } from "@/lib/gigxomi/dummy-platform-store";
 import type { SalesOperatingSnapshot } from "@/lib/gigxomi/sales-operating-system-store";
@@ -183,6 +288,14 @@ function recordingStatusLabel(value: string | null | undefined) {
 
 function formatDate(value: string | null) {
   return value ? new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" }).format(new Date(value)) : "Not set";
+}
+
+function toDateTimeLocal(value: string | null | undefined) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const offset = date.getTimezoneOffset();
+  return new Date(date.getTime() - offset * 60_000).toISOString().slice(0, 16);
 }
 
 function cleanPhone(value: string) {
@@ -1064,6 +1177,42 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     await submitJson("/api/sales/leads", { action: "stage", leadId, stage }, "Lead stage updated.");
   }
 
+  async function addQuickLeadNote(leadId: string, body: string) {
+    const response = await fetch(`/api/sales/leads/${encodeURIComponent(leadId)}/notes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body: body.trim(), type: "NOTE", source: "web-dashboard" }),
+    });
+    const payload = await response.json().catch(() => null);
+    const ok = Boolean(response.ok && payload?.ok);
+    setStatus(ok ? "Note saved and synced." : payload?.error ?? "Unable to save note.");
+    if (ok) await Promise.all([refresh(), refreshOperating()]);
+    return ok;
+  }
+
+  async function saveQuickFollowUp(leadId: string, followUpAt: string) {
+    const lead = snapshot.visibleLeads.find((item) => item.id === leadId) ?? snapshot.leads.find((item) => item.id === leadId);
+    if (!lead) return false;
+    return submitJson(
+      "/api/sales/leads",
+      {
+        action: "update",
+        leadId,
+        customerName: lead.customerName,
+        customerPhone: lead.customerPhone,
+        customerEmail: lead.customerEmail,
+        serviceInterest: lead.serviceInterest,
+        segment: lead.segment,
+        priority: lead.priority,
+        tags: lead.tags,
+        budgetAmount: lead.budgetAmount,
+        followUpAt,
+        notes: lead.notes,
+      },
+      "Next follow-up saved.",
+    );
+  }
+
   async function moveLeadStage(leadId: string, stage: SalesLeadStage) {
     const previous = snapshot;
     const target = snapshot.visibleLeads.find((lead) => lead.id === leadId);
@@ -1088,10 +1237,15 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   }
 
   function handleLeadDragEnd(event: DragEndEvent) {
+    if (!canModifyLeads) {
+      setStatus("Lead stage changes are disabled for your role. Ask an administrator to enable them.");
+      return;
+    }
     const leadId = String(event.active.id);
     const overId = String(event.over?.id ?? "");
+    const overLead = snapshot.visibleLeads.find((lead) => lead.id === overId) ?? snapshot.leads.find((lead) => lead.id === overId);
     const overStage = (event.over?.data.current?.stage as SalesLeadStage | undefined) ??
-      (overId.startsWith("stage:") ? overId.slice("stage:".length) as SalesLeadStage : undefined);
+      (overId.startsWith("stage:") ? overId.slice("stage:".length) as SalesLeadStage : overLead?.stage);
     if (overStage) moveLeadStage(leadId, overStage).catch(() => setStatus("Lead stage update failed."));
   }
 
@@ -1204,7 +1358,8 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       navigationOrderKey={`sales-${sessionRole}-${currentAgent?.id ?? "workspace"}`}
       onNavigate={navigateSales}
       profileMeta={currentAgent?.agentCode ?? "Sales agent"}
-      profilePlan={profilePlan}
+      hideSidebarIdentity={isCloser}
+      profilePlan={isCloser ? undefined : profilePlan}
       profileName={currentAgent?.displayName ?? "Sales workspace"}
       showNotifications
       showTopbar
@@ -2153,7 +2308,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
 
           <div className="sales-crm-surface">
             {crmView === "kanban" ? (
-              <DndContext collisionDetection={closestCorners} onDragEnd={handleLeadDragEnd}>
+      <DndContext collisionDetection={closestCorners} onDragEnd={handleLeadDragEnd}>
                 <div className="sales-kanban">
                   {pipelineColumns.map((col) => {
                     const colLeads = filteredLeads.filter((lead) => col.matchingStages.includes(lead.stage));
@@ -2165,6 +2320,8 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                         key={col.key}
                         leads={colLeads}
                         onOpen={setSelectedLeadId}
+                        onQuickFollowUp={saveQuickFollowUp}
+                        onQuickNote={addQuickLeadNote}
                         onStage={updateLeadStage}
                         canModifyLeads={canModifyLeads}
                         snapshot={snapshot}
@@ -2553,6 +2710,8 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
           <LeadDetailForm
             lead={selectedLead}
             onNote={addLeadNote}
+            onQuickFollowUp={saveQuickFollowUp}
+            onQuickNote={addQuickLeadNote}
             onOpenChat={openLeadChat}
             onOpenManageLabels={() => setIsStatusLabelsModalOpen(true)}
             onSave={updateLeadBasics}
@@ -2706,6 +2865,8 @@ function LeadKanbanColumn({
   columnLabel,
   leads,
   onOpen,
+  onQuickFollowUp,
+  onQuickNote,
   onStage,
   snapshot,
   stage,
@@ -2716,6 +2877,8 @@ function LeadKanbanColumn({
   columnLabel?: string;
   leads: SalesDashboardSnapshot["visibleLeads"];
   onOpen: (leadId: string) => void;
+  onQuickFollowUp: (leadId: string, followUpAt: string) => Promise<boolean>;
+  onQuickNote: (leadId: string, body: string) => Promise<boolean>;
   onStage: (leadId: string, stage: SalesLeadStage) => void;
   snapshot: SalesDashboardSnapshot;
   stage: SalesLeadStage;
@@ -2734,7 +2897,7 @@ function LeadKanbanColumn({
         ) : null}
       </header>
       <SortableContext items={leads.map((lead) => lead.id)} strategy={verticalListSortingStrategy}>
-        {leads.map((lead) => <LeadCrmCard call={calls.get(lead.id)} canModifyLeads={canModifyLeads} key={lead.id} lead={lead} onOpen={onOpen} onStage={onStage} snapshot={snapshot} />)}
+        {leads.map((lead) => <LeadCrmCard call={calls.get(lead.id)} canModifyLeads={canModifyLeads} key={lead.id} lead={lead} onOpen={onOpen} onQuickFollowUp={onQuickFollowUp} onQuickNote={onQuickNote} onStage={onStage} snapshot={snapshot} />)}
       </SortableContext>
       {!leads.length ? <p className="sales-kanban-empty">Drop leads here</p> : null}
     </section>
@@ -2746,6 +2909,8 @@ function LeadCrmCard({
   call,
   lead,
   onOpen,
+  onQuickFollowUp,
+  onQuickNote,
   onStage,
   snapshot,
 }: {
@@ -2753,10 +2918,20 @@ function LeadCrmCard({
   call?: SalesDashboardSnapshot["mobileCalls"][number];
   lead: SalesDashboardSnapshot["visibleLeads"][number];
   onOpen: (leadId: string) => void;
+  onQuickFollowUp: (leadId: string, followUpAt: string) => Promise<boolean>;
+  onQuickNote: (leadId: string, body: string) => Promise<boolean>;
   onStage: (leadId: string, stage: SalesLeadStage) => void;
   snapshot: SalesDashboardSnapshot;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: lead.id, data: { stage: lead.stage } });
+  const [quickAction, setQuickAction] = useState<"note" | "follow-up" | null>(null);
+  const [quickNote, setQuickNote] = useState("");
+  const [quickFollowUp, setQuickFollowUp] = useState(() => toDateTimeLocal(lead.followUpAt));
+  const [quickSaving, setQuickSaving] = useState(false);
+
+  useEffect(() => {
+    setQuickFollowUp(toDateTimeLocal(lead.followUpAt));
+  }, [lead.followUpAt]);
   const style = {
     opacity: isDragging ? 0.72 : 1,
     transform: CSS.Transform.toString(transform),
@@ -2819,7 +2994,7 @@ function LeadCrmCard({
           <span style={{ color: lead.priority === "hot" ? "#dc2626" : lead.priority === "warm" ? "#d97706" : undefined }}>{lead.priority}</span>
           <span>{agentName(snapshot, lead.assignedAgentId)}</span>
         </div>
-        {lead.tags && lead.tags.length > 0 ? (
+      {lead.tags && lead.tags.length > 0 ? (
           <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginTop: "5px" }}>
             {lead.tags.map((tag) => (
               <span key={tag} style={{
@@ -2835,8 +3010,62 @@ function LeadCrmCard({
               </span>
             ))}
           </div>
-        ) : null}
+      ) : null}
       </button>
+      <div className="sales-crm-card-quick-actions" style={{ display: "flex", gap: "5px", flexWrap: "wrap", marginTop: "7px" }}>
+        <button
+          className="sales-secondary-button compact"
+          disabled={!canModifyLeads || quickSaving}
+          onClick={() => setQuickAction((current) => current === "note" ? null : "note")}
+          type="button"
+        >
+          <FileText size={12} /> Note
+        </button>
+        <button
+          className="sales-secondary-button compact"
+          disabled={!canModifyLeads || quickSaving}
+          onClick={() => setQuickAction((current) => current === "follow-up" ? null : "follow-up")}
+          type="button"
+        >
+          <CalendarPlus size={12} /> Follow-up
+        </button>
+      </div>
+      {quickAction === "note" ? (
+        <form
+          onSubmit={async (event) => {
+            event.preventDefault();
+            if (!quickNote.trim()) return;
+            setQuickSaving(true);
+            const ok = await onQuickNote(lead.id, quickNote);
+            setQuickSaving(false);
+            if (ok) {
+              setQuickNote("");
+              setQuickAction(null);
+            }
+          }}
+          style={{ display: "grid", gap: "5px", marginTop: "6px" }}
+        >
+          <textarea aria-label={`Quick note for ${lead.customerName}`} onChange={(event) => setQuickNote(event.target.value)} placeholder="Add a note..." rows={2} value={quickNote} />
+          <button className="sales-primary-button compact" disabled={quickSaving || !quickNote.trim()} type="submit">{quickSaving ? "Saving..." : "Save note"}</button>
+        </form>
+      ) : null}
+      {quickAction === "follow-up" ? (
+        <form
+          onSubmit={async (event) => {
+            event.preventDefault();
+            if (!quickFollowUp) return;
+            setQuickSaving(true);
+            const ok = await onQuickFollowUp(lead.id, new Date(quickFollowUp).toISOString());
+            setQuickSaving(false);
+            if (ok) setQuickAction(null);
+          }}
+          style={{ display: "grid", gap: "5px", marginTop: "6px" }}
+        >
+          <label style={{ fontSize: "11px", fontWeight: 700 }}>Next follow-up</label>
+          <input aria-label={`Next follow-up for ${lead.customerName}`} onChange={(event) => setQuickFollowUp(event.target.value)} type="datetime-local" value={quickFollowUp} />
+          <button className="sales-primary-button compact" disabled={quickSaving || !quickFollowUp} type="submit">{quickSaving ? "Saving..." : "Save follow-up"}</button>
+        </form>
+      ) : null}
       {call?.recordingStatus === "UPLOADED" ? <CallRecordingPlayer callId={call.id} expectedDurationSeconds={call.durationSeconds} labelText={`${lead.customerName} recording`} /> : null}
       {lead.customerPhone ? (
         <a className="sales-secondary-button compact" href={`https://wa.me/${cleanPhone(lead.customerPhone)}`} rel="noreferrer" target="_blank">WhatsApp</a>
@@ -2887,6 +3116,8 @@ function LeadSourceBadge({ source }: { source?: string | null }) {
 function LeadDetailForm({
   lead,
   onNote,
+  onQuickFollowUp,
+  onQuickNote,
   onOpenChat,
   onOpenManageLabels,
   onSave,
@@ -2898,6 +3129,8 @@ function LeadDetailForm({
 }: {
   lead: SalesDashboardSnapshot["visibleLeads"][number];
   onNote: (event: FormEvent<HTMLFormElement>, leadId: string) => void;
+  onQuickFollowUp: (leadId: string, followUpAt: string) => Promise<boolean>;
+  onQuickNote: (leadId: string, body: string) => Promise<boolean>;
   onOpenChat: (leadId: string) => void;
   onOpenManageLabels?: () => void;
   onSave: (event: FormEvent<HTMLFormElement>, leadId: string) => void;
@@ -2922,6 +3155,30 @@ function LeadDetailForm({
   const [fieldVisitNote, setFieldVisitNote] = useState("");
   const [fieldVisitGpsLog, setFieldVisitGpsLog] = useState<string | null>(null);
   const [actionBanner, setActionBanner] = useState<string | null>(null);
+  const [quickNote, setQuickNote] = useState("");
+  const [followUpAt, setFollowUpAt] = useState(() => toDateTimeLocal(lead.followUpAt));
+  const [quickSaving, setQuickSaving] = useState(false);
+
+  useEffect(() => {
+    setFollowUpAt(toDateTimeLocal(lead.followUpAt));
+  }, [lead.followUpAt]);
+
+  const saveQuickNote = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!quickNote.trim()) return;
+    setQuickSaving(true);
+    const ok = await onQuickNote(lead.id, quickNote);
+    setQuickSaving(false);
+    if (ok) setQuickNote("");
+  };
+
+  const saveQuickFollowUp = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!followUpAt) return;
+    setQuickSaving(true);
+    await onQuickFollowUp(lead.id, new Date(followUpAt).toISOString());
+    setQuickSaving(false);
+  };
 
   const handleScheduleGoogleMeet = async () => {
     const formattedWhen = meetDateTime ? new Date(meetDateTime).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "Upcoming";
@@ -3049,10 +3306,27 @@ function LeadDetailForm({
             </a>
           ) : null}
         </div>
+
+        <div style={{ display: "grid", gap: "8px", marginTop: "12px", paddingTop: "12px", borderTop: "1px solid var(--closer-line, #cbd5e1)" }}>
+          <strong style={{ fontSize: "12px", color: "var(--closer-ink, #0f172a)" }}>Next action</strong>
+          <form onSubmit={saveQuickNote} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: "6px" }}>
+            <input aria-label="Add a quick lead note" onChange={(event) => setQuickNote(event.target.value)} placeholder="Add note for this lead..." value={quickNote} />
+            <button className="sales-secondary-button compact" disabled={quickSaving || !quickNote.trim()} type="submit"><FileText size={12} /> {quickSaving ? "Saving" : "Add note"}</button>
+          </form>
+          <form onSubmit={saveQuickFollowUp} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: "6px", alignItems: "center" }}>
+            <label style={{ display: "grid", gap: "3px", fontSize: "11px", fontWeight: 700, color: "var(--closer-muted, #64748b)" }}>
+              Follow-up date &amp; time
+              <input aria-label="Next follow-up date and time" onChange={(event) => setFollowUpAt(event.target.value)} type="datetime-local" value={followUpAt} />
+            </label>
+            <button className="sales-primary-button compact" disabled={quickSaving || !followUpAt} type="submit"><CalendarPlus size={12} /> Save follow-up</button>
+          </form>
+        </div>
       </div>
 
-      {/* TeleCRM Lead-IQ Next-Best-Action Script & Objection Matrix */}
-      <LeadIqCard leadId={lead.id} />
+      <details className="sales-lead-advanced-details">
+        <summary>More tools: AI guidance, Meet and field visit</summary>
+        {/* TeleCRM Lead-IQ Next-Best-Action Script & Objection Matrix */}
+        <LeadIqCard leadId={lead.id} />
 
       {/* TeleCRM Audit Item #8: Google Meet Scheduling & Field Visit GPS Geo-Check-In */}
       <div className="sales-panel nested" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
@@ -3121,6 +3395,7 @@ function LeadDetailForm({
           ) : null}
         </div>
       </div>
+      </details>
 
       {/* 2. Call Recordings & Outcome History */}
       <div className="sales-panel nested">
@@ -3172,11 +3447,13 @@ function LeadDetailForm({
         leadId={lead.id}
       />
 
-      {/* TeleCRM Custom Schema Fields */}
-      <LeadCustomFieldsEditor leadId={lead.id} />
+      <details className="sales-lead-advanced-details">
+        <summary>Lead information and integrations</summary>
+        {/* TeleCRM Custom Schema Fields */}
+        <LeadCustomFieldsEditor leadId={lead.id} />
 
-      {/* 4. Edit Lead Information Form */}
-      <form className="sales-form-grid" onSubmit={(event) => onSave(event, lead.id)}>
+        {/* 4. Edit Lead Information Form */}
+        <form className="sales-form-grid" onSubmit={(event) => onSave(event, lead.id)}>
         <PanelTitle icon={KanbanSquare} title="Lead Profile & Details" />
         <label className="sales-form-field">
           <span>Assigned sales user</span>
@@ -3210,11 +3487,11 @@ function LeadDetailForm({
         <input defaultValue={lead.tags.join(", ")} name="tags" placeholder="Tags" />
         <textarea defaultValue={lead.notes} name="notes" placeholder="Notes" />
         <button className="sales-primary-button" type="submit">Save lead details</button>
-      </form>
+        </form>
 
-      {/* 5. Direct WhatsApp Message Form */}
-      {lead.customerPhone ? (
-        <form className="sales-form-grid" onSubmit={(event) => onWhatsApp(event, lead.id)}>
+        {/* 5. Direct WhatsApp Message Form */}
+        {lead.customerPhone ? (
+          <form className="sales-form-grid" onSubmit={(event) => onWhatsApp(event, lead.id)}>
           <PanelTitle icon={MessageCircle} title="Send WhatsApp Message" />
           <textarea name="message" placeholder="Message customer through shared WhatsApp inbox" required />
           <div className="sales-button-row">
@@ -3222,8 +3499,9 @@ function LeadDetailForm({
             <button className="sales-secondary-button" onClick={() => onOpenChat(lead.id)} type="button">Open full chat</button>
             <a className="sales-secondary-button" href={`https://wa.me/${cleanPhone(lead.customerPhone)}`} rel="noreferrer" target="_blank">Open WhatsApp Web</a>
           </div>
-        </form>
-      ) : null}
+          </form>
+        ) : null}
+      </details>
     </div>
   );
 }

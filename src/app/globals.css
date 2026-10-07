@@ -2237,6 +2237,197 @@ select option:focus {
   text-align: left;
 }
 
+.sales-crm-card-quick-actions {
+  border-top: 1px solid var(--color-border-soft);
+  padding-top: 7px;
+}
+
+.sales-crm-card-quick-actions .sales-secondary-button {
+  min-height: 30px;
+}
+
+.sales-crm-card-quick-actions textarea,
+.sales-crm-card-quick-actions input {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: var(--color-surface);
+  color: var(--foreground);
+  padding: 7px 9px;
+  font-size: 12px;
+}
+
+.sales-crm-card-quick-actions textarea:focus,
+.sales-crm-card-quick-actions input:focus {
+  border-color: var(--closer-orange);
+  outline: 2px solid var(--closer-orange-soft);
+  outline-offset: 1px;
+}
+
+.sales-lead-advanced-details {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface-soft);
+  padding: 0 12px 12px;
+}
+
+.sales-lead-advanced-details > summary {
+  cursor: pointer;
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 800;
+  list-style-position: inside;
+  padding: 12px 0;
+}
+
+.sales-lead-advanced-details[open] > summary {
+  border-bottom: 1px solid var(--color-border-soft);
+  margin-bottom: 12px;
+}
+
+.sales-lead-history {
+  gap: 12px;
+}
+
+.sales-lead-history-header,
+.sales-lead-history-item-head,
+.sales-lead-history-tools,
+.sales-lead-history-item-meta,
+.sales-lead-history-actions {
+  display: flex;
+  align-items: center;
+}
+
+.sales-lead-history-header,
+.sales-lead-history-item-head {
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sales-lead-history-header strong {
+  color: var(--foreground);
+  font-size: 14px;
+}
+
+.sales-lead-history-tools,
+.sales-lead-history-item-meta,
+.sales-lead-history-actions {
+  gap: 6px;
+}
+
+.sales-lead-history-sync-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.12);
+  color: #15803d;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 3px 8px;
+}
+
+.sales-lead-history-refresh,
+.sales-lead-history-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px;
+}
+
+.sales-lead-history-refresh:hover,
+.sales-lead-history-action:hover {
+  background: var(--color-surface-soft);
+  color: var(--closer-orange);
+}
+
+.sales-lead-history-action.danger:hover {
+  color: #dc2626;
+}
+
+.sales-lead-history-composer-row {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
+.sales-lead-history-list {
+  display: grid;
+  gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 2px 4px 2px 2px;
+}
+
+.sales-lead-history-item {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--closer-orange);
+  border-radius: 8px;
+  background: var(--color-surface);
+  padding: 9px 10px;
+}
+
+.sales-lead-history-type {
+  border-radius: 4px;
+  background: var(--closer-orange-soft);
+  color: var(--closer-orange);
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 6px;
+}
+
+.sales-lead-history-type.is-call {
+  background: rgba(14, 165, 233, 0.12);
+  color: #0284c7;
+}
+
+.sales-lead-history-type.is-objection {
+  background: rgba(239, 68, 68, 0.12);
+  color: #dc2626;
+}
+
+.sales-lead-history-date {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.sales-lead-history-body {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.sales-lead-history-empty {
+  margin: 6px 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+@media (max-width: 560px) {
+  .sales-lead-history-composer-row {
+    grid-template-columns: 1fr;
+  }
+
+  .sales-lead-history-composer-row select,
+  .sales-lead-history-composer-row button {
+    width: 100%;
+  }
+}
+
 .sales-crm-drag-handle {
   display: inline-flex;
   align-items: center;

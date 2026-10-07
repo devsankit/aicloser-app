@@ -42,12 +42,14 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
     access.agent.tenantId ||
     "tenant-gigxomi";
   const operationsTenantId = effectiveTenantId;
-  const salesFlowScopeId = access.agent.id;
+  const currentTab = typeof params?.tab === "string" ? params.tab : "";
+  const needsChatbotData = currentTab === "chatbot-builder";
+
   const [snapshot, whatsAppConnection, chatbotFlows, chatbotRuns] = await Promise.all([
     getSalesSnapshotForRole({ userId: session.userId ?? "", role: session.role, tenantId: effectiveTenantId }),
     getSalesWhatsAppChannelView(operationsTenantId),
-    listSalesWhatsAppFlows(salesFlowScopeId),
-    listSalesWhatsAppFlowRuns(salesFlowScopeId),
+    needsChatbotData ? listSalesWhatsAppFlows(salesFlowScopeId) : Promise.resolve([]),
+    needsChatbotData ? listSalesWhatsAppFlowRuns(salesFlowScopeId) : Promise.resolve([]),
   ]);
 
   return (

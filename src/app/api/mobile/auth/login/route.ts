@@ -70,7 +70,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     if (error instanceof ClientSlotOccupiedError) {
-      return NextResponse.json({ ok: false, error: error.code, message: "This user already has an active mobile session" }, { status: 409 });
+      return NextResponse.json({ ok: false, error: error.code, message: "Your mobile account is already active on another device." }, { status: 409 });
     }
     throw error;
   }
