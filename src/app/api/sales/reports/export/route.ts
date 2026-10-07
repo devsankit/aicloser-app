@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSessionRole } from "@/lib/api/require-session-role";
 import { generateLeadsCsv, generateCallsCsv, generateContactsCsv } from "@/lib/gigxomi/advanced-reports-store";
+import { getSalesSnapshotForRole } from "@/lib/gigxomi/sales-store";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -23,17 +24,22 @@ export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const type = url.searchParams.get("type") || "leads";
+    const requestedAgentId = url.searchParams.get("agentId")?.trim() || null;
+    const snapshot = auth.ok ? await getSalesSnapshotForRole(auth.session) : null;
+    const selectedAgentId = requestedAgentId && snapshot?.visibleAgents.some((agent) => agent.id === requestedAgentId)
+      ? requestedAgentId
+      : null;
 
     let csv = "";
     let filename = "";
     if (type === "calls") {
-      csv = await generateCallsCsv();
+      csv = await generateCallsCsv(selectedAgentId);
       filename = `aicloser-calls-export-${new Date().toISOString().slice(0, 10)}.csv`;
     } else if (type === "contacts") {
       csv = await generateContactsCsv();
       filename = `aicloser-contacts-export-${new Date().toISOString().slice(0, 10)}.csv`;
     } else {
-      csv = await generateLeadsCsv();
+      csv = await generateLeadsCsv(selectedAgentId);
       filename = `aicloser-leads-export-${new Date().toISOString().slice(0, 10)}.csv`;
     }
 
@@ -49,4 +55,3 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: error?.message || "Export failed" }, { status: 500 });
   }
 }
-

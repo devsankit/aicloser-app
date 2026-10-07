@@ -14,6 +14,7 @@ import {
   CheckCircle2,
   Clock,
   Clock3,
+  Code2,
   Copy,
   Download,
   Edit3,
@@ -84,6 +85,7 @@ type SalesTab =
   | "calls"
   | "campaigns"
   | "automations"
+  | "developer"
   | "forms"
   | "plugins"
   | "reports"
@@ -121,6 +123,7 @@ const tabs: Array<{ id: SalesTab; label: string; icon: typeof Users; badge?: str
   { id: "plugins", label: "Plugins & Channels", icon: Users2, badge: "WA + Email + IG", group: "growth" },
   { id: "whatsapp-marketing", label: "WhatsApp Marketing", icon: MessageCircle, group: "growth" },
   { id: "automations", label: "AI Bot & Automations", icon: Bot, badge: "AI + Flows", group: "growth" },
+  { id: "developer", label: "Developer", icon: Code2, badge: "Webhooks + API", group: "system" },
   { id: "reports", label: "Reports & Lead-IQ", icon: BarChart3, group: "system" },
   { id: "roles", label: "Team & Users", icon: UserRound, badge: "Plan & Seats", group: "system" },
   { id: "profile", label: "Settings, Team & Channels", icon: Sliders, group: "system" },
@@ -381,6 +384,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   const [operating, setOperating] = useState<SalesOperatingSnapshot | null>(null);
   const [activeTab, setActiveTab] = useState<SalesTab>("dashboard");
   const [crmView, setCrmView] = useState<CrmView>("kanban");
+  const [viewingAgentId, setViewingAgentId] = useState("all");
   const [segmentFilter, setSegmentFilter] = useState("all");
   const [dateRangeFilter, setDateRangeFilter] = useState<"all" | "today" | "yesterday" | "last7" | "month" | "custom">("all");
   const [customStartDate, setCustomStartDate] = useState("");
@@ -406,7 +410,11 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     String(currentAgentPermissions?.workspaceRole ?? "").toUpperCase() === "ADMIN";
   const navigationTabs = isWorkspaceAdmin
     ? tabs
-    : tabs.filter((tab) => tab.id !== "roles" && tab.id !== "profile");
+    : tabs.filter((tab) => tab.id !== "roles" && tab.id !== "profile" && tab.id !== "developer");
+  const canViewTeamData = isWorkspaceAdmin || sessionRole === "MANAGER";
+  const viewingAgent = viewingAgentId === "all"
+    ? null
+    : snapshot.visibleAgents.find((agent) => agent.id === viewingAgentId) ?? null;
 
   // SIM Calling Telemetry & Filtering
   const filteredCalls = useMemo(() => {
@@ -643,6 +651,11 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     const params = new URLSearchParams(window.location.search);
     const savedTab = params.get("tab") ?? window.sessionStorage.getItem("gigxomi-sales-tab");
     const savedView = params.get("view");
+    const savedViewingAgent = params.get("viewAgent") ?? window.sessionStorage.getItem("gxclosers-viewing-agent");
+    if (savedViewingAgent && savedViewingAgent !== "all") {
+      setViewingAgentId(savedViewingAgent);
+      void refresh(savedViewingAgent).catch(() => setStatus("Unable to load the selected user's workspace data."));
+    }
     const timer = window.setTimeout(() => {
       if (savedTab === "campaigns") {
         setActiveTab("calls");
@@ -668,6 +681,12 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   }, []);
 
   useEffect(() => {
+    if (viewingAgentId !== "all" && !snapshot.visibleAgents.some((agent) => agent.id === viewingAgentId)) {
+      setViewingAgentId("all");
+    }
+  }, [snapshot.visibleAgents, viewingAgentId]);
+
+  useEffect(() => {
     if (!restoredNavigation.current) return;
     window.sessionStorage.setItem("gigxomi-sales-tab", activeTab);
     window.sessionStorage.setItem("gigxomi-sales-crm-view", crmView);
@@ -684,10 +703,22 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     void refresh().catch(() => setStatus("Unable to refresh this CRM view."));
   }, [activeTab]);
 
-  async function refresh() {
-    const response = await fetch("/api/sales/dashboard", { cache: "no-store" });
+  async function refresh(agentId = viewingAgentId) {
+    const params = new URLSearchParams();
+    if (agentId && agentId !== "all") params.set("agentId", agentId);
+    const response = await fetch(`/api/sales/dashboard${params.toString() ? `?${params.toString()}` : ""}`, { cache: "no-store" });
     const payload = await response.json().catch(() => null);
     if (payload?.ok) setSnapshot(payload.snapshot);
+  }
+
+  function updateViewingAgent(agentId: string) {
+    setViewingAgentId(agentId);
+    window.sessionStorage.setItem("gxclosers-viewing-agent", agentId);
+    const url = new URL(window.location.href);
+    if (agentId === "all") url.searchParams.delete("viewAgent");
+    else url.searchParams.set("viewAgent", agentId);
+    window.history.replaceState({}, "", url);
+    void refresh(agentId).catch(() => setStatus("Unable to load the selected user's workspace data."));
   }
 
   async function exportLeads(format: "csv" | "excel") {
@@ -955,6 +986,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       showTopbar
       showTopbarLabel
       title={pageTitle}
+      topbarAccessory={canViewTeamData ? <AdminViewingContext agents={snapshot.visibleAgents} selectedAgentId={viewingAgentId} onChange={updateViewingAgent} /> : null}
       topbarCenter={<GlobalAiToggleButton />}
     >
       <div className={isConversationTab ? "sales-theme-scope sales-theme-scope-chat" : "sales-theme-scope"} style={salesThemeStyle}>
@@ -1186,6 +1218,10 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                               </span>
                             </>
                           ) : null}
+                          <span>•</span>
+                          <span style={{ color: "var(--closer-ink, #334155)", fontWeight: 600 }}>
+                            Owner: {agentName(snapshot, lead.assignedAgentId)}
+                          </span>
                         </div>
                       </div>
                       <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
@@ -1254,7 +1290,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                       Recent call activity
                     </h3>
                     <p style={{ margin: "2px 0 0", fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>
-                      Calls and recordings from your sales team
+                      Calls and recordings · {viewingAgent?.displayName ?? "All team users"}
                     </p>
                   </div>
                 </div>
@@ -1318,6 +1354,10 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                           <span>{call.phoneNumber}</span>
                           <span>•</span>
                           <span>{formatDateTime(call.startedAt)}</span>
+                          <span>•</span>
+                          <span style={{ color: "var(--closer-ink, #334155)", fontWeight: 600 }}>
+                            By {agentName(snapshot, call.agentId)}
+                          </span>
                           {call.outcome ? (
                             <>
                               <span>•</span>
@@ -1485,10 +1525,6 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
             </div>
           </div>
 
-          {/* 4. Sales Conversion Funnel & Pipeline Pulse */}
-          <Panel title="Sales Conversion Funnel & Pipeline Pulse" icon={BarChart3} full>
-            <FunnelGraph funnel={snapshot.reports.funnel} />
-          </Panel>
         </section>
       ) : null}
 
@@ -1906,6 +1942,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                       <strong>{call.customerName}</strong>
                       <span>{call.phoneNumber} - {label(call.status)} - {call.durationSeconds}s</span>
                       <small>{formatDateTime(call.startedAt)} - {call.outcome ? label(call.outcome) : "Outcome pending"}</small>
+                      <small>Owner: {agentName(snapshot, call.agentId)}</small>
                       <small>{call.note || "Mandatory call notes pending"}</small>
                       {call.recordingError ? <small>Recording issue: {call.recordingError}</small> : null}
                     </div>
@@ -1922,7 +1959,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
         </div>
       ) : null}
 
-      {activeTab === "automations" || activeTab === "ai-beta" ? (
+      {activeTab === "automations" || activeTab === "ai-beta" || activeTab === "developer" ? (
         <div style={{ display: "grid", gap: "20px", width: "100%", maxWidth: "1280px", margin: "0 auto", padding: "16px 20px" }}>
           <div
             style={{
@@ -1939,13 +1976,15 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
           >
             <div>
               <strong style={{ display: "block", fontSize: "15px", color: "var(--closer-ink, #0f172a)" }}>
-                AI Bot, Optional Referral Webhook &amp; Workflow Automations Hub
+                {activeTab === "developer" ? "Developer Integrations &amp; API Access" : "AI Bot &amp; Workflow Automations Hub"}
               </strong>
               <span style={{ fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>
-                All AI qualification bots, optional referral tracking webhooks, IF/AND trigger workflows, cron schedules, and REST API keys on a single page.
+                {activeTab === "developer"
+                  ? "Manage inbound lead webhooks, workspace API keys, and developer tokens in one place."
+                  : "Manage AI qualification bots, IF/AND trigger workflows, and cron schedules from one workspace."}
               </span>
             </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+            {activeTab !== "developer" ? <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
               {[
                 { id: "all", label: "All on Single Page" },
                 { id: "ai-bot", label: "AI Bot & Referral Webhook Plugin" },
@@ -1969,22 +2008,24 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                   {pill.label}
                 </button>
               ))}
-            </div>
+            </div> : null}
           </div>
 
           {automationsHubView === "all" || automationsHubView === "ai-bot" ? (
             <AiBotBetaPanel />
           ) : null}
 
-          {automationsHubView === "all" || automationsHubView === "workflows" ? (
-            <AutomationWorkflowsPanel />
+          {activeTab === "developer" ? (
+            <AutomationWorkflowsPanel mode="developer" />
+          ) : automationsHubView === "all" || automationsHubView === "workflows" ? (
+            <AutomationWorkflowsPanel mode="workflows" />
           ) : null}
         </div>
       ) : null}
 
       {activeTab === "reports" ? (
         <section className="sales-tool-workspace" style={{ padding: "20px", width: "100%", maxWidth: "1280px", margin: "0 auto" }}>
-          <AdvancedReportsPanel />
+          <AdvancedReportsPanel selectedAgentId={viewingAgentId === "all" ? null : viewingAgentId} selectedAgentName={viewingAgent?.displayName ?? null} />
         </section>
       ) : null}
 
@@ -1992,7 +2033,9 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
         <section className="sales-tool-workspace sales-settings-workspace" style={{ padding: "16px 20px", width: "100%", maxWidth: "1350px", margin: "0 auto" }}>
           <CrmSettingsPanel
             isAdmin={isWorkspaceAdmin}
-            initialTab={activeTab === "roles" ? "round_robin" : undefined}
+            initialTab={activeTab === "roles" ? "team" : undefined}
+            showRolePermissionsTab={activeTab === "roles"}
+            showTeamTab={activeTab === "roles"}
             tenantId={salesOperations.tenantId}
             rolePermissionsComponent={<RolePermissionsPanel canManageUsers={isWorkspaceAdmin} />}
             whatsAppSetupComponent={
@@ -2166,28 +2209,34 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   );
 }
 
-function FunnelGraph({ funnel }: { funnel: SalesDashboardSnapshot["reports"]["funnel"] }) {
-  const stages = funnel.length ? funnel : [{ stage: "NEW" as SalesLeadStage, count: 0, value: 0 }];
-  const maxCount = Math.max(...stages.map((stage) => stage.count), 1);
-  const maxValue = Math.max(...stages.map((stage) => stage.value), 1);
+function AdminViewingContext({
+  agents,
+  selectedAgentId,
+  onChange,
+}: {
+  agents: SalesDashboardSnapshot["visibleAgents"];
+  selectedAgentId: string;
+  onChange: (agentId: string) => void;
+}) {
+  const activeAgents = agents.filter((agent) => agent.status === "ACTIVE");
 
   return (
-    <div className="sales-funnel-visual" aria-label="Sales funnel visual">
-      {stages.map((stage, index) => {
-        const width = Math.max(22, Math.round((stage.count / maxCount) * 100));
-        const glow = Math.max(8, Math.round((stage.value / maxValue) * 100));
-        return (
-          <div className="sales-funnel-step" key={stage.stage}>
-            <div>
-              <span>{index + 1}</span>
-              <strong>{label(stage.stage)}</strong>
-              <small>{stage.count} leads - {money(stage.value)}</small>
-            </div>
-            <i style={{ "--funnel-width": `${width}%`, "--funnel-glow": `${glow / 2}px` } as CSSProperties} />
-          </div>
-        );
-      })}
-    </div>
+    <label className="admin-viewing-context">
+      <UserRound size={14} aria-hidden="true" />
+      <span className="admin-viewing-context-label">Viewing data for</span>
+      <select
+        aria-label="Viewing data for user"
+        value={selectedAgentId}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="all">All team users</option>
+        {activeAgents.map((agent) => (
+          <option key={agent.id} value={agent.id}>
+            {agent.displayName} · {agent.agentCode}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 

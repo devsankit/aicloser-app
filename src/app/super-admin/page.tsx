@@ -1,97 +1,147 @@
 import type { Metadata } from "next";
 
-import { SuperAdminCloserControl } from "@/components/super-admin/super-admin-closer-control";
-import type { AdminRegistration, AdminWebinar } from "@/components/super-admin/gapp-webinar-console";
+import { SuperAdminCloserControl, type SuperAdminUser, type SuperAdminStats } from "@/components/super-admin/super-admin-closer-control";
 import { requirePageRole } from "@/lib/auth/page-guard";
 import { getSessionContext } from "@/lib/auth/session";
-import { getSalesOperatingSnapshot } from "@/lib/gigxomi/sales-operating-system-store";
-import type { SalesOperatingSnapshot } from "@/lib/gigxomi/sales-operating-system-store";
-import { getSalesSnapshotForRole } from "@/lib/gigxomi/sales-store";
+import { prisma } from "@/lib/prisma";
 
 export const metadata: Metadata = {
-  title: "Super Admin Command Center | GXclosers",
+  title: "Super Admin Command Center | AI Closer",
   robots: { index: false, follow: false },
 };
 
-function emptySalesOperatingSnapshot(): SalesOperatingSnapshot {
-  return {
-    courses: [],
-    modules: [],
-    lessons: [],
-    progress: [],
-    unlockRules: [],
-    agentLevel: null,
-    mockCalls: [],
-    webinars: [],
-    webinarInvites: [],
-    learningPosts: [],
-    timeline: [],
-    roundRobinRules: [],
-  };
-}
-
-const defaultWebinar: AdminWebinar = {
-  id: "gapp-default-webinar",
-  title: "Agency Growth & High-Ticket Closing Masterclass",
-  description: "Live training session on closing high-ticket digital services and building recurring agency revenue.",
-  scheduledAt: new Date(Date.now() + 7 * 86400000).toISOString(),
-  capacity: 500,
-  countdownEnabled: true,
-  currency: "INR",
-  meetingLink: "https://meet.google.com/gx-masterclass",
-  phonePeEnabled: false,
-  priceAmount: 0,
-  priceMode: "FREE",
-  registrationEnabled: true,
-  thumbnailUrl: null,
-};
-
 export default async function SuperAdminPage() {
-  await requirePageRole(["SUPER_ADMIN"], "/super-admin");
-  const session = await getSessionContext();
-  let snapshot;
-  let operatingSnapshot = emptySalesOperatingSnapshot();
+  const session = await requirePageRole(["SUPER_ADMIN"], "/super-admin");
+
+  let users: SuperAdminUser[] = [];
+  let stats: SuperAdminStats = {
+    totalUsers: 0,
+    activeUsers: 0,
+    totalSeats: 0,
+    newUsersToday: 0,
+  };
 
   try {
-    snapshot = await getSalesSnapshotForRole({ userId: session.userId ?? "", role: "SUPER_ADMIN" });
+    const [rawUsers, agentProfiles, tenants] = await Promise.all([
+      prisma.appAuthUser.findMany({
+        select: {
+          id: true,
+          displayName: true,
+          email: true,
+          phone: true,
+          role: true,
+          assignedRole: true,
+          tenantId: true,
+          packageName: true,
+          packageStatus: true,
+          packageExpiresAt: true,
+          createdAt: true,
+          lastLoginAt: true,
+          isSeeded: true,
+        },
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.salesAgentProfile.findMany({
+        select: {
+          id: true,
+          userId: true,
+          agentCode: true,
+          status: true,
+          maxActiveLeads: true,
+          permissions: true,
+          createdAt: true,
+        },
+      }),
+      prisma.tenant.findMany({
+        select: {
+          id: true,
+          name: true,
+          ownerUserId: true,
+          editorSeatLimit: true,
+        },
+      }),
+    ]);
+
+    const agentMap = new Map<string, (typeof agentProfiles)[number]>();
+    for (const agent of agentProfiles) {
+      agentMap.set(agent.userId, agent);
+    }
+
+    const tenantMap = new Map<string, (typeof tenants)[number]>();
+    for (const tenant of tenants) {
+      if (tenant.id) tenantMap.set(tenant.id, tenant);
+      if (tenant.ownerUserId) tenantMap.set(tenant.ownerUserId, tenant);
+    }
+
+    users = rawUsers.map((user) => {
+      const agent = agentMap.get(user.id);
+      const tenant = user.tenantId ? tenantMap.get(user.tenantId) : tenantMap.get(user.id);
+      const permissions = (agent?.permissions as Record<string, unknown> | null) ?? {};
+
+      const seatLimit =
+        typeof permissions.seatLimit === "number"
+          ? permissions.seatLimit
+          : typeof permissions.maxUsers === "number"
+            ? permissions.maxUsers
+            : typeof permissions.seats === "number"
+              ? permissions.seats
+              : tenant?.editorSeatLimit ?? 5;
+
+      const companyName =
+        (typeof permissions.companyName === "string" && permissions.companyName.trim()) ||
+        tenant?.name ||
+        (user.tenantId && user.tenantId !== "tenant-gigxomi" ? user.tenantId : "") ||
+        "Personal Workspace";
+
+      const effectiveRole =
+        typeof permissions.workspaceRole === "string" && permissions.workspaceRole
+          ? permissions.workspaceRole
+          : user.assignedRole || user.role;
+
+      const effectiveStatus = agent?.status ?? "ACTIVE";
+
+      return {
+        id: user.id,
+        displayName: user.displayName,
+        email: user.email || "",
+        phone: user.phone || "",
+        role: effectiveRole,
+        companyName,
+        status: effectiveStatus,
+        seatLimit: Math.max(1, Number(seatLimit) || 5),
+        agentCode: agent?.agentCode ?? null,
+        agentProfileId: agent?.id ?? null,
+        tenantId: user.tenantId,
+        packageName: user.packageName || "Pro Workspace",
+        createdAt: user.createdAt.toISOString(),
+        lastLoginAt: user.lastLoginAt ? user.lastLoginAt.toISOString() : null,
+        isSeeded: user.isSeeded,
+        isSuperAdmin: user.id === "user-super-admin" || user.role === "SUPER_ADMIN",
+      };
+    });
+
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+
+    stats = {
+      totalUsers: users.length,
+      activeUsers: users.filter((u) => u.status === "ACTIVE").length,
+      totalSeats: users.reduce((sum, u) => sum + (u.seatLimit || 0), 0),
+      newUsersToday: users.filter((u) => new Date(u.createdAt).getTime() >= startOfToday).length,
+    };
   } catch (error) {
-    console.error("Failed to load super-admin sales dashboard snapshot.", error);
-  }
-
-  let intelligenceSnapshot = null;
-
-  if (snapshot) {
-    try {
-      operatingSnapshot = await getSalesOperatingSnapshot({ userId: session.userId ?? "", role: "SUPER_ADMIN" });
-    } catch (error) {
-      console.error("Failed to load super-admin sales operating snapshot; rendering dashboard with empty operating data.", error);
-    }
-    try {
-      const { getCloserIntelligenceSnapshot } = await import("@/lib/gigxomi/closer-intelligence-store");
-      intelligenceSnapshot = await getCloserIntelligenceSnapshot();
-    } catch (error) {
-      console.error("Failed to load closer intelligence snapshot.", error);
-    }
-  }
-
-  if (snapshot) {
-    return (
-      <SuperAdminCloserControl
-        initialGappRegistrations={[] as AdminRegistration[]}
-        initialGappWebinar={defaultWebinar}
-        initialOperatingSnapshot={operatingSnapshot}
-        initialSnapshot={snapshot}
-        initialIntelligence={intelligenceSnapshot}
-      />
-    );
+    console.error("Failed to load super-admin user directory.", error);
   }
 
   return (
-    <main className="sales-auth-shell">
-      <section className="sales-auth-card">
-        <h1>Super Admin Data Unavailable</h1>
-        <p>Could not initialize sales platform snapshot. Verify database connectivity.</p>
-      </section>
-    </main>
+    <SuperAdminCloserControl
+      adminUser={{
+        displayName: session.displayName,
+        email: session.email,
+        role: session.role,
+      }}
+      initialUsers={users}
+      initialStats={stats}
+    />
   );
 }

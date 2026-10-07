@@ -28,6 +28,8 @@ type CrmSettingsPanelProps = {
   initialTab?: SettingsTab;
   tenantId?: string;
   rolePermissionsComponent?: ReactNode;
+  showRolePermissionsTab?: boolean;
+  showTeamTab?: boolean;
   whatsAppSetupComponent?: ReactNode;
   instagramSetupComponent?: ReactNode;
   customFieldsComponent?: ReactNode;
@@ -47,6 +49,8 @@ export function CrmSettingsPanel({
   initialTab = "round_robin",
   tenantId,
   rolePermissionsComponent,
+  showRolePermissionsTab = true,
+  showTeamTab = true,
   whatsAppSetupComponent,
   instagramSetupComponent,
   customFieldsComponent,
@@ -230,7 +234,7 @@ export function CrmSettingsPanel({
                 <span>Lead Round-Robin</span>
               </button>
 
-              <button
+              {showRolePermissionsTab ? <button
                 type="button"
                 onClick={() => setActiveTab("permissions")}
                 style={{
@@ -250,7 +254,7 @@ export function CrmSettingsPanel({
               >
                 <ShieldCheck size={16} />
                 <span>Role Permissions</span>
-              </button>
+              </button> : null}
 
               <button
                 type="button"
@@ -274,7 +278,7 @@ export function CrmSettingsPanel({
                 <span>Channel Credentials</span>
               </button>
 
-              <button
+              {showTeamTab ? <button
                 type="button"
                 onClick={() => setActiveTab("team")}
                 style={{
@@ -293,8 +297,8 @@ export function CrmSettingsPanel({
                 }}
               >
                 <UserCheck size={16} />
-                <span>Team & Sales Agents</span>
-              </button>
+                <span>Team &amp; Users</span>
+              </button> : null}
 
               <button
                 type="button"
@@ -522,8 +526,9 @@ export function CrmSettingsPanel({
           ) : null}
 
           {/* TAB 2: ROLES & GRANULAR PERMISSIONS */}
-          {activeTab === "permissions" ? (
+          {activeTab === "permissions" && showRolePermissionsTab ? (
             <div style={{ display: "grid", gap: 20 }}>
+              {rolePermissionsComponent ? <div>{rolePermissionsComponent}</div> : <>
               <div>
                 <span style={{ fontSize: 11, fontWeight: 700, color: "#ff6b2f", textTransform: "uppercase" }}>
                   Access Governance & Security
@@ -642,7 +647,7 @@ export function CrmSettingsPanel({
                 </div>
               </div>
 
-              {rolePermissionsComponent ? <div style={{ marginTop: 16 }}>{rolePermissionsComponent}</div> : null}
+              </>}
             </div>
           ) : null}
 
@@ -675,8 +680,10 @@ export function CrmSettingsPanel({
           ) : null}
 
           {/* TAB 4: TEAM & USERS */}
-          {activeTab === "team" ? (
+          {activeTab === "team" && showTeamTab ? (
             <div style={{ display: "grid", gap: 16 }}>
+              {rolePermissionsComponent ? <div>{rolePermissionsComponent}</div> : null}
+              {!rolePermissionsComponent ? <>
               <div>
                 <span style={{ fontSize: 11, fontWeight: 700, color: "#ff6b2f", textTransform: "uppercase" }}>
                   Sales Roster
@@ -710,6 +717,7 @@ export function CrmSettingsPanel({
                   </div>
                 ))}
               </div>
+              </> : null}
             </div>
           ) : null}
 

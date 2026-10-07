@@ -3,6 +3,8 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Download,
   Edit3,
   FileSpreadsheet,
@@ -317,6 +319,8 @@ export function ContactsHub({
     "Aarav Khanna, +91 98112 34901, aarav@khannaventures.in\nPriya Nair, +91 98450 11229, priya@nairstudio.com\nRishi Oberoi, +91 98209 88321, rishi@oberoirealty.in",
   );
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const contactsTableShellRef = useRef<HTMLDivElement | null>(null);
+  const [contactsTableScroll, setContactsTableScroll] = useState({ left: 0, max: 0 });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   // 3. Email Inbox (Gmail, Zoho, GoDaddy, Custom IMAP/SMTP) State
@@ -459,6 +463,38 @@ export function ContactsHub({
       );
     });
   }, [contacts, activeFilter, searchQuery]);
+
+  const syncContactsTableScroll = useCallback(() => {
+    const node = contactsTableShellRef.current;
+    if (!node) return;
+    setContactsTableScroll({
+      left: node.scrollLeft,
+      max: Math.max(0, node.scrollWidth - node.clientWidth),
+    });
+  }, []);
+
+  const scrollContactsTable = useCallback((delta: number) => {
+    const node = contactsTableShellRef.current;
+    if (!node) return;
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    node.scrollBy({ left: delta, behavior: prefersReducedMotion ? "auto" : "smooth" });
+  }, []);
+
+  useEffect(() => {
+    const node = contactsTableShellRef.current;
+    if (!node) return;
+
+    syncContactsTableScroll();
+    const handleResize = () => syncContactsTableScroll();
+    window.addEventListener("resize", handleResize);
+    const resizeObserver = typeof ResizeObserver !== "undefined" ? new ResizeObserver(handleResize) : null;
+    resizeObserver?.observe(node);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      resizeObserver?.disconnect();
+    };
+  }, [filteredContacts.length, syncContactsTableScroll]);
 
   // --- Actions ---
   const handleGenerateQr = async () => {
@@ -2682,7 +2718,61 @@ export function ContactsHub({
         ) : null}
 
         {/* Contacts Table */}
-        <div className="crm-table-shell">
+        <div className="crm-table-scroll-region">
+          <div className="crm-table-scroll-toolbar">
+            <span className="crm-table-scroll-hint">Scroll horizontally to view all contact details</span>
+            <div className="crm-table-scroll-controls" role="group" aria-label="Contacts table horizontal scroll controls">
+              <button
+                type="button"
+                className="crm-table-scroll-button"
+                onClick={() => scrollContactsTable(-280)}
+                disabled={contactsTableScroll.left <= 0}
+                aria-label="Scroll contacts table left"
+                title="Show columns to the left"
+              >
+                <ChevronLeft size={16} aria-hidden="true" />
+              </button>
+              <input
+                type="range"
+                className="crm-table-scroll-slider"
+                min={0}
+                max={Math.max(1, contactsTableScroll.max)}
+                step={1}
+                value={Math.min(contactsTableScroll.left, contactsTableScroll.max)}
+                onChange={(event) => {
+                  const nextLeft = Number(event.target.value);
+                  if (contactsTableShellRef.current) {
+                    contactsTableShellRef.current.scrollLeft = nextLeft;
+                  }
+                  setContactsTableScroll((previous) => ({ ...previous, left: nextLeft }));
+                }}
+                disabled={contactsTableScroll.max === 0}
+                aria-label="Horizontal contacts table scroll position"
+                aria-valuetext={
+                  contactsTableScroll.max === 0
+                    ? "All columns visible"
+                    : `${Math.round((contactsTableScroll.left / contactsTableScroll.max) * 100)}% across table`
+                }
+              />
+              <button
+                type="button"
+                className="crm-table-scroll-button"
+                onClick={() => scrollContactsTable(280)}
+                disabled={contactsTableScroll.left >= contactsTableScroll.max}
+                aria-label="Scroll contacts table right"
+                title="Show columns to the right"
+              >
+                <ChevronRight size={16} aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+          <div
+            ref={contactsTableShellRef}
+            className="crm-table-shell"
+            onScroll={syncContactsTableScroll}
+            tabIndex={0}
+            aria-label="Contacts table. Use the horizontal scrollbar or slider to view all columns."
+          >
           <table className="crm-data-table crm-contacts-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
             <thead>
               <tr
@@ -2886,6 +2976,7 @@ export function ContactsHub({
               )}
             </tbody>
           </table>
+          </div>
         </div>
       </div>
       </>

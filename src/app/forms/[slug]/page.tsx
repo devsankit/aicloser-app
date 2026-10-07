@@ -89,7 +89,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ slug: str
 
   if (loading) {
     return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#09090b", color: "#fff" }}>
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--crm-canvas)", color: "var(--crm-text)" }}>
         Loading form...
       </div>
     );
@@ -97,9 +97,9 @@ export default function PublicFormPage({ params }: { params: Promise<{ slug: str
 
   if (!form) {
     return (
-      <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#09090b", color: "#fff" }}>
+      <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--crm-canvas)", color: "var(--crm-text)" }}>
         <h2>Form Not Found</h2>
-        <p style={{ color: "#94a3b8" }}>The requested sales form is inactive or does not exist.</p>
+        <p style={{ color: "var(--crm-text-secondary)" }}>The requested sales form is inactive or does not exist.</p>
       </div>
     );
   }
@@ -113,8 +113,8 @@ export default function PublicFormPage({ params }: { params: Promise<{ slug: str
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: "radial-gradient(ellipse at top, #1c1917 0%, #09090b 70%)",
-        color: "#fff",
+        background: "var(--crm-canvas)",
+        color: "var(--crm-text)",
         fontFamily: "system-ui, -apple-system, sans-serif",
         padding: "2rem 1rem",
       }}
@@ -123,19 +123,18 @@ export default function PublicFormPage({ params }: { params: Promise<{ slug: str
         style={{
           width: "100%",
           maxWidth: "520px",
-          background: "rgba(24, 24, 27, 0.85)",
-          backdropFilter: "blur(16px)",
-          border: "1px solid rgba(255, 107, 47, 0.25)",
+          background: "var(--crm-surface)",
+          border: "1px solid var(--crm-primary-border)",
           borderRadius: "16px",
           padding: "2.5rem 2rem",
-          boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 30px rgba(255, 107, 47, 0.15)",
+          boxShadow: "var(--crm-shadow-card)",
         }}
       >
         {submitted ? (
           <div style={{ textAlign: "center", padding: "2rem 0" }}>
             <CheckCircle2 size={56} color="#10b981" style={{ margin: "0 auto 1.5rem" }} />
             <h2 style={{ fontSize: "1.5rem", fontWeight: 700, margin: "0 0 0.5rem" }}>Request Received!</h2>
-            <p style={{ color: "#cbd5e1", fontSize: "0.95rem", lineHeight: 1.5 }}>
+            <p style={{ color: "var(--crm-text-secondary)", fontSize: "0.95rem", lineHeight: 1.5 }}>
               {successMessage}
             </p>
           </div>
@@ -149,8 +148,8 @@ export default function PublicFormPage({ params }: { params: Promise<{ slug: str
                   gap: "0.4rem",
                   padding: "0.3rem 0.8rem",
                   borderRadius: "20px",
-                  background: "rgba(255, 107, 47, 0.15)",
-                  color: "#ff8c42",
+                  background: "var(--crm-primary-soft)",
+                  color: "var(--crm-primary)",
                   fontSize: "0.75rem",
                   fontWeight: 600,
                   marginBottom: "0.75rem",
@@ -161,7 +160,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ slug: str
               <h1 style={{ fontSize: "1.6rem", fontWeight: 800, margin: "0 0 0.5rem", letterSpacing: "-0.02em" }}>
                 {form.title}
               </h1>
-              <p style={{ color: "#94a3b8", fontSize: "0.88rem", margin: 0 }}>
+              <p style={{ color: "var(--crm-text-secondary)", fontSize: "0.88rem", margin: 0 }}>
                 {form.description}
               </p>
             </div>
@@ -171,9 +170,9 @@ export default function PublicFormPage({ params }: { params: Promise<{ slug: str
                 style={{
                   padding: "0.75rem 1rem",
                   borderRadius: "8px",
-                  background: "rgba(239, 68, 68, 0.15)",
-                  border: "1px solid rgba(239, 68, 68, 0.3)",
-                  color: "#f87171",
+                  background: "color-mix(in srgb, var(--crm-error) 10%, var(--crm-surface))",
+                  border: "1px solid color-mix(in srgb, var(--crm-error) 32%, var(--crm-border))",
+                  color: "var(--crm-error)",
                   fontSize: "0.85rem",
                   marginBottom: "1.25rem",
                 }}
@@ -185,11 +184,11 @@ export default function PublicFormPage({ params }: { params: Promise<{ slug: str
             <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
               {form.includeCustomerName && (
                 <div>
-                  <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 500, color: "#cbd5e1", marginBottom: "0.35rem" }}>
+                  <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--crm-text-secondary)", marginBottom: "0.35rem" }}>
                     Your Name *
                   </label>
                   <div style={{ position: "relative" }}>
-                    <User size={16} color="#64748b" style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)" }} />
+                    <User size={16} color="var(--crm-text-muted)" style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)" }} />
                     <input
                       type="text"
                       required
@@ -200,9 +199,9 @@ export default function PublicFormPage({ params }: { params: Promise<{ slug: str
                         width: "100%",
                         padding: "0.65rem 0.75rem 0.65rem 2.4rem",
                         borderRadius: "8px",
-                        background: "rgba(0, 0, 0, 0.4)",
-                        border: "1px solid rgba(255, 255, 255, 0.12)",
-                        color: "#fff",
+                        background: "var(--crm-surface-soft)",
+                        border: "1px solid var(--crm-border)",
+                        color: "var(--crm-text)",
                         fontSize: "0.9rem",
                         boxSizing: "border-box",
                       }}
@@ -213,11 +212,11 @@ export default function PublicFormPage({ params }: { params: Promise<{ slug: str
 
               {form.includeCustomerPhone && (
                 <div>
-                  <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 500, color: "#cbd5e1", marginBottom: "0.35rem" }}>
+                  <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--crm-text-secondary)", marginBottom: "0.35rem" }}>
                     WhatsApp / Phone Number *
                   </label>
                   <div style={{ position: "relative" }}>
-                    <Phone size={16} color="#64748b" style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)" }} />
+                    <Phone size={16} color="var(--crm-text-muted)" style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)" }} />
                     <input
                       type="tel"
                       required
@@ -228,9 +227,9 @@ export default function PublicFormPage({ params }: { params: Promise<{ slug: str
                         width: "100%",
                         padding: "0.65rem 0.75rem 0.65rem 2.4rem",
                         borderRadius: "8px",
-                        background: "rgba(0, 0, 0, 0.4)",
-                        border: "1px solid rgba(255, 255, 255, 0.12)",
-                        color: "#fff",
+                        background: "var(--crm-surface-soft)",
+                        border: "1px solid var(--crm-border)",
+                        color: "var(--crm-text)",
                         fontSize: "0.9rem",
                         boxSizing: "border-box",
                       }}
@@ -241,11 +240,11 @@ export default function PublicFormPage({ params }: { params: Promise<{ slug: str
 
               {form.includeCustomerEmail && (
                 <div>
-                  <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 500, color: "#cbd5e1", marginBottom: "0.35rem" }}>
+                  <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--crm-text-secondary)", marginBottom: "0.35rem" }}>
                     Email Address
                   </label>
                   <div style={{ position: "relative" }}>
-                    <Mail size={16} color="#64748b" style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)" }} />
+                    <Mail size={16} color="var(--crm-text-muted)" style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)" }} />
                     <input
                       type="email"
                       placeholder="name@company.com"
@@ -255,9 +254,9 @@ export default function PublicFormPage({ params }: { params: Promise<{ slug: str
                         width: "100%",
                         padding: "0.65rem 0.75rem 0.65rem 2.4rem",
                         borderRadius: "8px",
-                        background: "rgba(0, 0, 0, 0.4)",
-                        border: "1px solid rgba(255, 255, 255, 0.12)",
-                        color: "#fff",
+                        background: "var(--crm-surface-soft)",
+                        border: "1px solid var(--crm-border)",
+                        color: "var(--crm-text)",
                         fontSize: "0.9rem",
                         boxSizing: "border-box",
                       }}
@@ -268,7 +267,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ slug: str
 
               {form.includeServiceInterest && (
                 <div>
-                  <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 500, color: "#cbd5e1", marginBottom: "0.35rem" }}>
+                  <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--crm-text-secondary)", marginBottom: "0.35rem" }}>
                     Service / Package Interest
                   </label>
                   <input
@@ -280,9 +279,9 @@ export default function PublicFormPage({ params }: { params: Promise<{ slug: str
                       width: "100%",
                       padding: "0.65rem 0.75rem",
                       borderRadius: "8px",
-                      background: "rgba(0, 0, 0, 0.4)",
-                      border: "1px solid rgba(255, 255, 255, 0.12)",
-                      color: "#fff",
+                      background: "var(--crm-surface-soft)",
+                      border: "1px solid var(--crm-border)",
+                      color: "var(--crm-text)",
                       fontSize: "0.9rem",
                       boxSizing: "border-box",
                     }}
@@ -293,7 +292,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ slug: str
               {/* Dynamic Custom Fields */}
               {includedCustomFields.map((field) => (
                 <div key={field.id}>
-                  <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 500, color: "#cbd5e1", marginBottom: "0.35rem" }}>
+                  <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--crm-text-secondary)", marginBottom: "0.35rem" }}>
                     {field.label} {field.required && "*"}
                   </label>
                   {field.type === "dropdown" ? (
@@ -305,9 +304,9 @@ export default function PublicFormPage({ params }: { params: Promise<{ slug: str
                         width: "100%",
                         padding: "0.65rem 0.75rem",
                         borderRadius: "8px",
-                        background: "rgba(0, 0, 0, 0.4)",
-                        border: "1px solid rgba(255, 255, 255, 0.12)",
-                        color: "#fff",
+                        background: "var(--crm-surface-soft)",
+                        border: "1px solid var(--crm-border)",
+                        color: "var(--crm-text)",
                         fontSize: "0.9rem",
                         boxSizing: "border-box",
                       }}
@@ -342,7 +341,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ slug: str
               ))}
 
               <div>
-                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 500, color: "#cbd5e1", marginBottom: "0.35rem" }}>
+                    <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--crm-text-secondary)", marginBottom: "0.35rem" }}>
                   Additional Notes / Requirement
                 </label>
                 <textarea
@@ -354,9 +353,9 @@ export default function PublicFormPage({ params }: { params: Promise<{ slug: str
                     width: "100%",
                     padding: "0.65rem 0.75rem",
                     borderRadius: "8px",
-                    background: "rgba(0, 0, 0, 0.4)",
-                    border: "1px solid rgba(255, 255, 255, 0.12)",
-                    color: "#fff",
+                    background: "var(--crm-surface-soft)",
+                    border: "1px solid var(--crm-border)",
+                    color: "var(--crm-text)",
                     fontSize: "0.9rem",
                     boxSizing: "border-box",
                   }}
@@ -370,13 +369,13 @@ export default function PublicFormPage({ params }: { params: Promise<{ slug: str
                   marginTop: "0.75rem",
                   padding: "0.85rem",
                   borderRadius: "8px",
-                  background: "linear-gradient(135deg, #ff6b2f, #ff8c42)",
+                  background: "var(--crm-primary)",
                   color: "#fff",
                   border: "none",
                   fontSize: "1rem",
                   fontWeight: 700,
                   cursor: submitting ? "wait" : "pointer",
-                  boxShadow: "0 4px 14px rgba(255, 107, 47, 0.4)",
+                  boxShadow: "var(--crm-shadow-focus)",
                 }}
               >
                 {submitting ? "Submitting..." : "Submit & Request Callback"}

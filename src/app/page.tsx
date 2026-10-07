@@ -32,7 +32,7 @@ export default async function SalesPage({ searchParams }: { searchParams?: Promi
     }
   }
 
-  await requirePageRole(["SALES_AGENT"], "/");
+  await requirePageRole(["SALES_AGENT", "ADMIN", "MANAGER"], "/");
   const session = await getSessionContext();
   const access = await getSalesAgentAccess(session.userId);
   if (!access.ok) {

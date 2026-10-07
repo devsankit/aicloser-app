@@ -4,7 +4,12 @@ import { useEffect, useState } from "react";
 import { BarChart3, Download, Clock, Award, Users, Filter, Sparkles, Mail, Send, CheckCircle2, Loader2, Contact } from "lucide-react";
 import type { HourlyCallBucket, AgentProductivityRow, SourcePerformanceRow } from "@/lib/gigxomi/advanced-reports-store";
 
-export function AdvancedReportsPanel() {
+type AdvancedReportsPanelProps = {
+  selectedAgentId?: string | null;
+  selectedAgentName?: string | null;
+};
+
+export function AdvancedReportsPanel({ selectedAgentId = null, selectedAgentName = null }: AdvancedReportsPanelProps) {
   const [hourly, setHourly] = useState<HourlyCallBucket[]>([]);
   const [leaderboard, setLeaderboard] = useState<AgentProductivityRow[]>([]);
   const [sources, setSources] = useState<SourcePerformanceRow[]>([]);
@@ -27,8 +32,11 @@ export function AdvancedReportsPanel() {
 
   useEffect(() => {
     async function load() {
+      setLoading(true);
       try {
-        const res = await fetch("/api/sales/reports/custom");
+        const params = new URLSearchParams();
+        if (selectedAgentId) params.set("agentId", selectedAgentId);
+        const res = await fetch(`/api/sales/reports/custom${params.toString() ? `?${params.toString()}` : ""}`);
         const data = await res.json();
         if (data.ok) {
           setHourly(data.hourly || []);
@@ -42,7 +50,7 @@ export function AdvancedReportsPanel() {
       }
     }
     load();
-  }, []);
+  }, [selectedAgentId]);
 
   const runMcpQuery = async (customPrompt?: string) => {
     const promptToRun = (customPrompt ?? mcpQuery).trim();
@@ -73,7 +81,9 @@ export function AdvancedReportsPanel() {
   const handleDownload = async (type: "leads" | "calls" | "contacts") => {
     try {
       setDownloadingType(type);
-      const res = await fetch(`/api/sales/reports/export?type=${type}`, {
+      const params = new URLSearchParams({ type });
+      if (selectedAgentId) params.set("agentId", selectedAgentId);
+      const res = await fetch(`/api/sales/reports/export?${params.toString()}`, {
         headers: { Accept: "text/csv, application/json" },
       });
       if (!res.ok) {
@@ -93,7 +103,9 @@ export function AdvancedReportsPanel() {
     } catch (err: any) {
       console.error(`Export ${type} error:`, err);
       // Fallback: window.open
-      window.open(`/api/sales/reports/export?type=${type}`, "_blank");
+      const params = new URLSearchParams({ type });
+      if (selectedAgentId) params.set("agentId", selectedAgentId);
+      window.open(`/api/sales/reports/export?${params.toString()}`, "_blank");
       setScheduleToast(`Initiated ${type.toUpperCase()} CSV download in a new tab.`);
       setTimeout(() => setScheduleToast(null), 4000);
     } finally {
@@ -107,6 +119,7 @@ export function AdvancedReportsPanel() {
   };
 
   const maxCalls = Math.max(...hourly.map((h) => h.totalCalls), 1);
+  const viewingLabel = selectedAgentName ?? "All team users";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
@@ -120,6 +133,9 @@ export function AdvancedReportsPanel() {
           <p style={{ margin: "0.25rem 0 0", fontSize: "0.82rem", color: "var(--closer-muted, #64748b)" }}>
             Custom report dimensions, natural-language Lead-IQ MCP queries, hourly call pacing, and automated email digests.
           </p>
+          <span className="admin-report-viewing-badge" aria-live="polite">
+            <Users size={13} aria-hidden="true" /> Viewing data for: <strong>{viewingLabel}</strong>
+          </span>
         </div>
 
         <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>

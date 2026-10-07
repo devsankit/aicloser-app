@@ -1271,7 +1271,10 @@ export async function trackSalesReferralEvent(input: {
   return { ok: true as const, event: mapReferralEvent(event) };
 }
 
-export async function getSalesSnapshotForRole(session: { userId?: string | null; role: AppRole | "GUEST"; tenantId?: string | null }) {
+export async function getSalesSnapshotForRole(
+  session: { userId?: string | null; role: AppRole | "GUEST"; tenantId?: string | null },
+  requestedAgentId?: string | null,
+) {
   const settings = await ensureSalesDefaults();
   const effectiveTenantId =
     session.tenantId?.trim() ||
@@ -1385,6 +1388,13 @@ export async function getSalesSnapshotForRole(session: { userId?: string | null;
       : currentAgent
         ? agents.filter((agent) => agent.id === currentAgent.id || agent.parentAgentId === currentAgent.id)
         : [];
+  const canViewAnotherAgent = isWorkspaceAdmin || isWorkspaceManager;
+  const observingAgent = canViewAnotherAgent && requestedAgentId
+    ? visibleAgents.find((agent) => agent.id === requestedAgentId.trim()) ?? null
+    : null;
+  const observingAgents = observingAgent ? [observingAgent] : visibleAgents;
+  const observingAgentIds = new Set(observingAgents.map((agent) => agent.id));
+  const isAgentView = Boolean(observingAgent);
   const visibleAgentIds = new Set(visibleAgents.map((agent) => agent.id));
   const leadPool = leadPoolRaw.map(mapLeadPoolItem);
   const leads = leadsRaw.map(mapLead);
@@ -1393,8 +1403,14 @@ export async function getSalesSnapshotForRole(session: { userId?: string | null;
   const payouts = payoutsRaw.map(mapPayout);
   const referralEvents = referralEventsRaw.map(mapReferralEvent);
   const visibleLeadPool =
-    isWorkspaceAdmin
-      ? leadPool
+    (isWorkspaceAdmin || isWorkspaceManager)
+      ? isAgentView
+        ? leadPool.filter((item) => observingAgentIds.has(item.assignedAgentId ?? "") || observingAgentIds.has(item.claimedByAgentId ?? ""))
+        : isWorkspaceAdmin
+          ? leadPool
+          : currentAgent
+            ? leadPool.filter((item) => item.status === "OPEN" || visibleAgentIds.has(item.assignedAgentId ?? "") || visibleAgentIds.has(item.claimedByAgentId ?? ""))
+            : []
       : currentAgent
         ? leadPool.filter((item) =>
             item.status === "OPEN" ||
@@ -1402,14 +1418,14 @@ export async function getSalesSnapshotForRole(session: { userId?: string | null;
             visibleAgentIds.has(item.claimedByAgentId ?? ""),
           )
         : [];
-  const visibleLeads = leads.filter((lead) => visibleAgentIds.has(lead.assignedAgentId));
-  const visibleDeals = deals.filter((deal) => visibleAgentIds.has(deal.agentId));
-  const visibleEarnings = earnings.filter((earning) => visibleAgentIds.has(earning.agentId));
-  const visiblePayouts = payouts.filter((payout) => visibleAgentIds.has(payout.agentId));
-  const visibleReferralEvents = referralEvents.filter((event) => visibleAgentIds.has(event.agentId));
+  const visibleLeads = leads.filter((lead) => observingAgentIds.has(lead.assignedAgentId));
+  const visibleDeals = deals.filter((deal) => observingAgentIds.has(deal.agentId));
+  const visibleEarnings = earnings.filter((earning) => observingAgentIds.has(earning.agentId));
+  const visiblePayouts = payouts.filter((payout) => observingAgentIds.has(payout.agentId));
+  const visibleReferralEvents = referralEvents.filter((event) => observingAgentIds.has(event.agentId));
   const visibleGoals = goalsRaw
     .filter((goal) => {
-      if (session.role === "SUPER_ADMIN") return true;
+      if (session.role === "SUPER_ADMIN" && !isAgentView) return true;
       if (!currentAgent) return false;
       if (goal.scope === "ALL_AGENTS") return true;
       if (goal.scope === "AGENT_GROUP") return goal.groupId === currentAgent.groupId;
@@ -1428,7 +1444,7 @@ export async function getSalesSnapshotForRole(session: { userId?: string | null;
 
   const mobileCalls = await Promise.all(
     mobileCallsRaw
-      .filter((call) => isWorkspaceAdmin || call.agentId === currentAgent?.id)
+      .filter((call) => (isWorkspaceAdmin || isWorkspaceManager) ? (!isAgentView || observingAgentIds.has(call.agentId)) : call.agentId === currentAgent?.id)
       .map(async (call) => {
         let recordingStatus = call.recordingStatus;
         let recordingError = call.recordingError ?? "";
@@ -1483,9 +1499,9 @@ export async function getSalesSnapshotForRole(session: { userId?: string | null;
     visibleDeals,
     visibleEarnings,
     visiblePayouts,
-    leadPool,
-    leads,
-    deals,
+    leadPool: isAgentView ? visibleLeadPool : leadPool,
+    leads: isAgentView ? visibleLeads : leads,
+    deals: isAgentView ? visibleDeals : deals,
     commissionRules: rulesRaw.map((rule) => ({
       id: rule.id,
       name: rule.name,
@@ -1503,9 +1519,9 @@ export async function getSalesSnapshotForRole(session: { userId?: string | null;
       priority: rule.priority,
       isActive: rule.isActive,
     })),
-    earnings,
-    payouts,
-    referrals: referralsRaw.map((referral) => ({
+    earnings: isAgentView ? visibleEarnings : earnings,
+    payouts: isAgentView ? visiblePayouts : payouts,
+    referrals: referralsRaw.filter((referral) => !isAgentView || observingAgentIds.has(referral.agentId)).map((referral) => ({
       id: referral.id,
       agentId: referral.agentId,
       code: referral.code,
@@ -1538,10 +1554,10 @@ export async function getSalesSnapshotForRole(session: { userId?: string | null;
     goals: visibleGoals,
     rewards: visibleRewards,
     mobileDevices: mobileDevicesRaw
-      .filter((device) => isWorkspaceAdmin || device.agentId === currentAgent?.id)
+      .filter((device) => (isWorkspaceAdmin || isWorkspaceManager) ? (!isAgentView || observingAgentIds.has(device.agentId)) : device.agentId === currentAgent?.id)
       .map((device) => ({ id: device.id, agentId: device.agentId, deviceId: device.deviceId, deviceName: device.deviceName, manufacturer: device.manufacturer ?? "", model: device.model ?? "", simLabel: device.simLabel ?? "", officeSimNumber: device.officeSimNumber ?? "", recordingCapability: device.recordingCapability, recordingEnabled: device.recordingEnabled, lastSeenAt: device.lastSeenAt.toISOString(), isActive: device.isActive })),
     mobileCalls,
-    reports: buildReports({ agents: visibleAgents, leadPool: visibleLeadPool, leads: visibleLeads, deals: visibleDeals, earnings: visibleEarnings, payouts: visiblePayouts, referralEvents: visibleReferralEvents, currentAgentId: isWorkspaceAdmin ? null : currentAgent?.id }),
+    reports: buildReports({ agents: observingAgents, leadPool: visibleLeadPool, leads: visibleLeads, deals: visibleDeals, earnings: visibleEarnings, payouts: visiblePayouts, referralEvents: visibleReferralEvents, currentAgentId: isWorkspaceAdmin ? null : currentAgent?.id }),
   } satisfies SalesDashboardSnapshot;
 }
 

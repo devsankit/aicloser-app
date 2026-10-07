@@ -12,12 +12,12 @@ import {
   type SalesAgentStatus,
 } from "@/lib/gigxomi/sales-store";
 
-export type WorkspaceUserRole = "ADMIN" | "MANAGER" | "SALES_AGENT";
+export type WorkspaceUserRole = "UNASSIGNED" | "ADMIN" | "MANAGER" | "SALES_AGENT";
 
 function resolveAgentRole(permissions: Record<string, unknown> | null): WorkspaceUserRole {
   if (!permissions) return "SALES_AGENT";
   const explicit = String(permissions.workspaceRole ?? "").toUpperCase();
-  if (explicit === "ADMIN" || explicit === "MANAGER" || explicit === "SALES_AGENT") {
+  if (explicit === "UNASSIGNED" || explicit === "ADMIN" || explicit === "MANAGER" || explicit === "SALES_AGENT") {
     return explicit as WorkspaceUserRole;
   }
   if (Boolean(permissions.workspaceAdmin)) {
@@ -91,10 +91,6 @@ export async function POST(request: Request) {
   const email = String(body.email ?? "").trim().toLowerCase();
   const phone = String(body.phone ?? "").trim() || "+919000000000";
   const password = String(body.password ?? "").trim();
-  const roleInput = String(body.role ?? "SALES_AGENT").toUpperCase();
-  const role: WorkspaceUserRole =
-    roleInput === "ADMIN" || roleInput === "MANAGER" ? (roleInput as WorkspaceUserRole) : "SALES_AGENT";
-  const requestedManagerId = String(body.managerAgentId ?? "").trim();
 
   if (!displayName || !email) {
     return NextResponse.json({ ok: false, error: "Full name and Email ID are required." }, { status: 400 });
@@ -105,34 +101,33 @@ export async function POST(request: Request) {
 
   const snapshot = await getSalesSnapshotForRole(authorization.session);
   const activeUsers = snapshot.agents.filter((agent) => agent.status === "ACTIVE").length;
+  const ownerAccess = await getSalesAgentAccess(authorization.session.userId);
+  const permissions = ownerAccess.agent?.permissions as Record<string, unknown> | null | undefined;
+  const customSeats =
+    typeof permissions?.seatLimit === "number"
+      ? permissions.seatLimit
+      : typeof permissions?.maxUsers === "number"
+        ? permissions.maxUsers
+        : typeof permissions?.seats === "number"
+          ? permissions.seats
+          : null;
+
   const packageRecord = authorization.session.packageId
     ? await prisma.package.findUnique({
         where: { id: authorization.session.packageId },
         select: { teamMemberLimit: true, staffAccountLimit: true, name: true },
       })
     : null;
-  const seatLimit = packageRecord?.teamMemberLimit ?? packageRecord?.staffAccountLimit ?? 1;
+  const seatLimit = customSeats ?? packageRecord?.teamMemberLimit ?? packageRecord?.staffAccountLimit ?? 5;
   if (seatLimit !== null && activeUsers >= seatLimit) {
     return NextResponse.json(
       {
         ok: false,
-        error: `${packageRecord?.name || authorization.session.packageName || "Your current plan"} allows ${seatLimit} active user${seatLimit === 1 ? "" : "s"}. Upgrade the plan before adding another user.`,
+        error: `Your workspace allows ${seatLimit} active user${seatLimit === 1 ? "" : "s"}. Contact platform administrator to increase your seat limit.`,
       },
       { status: 409 },
     );
   }
-  const manager = requestedManagerId
-    ? snapshot.agents.find((agent) => agent.id === requestedManagerId)
-    : null;
-
-  if (requestedManagerId && (!manager || manager.status !== "ACTIVE" || resolveAgentRole(manager.permissions) !== "MANAGER")) {
-    return NextResponse.json({ ok: false, error: "Choose an active manager from this workspace." }, { status: 400 });
-  }
-
-  if (requestedManagerId && role !== "SALES_AGENT") {
-    return NextResponse.json({ ok: false, error: "Only sales agents can be placed under a manager." }, { status: 400 });
-  }
-
   const created = await createSalesAgentAccount({
     displayName,
     email,
@@ -140,10 +135,10 @@ export async function POST(request: Request) {
     password,
     createdByUserId: authorization.session.userId ?? undefined,
     tenantId: authorization.session.tenantId,
-    status: "ACTIVE",
-    groupId: manager?.groupId || (snapshot.groups[0]?.id ?? "sales-group-main"),
-    parentAgentId: manager?.id ?? null,
-    canCreateSubAgents: role === "ADMIN" || role === "MANAGER",
+    status: "PENDING",
+    groupId: snapshot.groups[0]?.id ?? "sales-group-main",
+    parentAgentId: null,
+    canCreateSubAgents: false,
     canClaimLeads: true,
     maxActiveLeads: 25,
   });
@@ -154,12 +149,12 @@ export async function POST(request: Request) {
 
   const updatedAgent = await updateSalesAgentProfile({
     agentId: created.agent.id,
-    status: "ACTIVE",
-    canCreateSubAgents: role === "ADMIN" || role === "MANAGER",
+    status: "PENDING",
+    canCreateSubAgents: false,
     permissions: {
       ...(created.agent.permissions ?? {}),
-      workspaceRole: role,
-      workspaceAdmin: role === "ADMIN",
+      workspaceRole: "UNASSIGNED",
+      workspaceAdmin: false,
     },
   });
 
@@ -190,26 +185,56 @@ export async function PATCH(request: Request) {
   if (!agentId) {
     return NextResponse.json({ ok: false, error: "User ID is required." }, { status: 400 });
   }
+  const payload = body ?? {};
 
-  if (body?.password) {
-    const newPassword = String(body.password).trim();
+  if (payload.password) {
+    const newPassword = String(payload.password).trim();
     const res = await resetSalesAgentPasswordFromAdmin({ agentId, password: newPassword });
     if (!res.ok) {
       return NextResponse.json(res, { status: 400 });
     }
   }
 
-  if (body?.role || body?.status) {
+  if (payload.role || payload.status || Object.prototype.hasOwnProperty.call(payload, "managerAgentId")) {
     const snapshot = await getSalesSnapshotForRole(authorization.session);
     const existing = (snapshot.agents?.length ? snapshot.agents : snapshot.visibleAgents).find((a) => a.id === agentId);
-    const nextRoleInput = body.role ? String(body.role).toUpperCase() : resolveAgentRole(existing?.permissions ?? null);
+    if (!existing) {
+      return NextResponse.json({ ok: false, error: "Workspace user was not found." }, { status: 404 });
+    }
+    const nextRoleInput = payload.role ? String(payload.role).toUpperCase() : resolveAgentRole(existing?.permissions ?? null);
     const nextRole: WorkspaceUserRole =
-      nextRoleInput === "ADMIN" || nextRoleInput === "MANAGER" ? (nextRoleInput as WorkspaceUserRole) : "SALES_AGENT";
-    const nextStatus = body.status ? (String(body.status).toUpperCase() as SalesAgentStatus) : existing?.status;
+      nextRoleInput === "UNASSIGNED" || nextRoleInput === "ADMIN" || nextRoleInput === "MANAGER" || nextRoleInput === "SALES_AGENT"
+        ? (nextRoleInput as WorkspaceUserRole)
+        : "SALES_AGENT";
+    const hasRoleChange = Boolean(payload.role);
+    const requestedStatus = payload.status ? (String(payload.status).toUpperCase() as SalesAgentStatus) : undefined;
+    const nextStatus: SalesAgentStatus = requestedStatus ?? (hasRoleChange ? (nextRole === "UNASSIGNED" ? "PENDING" : "ACTIVE") : existing.status);
+    const hasManagerChange = Object.prototype.hasOwnProperty.call(payload, "managerAgentId");
+    const requestedManagerId = String(payload.managerAgentId ?? "").trim();
+    let nextManagerId = hasManagerChange ? requestedManagerId || null : existing.parentAgentId;
+    let nextGroupId = existing.groupId;
+
+    if (nextRole === "UNASSIGNED") {
+      nextManagerId = null;
+    } else if (nextRole !== "SALES_AGENT") {
+      nextManagerId = null;
+    } else if (hasManagerChange && nextManagerId) {
+      const manager = snapshot.agents.find((agent) => agent.id === nextManagerId);
+      if (!manager || manager.status !== "ACTIVE" || resolveAgentRole(manager.permissions) !== "MANAGER") {
+        return NextResponse.json({ ok: false, error: "Choose an active manager from this workspace." }, { status: 400 });
+      }
+      nextGroupId = manager.groupId;
+    }
+
+    if (nextRole === "UNASSIGNED" && requestedStatus === "ACTIVE") {
+      return NextResponse.json({ ok: false, error: "Assign a role before unlocking this user." }, { status: 400 });
+    }
 
     await updateSalesAgentProfile({
       agentId,
       status: nextStatus,
+      groupId: nextGroupId,
+      parentAgentId: nextManagerId,
       canCreateSubAgents: nextRole === "ADMIN" || nextRole === "MANAGER",
       permissions: {
         ...(existing?.permissions ?? {}),

@@ -35434,6 +35434,76 @@ body,
   letter-spacing: 0.04em;
 }
 
+/* Keep import and form-builder surfaces on the canonical CRM palette. */
+.crm-contacts-hub .crm-import-card:not(.is-active) {
+  background: var(--crm-surface-soft) !important;
+  border-color: var(--crm-border) !important;
+}
+
+.crm-contacts-hub [style*="var(--surface-strong"],
+.crm-contacts-hub [style*="rgba(15, 23, 42"] {
+  background: var(--crm-surface-soft) !important;
+  border-color: var(--crm-border) !important;
+}
+
+.crm-lead-form-builder [style*="var(--surface-strong"],
+.crm-lead-form-builder [style*="rgba(15, 23, 42"] {
+  background: var(--crm-surface-soft) !important;
+  border-color: var(--crm-border) !important;
+}
+
+.crm-lead-form-builder input,
+.crm-lead-form-builder select,
+.crm-lead-form-builder textarea {
+  color: var(--crm-text);
+  background: var(--crm-surface-soft);
+  border-color: var(--crm-border);
+}
+
+.crm-lead-form-builder input:focus,
+.crm-lead-form-builder select:focus,
+.crm-lead-form-builder textarea:focus {
+  outline: none;
+  border-color: var(--crm-primary);
+  box-shadow: var(--crm-shadow-focus);
+}
+
+/* WhatsApp Marketing uses the same CRM tokens as the rest of the workspace. */
+.whatsapp-marketing-root {
+  color: var(--crm-text);
+}
+
+.whatsapp-marketing-root [class*="bg-slate-950"],
+.whatsapp-marketing-root [class*="bg-slate-900"] {
+  background: var(--crm-surface) !important;
+}
+
+.whatsapp-marketing-root [class*="bg-slate-800"] {
+  background: var(--crm-surface-soft) !important;
+}
+
+.whatsapp-marketing-root [class*="border-slate-"] {
+  border-color: var(--crm-border) !important;
+}
+
+.whatsapp-marketing-root [class*="text-white"] {
+  color: var(--crm-text) !important;
+}
+
+.whatsapp-marketing-root [class*="text-slate-400"],
+.whatsapp-marketing-root [class*="text-slate-500"] {
+  color: var(--crm-text-secondary) !important;
+}
+
+.whatsapp-marketing-root [class*="text-[#ff6b2f]"],
+.whatsapp-marketing-root [class*="text-[#ff8552]"] {
+  color: var(--crm-primary) !important;
+}
+
+.whatsapp-marketing-root [class*="bg-[#ff6b2f]"] {
+  background: var(--crm-primary) !important;
+}
+
 @media (max-width: 1200px) {
   .crm-contacts-hub .crm-import-grid { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
 }
@@ -35552,11 +35622,102 @@ body,
   box-shadow: var(--crm-shadow-focus);
 }
 
+.crm-contacts-hub .crm-table-scroll-region {
+  display: grid;
+  gap: 8px;
+}
+
+.crm-contacts-hub .crm-table-scroll-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 0 4px;
+  color: var(--crm-text-muted);
+  font-size: 0.74rem;
+}
+
+.crm-contacts-hub .crm-table-scroll-hint {
+  margin-right: auto;
+  white-space: nowrap;
+}
+
+.crm-contacts-hub .crm-table-scroll-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: min(100%, 280px);
+}
+
+.crm-contacts-hub .crm-table-scroll-button {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--crm-border);
+  border-radius: 10px;
+  background: var(--crm-surface-soft);
+  color: var(--crm-text);
+  cursor: pointer;
+}
+
+.crm-contacts-hub .crm-table-scroll-button:hover:not(:disabled),
+.crm-contacts-hub .crm-table-scroll-button:focus-visible {
+  border-color: var(--closer-orange-border);
+  color: var(--closer-orange);
+  outline: none;
+}
+
+.crm-contacts-hub .crm-table-scroll-button:focus-visible,
+.crm-contacts-hub .crm-table-scroll-slider:focus-visible {
+  box-shadow: var(--crm-shadow-focus);
+}
+
+.crm-contacts-hub .crm-table-scroll-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.crm-contacts-hub .crm-table-scroll-slider {
+  width: min(260px, 100%);
+  min-width: 120px;
+  accent-color: var(--closer-orange);
+  cursor: ew-resize;
+}
+
 .crm-contacts-hub .crm-table-shell {
   border-color: var(--crm-border);
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--crm-text) 3%, transparent);
   overflow-x: auto;
   overflow-y: hidden;
+  scrollbar-color: var(--closer-orange-border) var(--crm-surface-soft);
+  scrollbar-width: thin;
+  scroll-behavior: smooth;
+}
+
+.crm-contacts-hub .crm-table-shell::-webkit-scrollbar {
+  height: 8px;
+}
+
+.crm-contacts-hub .crm-table-shell::-webkit-scrollbar-track {
+  background: var(--crm-surface-soft);
+  border-radius: 999px;
+}
+
+.crm-contacts-hub .crm-table-shell::-webkit-scrollbar-thumb {
+  background: var(--closer-orange-border);
+  border-radius: 999px;
+}
+
+.crm-contacts-hub .crm-table-shell::-webkit-scrollbar-thumb:hover {
+  background: var(--closer-orange);
+}
+
+.crm-contacts-hub .crm-table-shell:focus-visible {
+  outline: 2px solid var(--closer-orange-border);
+  outline-offset: 2px;
 }
 
 .crm-contacts-hub .crm-contacts-table {
@@ -35624,6 +35785,27 @@ body,
   align-items: center;
   min-width: 190px;
   gap: 9px;
+}
+
+@media (max-width: 720px) {
+  .crm-contacts-hub .crm-table-scroll-hint {
+    width: 100%;
+  }
+
+  .crm-contacts-hub .crm-table-scroll-controls {
+    width: 100%;
+  }
+
+  .crm-contacts-hub .crm-table-scroll-slider {
+    width: auto;
+    flex: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crm-contacts-hub .crm-table-shell {
+    scroll-behavior: auto;
+  }
 }
 
 .crm-contacts-hub .crm-contact-avatar {
@@ -37398,4 +37580,83 @@ body,
 .sales-theme-scope input[type="checkbox"]:disabled {
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+.admin-viewing-context {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 9px;
+  border: 1px solid var(--crm-border, var(--closer-line, rgba(148, 163, 184, 0.35)));
+  border-radius: var(--crm-radius-control, 10px);
+  background: var(--crm-surface-soft, var(--closer-bg-soft, rgba(15, 23, 42, 0.04)));
+  color: var(--crm-text, var(--closer-ink, #0f172a));
+  white-space: nowrap;
+}
+
+.admin-viewing-context > svg {
+  flex: 0 0 auto;
+  color: var(--closer-orange, #ff6b2f);
+}
+
+.admin-viewing-context-label {
+  color: var(--crm-text-muted, var(--closer-muted, #64748b));
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.admin-viewing-context select {
+  min-width: 150px;
+  max-width: 220px;
+  padding: 4px 22px 4px 5px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  outline: none;
+}
+
+.admin-viewing-context:focus-within {
+  border-color: var(--closer-orange-border, rgba(255, 107, 47, 0.52));
+  box-shadow: var(--crm-shadow-focus, 0 0 0 3px rgba(255, 107, 47, 0.14));
+}
+
+.admin-report-viewing-badge {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+  padding: 5px 9px;
+  border: 1px solid var(--closer-orange-border, rgba(255, 107, 47, 0.35));
+  border-radius: 999px;
+  background: var(--closer-orange-soft, rgba(255, 107, 47, 0.1));
+  color: var(--closer-orange, #ff6b2f);
+  font-size: 0.74rem;
+}
+
+@media (max-width: 720px) {
+  .admin-viewing-context {
+    max-width: min(100%, 270px);
+  }
+
+  .admin-viewing-context-label {
+    display: none;
+  }
+
+  .admin-viewing-context select {
+    min-width: 128px;
+    max-width: 170px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-viewing-context,
+  .admin-report-viewing-badge {
+    transition: none !important;
+  }
 }

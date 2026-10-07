@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 import { Zap, Plus, Trash2, Edit2, Play, CheckCircle2, Copy, Check, ArrowRight, Shield, Globe, ClipboardList } from "lucide-react";
 import type { WorkflowRule, WorkflowExecutionLog, TriggerType, ActionType } from "@/lib/gigxomi/automation-engine-store";
 
-export function AutomationWorkflowsPanel() {
+export type AutomationWorkflowsPanelMode = "workflows" | "developer";
+
+export function AutomationWorkflowsPanel({ mode = "workflows" }: { mode?: AutomationWorkflowsPanelMode }) {
   const [rules, setRules] = useState<WorkflowRule[]>([]);
   const [logs, setLogs] = useState<WorkflowExecutionLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -150,14 +152,16 @@ export function AutomationWorkflowsPanel() {
         <div>
           <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 700, color: "var(--closer-ink, #0f172a)", display: "flex", alignItems: "center" }}>
             <Zap size={20} color="var(--closer-orange, #ff6b2f)" style={{ display: "inline-block", verticalAlign: "middle", marginRight: "8px" }} />
-            Workflow Automation, Schedules, Webhooks &amp; API Keys
+            {mode === "developer" ? "Developer Webhooks & API Access" : "Workflow Automation & Schedules"}
           </h2>
           <p style={{ margin: "0.25rem 0 0", fontSize: "0.82rem", color: "var(--closer-muted, #64748b)" }}>
-            Durable Event & Schedule → Condition → Action pipeline across WhatsApp, Stage transitions, SIM calling, Webhooks, and REST APIs.
+            {mode === "developer"
+              ? "Inbound lead connectors, workspace API keys, and developer tokens for integrations."
+              : "Durable Event & Schedule → Condition → Action pipeline across WhatsApp, stage transitions, SIM calling, and follow-up actions."}
           </p>
         </div>
 
-        <button
+        {mode === "workflows" ? <button
           type="button"
           onClick={() => {
             setEditingRule({
@@ -186,9 +190,10 @@ export function AutomationWorkflowsPanel() {
           }}
         >
           <Plus size={16} /> Create Automation Rule
-        </button>
+        </button> : null}
       </div>
 
+      {mode === "developer" ? <>
       {/* Webhook Endpoints Strip */}
       <div
         style={{
@@ -356,7 +361,9 @@ export function AutomationWorkflowsPanel() {
           ))}
         </div>
       </div>
+      </> : null}
 
+      {mode === "workflows" ? <>
       {/* Rules List */}
       <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
         {rules.map((rule) => (
@@ -723,6 +730,7 @@ export function AutomationWorkflowsPanel() {
           </div>
         </div>
       )}
+      </> : null}
     </div>
   );
 }

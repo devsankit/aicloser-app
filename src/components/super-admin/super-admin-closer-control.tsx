@@ -1,871 +1,2229 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
-import { BadgeCheck, Bell, Coins, GraduationCap, KeyRound, Library, Mic2, PhoneCall, Power, Route, Rocket, Smartphone, Trash2, Trophy, Tv, Upload, Users } from "lucide-react";
+import { useState, useMemo, useTransition } from "react";
+import Link from "next/link";
+import {
+  Users,
+  UserPlus,
+  Edit3,
+  Trash2,
+  LogIn,
+  LogOut,
+  Plus,
+  Minus,
+  Search,
+  RefreshCw,
+  ShieldCheck,
+  Layers,
+  Clock,
+  Sparkles,
+  CheckCircle2,
+  AlertCircle,
+  X,
+  ExternalLink,
+  Shield,
+  Building,
+  KeyRound,
+  Filter,
+} from "lucide-react";
 
 import { BrandWordmark } from "@/components/ui/brand-wordmark";
-import { GappWebinarConsole, type AdminRegistration, type AdminWebinar } from "@/components/super-admin/gapp-webinar-console";
-import { CloserIntelligenceConsole, type CloserIntelligenceData } from "@/components/super-admin/closer-intelligence-console";
-import type { SalesOperatingSnapshot } from "@/lib/gigxomi/sales-operating-system-store";
-import type { SalesAgentStatus, SalesDashboardSnapshot, SalesPayoutStatus } from "@/lib/gigxomi/sales-store";
 
-function money(value: number) {
-  return new Intl.NumberFormat("en-IN", { currency: "INR", maximumFractionDigits: 0, style: "currency" }).format(value);
+export type SuperAdminUser = {
+  id: string;
+  displayName: string;
+  email: string;
+  phone: string;
+  role: string;
+  companyName: string;
+  status: "ACTIVE" | "PENDING" | "SUSPENDED" | string;
+  seatLimit: number;
+  agentCode: string | null;
+  agentProfileId?: string | null;
+  tenantId?: string | null;
+  packageName?: string;
+  createdAt: string;
+  lastLoginAt: string | null;
+  isSeeded: boolean;
+  isSuperAdmin: boolean;
+};
+
+export type SuperAdminStats = {
+  totalUsers: number;
+  activeUsers: number;
+  totalSeats: number;
+  newUsersToday: number;
+};
+
+type Props = {
+  adminUser?: {
+    displayName?: string | null;
+    email?: string | null;
+    role?: string | null;
+  };
+  initialUsers: SuperAdminUser[];
+  initialStats: SuperAdminStats;
+};
+
+function formatTimeAgo(isoString: string | null) {
+  if (!isoString) return "Never";
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) return "Never";
+
+  const diffMs = Date.now() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffMins < 1) return "Just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays < 7) return `${diffDays}d ago`;
+
+  return new Intl.DateTimeFormat("en-IN", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
-export function SuperAdminCloserControl({
-  initialGappRegistrations,
-  initialGappWebinar,
-  initialOperatingSnapshot,
-  initialSnapshot,
-  initialIntelligence,
-}: {
-  initialGappRegistrations: AdminRegistration[];
-  initialGappWebinar: AdminWebinar;
-  initialOperatingSnapshot: SalesOperatingSnapshot;
-  initialSnapshot: SalesDashboardSnapshot;
-  initialIntelligence?: CloserIntelligenceData | null;
-}) {
-  const [snapshot, setSnapshot] = useState(initialSnapshot);
-  const [operating, setOperating] = useState(initialOperatingSnapshot);
-  const [mainView, setMainView] = useState<"intelligence" | "operations">("intelligence");
-  const [status, setStatus] = useState("");
-  const [importResult, setImportResult] = useState<{ imported: number; skipped: number; duplicate: number; invalid: number; errors?: Array<{ row: number; reason: string }> } | null>(null);
+export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats }: Props) {
+  const [users, setUsers] = useState<SuperAdminUser[]>(initialUsers);
+  const [stats, setStats] = useState<SuperAdminStats>(initialStats);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState("ALL");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [activeTab, setActiveTab] = useState<"users" | "logins" | "health">("users");
 
-  const summary = useMemo(
-    () => [
-      { label: "Sales agents", value: snapshot.agents.length.toString(), icon: Users },
-      { label: "Paid revenue", value: money(snapshot.reports.paidRevenue), icon: BadgeCheck },
-      { label: "Pending payouts", value: money(snapshot.reports.pendingPayout), icon: Coins },
-      { label: "Open queue", value: snapshot.reports.openQueueLeads.toString(), icon: Rocket },
-      { label: "Referral signups", value: snapshot.reports.referralSignups.toString(), icon: Trophy },
-      { label: "Module", value: snapshot.settings.moduleEnabled ? "Enabled" : "Disabled", icon: Power },
-    ],
-    [snapshot],
-  );
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [impersonatingUserId, setImpersonatingUserId] = useState<string | null>(null);
 
-  async function refresh() {
-    const response = await fetch("/api/super-admin/sales", { cache: "no-store" });
-    const payload = await response.json().catch(() => null);
-    if (payload?.ok) setSnapshot(payload.snapshot);
-  }
+  // Modals state
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<SuperAdminUser | null>(null);
+  const [deletingUser, setDeletingUser] = useState<SuperAdminUser | null>(null);
+  const [quickSeatModalUser, setQuickSeatModalUser] = useState<SuperAdminUser | null>(null);
+  const [customSeatsInput, setCustomSeatsInput] = useState<number>(5);
 
-  async function refreshOperating() {
-    const [courses, ladder, webinars, learning, rules] = await Promise.all([
-      fetch("/api/sales/lms/courses", { cache: "no-store" }).then((response) => response.json()).catch(() => null),
-      fetch("/api/sales/training-ladder", { cache: "no-store" }).then((response) => response.json()).catch(() => null),
-      fetch("/api/sales/webinars", { cache: "no-store" }).then((response) => response.json()).catch(() => null),
-      fetch("/api/sales/learning-wall", { cache: "no-store" }).then((response) => response.json()).catch(() => null),
-      fetch("/api/sales/round-robin/rules", { cache: "no-store" }).then((response) => response.json()).catch(() => null),
-    ]);
-    setOperating((current) => ({
-      ...current,
-      courses: courses?.courses ?? current.courses,
-      modules: courses?.modules ?? current.modules,
-      lessons: courses?.lessons ?? current.lessons,
-      progress: ladder?.progress ?? current.progress,
-      unlockRules: ladder?.unlockRules ?? current.unlockRules,
-      agentLevel: ladder?.agentLevel ?? current.agentLevel,
-      mockCalls: ladder?.mockCalls ?? current.mockCalls,
-      webinars: webinars?.webinars ?? current.webinars,
-      webinarInvites: webinars?.invites ?? current.webinarInvites,
-      learningPosts: learning?.posts ?? current.learningPosts,
-      roundRobinRules: rules?.rules ?? current.roundRobinRules,
-    }));
-  }
+  const [isPending, startTransition] = useTransition();
 
-  async function submitAction(body: Record<string, unknown>, success: string) {
-    const response = await fetch("/api/super-admin/sales", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const payload = await response.json().catch(() => null);
-    setStatus(response.ok && payload?.ok ? success : payload?.error ?? "Unable to update sales backend.");
-    await refresh();
-  }
+  const showToast = (message: string, type: "success" | "error" = "success") => {
+    setToast({ message, type });
+    window.setTimeout(() => setToast(null), 3500);
+  };
 
-  async function saveSettings(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    await submitAction(
-      {
-        action: "settings",
-        moduleEnabled: form.get("moduleEnabled") === "on",
-        signupRequiresApproval: form.get("signupRequiresApproval") === "on",
-        defaultCommissionPercent: Number(form.get("defaultCommissionPercent") ?? 10),
-        closerDirectCommissionPercent: Number(form.get("closerDirectCommissionPercent") ?? 20),
-        closerSubCommissionPercent: Number(form.get("closerSubCommissionPercent") ?? 10),
-        freelancerCommissionPercent: Number(form.get("freelancerCommissionPercent") ?? 10),
-        agencyCommissionPercent: Number(form.get("agencyCommissionPercent") ?? 10),
-        payoutHoldDays: Number(form.get("payoutHoldDays") ?? 7),
-        payoutMinimum: Number(form.get("payoutMinimum") ?? 500),
-        enableAnnouncements: form.get("enableAnnouncements") === "on",
-        enableMessages: form.get("enableMessages") === "on",
-        enableReferralLinks: form.get("enableReferralLinks") === "on",
-        enableTeams: form.get("enableTeams") === "on",
-        enableEarnings: form.get("enableEarnings") === "on",
-        enablePayouts: form.get("enablePayouts") === "on",
-        dashboardPrimaryColor: String(form.get("dashboardPrimaryColor") ?? "#D7FF2F"),
-        dashboardAccentColor: String(form.get("dashboardAccentColor") ?? "#0A0D0B"),
-      },
-      "Sales settings saved.",
-    );
-  }
-
-  async function createRule(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    await submitAction(
-      {
-        action: "commission-rule",
-        name: String(form.get("name") ?? ""),
-        type: String(form.get("type") ?? "PERCENTAGE"),
-        scope: String(form.get("scope") ?? "ALL_AGENTS"),
-        appliesTo: String(form.get("appliesTo") ?? "ALL_PACKAGES"),
-        groupId: String(form.get("groupId") ?? ""),
-        agentId: String(form.get("agentId") ?? ""),
-        packageId: String(form.get("packageId") ?? ""),
-        value: Number(form.get("value") ?? 0),
-        parentCommissionPercent: Number(form.get("parentCommissionPercent") ?? 0),
-        minOrderValue: Number(form.get("minOrderValue") ?? 0) || null,
-        maxOrderValue: Number(form.get("maxOrderValue") ?? 0) || null,
-        priority: Number(form.get("priority") ?? 0),
-      },
-      "Commission rule saved.",
-    );
-    event.currentTarget.reset();
-  }
-
-  async function createGroup(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    await submitAction(
-      {
-        action: "group",
-        name: String(form.get("name") ?? ""),
-        description: String(form.get("description") ?? ""),
-        defaultCommissionPercent: Number(form.get("defaultCommissionPercent") ?? 10),
-        parentCommissionPercent: Number(form.get("parentCommissionPercent") ?? 0),
-      },
-      "Sales group saved.",
-    );
-    event.currentTarget.reset();
-  }
-
-  async function createAgent(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    await submitAction(
-      {
-        action: "agent",
-        displayName: String(form.get("displayName") ?? ""),
-        email: String(form.get("email") ?? ""),
-        phone: String(form.get("phone") ?? ""),
-        password: String(form.get("password") ?? ""),
-        status: String(form.get("status") ?? "ACTIVE"),
-        groupId: String(form.get("groupId") ?? ""),
-        parentAgentId: String(form.get("parentAgentId") ?? ""),
-        canCreateSubAgents: form.get("canCreateSubAgents") === "on",
-        canClaimLeads: form.get("canClaimLeads") === "on",
-        maxActiveLeads: Number(form.get("maxActiveLeads") ?? 0) || null,
-      },
-      "Sales agent created.",
-    );
-    event.currentTarget.reset();
-  }
-
-  async function createAnnouncement(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    await submitAction({ action: "announcement", title: String(form.get("title") ?? ""), body: String(form.get("body") ?? "") }, "Announcement published.");
-    event.currentTarget.reset();
-  }
-
-  async function updateAgent(agentId: string, nextStatus: SalesAgentStatus) {
-    await submitAction({ action: "agent-status", agentId, status: nextStatus }, `Agent marked ${nextStatus.toLowerCase()}.`);
-  }
-
-  async function updateMobileDevice(deviceId: string, isActive: boolean, recordingEnabled: boolean) {
-    await submitAction({ action: "mobile-device-status", deviceId, isActive, recordingEnabled }, isActive ? "Mobile device activated." : "Mobile device deactivated.");
-  }
-
-  async function updateAgentTeam(event: FormEvent<HTMLFormElement>, agentId: string) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    await submitAction(
-      {
-        action: "agent-status",
-        agentId,
-        groupId: String(form.get("groupId") ?? ""),
-        parentAgentId: String(form.get("parentAgentId") ?? ""),
-        commissionPercent: Number(form.get("commissionPercent") ?? 0) || undefined,
-        canCreateSubAgents: form.get("canCreateSubAgents") === "on",
-        canClaimLeads: form.get("canClaimLeads") === "on",
-        maxActiveLeads: Number(form.get("maxActiveLeads") ?? 0) || undefined,
-      },
-      "Agent team settings saved.",
-    );
-  }
-
-  async function resetAgentPassword(event: FormEvent<HTMLFormElement>, agentId: string) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    await submitAction(
-      {
-        action: "reset-agent-password",
-        agentId,
-        password: String(form.get("password") ?? ""),
-      },
-      "Agent password reset.",
-    );
-    event.currentTarget.reset();
-  }
-
-  async function deleteAgent(agentId: string) {
-    const agent = snapshot.agents.find((item) => item.id === agentId);
-    const confirmed = window.confirm(`Delete ${agent?.displayName ?? "this sales agent"}? Assigned queue leads will return to the open pool.`);
-    if (!confirmed) return;
-    const response = await fetch("/api/super-admin/sales", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agentId }),
-    });
-    const payload = await response.json().catch(() => null);
-    setStatus(response.ok && payload?.ok ? "Sales agent deleted." : payload?.error ?? "Unable to delete sales agent.");
-    await refresh();
-  }
-
-  async function submitOperating(url: string, body: Record<string, unknown>, success: string, method = "POST") {
-    const response = await fetch(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const payload = await response.json().catch(() => null);
-    setStatus(response.ok && payload?.ok ? success : payload?.error ?? "Unable to update sales operating system.");
-    await refreshOperating();
-  }
-
-  async function importContacts(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const formData = new FormData(form);
-    const response = await fetch("/api/sales/leads/import", {
-      method: "POST",
-      body: formData,
-    });
-    const payload = await response.json().catch(() => null);
-    if (response.ok && payload?.ok) {
-      setImportResult({
-        imported: Number(payload.imported ?? 0),
-        skipped: Number(payload.skipped ?? 0),
-        duplicate: Number(payload.duplicate ?? 0),
-        invalid: Number(payload.invalid ?? 0),
-        errors: payload.errors ?? [],
-      });
-      setStatus("Contact import completed.");
-      form.reset();
-      await refresh();
-      return;
+  const refreshData = async () => {
+    setIsRefreshing(true);
+    try {
+      const res = await fetch("/api/super-admin/users", { cache: "no-store" });
+      const data = await res.json();
+      if (data.ok) {
+        setUsers(data.users);
+        setStats(data.stats);
+        showToast("User directory refreshed successfully");
+      } else {
+        showToast(data.error || "Failed to refresh users", "error");
+      }
+    } catch {
+      showToast("Network error while refreshing", "error");
+    } finally {
+      setIsRefreshing(false);
     }
-    setStatus(payload?.error ?? "Contact import failed.");
-  }
+  };
 
-  async function createQueueLead(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    await submitAction(
-      {
-        action: "lead-pool",
-        assignedAgentId: String(form.get("assignedAgentId") ?? ""),
-        customerName: String(form.get("customerName") ?? ""),
-        customerPhone: String(form.get("customerPhone") ?? ""),
-        customerEmail: String(form.get("customerEmail") ?? ""),
-        source: String(form.get("source") ?? "round_robin"),
-        serviceInterest: String(form.get("serviceInterest") ?? ""),
-        segment: String(form.get("segment") ?? ""),
-        priority: String(form.get("priority") ?? "normal"),
-        budgetAmount: Number(form.get("budgetAmount") ?? 0),
-        notes: String(form.get("notes") ?? ""),
-      },
-      "Round-robin lead added.",
+  // Quick seat stepper (+ / -)
+  const handleUpdateSeats = async (user: SuperAdminUser, delta: number) => {
+    const nextSeats = Math.max(1, user.seatLimit + delta);
+    if (nextSeats === user.seatLimit) return;
+
+    // Optimistic update
+    setUsers((prev) =>
+      prev.map((u) => (u.id === user.id ? { ...u, seatLimit: nextSeats } : u))
     );
-    event.currentTarget.reset();
-  }
+    setStats((prev) => ({
+      ...prev,
+      totalSeats: prev.totalSeats + delta,
+    }));
 
-  async function createGoal(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    await submitAction(
-      {
-        action: "goal",
-        name: String(form.get("name") ?? ""),
-        metric: String(form.get("metric") ?? "PAID_REVENUE"),
-        scope: String(form.get("scope") ?? "INDIVIDUAL_AGENT"),
-        agentId: String(form.get("agentId") ?? ""),
-        groupId: String(form.get("groupId") ?? ""),
-        target: Number(form.get("target") ?? 0),
-        rewardText: String(form.get("rewardText") ?? ""),
-      },
-      "Sales goal pinned.",
+    try {
+      const res = await fetch("/api/super-admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update-seats",
+          userId: user.id,
+          seats: nextSeats,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        showToast(`Updated seats to ${nextSeats} for ${user.displayName}`);
+      } else {
+        // Rollback
+        setUsers((prev) =>
+          prev.map((u) => (u.id === user.id ? { ...u, seatLimit: user.seatLimit } : u))
+        );
+        showToast(data.error || "Failed to update seats", "error");
+      }
+    } catch {
+      setUsers((prev) =>
+        prev.map((u) => (u.id === user.id ? { ...u, seatLimit: user.seatLimit } : u))
+      );
+      showToast("Network error updating seats", "error");
+    }
+  };
+
+  // Save custom seats from dialog
+  const handleSaveCustomSeats = async () => {
+    if (!quickSeatModalUser) return;
+    const nextSeats = Math.max(1, customSeatsInput);
+
+    setUsers((prev) =>
+      prev.map((u) => (u.id === quickSeatModalUser.id ? { ...u, seatLimit: nextSeats } : u))
     );
-    event.currentTarget.reset();
-  }
 
-  async function createReward(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    await submitAction(
-      {
-        action: "reward",
-        title: String(form.get("title") ?? ""),
-        body: String(form.get("body") ?? ""),
-        agentId: String(form.get("agentId") ?? ""),
-        groupId: String(form.get("groupId") ?? ""),
-      },
-      "Sales reward pinned.",
+    try {
+      const res = await fetch("/api/super-admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update-seats",
+          userId: quickSeatModalUser.id,
+          seats: nextSeats,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        showToast(`Seats set to ${nextSeats} for ${quickSeatModalUser.displayName}`);
+        setQuickSeatModalUser(null);
+      } else {
+        showToast(data.error || "Failed to set seats", "error");
+      }
+    } catch {
+      showToast("Network error", "error");
+    }
+  };
+
+  // Toggle user status (ACTIVE <-> SUSPENDED)
+  const handleToggleStatus = async (user: SuperAdminUser) => {
+    if (user.isSuperAdmin) return;
+    const nextStatus = user.status === "ACTIVE" ? "SUSPENDED" : "ACTIVE";
+
+    setUsers((prev) =>
+      prev.map((u) => (u.id === user.id ? { ...u, status: nextStatus } : u))
     );
-    event.currentTarget.reset();
-  }
 
-  async function updatePayout(payoutId: string, nextStatus: SalesPayoutStatus) {
-    await submitAction({ action: "payout-status", payoutId, status: nextStatus }, `Payout marked ${nextStatus.toLowerCase()}.`);
-  }
+    try {
+      const res = await fetch("/api/super-admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update-status",
+          userId: user.id,
+          status: nextStatus,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        showToast(`User marked ${nextStatus.toLowerCase()}`);
+      } else {
+        setUsers((prev) =>
+          prev.map((u) => (u.id === user.id ? { ...u, status: user.status } : u))
+        );
+        showToast(data.error || "Failed to change status", "error");
+      }
+    } catch {
+      setUsers((prev) =>
+        prev.map((u) => (u.id === user.id ? { ...u, status: user.status } : u))
+      );
+      showToast("Network error", "error");
+    }
+  };
 
-  async function createCourse(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    await submitOperating(
-      "/api/sales/lms/courses",
-      {
-        title: String(form.get("title") ?? ""),
-        description: String(form.get("description") ?? ""),
-        assignedRole: String(form.get("assignedRole") ?? ""),
-        isPublished: form.get("isPublished") === "on",
-        requiredCompletionPercent: Number(form.get("requiredCompletionPercent") ?? 100),
-        requiredQuizScore: Number(form.get("requiredQuizScore") ?? 0) || null,
-        requiresMockCall: form.get("requiresMockCall") === "on",
-        requiresManagerReview: form.get("requiresManagerReview") === "on",
-        leadUnlockQuantity: Number(form.get("leadUnlockQuantity") ?? 0),
-      },
-      "LMS course saved.",
-    );
-    event.currentTarget.reset();
-  }
+  // 1-Click Impersonate ("Login as User")
+  const handleImpersonate = async (user: SuperAdminUser) => {
+    setImpersonatingUserId(user.id);
+    showToast(`Logging into ${user.displayName}'s workspace...`);
 
-  async function createLesson(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    await submitOperating(
-      "/api/sales/lms/lessons",
-      {
-        courseId: String(form.get("courseId") ?? ""),
-        moduleId: String(form.get("moduleId") ?? ""),
-        title: String(form.get("title") ?? ""),
-        description: String(form.get("description") ?? ""),
-        videoUrl: String(form.get("videoUrl") ?? ""),
-        content: String(form.get("content") ?? ""),
-        estimatedDuration: Number(form.get("estimatedDuration") ?? 0) || null,
-        quizRequired: form.get("quizRequired") === "on",
-        mockCallRequired: form.get("mockCallRequired") === "on",
-        managerReviewRequired: form.get("managerReviewRequired") === "on",
-      },
-      "LMS lesson saved.",
-    );
-    event.currentTarget.reset();
-  }
+    try {
+      const res = await fetch("/api/super-admin/impersonate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id }),
+      });
+      const data = await res.json();
+      if (data.ok && data.redirectUrl) {
+        window.location.href = data.redirectUrl;
+      } else {
+        showToast(data.error || "Impersonation failed", "error");
+        setImpersonatingUserId(null);
+      }
+    } catch {
+      showToast("Network error during login", "error");
+      setImpersonatingUserId(null);
+    }
+  };
 
-  async function createLearningPost(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    await submitOperating(
-      "/api/sales/learning-wall",
-      {
-        title: String(form.get("title") ?? ""),
-        body: String(form.get("body") ?? ""),
-        category: String(form.get("category") ?? "Sales tip"),
-        audience: String(form.get("audience") ?? "all"),
-        linkUrl: String(form.get("linkUrl") ?? ""),
-        videoUrl: String(form.get("videoUrl") ?? ""),
-        isPinned: form.get("isPinned") === "on",
-        isActive: form.get("isActive") === "on",
-      },
-      "Learning wall post published.",
-    );
-    event.currentTarget.reset();
-  }
+  // Delete User
+  const handleDeleteUser = async () => {
+    if (!deletingUser) return;
+    try {
+      const res = await fetch(`/api/super-admin/users?userId=${deletingUser.id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setUsers((prev) => prev.filter((u) => u.id !== deletingUser.id));
+        setStats((prev) => ({
+          ...prev,
+          totalUsers: Math.max(0, prev.totalUsers - 1),
+          totalSeats: Math.max(0, prev.totalSeats - deletingUser.seatLimit),
+        }));
+        showToast(`Deleted ${deletingUser.displayName}`);
+        setDeletingUser(null);
+      } else {
+        showToast(data.error || "Failed to delete user", "error");
+      }
+    } catch {
+      showToast("Network error while deleting", "error");
+    }
+  };
 
-  async function createRoundRobinRule(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    await submitOperating(
-      "/api/sales/round-robin/rules",
-      {
-        title: String(form.get("title") ?? ""),
-        teamId: String(form.get("teamId") ?? ""),
-        isActive: form.get("isActive") === "on",
-        maxActiveLeads: Number(form.get("maxActiveLeads") ?? 0) || null,
-        requireTrainingLevel: String(form.get("requireTrainingLevel") ?? ""),
-        priorityMode: String(form.get("priorityMode") ?? "balanced"),
-        batchSize: Number(form.get("batchSize") ?? 1),
-      },
-      "Round-robin rule saved.",
-    );
-    event.currentTarget.reset();
-  }
+  // Filtered & Searched Users
+  const filteredUsers = useMemo(() => {
+    return users.filter((u) => {
+      const query = searchQuery.toLowerCase().trim();
+      const matchesSearch =
+        !query ||
+        u.displayName.toLowerCase().includes(query) ||
+        u.email.toLowerCase().includes(query) ||
+        u.phone.toLowerCase().includes(query) ||
+        u.companyName.toLowerCase().includes(query);
 
-  async function reviewMockCall(event: FormEvent<HTMLFormElement>, attemptId: string) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    await submitOperating(
-      `/api/sales/lms/mock-call/${attemptId}/review`,
-      {
-        status: String(form.get("status") ?? "APPROVED"),
-        managerScore: Number(form.get("managerScore") ?? 0) || null,
-        feedback: String(form.get("feedback") ?? ""),
-      },
-      "Mock call reviewed.",
-      "PATCH",
-    );
-    event.currentTarget.reset();
-  }
+      const matchesRole =
+        roleFilter === "ALL" ||
+        u.role.toUpperCase() === roleFilter.toUpperCase();
+
+      const matchesStatus =
+        statusFilter === "ALL" ||
+        u.status.toUpperCase() === statusFilter.toUpperCase();
+
+      return matchesSearch && matchesRole && matchesStatus;
+    });
+  }, [users, searchQuery, roleFilter, statusFilter]);
+
+  const recentLoginUsers = useMemo(() => {
+    return [...users]
+      .filter((u) => u.lastLoginAt)
+      .sort((a, b) => new Date(b.lastLoginAt!).getTime() - new Date(a.lastLoginAt!).getTime());
+  }, [users]);
+
+  const adminName = adminUser?.displayName || "Ankit Rathore";
+  const adminEmail = adminUser?.email || "hello.ankitrathore@gmail.com";
+  const adminInitials = adminName
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase() || "AR";
 
   return (
-    <main className="sales-shell">
-      <section className="sales-topbar">
-        <BrandWordmark />
-        <div>
-          <p className="section-label">Super Admin</p>
-          <h1>Sales backend control room</h1>
-          <p className="muted-copy">Approve closers, manage round-robin leads, tiers, goals, commission, referral attribution, wallet, payouts, and announcements.</p>
+    <div style={{ minHeight: "100vh", background: "#090D0B", color: "#F4F4F5", fontFamily: "var(--font-sans, system-ui)" }}>
+      {/* Toast Notification */}
+      {toast && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: "24px",
+            right: "24px",
+            zIndex: 99999,
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            padding: "12px 18px",
+            borderRadius: "10px",
+            background: toast.type === "success" ? "#10B981" : "#EF4444",
+            color: "#FFFFFF",
+            boxShadow: "0 10px 25px rgba(0, 0, 0, 0.5)",
+            fontSize: "0.9rem",
+            fontWeight: 600,
+            animation: "slideUp 0.2s ease-out",
+          }}
+        >
+          {toast.type === "success" ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+          <span>{toast.message}</span>
         </div>
-      </section>
-
-      <section className="sales-metric-grid">
-        {summary.map((card) => {
-          const Icon = card.icon;
-          return (
-            <article className="sales-card" key={card.label}>
-              <Icon size={18} />
-              <span>{card.label}</span>
-              <strong>{card.value}</strong>
-            </article>
-          );
-        })}
-      </section>
-
-      {/* Primary Executive Switcher */}
-      <section style={{ display: "flex", gap: "0.75rem", margin: "1.25rem 0", flexWrap: "wrap" }}>
-        <button
-          type="button"
-          onClick={() => setMainView("intelligence")}
-          style={{
-            padding: "0.75rem 1.4rem",
-            borderRadius: "8px",
-            fontWeight: 700,
-            fontSize: "0.95rem",
-            border: mainView === "intelligence" ? "1px solid #D7FF2F" : "1px solid rgba(255, 255, 255, 0.15)",
-            background: mainView === "intelligence" ? "#D7FF2F" : "#121714",
-            color: mainView === "intelligence" ? "#0A0D0B" : "#A1A1AA",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: "0.5rem",
-            transition: "all 0.15s ease",
-          }}
-        >
-          <Rocket size={18} /> AI Intelligence, Call Audits & Product Roadmap
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setMainView("operations")}
-          style={{
-            padding: "0.75rem 1.4rem",
-            borderRadius: "8px",
-            fontWeight: 700,
-            fontSize: "0.95rem",
-            border: mainView === "operations" ? "1px solid #D7FF2F" : "1px solid rgba(255, 255, 255, 0.15)",
-            background: mainView === "operations" ? "#D7FF2F" : "#121714",
-            color: mainView === "operations" ? "#0A0D0B" : "#A1A1AA",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: "0.5rem",
-            transition: "all 0.15s ease",
-          }}
-        >
-          <GraduationCap size={18} /> Closer Team, Settings & LMS Operations
-        </button>
-      </section>
-
-      {mainView === "intelligence" && initialIntelligence && (
-        <CloserIntelligenceConsole
-          initialData={initialIntelligence}
-          onSwitchToLegacyTab={() => setMainView("operations")}
-        />
       )}
 
-      {mainView === "operations" && (
-        <>
-          <section className="sales-panel sales-full-span">
-            <div className="sales-panel-title"><Rocket size={18} /><strong>Sales control actions</strong></div>
-            <div className="sales-button-row">
-              <a className="sales-primary-button compact" href="#sales-contact-import"><Upload size={15} /> Import Contacts</a>
-              <a className="sales-secondary-button compact" href="#sales-agent-create"><Users size={15} /> Add Agent</a>
-              <a className="sales-secondary-button compact" href="#sales-agents-table"><KeyRound size={15} /> Reset Password</a>
-              <a className="sales-secondary-button compact" href="#webinar-scheduler"><Tv size={15} /> Schedule Webinar</a>
-              <a className="sales-secondary-button compact" href="#sales-os-controls"><GraduationCap size={15} /> Training OS</a>
+      {/* TOP HEADER */}
+      <header
+        style={{
+          borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
+          background: "rgba(10, 13, 11, 0.95)",
+          backdropFilter: "blur(12px)",
+          position: "sticky",
+          top: 0,
+          zIndex: 100,
+          padding: "0.85rem 1.75rem",
+        }}
+      >
+        <div style={{ maxWidth: "1440px", margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1.5rem" }}>
+          {/* Brand & Badge */}
+          <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+            <BrandWordmark />
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.4rem",
+                padding: "0.25rem 0.65rem",
+                borderRadius: "9999px",
+                background: "rgba(249, 115, 22, 0.12)",
+                border: "1px solid rgba(249, 115, 22, 0.3)",
+                color: "#F97316",
+                fontSize: "0.72rem",
+                fontWeight: 700,
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+              }}
+            >
+              <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#10B981", boxShadow: "0 0 8px #10B981" }} />
+              Super Admin
             </div>
-          </section>
-
-      <div className="sales-webinar-scheduler" id="webinar-scheduler">
-        <GappWebinarConsole
-          initialRegistrations={initialGappRegistrations}
-          initialWebinar={initialGappWebinar}
-          onSaved={refreshOperating}
-        />
-      </div>
-
-      <section className="sales-dashboard-grid" id="sales-os-controls">
-        <form className="sales-panel sales-form-grid" onSubmit={createCourse}>
-          <div className="sales-panel-title"><GraduationCap size={18} /><strong>LMS Course</strong></div>
-          <input name="title" placeholder="Course title" required />
-          <textarea name="description" placeholder="Course description" />
-          <select name="assignedRole" defaultValue="TRAINEE">
-            <option value="TRAINEE">Trainee</option>
-            <option value="SALES_AGENT">Sales agent</option>
-            <option value="TEAM_LEADER">Team leader</option>
-            <option value="all">All sales users</option>
-          </select>
-          <div className="sales-form-two">
-            <input defaultValue={100} min={0} name="requiredCompletionPercent" placeholder="Completion %" type="number" />
-            <input min={0} name="requiredQuizScore" placeholder="Quiz score" type="number" />
           </div>
-          <div className="sales-form-two">
-            <input min={0} name="leadUnlockQuantity" placeholder="Lead unlock qty" type="number" />
-            <label className="sales-toggle-row"><span>Published</span><input defaultChecked name="isPublished" type="checkbox" /></label>
-          </div>
-          <label className="sales-toggle-row"><span>Requires mock call</span><input name="requiresMockCall" type="checkbox" /></label>
-          <label className="sales-toggle-row"><span>Requires manager review</span><input name="requiresManagerReview" type="checkbox" /></label>
-          <button className="sales-primary-button" type="submit">Save course</button>
-        </form>
 
-        <form className="sales-panel sales-form-grid" onSubmit={createLesson}>
-          <div className="sales-panel-title"><Library size={18} /><strong>LMS Lesson / Video</strong></div>
-          <select name="courseId" required>
-            <option value="">Choose course</option>
-            {operating.courses.map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}
-          </select>
-          <select name="moduleId">
-            <option value="">No module</option>
-            {operating.modules.map((module) => <option key={module.id} value={module.id}>{module.title}</option>)}
-          </select>
-          <input name="title" placeholder="Lesson title" required />
-          <input name="videoUrl" placeholder="YouTube / Vimeo / hosted video URL" />
-          <textarea name="description" placeholder="Lesson description" />
-          <textarea name="content" placeholder="Lesson content or exercise" />
-          <input min={0} name="estimatedDuration" placeholder="Estimated minutes" type="number" />
-          <label className="sales-toggle-row"><span>Quiz required</span><input name="quizRequired" type="checkbox" /></label>
-          <label className="sales-toggle-row"><span>Mock call required</span><input name="mockCallRequired" type="checkbox" /></label>
-          <label className="sales-toggle-row"><span>Manager review required</span><input name="managerReviewRequired" type="checkbox" /></label>
-          <button className="sales-primary-button" type="submit">Save lesson</button>
-        </form>
+          {/* Navigation Menu Tabs */}
+          <nav style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <button
+              type="button"
+              onClick={() => setActiveTab("users")}
+              style={{
+                padding: "0.5rem 1rem",
+                borderRadius: "8px",
+                fontSize: "0.88rem",
+                fontWeight: 600,
+                border: "none",
+                cursor: "pointer",
+                background: activeTab === "users" ? "#F97316" : "transparent",
+                color: activeTab === "users" ? "#FFFFFF" : "#A1A1AA",
+                display: "flex",
+                alignItems: "center",
+                gap: "0.45rem",
+                transition: "all 0.15s ease",
+              }}
+            >
+              <Users size={16} /> Users & Seats
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("logins")}
+              style={{
+                padding: "0.5rem 1rem",
+                borderRadius: "8px",
+                fontSize: "0.88rem",
+                fontWeight: 600,
+                border: "none",
+                cursor: "pointer",
+                background: activeTab === "logins" ? "#F97316" : "transparent",
+                color: activeTab === "logins" ? "#FFFFFF" : "#A1A1AA",
+                display: "flex",
+                alignItems: "center",
+                gap: "0.45rem",
+                transition: "all 0.15s ease",
+              }}
+            >
+              <Clock size={16} /> Recent Logins ({recentLoginUsers.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("health")}
+              style={{
+                padding: "0.5rem 1rem",
+                borderRadius: "8px",
+                fontSize: "0.88rem",
+                fontWeight: 600,
+                border: "none",
+                cursor: "pointer",
+                background: activeTab === "health" ? "#F97316" : "transparent",
+                color: activeTab === "health" ? "#FFFFFF" : "#A1A1AA",
+                display: "flex",
+                alignItems: "center",
+                gap: "0.45rem",
+                transition: "all 0.15s ease",
+              }}
+            >
+              <ShieldCheck size={16} /> Platform Overview
+            </button>
+          </nav>
 
-        <form className="sales-panel sales-form-grid" onSubmit={createLearningPost}>
-          <div className="sales-panel-title"><Library size={18} /><strong>Learning Wall</strong></div>
-          <input name="title" placeholder="Post title" required />
-          <textarea name="body" placeholder="Sales tip, objection answer, pitch update, or policy" required />
-          <div className="sales-form-two">
-            <input defaultValue="Sales tip" name="category" placeholder="Category" />
-            <select name="audience"><option value="all">All agents</option><option value="trainee">Trainees</option><option value="verified">Verified agents</option></select>
-          </div>
-          <input name="linkUrl" placeholder="Optional link" />
-          <input name="videoUrl" placeholder="Optional video URL" />
-          <label className="sales-toggle-row"><span>Pinned</span><input name="isPinned" type="checkbox" /></label>
-          <label className="sales-toggle-row"><span>Active</span><input defaultChecked name="isActive" type="checkbox" /></label>
-          <button className="sales-primary-button" type="submit">Publish post</button>
-        </form>
-
-        <form className="sales-panel sales-form-grid" onSubmit={createRoundRobinRule}>
-          <div className="sales-panel-title"><Route size={18} /><strong>Round-robin Rule</strong></div>
-          <input name="title" placeholder="Fresh trainee guarded distribution" required />
-          <select name="teamId"><option value="">All teams</option>{snapshot.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select>
-          <input name="requireTrainingLevel" placeholder="Required training level e.g. UNLOCK_10_LEADS" />
-          <select name="priorityMode"><option value="balanced">Balanced</option><option value="hot_first">Hot first</option><option value="least_loaded">Least loaded</option></select>
-          <div className="sales-form-two">
-            <input min={0} name="maxActiveLeads" placeholder="Max active leads" type="number" />
-            <input defaultValue={1} min={1} name="batchSize" placeholder="Batch size" type="number" />
-          </div>
-          <label className="sales-toggle-row"><span>Active</span><input defaultChecked name="isActive" type="checkbox" /></label>
-          <button className="sales-primary-button" type="submit">Save rule</button>
-        </form>
-
-        <article className="sales-panel">
-          <div className="sales-panel-title"><Mic2 size={18} /><strong>Mock Call Review</strong></div>
-          <div className="sales-table">
-            {operating.mockCalls.map((call) => (
-              <div className="sales-table-row sales-table-row-rich" key={call.id}>
-                <div>
-                  <strong>{call.scenario.replace(/_/g, " ")}</strong>
-                  <span>{snapshot.agents.find((agent) => agent.userId === call.userId)?.displayName ?? "Sales agent"} - {call.status}</span>
-                  <small>{call.transcript.slice(0, 160)}</small>
-                  <form className="sales-inline-form" onSubmit={(event) => reviewMockCall(event, call.id)}>
-                    <select defaultValue={call.status} name="status"><option value="APPROVED">Approve</option><option value="NEEDS_RETRY">Needs retry</option><option value="REJECTED">Reject</option></select>
-                    <input defaultValue={call.managerScore ?? ""} min={0} max={100} name="managerScore" placeholder="Score" type="number" />
-                    <input defaultValue={call.feedback ?? ""} name="feedback" placeholder="Feedback" />
-                    <button className="sales-small-button" type="submit">Review</button>
-                  </form>
-                </div>
+          {/* Right: Admin Profile & Logout */}
+          <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+            {/* Admin Profile Pill */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.75rem",
+                padding: "0.35rem 0.75rem 0.35rem 0.45rem",
+                borderRadius: "9999px",
+                background: "rgba(255, 255, 255, 0.05)",
+                border: "1px solid rgba(255, 255, 255, 0.1)",
+              }}
+            >
+              <div
+                style={{
+                  width: "32px",
+                  height: "32px",
+                  borderRadius: "50%",
+                  background: "linear-gradient(135deg, #F97316 0%, #EA580C 100%)",
+                  color: "#FFF",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontWeight: 700,
+                  fontSize: "0.8rem",
+                }}
+              >
+                {adminInitials}
               </div>
-            ))}
-            {!operating.mockCalls.length ? <p className="muted-copy">No mock calls are waiting for review.</p> : null}
-          </div>
-        </article>
-      </section>
-
-      <section className="sales-dashboard-grid">
-        <form className="sales-panel sales-form-grid" id="sales-contact-import" onSubmit={importContacts}>
-          <strong>Lead Import</strong>
-          <label><span>Excel or CSV file</span><input accept=".csv,.tsv,.xls,.xlsx" name="file" type="file" /></label>
-          <div className="sales-import-divider"><span>or</span></div>
-          <label><span>Google Sheets link</span><input name="googleSheetUrl" placeholder="https://docs.google.com/spreadsheets/d/..." type="url" /></label>
-          <select name="mode" defaultValue="add_to_round_robin_queue">
-            <option value="add_to_round_robin_queue">Add to round-robin queue</option>
-            <option value="assign_to_selected_agent">Assign to selected agent</option>
-            <option value="add_directly_to_crm">Add directly to CRM</option>
-          </select>
-          <select name="assignedAgentId">
-            <option value="">Round-robin / first active agent</option>
-            {snapshot.agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.displayName} - {agent.status}</option>)}
-          </select>
-          <p className="muted-copy">Upload one file or paste a Google Sheet shared as “Anyone with the link”. Supported headers: name, phone, whatsapp, email, source, segment, service, package, interest, budget, priority, tags, notes.</p>
-          <button className="sales-primary-button" type="submit"><Upload size={15} /> Start import</button>
-          {importResult ? (
-            <div className="sales-import-result">
-              <strong>{importResult.imported} imported</strong>
-              <span>{importResult.skipped} skipped</span>
-              <span>{importResult.duplicate} duplicates</span>
-              <span>{importResult.invalid} invalid</span>
-              {importResult.errors?.length ? <small>{importResult.errors.slice(0, 3).map((error) => `Row ${error.row}: ${error.reason}`).join(" | ")}</small> : null}
+              <div style={{ textAlign: "left", lineHeight: 1.2 }}>
+                <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "#FFF" }}>{adminName}</div>
+                <div style={{ fontSize: "0.7rem", color: "#A1A1AA" }}>Owner</div>
+              </div>
             </div>
-          ) : null}
-        </form>
 
-        <form className="sales-panel sales-form-grid" onSubmit={saveSettings}>
-          <strong>Backend Options</strong>
-          {[
-            ["moduleEnabled", "Enable sales module", snapshot.settings.moduleEnabled],
-            ["signupRequiresApproval", "Signup requires approval", snapshot.settings.signupRequiresApproval],
-            ["enableReferralLinks", "Enable referral links", snapshot.settings.enableReferralLinks],
-            ["enableTeams", "Enable teams", snapshot.settings.enableTeams],
-            ["enableEarnings", "Enable earnings", snapshot.settings.enableEarnings],
-            ["enablePayouts", "Enable payouts", snapshot.settings.enablePayouts],
-            ["enableMessages", "Enable messages", snapshot.settings.enableMessages],
-            ["enableAnnouncements", "Enable announcements", snapshot.settings.enableAnnouncements],
-          ].map(([name, text, checked]) => (
-            <label className="sales-toggle-row" key={String(name)}>
-              <span>{text}</span>
-              <input defaultChecked={Boolean(checked)} name={String(name)} type="checkbox" />
-            </label>
-          ))}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-            <label><span>Closer Direct Sale %</span><input defaultValue={snapshot.settings.closerDirectCommissionPercent ?? 20} min={0} max={100} name="closerDirectCommissionPercent" step="0.5" type="number" required /></label>
-            <label><span>Closer Sub-Referral %</span><input defaultValue={snapshot.settings.closerSubCommissionPercent ?? 10} min={0} max={100} name="closerSubCommissionPercent" step="0.5" type="number" required /></label>
-            <label><span>Freelancer Referral %</span><input defaultValue={snapshot.settings.freelancerCommissionPercent ?? 10} min={0} max={100} name="freelancerCommissionPercent" step="0.5" type="number" required /></label>
-            <label><span>Agency Referral %</span><input defaultValue={snapshot.settings.agencyCommissionPercent ?? 10} min={0} max={100} name="agencyCommissionPercent" step="0.5" type="number" required /></label>
-            <label><span>Payout Hold (Days)</span><input defaultValue={snapshot.settings.payoutHoldDays ?? 7} min={0} max={60} name="payoutHoldDays" step="1" type="number" required /></label>
-            <label><span>Payout Minimum (₹)</span><input defaultValue={snapshot.settings.payoutMinimum ?? 500} min={1} name="payoutMinimum" step="1" type="number" required /></label>
+            {/* Logout Button */}
+            <a
+              href="/api/auth/logout?redirectTo=/super-admin/login"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.45rem",
+                padding: "0.55rem 0.95rem",
+                borderRadius: "8px",
+                background: "rgba(239, 68, 68, 0.1)",
+                border: "1px solid rgba(239, 68, 68, 0.25)",
+                color: "#F87171",
+                fontSize: "0.82rem",
+                fontWeight: 600,
+                textDecoration: "none",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(239, 68, 68, 0.2)";
+                e.currentTarget.style.borderColor = "rgba(239, 68, 68, 0.4)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "rgba(239, 68, 68, 0.1)";
+                e.currentTarget.style.borderColor = "rgba(239, 68, 68, 0.25)";
+              }}
+            >
+              <LogOut size={15} /> Logout
+            </a>
           </div>
-          <label><span>Legacy default commission %</span><input defaultValue={snapshot.settings.defaultCommissionPercent} min={0} name="defaultCommissionPercent" step="0.01" type="number" /></label>
-          <label><span>Sales primary color</span><input defaultValue={snapshot.settings.dashboardPrimaryColor || "#D7FF2F"} name="dashboardPrimaryColor" type="color" /></label>
-          <label><span>Sales surface color</span><input defaultValue={snapshot.settings.dashboardAccentColor || "#0A0D0B"} name="dashboardAccentColor" type="color" /></label>
-          <button className="sales-primary-button" type="submit">Save backend options</button>
-        </form>
+        </div>
+      </header>
 
-        <form className="sales-panel sales-form-grid" onSubmit={createRule}>
-          <strong>Commission Rule</strong>
-          <input name="name" placeholder="Senior closer 15%" required />
-          <select name="type"><option value="PERCENTAGE">Percentage</option><option value="FIXED">Fixed amount</option></select>
-          <select name="scope"><option value="ALL_AGENTS">All agents</option><option value="AGENT_GROUP">Agent group</option><option value="INDIVIDUAL_AGENT">Individual agent</option></select>
-          <select name="appliesTo"><option value="ALL_PACKAGES">All packages</option><option value="PACKAGE">Selected package</option><option value="ONE_TIME_DEAL">One-time deal</option></select>
-          <select name="groupId"><option value="">Any group</option>{snapshot.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select>
-          <select name="agentId"><option value="">Any agent</option>{snapshot.agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.displayName}</option>)}</select>
-          <select name="packageId"><option value="">Any package</option>{snapshot.packages.map((pkg) => <option key={pkg.id} value={pkg.id}>{pkg.name}</option>)}</select>
-          <input min={0} name="value" placeholder="Value" required step="0.01" type="number" />
-          <input min={0} name="parentCommissionPercent" placeholder="Parent commission %" step="0.01" type="number" />
-          <input min={0} name="minOrderValue" placeholder="Min order value" step="1" type="number" />
-          <input min={0} name="maxOrderValue" placeholder="Max order value" step="1" type="number" />
-          <input defaultValue={1} min={0} name="priority" placeholder="Priority" step="1" type="number" />
-          <button className="sales-primary-button" type="submit">Save commission rule</button>
-        </form>
-
-        <form className="sales-panel sales-form-grid" onSubmit={createGroup}>
-          <strong>Agent Group / Tier</strong>
-          <input name="name" placeholder="Senior Closers" required />
-          <textarea name="description" placeholder="Group description" />
-          <input defaultValue={10} min={0} name="defaultCommissionPercent" placeholder="Default commission %" step="0.01" type="number" />
-          <input defaultValue={2} min={0} name="parentCommissionPercent" placeholder="Parent commission %" step="0.01" type="number" />
-          <button className="sales-primary-button" type="submit">Save group</button>
-        </form>
-
-        <form className="sales-panel sales-form-grid" id="sales-agent-create" onSubmit={createAgent}>
-          <strong>Create Agent / Subagent</strong>
-          <input name="displayName" placeholder="Agent name" required />
-          <input name="email" placeholder="agent@gigxomi.com" required type="email" />
-          <input name="phone" placeholder="+91..." required />
-          <input minLength={8} name="password" placeholder="Temporary password" required type="password" />
-          <select name="status"><option value="ACTIVE">Active now</option><option value="PENDING">Pending approval</option><option value="SUSPENDED">Suspended</option></select>
-          <select name="groupId"><option value="">No group</option>{snapshot.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select>
-          <select name="parentAgentId"><option value="">No parent agent</option>{snapshot.agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.displayName}</option>)}</select>
-          <label className="sales-toggle-row"><span>Can claim queue leads</span><input defaultChecked name="canClaimLeads" type="checkbox" /></label>
-          <label className="sales-toggle-row"><span>Can add subagents</span><input name="canCreateSubAgents" type="checkbox" /></label>
-          <input min={0} name="maxActiveLeads" placeholder="Max active leads" step="1" type="number" />
-          <button className="sales-primary-button" type="submit">Create sales agent</button>
-        </form>
-
-        <form className="sales-panel sales-form-grid" onSubmit={createQueueLead}>
-          <strong>Round-robin Lead</strong>
-          <input name="customerName" placeholder="Customer name" required />
-          <input name="customerPhone" placeholder="WhatsApp number" />
-          <input name="customerEmail" placeholder="Email" type="email" />
-          <input name="serviceInterest" placeholder="Package or editor need" />
-          <input name="segment" placeholder="Segment e.g. creator, agency, wedding" />
-          <select name="priority"><option value="normal">Normal</option><option value="warm">Warm</option><option value="hot">Hot</option></select>
-          <select name="assignedAgentId"><option value="">Round-robin queue</option>{snapshot.agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.displayName}</option>)}</select>
-          <input min={0} name="budgetAmount" placeholder="Budget" step="1" type="number" />
-          <textarea name="notes" placeholder="Lead notes" />
-          <button className="sales-primary-button" type="submit">Add queue lead</button>
-        </form>
-
-        <form className="sales-panel sales-form-grid" onSubmit={createGoal}>
-          <strong>Goal / Scoreboard Target</strong>
-          <input name="name" placeholder="Monthly revenue sprint" required />
-          <select name="metric">
-            <option value="PAID_REVENUE">Paid revenue</option>
-            <option value="CLOSED_DEALS">Closed deals</option>
-            <option value="REFERRAL_SIGNUPS">Referral signups</option>
-            <option value="CONVERSION_RATE">Conversion rate</option>
-            <option value="LEADS_CLAIMED">Leads claimed</option>
-          </select>
-          <select name="scope"><option value="ALL_AGENTS">All agents</option><option value="AGENT_GROUP">Agent group</option><option value="INDIVIDUAL_AGENT">Individual agent</option></select>
-          <select name="groupId"><option value="">Any group</option>{snapshot.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select>
-          <select name="agentId"><option value="">Any agent</option>{snapshot.agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.displayName}</option>)}</select>
-          <input min={1} name="target" placeholder="Target value" required step="1" type="number" />
-          <textarea name="rewardText" placeholder="Pinned reward text" />
-          <button className="sales-primary-button" type="submit">Pin goal</button>
-        </form>
-
-        <form className="sales-panel sales-form-grid" onSubmit={createReward}>
-          <strong>Pinned Reward</strong>
-          <input name="title" placeholder="Top closer bonus" required />
-          <textarea name="body" placeholder="Reward rules and motivation" required />
-          <select name="groupId"><option value="">All groups</option>{snapshot.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select>
-          <select name="agentId"><option value="">All agents</option>{snapshot.agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.displayName}</option>)}</select>
-          <button className="sales-primary-button" type="submit">Pin reward</button>
-        </form>
-
-        <article className="sales-panel" id="sales-agents-table">
-          <div className="sales-panel-title"><Users size={18} /><strong>Agents & Teams</strong></div>
-          <div className="sales-table">
-            {snapshot.agents.map((agent) => (
-              <div className="sales-table-row" key={agent.id}>
-                <div>
-                  <strong>{agent.displayName}</strong>
-                  <span>{agent.agentCode} - {snapshot.groups.find((group) => group.id === agent.groupId)?.name ?? "No group"} - {agent.email || agent.phone}</span>
-                  <form className="sales-inline-form" onSubmit={(event) => updateAgentTeam(event, agent.id)}>
-                    <select defaultValue={agent.groupId ?? ""} name="groupId"><option value="">No group</option>{snapshot.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select>
-                    <select defaultValue={agent.parentAgentId ?? ""} name="parentAgentId"><option value="">No parent</option>{snapshot.agents.filter((candidate) => candidate.id !== agent.id).map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.displayName}</option>)}</select>
-                    <input defaultValue={agent.commissionPercent ?? ""} min={0} name="commissionPercent" placeholder="Override %" step="0.01" type="number" />
-                    <input defaultValue={agent.maxActiveLeads ?? ""} min={0} name="maxActiveLeads" placeholder="Max leads" step="1" type="number" />
-                    <label className="sales-toggle-row"><span>Claim</span><input defaultChecked={agent.canClaimLeads} name="canClaimLeads" type="checkbox" /></label>
-                    <label className="sales-toggle-row"><span>Subagents</span><input defaultChecked={agent.canCreateSubAgents} name="canCreateSubAgents" type="checkbox" /></label>
-                    <button className="sales-small-button" type="submit">Save team</button>
-                  </form>
-                  <form className="sales-inline-form" onSubmit={(event) => resetAgentPassword(event, agent.id)}>
-                    <input minLength={8} name="password" placeholder="New password" required type="password" />
-                    <button className="sales-small-button" type="submit"><KeyRound size={14} /> Reset password</button>
-                  </form>
-                </div>
-                <span>{agent.status}</span>
-                <button className="sales-small-button" onClick={() => updateAgent(agent.id, "ACTIVE")} type="button">Approve</button>
-                <button className="sales-small-button" onClick={() => updateAgent(agent.id, "SUSPENDED")} type="button">Suspend</button>
-                <button className="sales-small-button" onClick={() => deleteAgent(agent.id)} type="button"><Trash2 size={14} /> Delete</button>
+      {/* MAIN CONTAINER */}
+      <main style={{ maxWidth: "1440px", margin: "0 auto", padding: "1.75rem 1.75rem 4rem 1.75rem" }}>
+        {/* METRICS ROW */}
+        <section
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+            gap: "1rem",
+            marginBottom: "1.75rem",
+          }}
+        >
+          <div
+            style={{
+              padding: "1.25rem",
+              borderRadius: "12px",
+              background: "#111714",
+              border: "1px solid rgba(255, 255, 255, 0.08)",
+              display: "flex",
+              alignItems: "center",
+              gap: "1rem",
+            }}
+          >
+            <div
+              style={{
+                width: "48px",
+                height: "48px",
+                borderRadius: "10px",
+                background: "rgba(249, 115, 22, 0.12)",
+                color: "#F97316",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Users size={24} />
+            </div>
+            <div>
+              <div style={{ fontSize: "0.78rem", color: "#A1A1AA", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.03em" }}>
+                Total Registered Users
               </div>
-            ))}
-          </div>
-        </article>
-
-        <article className="sales-panel">
-          <div className="sales-panel-title"><Smartphone size={18} /><strong>CRM Mobile Devices</strong></div>
-          <div className="sales-table">
-            {snapshot.mobileDevices.map((device) => (
-              <div className="sales-table-row" key={device.id}>
-                <div>
-                  <strong>{device.deviceName}</strong>
-                  <span>{device.manufacturer} {device.model} - {snapshot.agents.find((agent) => agent.id === device.agentId)?.displayName ?? "Unknown agent"}</span>
-                  <small>{device.simLabel || "No office SIM selected"}{device.officeSimNumber ? ` - ${device.officeSimNumber}` : ""}</small>
-                  <small>Last seen {new Date(device.lastSeenAt).toLocaleString()} - {device.recordingCapability}</small>
-                </div>
-                <span>{device.isActive ? "ACTIVE" : "INACTIVE"}</span>
-                <button className="sales-small-button" onClick={() => updateMobileDevice(device.id, !device.isActive, device.recordingEnabled)} type="button">{device.isActive ? "Deactivate" : "Activate"}</button>
-                <button className="sales-small-button" disabled={device.recordingCapability === "RECORDING_UNAVAILABLE"} onClick={() => updateMobileDevice(device.id, device.isActive, !device.recordingEnabled)} type="button">Recording {device.recordingEnabled ? "on" : "off"}</button>
+              <div style={{ fontSize: "1.65rem", fontWeight: 800, color: "#FFFFFF", marginTop: "2px" }}>
+                {stats.totalUsers}
               </div>
-            ))}
-            {!snapshot.mobileDevices.length ? <p className="muted-copy">No Gigxomi CRM phones are registered yet.</p> : null}
+            </div>
           </div>
-        </article>
 
-        <article className="sales-panel">
-          <div className="sales-panel-title"><PhoneCall size={18} /><strong>Mobile Call Monitoring</strong></div>
-          <div className="sales-table">
-            {snapshot.mobileCalls.slice(0, 50).map((call) => (
-              <div className="sales-table-row sales-table-row-rich" key={call.id}>
-                <div>
-                  <strong>{call.customerName}</strong>
-                  <span>{call.status} - {call.durationSeconds}s - {call.recordingStatus}</span>
-                  <small>{call.deviceName || "Unknown device"}{call.deviceModel ? ` - ${call.deviceModel}` : ""} - {call.phoneNumber}</small>
-                  <small>{new Date(call.startedAt).toLocaleString()}</small>
-                  <small>{call.outcome || "No outcome"} - {call.note || "Pending mandatory note"}</small>
-                  {call.recordingError ? <small>Recording issue: {call.recordingError}</small> : null}
-                </div>
-                <span>{call.noteSubmitted ? "NOTED" : "PENDING NOTE"}</span>
-                {call.recordingStatus === "UPLOADED" ? <a className="sales-small-button" href={`/api/sales/mobile/calls/${call.id}/recording`} target="_blank">Play</a> : null}
+          <div
+            style={{
+              padding: "1.25rem",
+              borderRadius: "12px",
+              background: "#111714",
+              border: "1px solid rgba(255, 255, 255, 0.08)",
+              display: "flex",
+              alignItems: "center",
+              gap: "1rem",
+            }}
+          >
+            <div
+              style={{
+                width: "48px",
+                height: "48px",
+                borderRadius: "10px",
+                background: "rgba(16, 185, 129, 0.12)",
+                color: "#10B981",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <ShieldCheck size={24} />
+            </div>
+            <div>
+              <div style={{ fontSize: "0.78rem", color: "#A1A1AA", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.03em" }}>
+                Active Accounts
               </div>
-            ))}
-            {!snapshot.mobileCalls.length ? <p className="muted-copy">No mobile calls have been synced yet.</p> : null}
-          </div>
-        </article>
-
-        <form className="sales-panel sales-form-grid" onSubmit={createAnnouncement}>
-          <div className="sales-panel-title"><Bell size={18} /><strong>Announcement</strong></div>
-          <input name="title" placeholder="Announcement title" required />
-          <textarea name="body" placeholder="Message for agents" required />
-          <button className="sales-primary-button" type="submit">Publish announcement</button>
-        </form>
-
-        <article className="sales-panel">
-          <div className="sales-panel-title"><Coins size={18} /><strong>Payout Approval</strong></div>
-          <div className="sales-table">
-            {snapshot.payouts.map((payout) => (
-              <div className="sales-table-row" key={payout.id}>
-                <div>
-                  <strong>{money(payout.amount)}</strong>
-                  <span>{snapshot.agents.find((agent) => agent.id === payout.agentId)?.displayName ?? "Unknown agent"} - {payout.note}</span>
-                </div>
-                <span>{payout.status}</span>
-                <button className="sales-small-button" onClick={() => updatePayout(payout.id, "APPROVED")} type="button">Approve</button>
-                <button className="sales-small-button" onClick={() => updatePayout(payout.id, "PAID")} type="button">Paid</button>
-                <button className="sales-small-button" onClick={() => updatePayout(payout.id, "REJECTED")} type="button">Reject</button>
+              <div style={{ fontSize: "1.65rem", fontWeight: 800, color: "#FFFFFF", marginTop: "2px" }}>
+                {stats.activeUsers}
               </div>
-            ))}
+            </div>
           </div>
-        </article>
-      </section>
-        </>
+
+          <div
+            style={{
+              padding: "1.25rem",
+              borderRadius: "12px",
+              background: "#111714",
+              border: "1px solid rgba(255, 255, 255, 0.08)",
+              display: "flex",
+              alignItems: "center",
+              gap: "1rem",
+            }}
+          >
+            <div
+              style={{
+                width: "48px",
+                height: "48px",
+                borderRadius: "10px",
+                background: "rgba(59, 130, 246, 0.12)",
+                color: "#3B82F6",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Layers size={24} />
+            </div>
+            <div>
+              <div style={{ fontSize: "0.78rem", color: "#A1A1AA", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.03em" }}>
+                Allocated Team Seats
+              </div>
+              <div style={{ fontSize: "1.65rem", fontWeight: 800, color: "#FFFFFF", marginTop: "2px" }}>
+                {stats.totalSeats}
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              padding: "1.25rem",
+              borderRadius: "12px",
+              background: "#111714",
+              border: "1px solid rgba(255, 255, 255, 0.08)",
+              display: "flex",
+              alignItems: "center",
+              gap: "1rem",
+            }}
+          >
+            <div
+              style={{
+                width: "48px",
+                height: "48px",
+                borderRadius: "10px",
+                background: "rgba(234, 179, 8, 0.12)",
+                color: "#EAB308",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Sparkles size={24} />
+            </div>
+            <div>
+              <div style={{ fontSize: "0.78rem", color: "#A1A1AA", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.03em" }}>
+                New Signups Today
+              </div>
+              <div style={{ fontSize: "1.65rem", fontWeight: 800, color: "#FFFFFF", marginTop: "2px" }}>
+                {stats.newUsersToday}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* TAB 1: USERS & SEATS MANAGEMENT */}
+        {activeTab === "users" && (
+          <div>
+            {/* ACTION & SEARCH CONTROLS */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "1rem",
+                flexWrap: "wrap",
+                marginBottom: "1.25rem",
+              }}
+            >
+              {/* Search Box */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.6rem",
+                  background: "#121714",
+                  border: "1px solid rgba(255, 255, 255, 0.12)",
+                  borderRadius: "10px",
+                  padding: "0.55rem 0.95rem",
+                  flex: "1 1 320px",
+                  maxWidth: "420px",
+                }}
+              >
+                <Search size={16} style={{ color: "#71717A" }} />
+                <input
+                  type="text"
+                  placeholder="Search by name, email, phone, company..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    outline: "none",
+                    color: "#FFFFFF",
+                    fontSize: "0.88rem",
+                    width: "100%",
+                  }}
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery("")}
+                    style={{ background: "transparent", border: "none", color: "#71717A", cursor: "pointer" }}
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+
+              {/* Filters & Action Buttons */}
+              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+                {/* Role Filter */}
+                <select
+                  value={roleFilter}
+                  onChange={(e) => setRoleFilter(e.target.value)}
+                  style={{
+                    background: "#121714",
+                    border: "1px solid rgba(255, 255, 255, 0.12)",
+                    borderRadius: "8px",
+                    color: "#D4D4D8",
+                    padding: "0.55rem 0.85rem",
+                    fontSize: "0.85rem",
+                    fontWeight: 500,
+                    cursor: "pointer",
+                  }}
+                >
+                  <option value="ALL">All Roles</option>
+                  <option value="SALES_AGENT">Sales Agent</option>
+                  <option value="ADMIN">Admin</option>
+                  <option value="MANAGER">Manager</option>
+                  <option value="FREELANCER">Freelancer</option>
+                </select>
+
+                {/* Status Filter */}
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  style={{
+                    background: "#121714",
+                    border: "1px solid rgba(255, 255, 255, 0.12)",
+                    borderRadius: "8px",
+                    color: "#D4D4D8",
+                    padding: "0.55rem 0.85rem",
+                    fontSize: "0.85rem",
+                    fontWeight: 500,
+                    cursor: "pointer",
+                  }}
+                >
+                  <option value="ALL">All Status</option>
+                  <option value="ACTIVE">Active</option>
+                  <option value="PENDING">Pending</option>
+                  <option value="SUSPENDED">Suspended</option>
+                </select>
+
+                {/* Refresh Button */}
+                <button
+                  type="button"
+                  onClick={refreshData}
+                  disabled={isRefreshing}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.45rem",
+                    background: "#121714",
+                    border: "1px solid rgba(255, 255, 255, 0.12)",
+                    borderRadius: "8px",
+                    color: "#D4D4D8",
+                    padding: "0.55rem 0.85rem",
+                    fontSize: "0.85rem",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  <RefreshCw size={14} className={isRefreshing ? "spin" : ""} /> Refresh
+                </button>
+
+                {/* + Add New User Button */}
+                <button
+                  type="button"
+                  onClick={() => setIsAddModalOpen(true)}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.5rem",
+                    background: "linear-gradient(135deg, #F97316 0%, #EA580C 100%)",
+                    border: "none",
+                    borderRadius: "8px",
+                    color: "#FFFFFF",
+                    padding: "0.55rem 1.15rem",
+                    fontSize: "0.88rem",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    boxShadow: "0 4px 15px rgba(249, 115, 22, 0.3)",
+                    transition: "all 0.15s ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = "translateY(-1px)";
+                    e.currentTarget.style.boxShadow = "0 6px 20px rgba(249, 115, 22, 0.4)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = "translateY(0)";
+                    e.currentTarget.style.boxShadow = "0 4px 15px rgba(249, 115, 22, 0.3)";
+                  }}
+                >
+                  <UserPlus size={16} /> Add New User
+                </button>
+              </div>
+            </div>
+
+            {/* USERS TABLE */}
+            <div
+              style={{
+                background: "#111714",
+                border: "1px solid rgba(255, 255, 255, 0.08)",
+                borderRadius: "14px",
+                overflow: "hidden",
+                boxShadow: "0 8px 30px rgba(0, 0, 0, 0.3)",
+              }}
+            >
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "0.88rem" }}>
+                  <thead>
+                    <tr style={{ background: "rgba(255, 255, 255, 0.02)", borderBottom: "1px solid rgba(255, 255, 255, 0.08)", color: "#A1A1AA" }}>
+                      <th style={{ padding: "0.95rem 1.25rem", fontWeight: 700, fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                        User / Contact
+                      </th>
+                      <th style={{ padding: "0.95rem 1rem", fontWeight: 700, fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                        Workspace
+                      </th>
+                      <th style={{ padding: "0.95rem 1rem", fontWeight: 700, fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                        Role
+                      </th>
+                      <th style={{ padding: "0.95rem 1rem", fontWeight: 700, fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                        Status
+                      </th>
+                      <th style={{ padding: "0.95rem 1rem", fontWeight: 700, fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                        Last Login
+                      </th>
+                      <th
+                        style={{
+                          padding: "0.95rem 1.25rem",
+                          fontWeight: 700,
+                          fontSize: "0.78rem",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.04em",
+                          textAlign: "center",
+                          background: "rgba(249, 115, 22, 0.04)",
+                        }}
+                      >
+                        Team Seats Limit (Scale)
+                      </th>
+                      <th style={{ padding: "0.95rem 1.25rem", fontWeight: 700, fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.04em", textAlign: "right" }}>
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredUsers.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} style={{ padding: "3rem", textAlign: "center", color: "#71717A" }}>
+                          <Users size={36} style={{ margin: "0 auto 0.75rem", opacity: 0.5 }} />
+                          <div style={{ fontSize: "1rem", fontWeight: 600, color: "#D4D4D8" }}>No users found matching your filters</div>
+                          <div style={{ fontSize: "0.82rem", marginTop: "4px" }}>Try clearing your search query or filters.</div>
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredUsers.map((user) => {
+                        const userInitials = user.displayName
+                          .split(" ")
+                          .map((w) => w[0])
+                          .join("")
+                          .slice(0, 2)
+                          .toUpperCase() || "U";
+
+                        const isCurrentlyImpersonating = impersonatingUserId === user.id;
+
+                        return (
+                          <tr
+                            key={user.id}
+                            style={{
+                              borderBottom: "1px solid rgba(255, 255, 255, 0.05)",
+                              transition: "background 0.15s ease",
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = "rgba(255, 255, 255, 0.02)";
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = "transparent";
+                            }}
+                          >
+                            {/* User Info */}
+                            <td style={{ padding: "1rem 1.25rem" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                                <div
+                                  style={{
+                                    width: "36px",
+                                    height: "36px",
+                                    borderRadius: "50%",
+                                    background: user.isSuperAdmin
+                                      ? "linear-gradient(135deg, #F97316 0%, #EA580C 100%)"
+                                      : "rgba(255, 255, 255, 0.08)",
+                                    color: user.isSuperAdmin ? "#FFF" : "#D4D4D8",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    fontWeight: 700,
+                                    fontSize: "0.82rem",
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  {userInitials}
+                                </div>
+                                <div>
+                                  <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                                    <strong style={{ color: "#FFFFFF", fontSize: "0.92rem" }}>{user.displayName}</strong>
+                                    {user.isSuperAdmin && (
+                                      <span
+                                        style={{
+                                          fontSize: "0.65rem",
+                                          padding: "0.1rem 0.4rem",
+                                          borderRadius: "4px",
+                                          background: "rgba(249, 115, 22, 0.2)",
+                                          color: "#F97316",
+                                          fontWeight: 700,
+                                        }}
+                                      >
+                                        OWNER
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div style={{ fontSize: "0.78rem", color: "#A1A1AA", marginTop: "2px" }}>
+                                    {user.email || "No email"} &bull; {user.phone || "No phone"}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Workspace */}
+                            <td style={{ padding: "1rem" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", color: "#D4D4D8", fontSize: "0.84rem" }}>
+                                <Building size={14} style={{ color: "#71717A", flexShrink: 0 }} />
+                                <span style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  {user.companyName}
+                                </span>
+                              </div>
+                            </td>
+
+                            {/* Role */}
+                            <td style={{ padding: "1rem" }}>
+                              <span
+                                style={{
+                                  fontSize: "0.75rem",
+                                  fontWeight: 700,
+                                  padding: "0.25rem 0.6rem",
+                                  borderRadius: "6px",
+                                  background:
+                                    user.role === "SUPER_ADMIN"
+                                      ? "rgba(249, 115, 22, 0.15)"
+                                      : user.role === "ADMIN"
+                                        ? "rgba(59, 130, 246, 0.15)"
+                                        : "rgba(16, 185, 129, 0.15)",
+                                  color:
+                                    user.role === "SUPER_ADMIN"
+                                      ? "#F97316"
+                                      : user.role === "ADMIN"
+                                        ? "#60A5FA"
+                                        : "#34D399",
+                                }}
+                              >
+                                {user.role}
+                              </span>
+                            </td>
+
+                            {/* Status */}
+                            <td style={{ padding: "1rem" }}>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleStatus(user)}
+                                disabled={user.isSuperAdmin}
+                                title={user.isSuperAdmin ? "Super Admin status is locked" : "Click to toggle Active / Suspended"}
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "0.4rem",
+                                  padding: "0.25rem 0.6rem",
+                                  borderRadius: "9999px",
+                                  fontSize: "0.74rem",
+                                  fontWeight: 700,
+                                  border: "none",
+                                  cursor: user.isSuperAdmin ? "default" : "pointer",
+                                  background:
+                                    user.status === "ACTIVE"
+                                      ? "rgba(16, 185, 129, 0.15)"
+                                      : user.status === "PENDING"
+                                        ? "rgba(234, 179, 8, 0.15)"
+                                        : "rgba(239, 68, 68, 0.15)",
+                                  color:
+                                    user.status === "ACTIVE"
+                                      ? "#10B981"
+                                      : user.status === "PENDING"
+                                        ? "#EAB308"
+                                        : "#EF4444",
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    width: "6px",
+                                    height: "6px",
+                                    borderRadius: "50%",
+                                    background:
+                                      user.status === "ACTIVE"
+                                        ? "#10B981"
+                                        : user.status === "PENDING"
+                                          ? "#EAB308"
+                                          : "#EF4444",
+                                  }}
+                                />
+                                {user.status}
+                              </button>
+                            </td>
+
+                            {/* Last Login */}
+                            <td style={{ padding: "1rem", color: "#A1A1AA", fontSize: "0.82rem" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                                <Clock size={13} style={{ opacity: 0.6 }} />
+                                <span>{formatTimeAgo(user.lastLoginAt)}</span>
+                              </div>
+                            </td>
+
+                            {/* SEAT SCALING (CORE USER REQUIREMENT) */}
+                            <td
+                              style={{
+                                padding: "1rem 1.25rem",
+                                textAlign: "center",
+                                background: "rgba(249, 115, 22, 0.02)",
+                              }}
+                            >
+                              <div style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
+                                {/* Decrement Seat Button (-) */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateSeats(user, -1)}
+                                  disabled={user.seatLimit <= 1}
+                                  title="Decrease 1 seat"
+                                  style={{
+                                    width: "28px",
+                                    height: "28px",
+                                    borderRadius: "6px",
+                                    border: "1px solid rgba(255, 255, 255, 0.15)",
+                                    background: user.seatLimit <= 1 ? "rgba(255, 255, 255, 0.03)" : "rgba(255, 255, 255, 0.08)",
+                                    color: user.seatLimit <= 1 ? "#52525B" : "#FFFFFF",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    cursor: user.seatLimit <= 1 ? "not-allowed" : "pointer",
+                                    transition: "all 0.1s ease",
+                                  }}
+                                >
+                                  <Minus size={13} />
+                                </button>
+
+                                {/* Direct Clickable Seats Badge */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setQuickSeatModalUser(user);
+                                    setCustomSeatsInput(user.seatLimit);
+                                  }}
+                                  title="Click to type a custom seat count"
+                                  style={{
+                                    padding: "0.3rem 0.75rem",
+                                    borderRadius: "6px",
+                                    background: "rgba(249, 115, 22, 0.15)",
+                                    border: "1px solid rgba(249, 115, 22, 0.35)",
+                                    color: "#F97316",
+                                    fontSize: "0.85rem",
+                                    fontWeight: 800,
+                                    cursor: "pointer",
+                                    minWidth: "75px",
+                                    textAlign: "center",
+                                  }}
+                                >
+                                  {user.seatLimit} Seats
+                                </button>
+
+                                {/* Increment Seat Button (+) */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateSeats(user, 1)}
+                                  title="Increase 1 seat"
+                                  style={{
+                                    width: "28px",
+                                    height: "28px",
+                                    borderRadius: "6px",
+                                    border: "1px solid rgba(249, 115, 22, 0.4)",
+                                    background: "rgba(249, 115, 22, 0.2)",
+                                    color: "#F97316",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    cursor: "pointer",
+                                    transition: "all 0.1s ease",
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = "#F97316";
+                                    e.currentTarget.style.color = "#FFF";
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = "rgba(249, 115, 22, 0.2)";
+                                    e.currentTarget.style.color = "#F97316";
+                                  }}
+                                >
+                                  <Plus size={13} />
+                                </button>
+                              </div>
+                            </td>
+
+                            {/* Actions (Login as User, Edit, Delete) */}
+                            <td style={{ padding: "1rem 1.25rem", textAlign: "right" }}>
+                              <div style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
+                                {/* 1-Click "Login as User" Impersonate */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleImpersonate(user)}
+                                  disabled={isCurrentlyImpersonating}
+                                  title={`Log into ${user.displayName}'s panel`}
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "0.35rem",
+                                    padding: "0.35rem 0.75rem",
+                                    borderRadius: "6px",
+                                    background: "rgba(16, 185, 129, 0.15)",
+                                    border: "1px solid rgba(16, 185, 129, 0.3)",
+                                    color: "#34D399",
+                                    fontSize: "0.78rem",
+                                    fontWeight: 700,
+                                    cursor: isCurrentlyImpersonating ? "wait" : "pointer",
+                                    transition: "all 0.15s ease",
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = "#10B981";
+                                    e.currentTarget.style.color = "#000";
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = "rgba(16, 185, 129, 0.15)";
+                                    e.currentTarget.style.color = "#34D399";
+                                  }}
+                                >
+                                  <LogIn size={13} /> Login as User
+                                </button>
+
+                                {/* Edit Button */}
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingUser(user)}
+                                  title="Edit user details"
+                                  style={{
+                                    width: "30px",
+                                    height: "30px",
+                                    borderRadius: "6px",
+                                    border: "1px solid rgba(255, 255, 255, 0.1)",
+                                    background: "rgba(255, 255, 255, 0.05)",
+                                    color: "#D4D4D8",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    cursor: "pointer",
+                                    transition: "all 0.15s ease",
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = "rgba(255, 255, 255, 0.12)";
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = "rgba(255, 255, 255, 0.05)";
+                                  }}
+                                >
+                                  <Edit3 size={14} />
+                                </button>
+
+                                {/* Delete Button */}
+                                {!user.isSuperAdmin && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeletingUser(user)}
+                                    title="Delete user"
+                                    style={{
+                                      width: "30px",
+                                      height: "30px",
+                                      borderRadius: "6px",
+                                      border: "1px solid rgba(239, 68, 68, 0.2)",
+                                      background: "rgba(239, 68, 68, 0.1)",
+                                      color: "#F87171",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      cursor: "pointer",
+                                      transition: "all 0.15s ease",
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      e.currentTarget.style.background = "rgba(239, 68, 68, 0.25)";
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      e.currentTarget.style.background = "rgba(239, 68, 68, 0.1)";
+                                    }}
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: RECENT LOGINS FEED */}
+        {activeTab === "logins" && (
+          <div
+            style={{
+              background: "#111714",
+              border: "1px solid rgba(255, 255, 255, 0.08)",
+              borderRadius: "14px",
+              padding: "1.5rem",
+            }}
+          >
+            <h2 style={{ fontSize: "1.15rem", fontWeight: 700, color: "#FFFFFF", marginBottom: "0.5rem" }}>
+              Recent User Logins
+            </h2>
+            <p style={{ color: "#A1A1AA", fontSize: "0.85rem", marginBottom: "1.5rem" }}>
+              Chronological log of users who recently accessed their AI Closer workspace.
+            </p>
+
+            <div style={{ display: "grid", gap: "0.75rem" }}>
+              {recentLoginUsers.map((user) => (
+                <div
+                  key={user.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "0.85rem 1.25rem",
+                    borderRadius: "10px",
+                    background: "#161D19",
+                    border: "1px solid rgba(255, 255, 255, 0.06)",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.85rem" }}>
+                    <div
+                      style={{
+                        width: "36px",
+                        height: "36px",
+                        borderRadius: "50%",
+                        background: "rgba(249, 115, 22, 0.15)",
+                        color: "#F97316",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontWeight: 700,
+                        fontSize: "0.8rem",
+                      }}
+                    >
+                      {user.displayName.slice(0, 2).toUpperCase()}
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 700, color: "#FFFFFF", fontSize: "0.9rem" }}>{user.displayName}</div>
+                      <div style={{ fontSize: "0.78rem", color: "#A1A1AA" }}>
+                        {user.email} &bull; {user.companyName}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: "1.25rem" }}>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: "0.82rem", fontWeight: 600, color: "#34D399" }}>
+                        {formatTimeAgo(user.lastLoginAt)}
+                      </div>
+                      <div style={{ fontSize: "0.72rem", color: "#71717A" }}>
+                        {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : ""}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleImpersonate(user)}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "0.35rem",
+                        padding: "0.4rem 0.8rem",
+                        borderRadius: "6px",
+                        background: "rgba(16, 185, 129, 0.15)",
+                        border: "1px solid rgba(16, 185, 129, 0.3)",
+                        color: "#34D399",
+                        fontSize: "0.78rem",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      <LogIn size={13} /> Login
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: PLATFORM OVERVIEW */}
+        {activeTab === "health" && (
+          <div
+            style={{
+              background: "#111714",
+              border: "1px solid rgba(255, 255, 255, 0.08)",
+              borderRadius: "14px",
+              padding: "2rem",
+            }}
+          >
+            <h2 style={{ fontSize: "1.2rem", fontWeight: 700, color: "#FFFFFF", marginBottom: "0.5rem" }}>
+              AI Closer Platform Governance
+            </h2>
+            <p style={{ color: "#A1A1AA", fontSize: "0.88rem", marginBottom: "2rem" }}>
+              Central administrative control for domain <strong style={{ color: "#FFF" }}>app.aicloser.in</strong>.
+            </p>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1.25rem" }}>
+              <div style={{ padding: "1.25rem", borderRadius: "10px", background: "#161D19", border: "1px solid rgba(255, 255, 255, 0.06)" }}>
+                <div style={{ color: "#F97316", fontWeight: 700, fontSize: "0.9rem", marginBottom: "0.4rem" }}>
+                  Active Database Engine
+                </div>
+                <div style={{ color: "#FFFFFF", fontSize: "1.1rem", fontWeight: 700 }}>PostgreSQL (Neon Cloud)</div>
+                <div style={{ color: "#71717A", fontSize: "0.78rem", marginTop: "4px" }}>Multi-tenant Prisma connection pool active</div>
+              </div>
+
+              <div style={{ padding: "1.25rem", borderRadius: "10px", background: "#161D19", border: "1px solid rgba(255, 255, 255, 0.06)" }}>
+                <div style={{ color: "#10B981", fontWeight: 700, fontSize: "0.9rem", marginBottom: "0.4rem" }}>
+                  Production Host
+                </div>
+                <div style={{ color: "#FFFFFF", fontSize: "1.1rem", fontWeight: 700 }}>VPS Hostinger (Port 3050)</div>
+                <div style={{ color: "#71717A", fontSize: "0.78rem", marginTop: "4px" }}>PM2 process: aicloser-app</div>
+              </div>
+
+              <div style={{ padding: "1.25rem", borderRadius: "10px", background: "#161D19", border: "1px solid rgba(255, 255, 255, 0.06)" }}>
+                <div style={{ color: "#3B82F6", fontWeight: 700, fontSize: "0.9rem", marginBottom: "0.4rem" }}>
+                  Total Capacity
+                </div>
+                <div style={{ color: "#FFFFFF", fontSize: "1.1rem", fontWeight: 700 }}>{stats.totalSeats} Active Team Seats</div>
+                <div style={{ color: "#71717A", fontSize: "0.78rem", marginTop: "4px" }}>Across {stats.totalUsers} registered organizations</div>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* MODAL 1: ADD NEW USER */}
+      {isAddModalOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.75)",
+            backdropFilter: "blur(6px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            padding: "1rem",
+          }}
+        >
+          <div
+            style={{
+              background: "#121714",
+              border: "1px solid rgba(255, 255, 255, 0.12)",
+              borderRadius: "16px",
+              padding: "2rem",
+              width: "100%",
+              maxWidth: "520px",
+              boxShadow: "0 20px 50px rgba(0, 0, 0, 0.7)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                <div
+                  style={{
+                    width: "36px",
+                    height: "36px",
+                    borderRadius: "8px",
+                    background: "rgba(249, 115, 22, 0.15)",
+                    color: "#F97316",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <UserPlus size={20} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: "1.15rem", fontWeight: 700, color: "#FFFFFF" }}>Add New User</h3>
+                  <p style={{ fontSize: "0.78rem", color: "#A1A1AA" }}>Create a workspace account and assign team seats</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddModalOpen(false)}
+                style={{ background: "transparent", border: "none", color: "#71717A", cursor: "pointer" }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const form = new FormData(e.currentTarget);
+                const payload = {
+                  action: "create",
+                  displayName: form.get("displayName"),
+                  email: form.get("email"),
+                  phone: form.get("phone"),
+                  password: form.get("password"),
+                  companyName: form.get("companyName"),
+                  role: form.get("role"),
+                  seats: Number(form.get("seats") || 5),
+                  status: form.get("status") || "ACTIVE",
+                };
+
+                try {
+                  const res = await fetch("/api/super-admin/users", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload),
+                  });
+                  const data = await res.json();
+                  if (data.ok) {
+                    showToast(`User ${data.user.displayName} created!`);
+                    setIsAddModalOpen(false);
+                    await refreshData();
+                  } else {
+                    showToast(data.error || "Failed to create user", "error");
+                  }
+                } catch {
+                  showToast("Network error creating user", "error");
+                }
+              }}
+              style={{ display: "grid", gap: "1rem" }}
+            >
+              <div>
+                <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, color: "#A1A1AA", marginBottom: "4px" }}>
+                  Full Name *
+                </label>
+                <input
+                  name="displayName"
+                  required
+                  placeholder="e.g. Rahul Sharma"
+                  style={{
+                    width: "100%",
+                    padding: "0.6rem 0.85rem",
+                    borderRadius: "8px",
+                    background: "#18201C",
+                    border: "1px solid rgba(255, 255, 255, 0.12)",
+                    color: "#FFFFFF",
+                    fontSize: "0.88rem",
+                  }}
+                />
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, color: "#A1A1AA", marginBottom: "4px" }}>
+                    Email ID *
+                  </label>
+                  <input
+                    name="email"
+                    type="email"
+                    required
+                    placeholder="name@company.com"
+                    style={{
+                      width: "100%",
+                      padding: "0.6rem 0.85rem",
+                      borderRadius: "8px",
+                      background: "#18201C",
+                      border: "1px solid rgba(255, 255, 255, 0.12)",
+                      color: "#FFFFFF",
+                      fontSize: "0.88rem",
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, color: "#A1A1AA", marginBottom: "4px" }}>
+                    Phone Number *
+                  </label>
+                  <input
+                    name="phone"
+                    required
+                    placeholder="+919876543210"
+                    style={{
+                      width: "100%",
+                      padding: "0.6rem 0.85rem",
+                      borderRadius: "8px",
+                      background: "#18201C",
+                      border: "1px solid rgba(255, 255, 255, 0.12)",
+                      color: "#FFFFFF",
+                      fontSize: "0.88rem",
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, color: "#A1A1AA", marginBottom: "4px" }}>
+                    Password *
+                  </label>
+                  <input
+                    name="password"
+                    type="password"
+                    required
+                    minLength={6}
+                    placeholder="Min 6 characters"
+                    style={{
+                      width: "100%",
+                      padding: "0.6rem 0.85rem",
+                      borderRadius: "8px",
+                      background: "#18201C",
+                      border: "1px solid rgba(255, 255, 255, 0.12)",
+                      color: "#FFFFFF",
+                      fontSize: "0.88rem",
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, color: "#A1A1AA", marginBottom: "4px" }}>
+                    Workspace / Company Name
+                  </label>
+                  <input
+                    name="companyName"
+                    placeholder="e.g. Acme Sales"
+                    style={{
+                      width: "100%",
+                      padding: "0.6rem 0.85rem",
+                      borderRadius: "8px",
+                      background: "#18201C",
+                      border: "1px solid rgba(255, 255, 255, 0.12)",
+                      color: "#FFFFFF",
+                      fontSize: "0.88rem",
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem" }}>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, color: "#A1A1AA", marginBottom: "4px" }}>
+                    Role
+                  </label>
+                  <select
+                    name="role"
+                    defaultValue="SALES_AGENT"
+                    style={{
+                      width: "100%",
+                      padding: "0.6rem 0.85rem",
+                      borderRadius: "8px",
+                      background: "#18201C",
+                      border: "1px solid rgba(255, 255, 255, 0.12)",
+                      color: "#FFFFFF",
+                      fontSize: "0.88rem",
+                    }}
+                  >
+                    <option value="SALES_AGENT">Sales Agent</option>
+                    <option value="ADMIN">Admin</option>
+                    <option value="MANAGER">Manager</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, color: "#A1A1AA", marginBottom: "4px" }}>
+                    Team Seats Limit
+                  </label>
+                  <input
+                    name="seats"
+                    type="number"
+                    min={1}
+                    max={500}
+                    defaultValue={5}
+                    style={{
+                      width: "100%",
+                      padding: "0.6rem 0.85rem",
+                      borderRadius: "8px",
+                      background: "#18201C",
+                      border: "1px solid rgba(255, 255, 255, 0.12)",
+                      color: "#FFFFFF",
+                      fontSize: "0.88rem",
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, color: "#A1A1AA", marginBottom: "4px" }}>
+                    Initial Status
+                  </label>
+                  <select
+                    name="status"
+                    defaultValue="ACTIVE"
+                    style={{
+                      width: "100%",
+                      padding: "0.6rem 0.85rem",
+                      borderRadius: "8px",
+                      background: "#18201C",
+                      border: "1px solid rgba(255, 255, 255, 0.12)",
+                      color: "#FFFFFF",
+                      fontSize: "0.88rem",
+                    }}
+                  >
+                    <option value="ACTIVE">Active</option>
+                    <option value="PENDING">Pending</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem", marginTop: "1rem" }}>
+                <button
+                  type="button"
+                  onClick={() => setIsAddModalOpen(false)}
+                  style={{
+                    padding: "0.6rem 1.15rem",
+                    borderRadius: "8px",
+                    background: "rgba(255, 255, 255, 0.08)",
+                    border: "none",
+                    color: "#D4D4D8",
+                    fontSize: "0.88rem",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  style={{
+                    padding: "0.6rem 1.35rem",
+                    borderRadius: "8px",
+                    background: "#F97316",
+                    border: "none",
+                    color: "#FFFFFF",
+                    fontSize: "0.88rem",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Create User
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
-      {status ? <p className="sales-floating-status">{status}</p> : null}
-    </main>
+
+      {/* MODAL 2: EDIT USER */}
+      {editingUser && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.75)",
+            backdropFilter: "blur(6px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            padding: "1rem",
+          }}
+        >
+          <div
+            style={{
+              background: "#121714",
+              border: "1px solid rgba(255, 255, 255, 0.12)",
+              borderRadius: "16px",
+              padding: "2rem",
+              width: "100%",
+              maxWidth: "520px",
+              boxShadow: "0 20px 50px rgba(0, 0, 0, 0.7)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                <div
+                  style={{
+                    width: "36px",
+                    height: "36px",
+                    borderRadius: "8px",
+                    background: "rgba(249, 115, 22, 0.15)",
+                    color: "#F97316",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Edit3 size={18} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: "1.15rem", fontWeight: 700, color: "#FFFFFF" }}>Edit User</h3>
+                  <p style={{ fontSize: "0.78rem", color: "#A1A1AA" }}>Update profile, team seats, or reset password</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingUser(null)}
+                style={{ background: "transparent", border: "none", color: "#71717A", cursor: "pointer" }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const form = new FormData(e.currentTarget);
+                const payload = {
+                  action: "update",
+                  userId: editingUser.id,
+                  displayName: form.get("displayName"),
+                  email: form.get("email"),
+                  phone: form.get("phone"),
+                  companyName: form.get("companyName"),
+                  role: form.get("role"),
+                  status: form.get("status"),
+                  seats: Number(form.get("seats") || editingUser.seatLimit),
+                  password: form.get("password") || undefined,
+                };
+
+                try {
+                  const res = await fetch("/api/super-admin/users", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload),
+                  });
+                  const data = await res.json();
+                  if (data.ok) {
+                    showToast(`Updated ${editingUser.displayName}`);
+                    setEditingUser(null);
+                    await refreshData();
+                  } else {
+                    showToast(data.error || "Failed to update user", "error");
+                  }
+                } catch {
+                  showToast("Network error updating user", "error");
+                }
+              }}
+              style={{ display: "grid", gap: "1rem" }}
+            >
+              <div>
+                <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, color: "#A1A1AA", marginBottom: "4px" }}>
+                  Full Name
+                </label>
+                <input
+                  name="displayName"
+                  defaultValue={editingUser.displayName}
+                  required
+                  style={{
+                    width: "100%",
+                    padding: "0.6rem 0.85rem",
+                    borderRadius: "8px",
+                    background: "#18201C",
+                    border: "1px solid rgba(255, 255, 255, 0.12)",
+                    color: "#FFFFFF",
+                    fontSize: "0.88rem",
+                  }}
+                />
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, color: "#A1A1AA", marginBottom: "4px" }}>
+                    Email ID
+                  </label>
+                  <input
+                    name="email"
+                    type="email"
+                    defaultValue={editingUser.email}
+                    required
+                    style={{
+                      width: "100%",
+                      padding: "0.6rem 0.85rem",
+                      borderRadius: "8px",
+                      background: "#18201C",
+                      border: "1px solid rgba(255, 255, 255, 0.12)",
+                      color: "#FFFFFF",
+                      fontSize: "0.88rem",
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, color: "#A1A1AA", marginBottom: "4px" }}>
+                    Phone Number
+                  </label>
+                  <input
+                    name="phone"
+                    defaultValue={editingUser.phone}
+                    required
+                    style={{
+                      width: "100%",
+                      padding: "0.6rem 0.85rem",
+                      borderRadius: "8px",
+                      background: "#18201C",
+                      border: "1px solid rgba(255, 255, 255, 0.12)",
+                      color: "#FFFFFF",
+                      fontSize: "0.88rem",
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, color: "#A1A1AA", marginBottom: "4px" }}>
+                    Workspace Name
+                  </label>
+                  <input
+                    name="companyName"
+                    defaultValue={editingUser.companyName}
+                    style={{
+                      width: "100%",
+                      padding: "0.6rem 0.85rem",
+                      borderRadius: "8px",
+                      background: "#18201C",
+                      border: "1px solid rgba(255, 255, 255, 0.12)",
+                      color: "#FFFFFF",
+                      fontSize: "0.88rem",
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, color: "#A1A1AA", marginBottom: "4px" }}>
+                    Team Seats Limit
+                  </label>
+                  <input
+                    name="seats"
+                    type="number"
+                    min={1}
+                    max={500}
+                    defaultValue={editingUser.seatLimit}
+                    style={{
+                      width: "100%",
+                      padding: "0.6rem 0.85rem",
+                      borderRadius: "8px",
+                      background: "#18201C",
+                      border: "1px solid rgba(255, 255, 255, 0.12)",
+                      color: "#FFFFFF",
+                      fontSize: "0.88rem",
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, color: "#A1A1AA", marginBottom: "4px" }}>
+                    Role
+                  </label>
+                  <select
+                    name="role"
+                    defaultValue={editingUser.role}
+                    disabled={editingUser.isSuperAdmin}
+                    style={{
+                      width: "100%",
+                      padding: "0.6rem 0.85rem",
+                      borderRadius: "8px",
+                      background: "#18201C",
+                      border: "1px solid rgba(255, 255, 255, 0.12)",
+                      color: "#FFFFFF",
+                      fontSize: "0.88rem",
+                    }}
+                  >
+                    <option value="SALES_AGENT">Sales Agent</option>
+                    <option value="ADMIN">Admin</option>
+                    <option value="MANAGER">Manager</option>
+                    <option value="SUPER_ADMIN">Super Admin</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, color: "#A1A1AA", marginBottom: "4px" }}>
+                    Status
+                  </label>
+                  <select
+                    name="status"
+                    defaultValue={editingUser.status}
+                    disabled={editingUser.isSuperAdmin}
+                    style={{
+                      width: "100%",
+                      padding: "0.6rem 0.85rem",
+                      borderRadius: "8px",
+                      background: "#18201C",
+                      border: "1px solid rgba(255, 255, 255, 0.12)",
+                      color: "#FFFFFF",
+                      fontSize: "0.88rem",
+                    }}
+                  >
+                    <option value="ACTIVE">Active</option>
+                    <option value="PENDING">Pending</option>
+                    <option value="SUSPENDED">Suspended</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, color: "#A1A1AA", marginBottom: "4px" }}>
+                  Reset Password (Leave blank to keep current)
+                </label>
+                <input
+                  name="password"
+                  type="password"
+                  placeholder="Enter new password if changing"
+                  style={{
+                    width: "100%",
+                    padding: "0.6rem 0.85rem",
+                    borderRadius: "8px",
+                    background: "#18201C",
+                    border: "1px solid rgba(255, 255, 255, 0.12)",
+                    color: "#FFFFFF",
+                    fontSize: "0.88rem",
+                  }}
+                />
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem", marginTop: "1rem" }}>
+                <button
+                  type="button"
+                  onClick={() => setEditingUser(null)}
+                  style={{
+                    padding: "0.6rem 1.15rem",
+                    borderRadius: "8px",
+                    background: "rgba(255, 255, 255, 0.08)",
+                    border: "none",
+                    color: "#D4D4D8",
+                    fontSize: "0.88rem",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  style={{
+                    padding: "0.6rem 1.35rem",
+                    borderRadius: "8px",
+                    background: "#F97316",
+                    border: "none",
+                    color: "#FFFFFF",
+                    fontSize: "0.88rem",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: QUICK SEAT INPUT */}
+      {quickSeatModalUser && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.75)",
+            backdropFilter: "blur(6px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            padding: "1rem",
+          }}
+        >
+          <div
+            style={{
+              background: "#121714",
+              border: "1px solid rgba(255, 255, 255, 0.12)",
+              borderRadius: "16px",
+              padding: "1.75rem",
+              width: "100%",
+              maxWidth: "400px",
+              boxShadow: "0 20px 50px rgba(0, 0, 0, 0.7)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.25rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                <div
+                  style={{
+                    width: "36px",
+                    height: "36px",
+                    borderRadius: "8px",
+                    background: "rgba(249, 115, 22, 0.15)",
+                    color: "#F97316",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Layers size={18} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: "1.05rem", fontWeight: 700, color: "#FFFFFF" }}>Scale Team Seats</h3>
+                  <p style={{ fontSize: "0.76rem", color: "#A1A1AA" }}>{quickSeatModalUser.displayName}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setQuickSeatModalUser(null)}
+                style={{ background: "transparent", border: "none", color: "#71717A", cursor: "pointer" }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ marginBottom: "1.25rem" }}>
+              <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "#A1A1AA", marginBottom: "6px" }}>
+                Total Allowed Seats (Users)
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={1000}
+                value={customSeatsInput}
+                onChange={(e) => setCustomSeatsInput(Math.max(1, Number(e.target.value) || 1))}
+                style={{
+                  width: "100%",
+                  padding: "0.75rem 1rem",
+                  borderRadius: "8px",
+                  background: "#18201C",
+                  border: "1px solid rgba(249, 115, 22, 0.4)",
+                  color: "#FFFFFF",
+                  fontSize: "1.25rem",
+                  fontWeight: 800,
+                  textAlign: "center",
+                }}
+              />
+              <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+                {[3, 5, 10, 25, 50].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setCustomSeatsInput(preset)}
+                    style={{
+                      flex: 1,
+                      padding: "0.4rem 0.2rem",
+                      borderRadius: "6px",
+                      background: customSeatsInput === preset ? "#F97316" : "rgba(255, 255, 255, 0.06)",
+                      border: "none",
+                      color: customSeatsInput === preset ? "#FFFFFF" : "#D4D4D8",
+                      fontSize: "0.78rem",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem" }}>
+              <button
+                type="button"
+                onClick={() => setQuickSeatModalUser(null)}
+                style={{
+                  padding: "0.6rem 1rem",
+                  borderRadius: "8px",
+                  background: "rgba(255, 255, 255, 0.08)",
+                  border: "none",
+                  color: "#D4D4D8",
+                  fontSize: "0.85rem",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveCustomSeats}
+                style={{
+                  padding: "0.6rem 1.25rem",
+                  borderRadius: "8px",
+                  background: "#F97316",
+                  border: "none",
+                  color: "#FFFFFF",
+                  fontSize: "0.85rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                Save Seats
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4: DELETE CONFIRMATION */}
+      {deletingUser && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.75)",
+            backdropFilter: "blur(6px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            padding: "1rem",
+          }}
+        >
+          <div
+            style={{
+              background: "#121714",
+              border: "1px solid rgba(239, 68, 68, 0.3)",
+              borderRadius: "16px",
+              padding: "1.75rem",
+              width: "100%",
+              maxWidth: "420px",
+              boxShadow: "0 20px 50px rgba(0, 0, 0, 0.7)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem" }}>
+              <div
+                style={{
+                  width: "40px",
+                  height: "40px",
+                  borderRadius: "50%",
+                  background: "rgba(239, 68, 68, 0.15)",
+                  color: "#EF4444",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <Trash2 size={20} />
+              </div>
+              <div>
+                <h3 style={{ fontSize: "1.1rem", fontWeight: 700, color: "#FFFFFF" }}>Delete User Account</h3>
+                <p style={{ fontSize: "0.78rem", color: "#A1A1AA" }}>This action cannot be undone</p>
+              </div>
+            </div>
+
+            <p style={{ fontSize: "0.85rem", color: "#D4D4D8", lineHeight: 1.5, marginBottom: "1.5rem" }}>
+              Are you sure you want to permanently delete{" "}
+              <strong style={{ color: "#FFF" }}>{deletingUser.displayName}</strong> ({deletingUser.email})?
+              Their sales profile and workspace configuration will be wiped.
+            </p>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem" }}>
+              <button
+                type="button"
+                onClick={() => setDeletingUser(null)}
+                style={{
+                  padding: "0.6rem 1rem",
+                  borderRadius: "8px",
+                  background: "rgba(255, 255, 255, 0.08)",
+                  border: "none",
+                  color: "#D4D4D8",
+                  fontSize: "0.85rem",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteUser}
+                style={{
+                  padding: "0.6rem 1.25rem",
+                  borderRadius: "8px",
+                  background: "#EF4444",
+                  border: "none",
+                  color: "#FFFFFF",
+                  fontSize: "0.85rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                Confirm Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

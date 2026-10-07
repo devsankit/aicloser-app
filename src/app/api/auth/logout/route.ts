@@ -5,9 +5,13 @@ import { getPublicRequestUrl } from "@/lib/auth/request-url";
 import { clearSessionCookie } from "@/lib/auth/session";
 
 function createLogoutResponse(request: Request) {
-  const response = NextResponse.redirect(getPublicRequestUrl(request, "/"), 303);
+  const url = new URL(request.url);
+  const redirectTo = url.searchParams.get("redirectTo")?.trim() || "/";
+  const safeTarget = redirectTo.startsWith("/") && !redirectTo.startsWith("//") ? redirectTo : "/";
+  const response = NextResponse.redirect(getPublicRequestUrl(request, safeTarget), 303);
   clearSessionCookie(response);
   clearImpersonationCookies(response);
+  response.cookies.set("gx_impersonating_name", "", { path: "/", maxAge: 0 });
   return response;
 }
 

@@ -248,7 +248,7 @@ export function LeadFormBuilder({ isAdmin = true, onOpenMultiChannelChat }: Lead
   const canModifyLeadDetails = isAdmin || allowNonAdminModify;
 
   return (
-    <div style={{ display: "grid", gap: 20 }}>
+    <div className="crm-lead-form-builder" style={{ display: "grid", gap: 20 }}>
       {/* Top Banner Notice */}
       {banner ? (
         <div
@@ -282,8 +282,8 @@ export function LeadFormBuilder({ isAdmin = true, onOpenMultiChannelChat }: Lead
         style={{
           padding: 22,
           borderRadius: 18,
-          background: "linear-gradient(135deg, rgba(255, 107, 47, 0.10) 0%, rgba(59, 130, 246, 0.08) 100%)",
-          border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.28))",
+          background: "var(--crm-surface)",
+          border: "1px solid var(--crm-border)",
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 14 }}>
@@ -296,8 +296,8 @@ export function LeadFormBuilder({ isAdmin = true, onOpenMultiChannelChat }: Lead
                   textTransform: "uppercase",
                   padding: "4px 10px",
                   borderRadius: 999,
-                  background: "rgba(255, 107, 47, 0.16)",
-                  color: "#ff6b2f",
+                  background: "var(--crm-primary-soft)",
+                  color: "var(--crm-primary)",
                 }}
               >
                 Lead Capture Engine
@@ -308,8 +308,8 @@ export function LeadFormBuilder({ isAdmin = true, onOpenMultiChannelChat }: Lead
                   fontWeight: 600,
                   padding: "4px 10px",
                   borderRadius: 999,
-                  background: "rgba(16, 185, 129, 0.15)",
-                  color: "#10b981",
+                  background: "color-mix(in srgb, var(--crm-success) 12%, var(--crm-surface))",
+                  color: "var(--crm-success)",
                 }}
               >
                 {forms.length} Active Forms • Auto Round-Robin
@@ -354,10 +354,10 @@ export function LeadFormBuilder({ isAdmin = true, onOpenMultiChannelChat }: Lead
                   fontWeight: 700,
                   cursor: "pointer",
                   border: isSelected
-                    ? "2px solid #ff6b2f"
-                    : "1px solid var(--closer-line, rgba(148, 163, 184, 0.25))",
-                  background: isSelected ? "rgba(255, 107, 47, 0.14)" : "var(--surface-strong, rgba(15, 23, 42, 0.45))",
-                  color: isSelected ? "#ff6b2f" : "inherit",
+                    ? "2px solid var(--crm-primary)"
+                    : "1px solid var(--crm-border)",
+                  background: isSelected ? "var(--crm-primary-soft)" : "var(--crm-surface-soft)",
+                  color: isSelected ? "var(--crm-primary)" : "var(--crm-text)",
                   display: "inline-flex",
                   alignItems: "center",
                   gap: 8,
@@ -393,8 +393,8 @@ export function LeadFormBuilder({ isAdmin = true, onOpenMultiChannelChat }: Lead
             gap: 12,
             padding: "12px 18px",
             borderRadius: 14,
-            background: "var(--surface-strong, rgba(15, 23, 42, 0.45))",
-            border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.22))",
+            background: "var(--crm-surface-soft)",
+            border: "1px solid var(--crm-border)",
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -408,8 +408,8 @@ export function LeadFormBuilder({ isAdmin = true, onOpenMultiChannelChat }: Lead
                 fontWeight: 700,
                 padding: "2px 8px",
                 borderRadius: 999,
-                background: "rgba(16, 185, 129, 0.15)",
-                color: "#10b981",
+                background: "color-mix(in srgb, var(--crm-success) 12%, var(--crm-surface))",
+                color: "var(--crm-success)",
               }}
             >
               Auto Round-Robin Distribution
@@ -417,7 +417,7 @@ export function LeadFormBuilder({ isAdmin = true, onOpenMultiChannelChat }: Lead
           </div>
 
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <div style={{ display: "inline-flex", background: "rgba(15, 23, 42, 0.4)", borderRadius: 10, padding: 3, border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.2))" }}>
+            <div style={{ display: "inline-flex", background: "var(--crm-surface)", borderRadius: 10, padding: 3, border: "1px solid var(--crm-border)" }}>
               <button
                 type="button"
                 onClick={() => setViewTab("builder")}
@@ -428,8 +428,8 @@ export function LeadFormBuilder({ isAdmin = true, onOpenMultiChannelChat }: Lead
                   fontWeight: 700,
                   border: "none",
                   cursor: "pointer",
-                  background: viewTab === "builder" ? "#ff6b2f" : "transparent",
-                  color: viewTab === "builder" ? "#fff" : "var(--muted)",
+                  background: viewTab === "builder" ? "var(--crm-primary)" : "transparent",
+                  color: viewTab === "builder" ? "#fff" : "var(--crm-text-secondary)",
                 }}
               >
                 Form Fields
@@ -444,8 +444,8 @@ export function LeadFormBuilder({ isAdmin = true, onOpenMultiChannelChat }: Lead
                   fontWeight: 700,
                   border: "none",
                   cursor: "pointer",
-                  background: viewTab === "preview" ? "#ff6b2f" : "transparent",
-                  color: viewTab === "preview" ? "#fff" : "var(--muted)",
+                  background: viewTab === "preview" ? "var(--crm-primary)" : "transparent",
+                  color: viewTab === "preview" ? "#fff" : "var(--crm-text-secondary)",
                 }}
               >
                 Live Preview
@@ -460,8 +460,8 @@ export function LeadFormBuilder({ isAdmin = true, onOpenMultiChannelChat }: Lead
                   fontWeight: 700,
                   border: "none",
                   cursor: "pointer",
-                  background: viewTab === "submissions" ? "#ff6b2f" : "transparent",
-                  color: viewTab === "submissions" ? "#fff" : "var(--muted)",
+                  background: viewTab === "submissions" ? "var(--crm-primary)" : "transparent",
+                  color: viewTab === "submissions" ? "#fff" : "var(--crm-text-secondary)",
                 }}
               >
                 Submissions ({submissions.length})
@@ -585,14 +585,14 @@ export function LeadFormBuilder({ isAdmin = true, onOpenMultiChannelChat }: Lead
           {/* Right Column: Live Interactive Mockup */}
           <div className="crm-panel" style={{ padding: 22, borderRadius: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", color: "#ff6b2f" }}>
+              <span style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", color: "var(--crm-primary)" }}>
                 Interactive Form Preview
               </span>
               <a
                 href={`/forms/${activeForm.slug}`}
                 target="_blank"
                 rel="noreferrer"
-                style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 4, color: "#3b82f6", textDecoration: "none" }}
+                style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 4, color: "var(--crm-info)", textDecoration: "none" }}
               >
                 Open Live Form <ExternalLink size={12} />
               </a>
@@ -602,8 +602,8 @@ export function LeadFormBuilder({ isAdmin = true, onOpenMultiChannelChat }: Lead
               style={{
                 borderRadius: 14,
                 padding: 24,
-                background: "rgba(15, 23, 42, 0.7)",
-                border: "1px solid rgba(255, 107, 47, 0.3)",
+                background: "var(--crm-surface-soft)",
+                border: "1px solid var(--crm-primary-border)",
                 display: "grid",
                 gap: 14,
               }}

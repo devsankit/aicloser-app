@@ -29,7 +29,7 @@ export type SourcePerformanceRow = {
   conversionPercent: number;
 };
 
-export async function getHourlyCallDistribution(): Promise<HourlyCallBucket[]> {
+export async function getHourlyCallDistribution(agentId?: string | null): Promise<HourlyCallBucket[]> {
   const buckets: HourlyCallBucket[] = [];
   for (let h = 9; h <= 20; h++) {
     const period = h < 12 ? `${h} AM` : h === 12 ? `12 PM` : `${h - 12} PM`;
@@ -46,6 +46,7 @@ export async function getHourlyCallDistribution(): Promise<HourlyCallBucket[]> {
 
   try {
     const calls = await prisma.salesMobileCall.findMany({
+      where: agentId ? { agentId } : undefined,
       select: {
         startedAt: true,
         durationSeconds: true,
@@ -93,9 +94,10 @@ export async function getHourlyCallDistribution(): Promise<HourlyCallBucket[]> {
   return buckets;
 }
 
-export async function getAgentProductivityLeaderboard(): Promise<AgentProductivityRow[]> {
+export async function getAgentProductivityLeaderboard(agentId?: string | null): Promise<AgentProductivityRow[]> {
   try {
     const agents = await prisma.salesAgentProfile.findMany({
+      where: agentId ? { id: agentId } : undefined,
       include: {
         user: { select: { displayName: true, email: true } },
         leadAssignments: { select: { id: true, stage: true } },
@@ -128,9 +130,10 @@ export async function getAgentProductivityLeaderboard(): Promise<AgentProductivi
   }
 }
 
-export async function getSourcePerformance(): Promise<SourcePerformanceRow[]> {
+export async function getSourcePerformance(agentId?: string | null): Promise<SourcePerformanceRow[]> {
   try {
     const leads = await prisma.salesLeadAssignment.findMany({
+      where: agentId ? { assignedAgentId: agentId } : undefined,
       select: { source: true, stage: true },
     });
     const map = new Map<string, { total: number; won: number }>();
@@ -155,14 +158,17 @@ export async function getSourcePerformance(): Promise<SourcePerformanceRow[]> {
 }
 
 // Generate CSV export for leads
-export async function generateLeadsCsv(): Promise<string> {
+export async function generateLeadsCsv(agentId?: string | null): Promise<string> {
   try {
     const [assignedLeads, poolLeads] = await Promise.all([
       prisma.salesLeadAssignment.findMany({
+        where: agentId ? { assignedAgentId: agentId } : undefined,
         orderBy: { createdAt: "desc" },
       }),
       prisma.salesLeadPoolItem.findMany({
-        where: { convertedAssignmentId: null },
+        where: agentId
+          ? { convertedAssignmentId: null, OR: [{ assignedAgentId: agentId }, { claimedByAgentId: agentId }] }
+          : { convertedAssignmentId: null },
         orderBy: { createdAt: "desc" },
       }),
     ]);
@@ -220,9 +226,10 @@ export async function generateLeadsCsv(): Promise<string> {
 }
 
 // Generate CSV export for calls
-export async function generateCallsCsv(): Promise<string> {
+export async function generateCallsCsv(agentId?: string | null): Promise<string> {
   try {
     const calls = await prisma.salesMobileCall.findMany({
+      where: agentId ? { agentId } : undefined,
       orderBy: { startedAt: "desc" },
       include: { assignment: { select: { customerName: true } } },
     });
@@ -270,4 +277,3 @@ export async function generateContactsCsv(): Promise<string> {
     return "\uFEFFID,Customer Name,Phone,Email,Opt-In Status,Source Channel,Tags,Created At\n";
   }
 }
-

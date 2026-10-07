@@ -685,7 +685,6 @@ export function WhatsAppMarketingDashboard() {
           { id: "templates", label: "Templates", icon: FileText, count: templates.length },
           { id: "campaigns", label: "Campaigns", icon: Send, count: campaigns.length },
           { id: "contacts", label: "Contacts & Audiences", icon: Users, count: contacts.length },
-          { id: "import", label: "Import Contacts", icon: FileSpreadsheet },
           { id: "settings", label: "Connection & Settings", icon: Smartphone },
         ].map((tab) => {
           const Icon = tab.icon;
@@ -860,11 +859,11 @@ export function WhatsAppMarketingDashboard() {
                 </button>
 
                 <button
-                  onClick={() => setActiveTab("import")}
+                  onClick={() => setActiveTab("contacts")}
                   className="w-full flex items-center justify-between p-3.5 rounded-xl bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50 text-sm font-medium transition"
                 >
                   <span className="flex items-center gap-2.5">
-                    <FileSpreadsheet className="w-4 h-4 text-purple-400" /> Google Sheets / CSV Import
+                    <Users className="w-4 h-4 text-[#ff6b2f]" /> Choose Contacts &amp; Audiences
                   </span>
                   <ArrowRight className="w-4 h-4 text-slate-500" />
                 </button>
@@ -1201,7 +1200,7 @@ export function WhatsAppMarketingDashboard() {
                 {contacts.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="p-8 text-center text-slate-500">
-                      No marketing contacts found. Use the Import Contacts tab to upload contacts.
+                      No opted-in marketing contacts found. Add contacts from the separate Lead Import menu, then return here to choose an audience.
                     </td>
                   </tr>
                 ) : (

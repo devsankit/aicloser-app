@@ -29,7 +29,7 @@ type WorkspaceUserItem = {
   phone: string;
   agentCode: string;
   status: string;
-  role: "ADMIN" | "MANAGER" | "SALES_AGENT";
+  role: "UNASSIGNED" | "ADMIN" | "MANAGER" | "SALES_AGENT";
   packageName: string;
   packageStatus: string;
   packageExpiresAt: string | null;
@@ -84,8 +84,6 @@ export function RolePermissionsPanel({
   const [newEmail, setNewEmail] = useState("");
   const [newPhone, setNewPhone] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [newRole, setNewRole] = useState<"ADMIN" | "MANAGER" | "SALES_AGENT">("SALES_AGENT");
-  const [newManagerId, setNewManagerId] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [creatingUser, setCreatingUser] = useState(false);
   const [userNotice, setUserNotice] = useState<{ text: string; type: "success" | "error" } | null>(null);
@@ -183,8 +181,6 @@ export function RolePermissionsPanel({
           email: newEmail.trim(),
           phone: newPhone.trim() || "+919000000000",
           password: newPassword.trim(),
-          role: newRole,
-          managerAgentId: newRole === "SALES_AGENT" ? newManagerId || undefined : undefined,
         }),
       });
       const data = await res.json().catch(() => null);
@@ -193,9 +189,8 @@ export function RolePermissionsPanel({
         setNewEmail("");
         setNewPhone("");
         setNewPassword("");
-        setNewManagerId("");
         setUserNotice({
-          text: `User account created for ${data.user?.email || newEmail}! They can now sign in at /login with their Email ID and Password.`,
+          text: `User account created for ${data.user?.email || newEmail}. Assign a role from the team list before they sign in.`,
           type: "success",
         });
         await refreshUsers();
@@ -216,7 +211,7 @@ export function RolePermissionsPanel({
     }
   }
 
-  async function handleRoleChange(agentId: string, nextRole: "ADMIN" | "MANAGER" | "SALES_AGENT") {
+  async function handleRoleChange(agentId: string, nextRole: "UNASSIGNED" | "ADMIN" | "MANAGER" | "SALES_AGENT") {
     try {
       const res = await fetch("/api/sales/roles/users", {
         method: "PATCH",
@@ -225,10 +220,30 @@ export function RolePermissionsPanel({
       });
       const data = await res.json().catch(() => null);
       if (res.ok && data?.ok) {
-        setUsers((prev) => prev.map((u) => (u.id === agentId ? { ...u, role: nextRole } : u)));
+        setUsers((prev) => prev.map((u) => (u.id === agentId ? { ...u, role: nextRole, status: nextRole === "UNASSIGNED" ? "PENDING" : "ACTIVE", parentAgentId: nextRole === "SALES_AGENT" ? u.parentAgentId : null } : u)));
         setUserNotice({ text: "User role updated.", type: "success" });
+        void refreshUsers();
       }
     } catch {}
+  }
+
+  async function handleManagerChange(agentId: string, managerAgentId: string) {
+    try {
+      const res = await fetch("/api/sales/roles/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentId, managerAgentId: managerAgentId || null }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.ok) {
+        setUsers((prev) => prev.map((u) => (u.id === agentId ? { ...u, parentAgentId: managerAgentId || null } : u)));
+        setUserNotice({ text: "Manager assignment updated.", type: "success" });
+      } else {
+        setUserNotice({ text: data?.error || "Could not update manager assignment.", type: "error" });
+      }
+    } catch {
+      setUserNotice({ text: "Could not update manager assignment.", type: "error" });
+    }
   }
 
   async function handleStatusChange(agentId: string, nextStatus: "ACTIVE" | "SUSPENDED") {
@@ -394,6 +409,7 @@ export function RolePermissionsPanel({
       {workspacePlan ? (
         <div
           className="workspace-plan-summary"
+          id="workspace-plan"
           style={{
             display: "grid",
             gridTemplateColumns: "minmax(220px, 1.2fr) repeat(2, minmax(150px, 0.7fr)) minmax(220px, 1fr)",
@@ -430,7 +446,7 @@ export function RolePermissionsPanel({
               <strong style={{ display: "block", fontSize: "0.82rem", color: "var(--closer-ink)" }}>Need more users?</strong>
               <span style={{ display: "block", marginTop: 3, fontSize: "0.72rem", color: "var(--closer-muted)" }}>Upgrade seats and unlock more workspace capacity.</span>
             </div>
-            <a href="https://www.gigxomi.com/pricing" target="_blank" rel="noreferrer" className="sales-secondary-button compact" style={{ display: "inline-flex", alignItems: "center", gap: 5, whiteSpace: "nowrap", textDecoration: "none" }}>
+            <a href="/?tab=roles#workspace-plan" className="sales-secondary-button compact" style={{ display: "inline-flex", alignItems: "center", gap: 5, whiteSpace: "nowrap", textDecoration: "none" }}>
               Manage plan <ArrowUpRight size={13} />
             </a>
           </div>
@@ -583,31 +599,6 @@ export function RolePermissionsPanel({
             />
           </label>
 
-          {newRole === "SALES_AGENT" ? (
-            <label style={{ display: "grid", gap: "6px", fontSize: "0.78rem", fontWeight: 600, color: "var(--closer-muted)" }}>
-              <span>Under Manager (optional)</span>
-              <select
-                value={newManagerId}
-                onChange={(e) => setNewManagerId(e.target.value)}
-                style={{
-                  minHeight: "40px",
-                  padding: "0 12px",
-                  borderRadius: "8px",
-                  border: "1px solid var(--closer-line)",
-                  background: "var(--closer-surface)",
-                  color: "var(--closer-ink)",
-                  fontSize: "0.86rem",
-                  fontWeight: 600,
-                }}
-              >
-                <option value="">No manager — workspace-wide team</option>
-                {users.filter((user) => user.status === "ACTIVE" && user.role === "MANAGER").map((manager) => (
-                  <option key={manager.id} value={manager.id}>{manager.displayName}</option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-
           <label style={{ display: "grid", gap: "6px", fontSize: "0.78rem", fontWeight: 600, color: "var(--closer-muted)" }}>
             <span>User Email ID *</span>
             <input
@@ -689,27 +680,21 @@ export function RolePermissionsPanel({
             />
           </label>
 
-          <label style={{ display: "grid", gap: "6px", fontSize: "0.78rem", fontWeight: 600, color: "var(--closer-muted)" }}>
-            <span>Assign Role *</span>
-            <select
-              value={newRole}
-              onChange={(e) => setNewRole(e.target.value as "ADMIN" | "MANAGER" | "SALES_AGENT")}
-              style={{
-                minHeight: "40px",
-                padding: "0 12px",
-                borderRadius: "8px",
-                border: "1px solid var(--closer-line)",
-                background: "var(--closer-surface)",
-                color: "var(--closer-ink)",
-                fontSize: "0.86rem",
-                fontWeight: 600,
-              }}
-            >
-              <option value="SALES_AGENT">Closer / Telecaller</option>
-              <option value="MANAGER">Sales Manager</option>
-              <option value="ADMIN">Admin (Full Control)</option>
-            </select>
-          </label>
+          <div
+            style={{
+              minHeight: "40px",
+              display: "flex",
+              alignItems: "center",
+              padding: "0 12px",
+              borderRadius: "8px",
+              border: "1px solid var(--closer-line)",
+              background: "var(--closer-surface)",
+              color: "var(--closer-muted)",
+              fontSize: "0.82rem",
+            }}
+          >
+            Role is assigned after account creation.
+          </div>
 
           <button
             type="submit"
@@ -787,7 +772,7 @@ export function RolePermissionsPanel({
                   <td style={{ padding: "12px 16px" }}>
                     <select
                       value={user.role}
-                      onChange={(e) => void handleRoleChange(user.id, e.target.value as "ADMIN" | "MANAGER" | "SALES_AGENT")}
+                      onChange={(e) => void handleRoleChange(user.id, e.target.value as "UNASSIGNED" | "ADMIN" | "MANAGER" | "SALES_AGENT")}
                       style={{
                         padding: "5px 10px",
                         borderRadius: "8px",
@@ -798,13 +783,32 @@ export function RolePermissionsPanel({
                         fontWeight: 600,
                       }}
                     >
+                      <option value="UNASSIGNED">Unassigned / Pending</option>
                       <option value="ADMIN">Admin (Owner)</option>
                       <option value="MANAGER">Sales Manager</option>
                       <option value="SALES_AGENT">Closer / Telecaller</option>
                     </select>
                   </td>
                   <td style={{ padding: "12px 16px", color: "var(--closer-muted)", fontSize: "0.8rem" }}>
-                    {user.parentAgentId ? users.find((manager) => manager.id === user.parentAgentId)?.displayName || "Assigned manager" : "Workspace team"}
+                    {user.role === "SALES_AGENT" ? (
+                      <select
+                        value={user.parentAgentId || ""}
+                        onChange={(e) => void handleManagerChange(user.id, e.target.value)}
+                        style={{
+                          padding: "5px 8px",
+                          borderRadius: "8px",
+                          border: "1px solid var(--closer-line)",
+                          background: "var(--closer-surface-soft)",
+                          color: "var(--closer-ink)",
+                          fontSize: "0.78rem",
+                        }}
+                      >
+                        <option value="">Workspace team</option>
+                        {users.filter((manager) => manager.status === "ACTIVE" && manager.role === "MANAGER").map((manager) => (
+                          <option key={manager.id} value={manager.id}>{manager.displayName}</option>
+                        ))}
+                      </select>
+                    ) : user.role === "UNASSIGNED" ? "Assign a role first" : "Not applicable"}
                   </td>
                   <td style={{ padding: "12px 16px" }}>
                     <span
@@ -868,12 +872,13 @@ export function RolePermissionsPanel({
                       <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
                         <button
                           type="button"
+                          disabled={user.role === "UNASSIGNED"}
                           onClick={() => void handleStatusChange(user.id, user.status === "ACTIVE" ? "SUSPENDED" : "ACTIVE")}
                           className="sales-secondary-button compact"
-                          title={user.status === "ACTIVE" ? "Lock user access" : "Unlock user access"}
-                          style={{ fontSize: "0.76rem", color: user.status === "ACTIVE" ? "#b45309" : "#047857" }}
+                          title={user.role === "UNASSIGNED" ? "Assign a role before unlocking access" : user.status === "ACTIVE" ? "Lock user access" : "Unlock user access"}
+                          style={{ fontSize: "0.76rem", color: user.status === "ACTIVE" ? "#b45309" : "#047857", opacity: user.role === "UNASSIGNED" ? 0.55 : 1 }}
                         >
-                          {user.status === "ACTIVE" ? "Lock" : "Unlock"}
+                          {user.role === "UNASSIGNED" ? "Assign role first" : user.status === "ACTIVE" ? "Lock" : "Unlock"}
                         </button>
                         <button
                           type="button"
@@ -1142,29 +1147,6 @@ export function RolePermissionsPanel({
             />
           </label>
 
-          {newRole === "SALES_AGENT" ? (
-            <label style={{ display: "grid", gap: "6px", fontSize: "0.78rem", fontWeight: 600, color: "var(--closer-muted)" }}>
-              <span>Reports to Manager</span>
-              <select
-                value={newManagerId}
-                onChange={(e) => setNewManagerId(e.target.value)}
-                style={{
-                  minHeight: "40px",
-                  padding: "0 12px",
-                  borderRadius: "8px",
-                  border: "1px solid var(--closer-line)",
-                  background: "var(--closer-surface)",
-                  color: "var(--closer-ink)",
-                  fontSize: "0.86rem",
-                }}
-              >
-                <option value="">No manager / workspace queue</option>
-                {users.filter((user) => user.role === "MANAGER" && user.status === "ACTIVE").map((manager) => (
-                  <option key={manager.id} value={manager.id}>{manager.displayName}</option>
-                ))}
-              </select>
-            </label>
-          ) : null}
                                 </td>
 
                                 {/* Manager checkbox */}

@@ -46,6 +46,8 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
+import { ImpersonationBanner } from "@/components/super-admin/impersonation-banner";
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
@@ -76,7 +78,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           }}
         />
       </head>
-      <body suppressHydrationWarning>{children}</body>
+      <body suppressHydrationWarning>
+        <ImpersonationBanner />
+        {children}
+      </body>
     </html>
   );
 }
