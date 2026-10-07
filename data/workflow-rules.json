@@ -1,0 +1,56 @@
+[
+  {
+    "id": "wf-new-lead-instant-ack",
+    "name": "Instant WhatsApp Welcome on Inbound Lead",
+    "description": "When a new lead arrives from Meta Ads or Website, automatically send WhatsApp brochure within 1 minute.",
+    "isActive": true,
+    "trigger": {
+      "type": "LEAD_CREATED"
+    },
+    "conditions": [
+      {
+        "field": "source",
+        "operator": "CONTAINS",
+        "value": "meta"
+      }
+    ],
+    "actions": [
+      {
+        "type": "SEND_WHATSAPP",
+        "delayMinutes": 1,
+        "messageText": "Hi {{name}}, thanks for your interest in AIcloser! A dedicated growth closer is reviewing your details and will call you shortly."
+      }
+    ],
+    "executionCount": 43,
+    "lastRunAt": "2026-10-06T11:27:33.906Z",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  },
+  {
+    "id": "wf-not-reachable-cadence",
+    "name": "Auto-Recycle 'Not Reachable' Calls",
+    "description": "When a call outcome is marked 'Not Reachable', send a WhatsApp follow-up link and schedule callback task.",
+    "isActive": true,
+    "trigger": {
+      "type": "STAGE_CHANGED",
+      "stageFilter": "NOT_REACHABLE"
+    },
+    "conditions": [],
+    "actions": [
+      {
+        "type": "SEND_WHATSAPP",
+        "delayMinutes": 5,
+        "messageText": "Hi {{name}}, we tried reaching you on phone regarding your video agency setup. When is a convenient time to reconnect?"
+      },
+      {
+        "type": "CREATE_TASK",
+        "taskTitle": "Second Call Attempt in 3 Hours",
+        "delayMinutes": 180
+      }
+    ],
+    "executionCount": 19,
+    "lastRunAt": "2026-10-06T09:27:32.732Z",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  }
+]

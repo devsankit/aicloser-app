@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="aiGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff7e42"/>
+      <stop offset="50%" stop-color="#ff6b2f"/>
+      <stop offset="100%" stop-color="#ea580c"/>
+    </linearGradient>
+    <filter id="aiShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="rgba(0,0,0,0.25)"/>
+    </filter>
+  </defs>
+  <!-- Background squircle -->
+  <rect x="24" y="24" width="464" height="464" rx="116" fill="url(#aiGrad)"/>
+  <rect x="24" y="24" width="464" height="464" rx="116" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="6"/>
+
+  <!-- AI Monogram: Bold, Geometric, High Contrast -->
+  <g filter="url(#aiShadow)">
+    <!-- Letter 'A': Apex at top (205, 132), base at bottom (110..300, 376) -->
+    <path d="M 194 132 L 216 132 L 302 376 L 254 376 L 235 322 L 175 322 L 156 376 L 108 376 Z M 187 280 L 223 280 L 205 224 Z" fill="#ffffff"/>
+
+    <!-- Letter 'I': Crisp slab pillar with top & bottom caps for 100% clarity -->
+    <path d="M 322 132 L 414 132 L 414 172 L 388 172 L 388 336 L 414 336 L 414 376 L 322 376 L 322 336 L 348 336 L 348 172 L 322 172 Z" fill="#ffffff"/>
+  </g>
+</svg>

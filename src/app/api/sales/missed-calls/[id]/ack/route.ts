@@ -1,0 +1,16 @@
+import { NextResponse } from "next/server";
+import { requireSessionRole } from "@/lib/api/require-session-role";
+import { sendMissedCallAck } from "@/lib/gigxomi/missed-calls-store";
+
+export async function POST(_request: Request, context: { params: Promise<{ id: string }> }) {
+  const auth = await requireSessionRole(["SALES_AGENT", "ADMIN", "SUPER_ADMIN", "MANAGER"]);
+  if (!auth.ok) return auth.response;
+
+  try {
+    const { id } = await context.params;
+    const call = await sendMissedCallAck(id);
+    return NextResponse.json({ ok: true, call });
+  } catch (error: any) {
+    return NextResponse.json({ ok: false, error: error?.message || "Failed to send WhatsApp ack" }, { status: 500 });
+  }
+}

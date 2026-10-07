@@ -1,0 +1,584 @@
+{
+  "assets": [
+    {
+      "contentType": "image/avif",
+      "id": "f30e46307a0b5012",
+      "kind": "image",
+      "name": "tqGHev2ugu6fT2pfHZhGxtln8.png",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/f30e46307a0b5012.png",
+      "url": "https://framerusercontent.com/images/tqGHev2ugu6fT2pfHZhGxtln8.png?width=105&height=31"
+    },
+    {
+      "contentType": "image/avif",
+      "id": "5248d735d41a8ae1",
+      "kind": "image",
+      "name": "4oQjivKF9mewT5NhUqUmaFOuFs.png",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/5248d735d41a8ae1.png",
+      "url": "https://framerusercontent.com/images/4oQjivKF9mewT5NhUqUmaFOuFs.png?width=596&height=692"
+    },
+    {
+      "contentType": "image/avif",
+      "id": "9b872612b3ef2c14",
+      "kind": "image",
+      "name": "uf23b1y1kHJrLluhfKe95JFUw.png",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/9b872612b3ef2c14.png",
+      "url": "https://framerusercontent.com/images/uf23b1y1kHJrLluhfKe95JFUw.png?width=598&height=692"
+    },
+    {
+      "contentType": "image/avif",
+      "id": "37a21b8c0bc91997",
+      "kind": "image",
+      "name": "FG4fUqHWRvjdxjMTLEmr1AJKU.png",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/37a21b8c0bc91997.png",
+      "url": "https://framerusercontent.com/images/FG4fUqHWRvjdxjMTLEmr1AJKU.png?width=596&height=694"
+    },
+    {
+      "contentType": "image/avif",
+      "id": "99d0bed96b67d374",
+      "kind": "image",
+      "name": "wxeqVzxLwhZJwk7yxVqvXp7OlpE.png",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/99d0bed96b67d374.png",
+      "url": "https://framerusercontent.com/images/wxeqVzxLwhZJwk7yxVqvXp7OlpE.png?width=400&height=130"
+    },
+    {
+      "contentType": "image/avif",
+      "id": "b45b8743c2a2493c",
+      "kind": "image",
+      "name": "TnIJYQhjl07BIGEEcZm6LDcogY.png",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/b45b8743c2a2493c.png",
+      "url": "https://framerusercontent.com/images/TnIJYQhjl07BIGEEcZm6LDcogY.png?width=400&height=178"
+    },
+    {
+      "contentType": "image/avif",
+      "id": "c2a4c483298c5033",
+      "kind": "image",
+      "name": "O5I5yjIIwSYRMV18liemUtX6zQ.png",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/c2a4c483298c5033.png",
+      "url": "https://framerusercontent.com/images/O5I5yjIIwSYRMV18liemUtX6zQ.png?scale-down-to=2048&width=3216&height=2172"
+    },
+    {
+      "contentType": "image/avif",
+      "id": "da1cf5a8dd3e6085",
+      "kind": "image",
+      "name": "wrmac4ogj6CwXJEYgSi7AgsCII.png",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/da1cf5a8dd3e6085.png",
+      "url": "https://framerusercontent.com/images/wrmac4ogj6CwXJEYgSi7AgsCII.png?width=445&height=76"
+    },
+    {
+      "contentType": "image/avif",
+      "id": "2c1860903666ab4c",
+      "kind": "image",
+      "name": "YIGOmxjrSj1cZ5QHpObBT8Lkbs.png",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/2c1860903666ab4c.png",
+      "url": "https://framerusercontent.com/images/YIGOmxjrSj1cZ5QHpObBT8Lkbs.png?width=400&height=99"
+    },
+    {
+      "contentType": "image/avif",
+      "id": "9aa1d94a2605f319",
+      "kind": "image",
+      "name": "IgFj42fsLOvO9f8Icz0ASoAswM.png",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/9aa1d94a2605f319.png",
+      "url": "https://framerusercontent.com/images/IgFj42fsLOvO9f8Icz0ASoAswM.png?scale-down-to=1024&width=2144&height=2000"
+    },
+    {
+      "contentType": "image/avif",
+      "id": "164745017d41cc6b",
+      "kind": "image",
+      "name": "CciB4BqotVKrTqUGqSeZcfZU.png",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/164745017d41cc6b.png",
+      "url": "https://framerusercontent.com/images/CciB4BqotVKrTqUGqSeZcfZU.png?scale-down-to=512&width=1736&height=1699"
+    },
+    {
+      "contentType": "image/avif",
+      "id": "0b2f8569baeaa87a",
+      "kind": "image",
+      "name": "gJZ3z9ujAievlU7kzsLFosioU.png",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/0b2f8569baeaa87a.png",
+      "url": "https://framerusercontent.com/images/gJZ3z9ujAievlU7kzsLFosioU.png?scale-down-to=512&width=1387&height=1168"
+    },
+    {
+      "contentType": "image/avif",
+      "id": "e6138054daaaed76",
+      "kind": "image",
+      "name": "MFolWgZi6HeAHZnlzXdCnkpETQM.png",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/e6138054daaaed76.png",
+      "url": "https://framerusercontent.com/images/MFolWgZi6HeAHZnlzXdCnkpETQM.png?scale-down-to=512&width=1387&height=1168"
+    },
+    {
+      "contentType": "image/avif",
+      "id": "32d39f9cd6fe0567",
+      "kind": "image",
+      "name": "Jr9sBb8VYXHbyQRJmae9ebVMA.png",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/32d39f9cd6fe0567.png",
+      "url": "https://framerusercontent.com/images/Jr9sBb8VYXHbyQRJmae9ebVMA.png?scale-down-to=1024&width=1372&height=1408"
+    },
+    {
+      "contentType": "image/avif",
+      "id": "da206bba187f0f47",
+      "kind": "image",
+      "name": "kS9dtzmz7tHxivpJaesllBUnU.png",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/da206bba187f0f47.png",
+      "url": "https://framerusercontent.com/images/kS9dtzmz7tHxivpJaesllBUnU.png?scale-down-to=1024&width=2838&height=1168"
+    },
+    {
+      "contentType": "image/avif",
+      "id": "5b571ac9b14eb0da",
+      "kind": "image",
+      "name": "SqYOxHZPeHbRi2eUfbMGzbbcBrE.png",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/5b571ac9b14eb0da.png",
+      "url": "https://framerusercontent.com/images/SqYOxHZPeHbRi2eUfbMGzbbcBrE.png?width=312&height=92"
+    },
+    {
+      "contentType": "image/avif",
+      "id": "5a96846de7dab72e",
+      "kind": "image",
+      "name": "9zUXQOMQGtptddQMNwWIa0Kfih8.jpg",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/5a96846de7dab72e.jpg",
+      "url": "https://framerusercontent.com/images/9zUXQOMQGtptddQMNwWIa0Kfih8.jpg?scale-down-to=512&width=1920&height=1080"
+    },
+    {
+      "contentType": "image/avif",
+      "id": "fed9619137937de6",
+      "kind": "image",
+      "name": "sezIF3p7XYX0NjcYdGvw7wyOPk.jpg",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/fed9619137937de6.jpg",
+      "url": "https://framerusercontent.com/images/sezIF3p7XYX0NjcYdGvw7wyOPk.jpg?scale-down-to=512&width=1920&height=1080"
+    },
+    {
+      "contentType": "image/avif",
+      "id": "ab83b755b86af85a",
+      "kind": "image",
+      "name": "L2hAsfa4pkuFFcfhvusuTUWPRFU.jpg",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/ab83b755b86af85a.jpg",
+      "url": "https://framerusercontent.com/images/L2hAsfa4pkuFFcfhvusuTUWPRFU.jpg?scale-down-to=512&width=1920&height=1282"
+    },
+    {
+      "contentType": "image/avif",
+      "id": "ea9b0792fb489e18",
+      "kind": "image",
+      "name": "N0HqYhKvvZSe98T6aXhwmy3Y5g.png",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/ea9b0792fb489e18.png",
+      "url": "https://framerusercontent.com/images/N0HqYhKvvZSe98T6aXhwmy3Y5g.png?width=420&height=122"
+    },
+    {
+      "contentType": "image/avif",
+      "id": "0f65780409988927",
+      "kind": "image",
+      "name": "PqNmbdjQGGmmZWjgznHpmUcgA.png",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/0f65780409988927.png",
+      "url": "https://framerusercontent.com/images/PqNmbdjQGGmmZWjgznHpmUcgA.png?scale-down-to=1024&width=1372&height=1408"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "bc3e306613cad2a9",
+      "kind": "image",
+      "name": "svg-1",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/bc3e306613cad2a9.svg",
+      "url": "inline-svg:bc3e306613cad2a9"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "926aaf87f9cb7e62",
+      "kind": "image",
+      "name": "svg-2",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/926aaf87f9cb7e62.svg",
+      "url": "inline-svg:926aaf87f9cb7e62"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "0b1499449ad06175",
+      "kind": "image",
+      "name": "Animated line",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/0b1499449ad06175.svg",
+      "url": "inline-svg:0b1499449ad06175"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "c050c45b0fc9dd96",
+      "kind": "image",
+      "name": "Animated line",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/c050c45b0fc9dd96.svg",
+      "url": "inline-svg:c050c45b0fc9dd96"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "edaa50e2607d7a92",
+      "kind": "image",
+      "name": "svg-5",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/edaa50e2607d7a92.svg",
+      "url": "inline-svg:edaa50e2607d7a92"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "62f3aa57095f6412",
+      "kind": "image",
+      "name": "svg-6",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/62f3aa57095f6412.svg",
+      "url": "inline-svg:62f3aa57095f6412"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "be4a254e174b88b0",
+      "kind": "image",
+      "name": "svg-7",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/be4a254e174b88b0.svg",
+      "url": "inline-svg:be4a254e174b88b0"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "50b3276cd00f4b5c",
+      "kind": "image",
+      "name": "svg-8",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/50b3276cd00f4b5c.svg",
+      "url": "inline-svg:50b3276cd00f4b5c"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "e9de5fa442997ef5",
+      "kind": "image",
+      "name": "svg-9",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/e9de5fa442997ef5.svg",
+      "url": "inline-svg:e9de5fa442997ef5"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "129ebc3c264336c1",
+      "kind": "image",
+      "name": "svg-10",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/129ebc3c264336c1.svg",
+      "url": "inline-svg:129ebc3c264336c1"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "90cf4d362fce148d",
+      "kind": "image",
+      "name": "svg-11",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/90cf4d362fce148d.svg",
+      "url": "inline-svg:90cf4d362fce148d"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "34aaec1840484d3a",
+      "kind": "image",
+      "name": "svg-12",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/34aaec1840484d3a.svg",
+      "url": "inline-svg:34aaec1840484d3a"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "fd9fe1e3d7337e23",
+      "kind": "image",
+      "name": "svg-13",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/fd9fe1e3d7337e23.svg",
+      "url": "inline-svg:fd9fe1e3d7337e23"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "1666e1c66c080899",
+      "kind": "image",
+      "name": "svg-14",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/1666e1c66c080899.svg",
+      "url": "inline-svg:1666e1c66c080899"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "533382267778a0a6",
+      "kind": "image",
+      "name": "svg-15",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/533382267778a0a6.svg",
+      "url": "inline-svg:533382267778a0a6"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "190583344d011cab",
+      "kind": "image",
+      "name": "svg-16",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/190583344d011cab.svg",
+      "url": "inline-svg:190583344d011cab"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "e6e771c66fbdd55c",
+      "kind": "image",
+      "name": "svg-17",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/e6e771c66fbdd55c.svg",
+      "url": "inline-svg:e6e771c66fbdd55c"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "a9385651fb7759e8",
+      "kind": "image",
+      "name": "svg-1035814733_249",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/a9385651fb7759e8.svg",
+      "url": "inline-svg:a9385651fb7759e8"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "880feb3f59e34bfb",
+      "kind": "image",
+      "name": "99690465",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/880feb3f59e34bfb.svg",
+      "url": "inline-svg:880feb3f59e34bfb"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "0a394cc0541a86a6",
+      "kind": "image",
+      "name": "3559153988",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/0a394cc0541a86a6.svg",
+      "url": "inline-svg:0a394cc0541a86a6"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "170f74bc8ec66c6a",
+      "kind": "image",
+      "name": "1583156632",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/170f74bc8ec66c6a.svg",
+      "url": "inline-svg:170f74bc8ec66c6a"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "c876ebb996f17295",
+      "kind": "image",
+      "name": "1474057663",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/c876ebb996f17295.svg",
+      "url": "inline-svg:c876ebb996f17295"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "364c866422e3d074",
+      "kind": "image",
+      "name": "987190984",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/364c866422e3d074.svg",
+      "url": "inline-svg:364c866422e3d074"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "6dc213a6ae2125e3",
+      "kind": "image",
+      "name": "3062756071",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/6dc213a6ae2125e3.svg",
+      "url": "inline-svg:6dc213a6ae2125e3"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "1e5008c5b971a46a",
+      "kind": "image",
+      "name": "3717859585",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/1e5008c5b971a46a.svg",
+      "url": "inline-svg:1e5008c5b971a46a"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "2a440b55bc27389a",
+      "kind": "image",
+      "name": "2620976381",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/2a440b55bc27389a.svg",
+      "url": "inline-svg:2a440b55bc27389a"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "f64d9edb3a2d6576",
+      "kind": "image",
+      "name": "3250926968",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/f64d9edb3a2d6576.svg",
+      "url": "inline-svg:f64d9edb3a2d6576"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "3525a91326189ac3",
+      "kind": "image",
+      "name": "688795562",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/3525a91326189ac3.svg",
+      "url": "inline-svg:3525a91326189ac3"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "3f5241b171226b79",
+      "kind": "image",
+      "name": "2827287635",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/3f5241b171226b79.svg",
+      "url": "inline-svg:3f5241b171226b79"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "ee3dc4fcb8467425",
+      "kind": "image",
+      "name": "4217129096",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/ee3dc4fcb8467425.svg",
+      "url": "inline-svg:ee3dc4fcb8467425"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "313347b2b743f920",
+      "kind": "image",
+      "name": "1899217394",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/313347b2b743f920.svg",
+      "url": "inline-svg:313347b2b743f920"
+    },
+    {
+      "contentType": "image/svg+xml",
+      "id": "5a7bb0a242d339fd",
+      "kind": "image",
+      "name": "2936377466",
+      "path": "C:\\Users\\hello\\AppData\\Local\\Temp/browser-use/assets/c3865654-38e5-4bc7-abad-811f9abfff1d/5a7bb0a242d339fd.svg",
+      "url": "inline-svg:5a7bb0a242d339fd"
+    }
+  ],
+  "failures": [
+    {
+      "contentType": null,
+      "id": "21d0e1e3784a4506",
+      "name": "4UasrENHsxJlGDuGo1OIlJfC6l_24rlCK1Yo_Iqcsih3SAyH6cAwhX9RPjIUvQ.woff2",
+      "reason": "Loaded resource fetch failed: Asset bundling failed; page fetch failed: Browser Use encountered an error interacting with this webpage: TypeError: Failed to fetch\n    at ZZ (<anonymous>:1:41)\n    at <anonymous>:1:354",
+      "url": "https://fonts.gstatic.com/s/googlesans/v69/4UasrENHsxJlGDuGo1OIlJfC6l_24rlCK1Yo_Iqcsih3SAyH6cAwhX9RPjIUvQ.woff2"
+    },
+    {
+      "contentType": null,
+      "id": "192e7f0c882b665a",
+      "name": "t5sJIQcYNIWbFgDgAAzZ34auoVyXkJCOvp3SFWJbN5hF8Ju1x6sKCyp0l9sI40swNJwInycYAJzz0m7kJ4qFQOJBOjLvDSndo0SKMpKSTzwliVdHAy4bxTDHg_ugnAakp_mbyc5qU4LBMUM.woff2",
+      "reason": "Loaded resource fetch failed: Asset bundling failed; page fetch failed: Browser Use encountered an error interacting with this webpage: TypeError: Failed to fetch\n    at ZZ (<anonymous>:1:41)\n    at <anonymous>:1:354",
+      "url": "https://fonts.gstatic.com/s/googlesansflex/v21/t5sJIQcYNIWbFgDgAAzZ34auoVyXkJCOvp3SFWJbN5hF8Ju1x6sKCyp0l9sI40swNJwInycYAJzz0m7kJ4qFQOJBOjLvDSndo0SKMpKSTzwliVdHAy4bxTDHg_ugnAakp_mbyc5qU4LBMUM.woff2"
+    },
+    {
+      "contentType": null,
+      "id": "99235a65e62800b8",
+      "name": "t5sJIQcYNIWbFgDgAAzZ34auoVyXkJCOvp3SFWJbN5hF8Ju1x6sKCyp0l9sI40swNJwInycYAJzz0m7kJ4qFQOJBOjLvDSndo0SKMpKSTzwliVdHAy4bxTDHg_ugnAakp8ub-cxgUg.woff2",
+      "reason": "Loaded resource fetch failed: Asset bundling failed; page fetch failed: Browser Use encountered an error interacting with this webpage: TypeError: Failed to fetch\n    at ZZ (<anonymous>:1:41)\n    at <anonymous>:1:354",
+      "url": "https://fonts.gstatic.com/s/googlesansflex/v21/t5sJIQcYNIWbFgDgAAzZ34auoVyXkJCOvp3SFWJbN5hF8Ju1x6sKCyp0l9sI40swNJwInycYAJzz0m7kJ4qFQOJBOjLvDSndo0SKMpKSTzwliVdHAy4bxTDHg_ugnAakp8ub-cxgUg.woff2"
+    },
+    {
+      "contentType": null,
+      "id": "8c6bef5c242203f1",
+      "name": "jaao9SoHHz6Se5ETeaj0h9YbawQ.png",
+      "reason": "Loaded resource fetch failed: Asset bundling failed; page fetch failed: Browser Use encountered an error interacting with this webpage: TypeError: Failed to fetch\n    at ZZ (<anonymous>:1:41)\n    at <anonymous>:1:354",
+      "url": "https://framerusercontent.com/images/jaao9SoHHz6Se5ETeaj0h9YbawQ.png"
+    },
+    {
+      "contentType": null,
+      "id": "5f058bdbc78a7468",
+      "name": "l54hK7PikmUy4H5VHl49matBpo.png",
+      "reason": "Loaded resource fetch failed: Asset bundling failed; page fetch failed: Browser Use encountered an error interacting with this webpage: TypeError: Failed to fetch\n    at ZZ (<anonymous>:1:41)\n    at <anonymous>:1:354",
+      "url": "https://framerusercontent.com/images/l54hK7PikmUy4H5VHl49matBpo.png?scale-down-to=1024&width=1372&height=1408"
+    },
+    {
+      "contentType": null,
+      "id": "f71a006ced537f4a",
+      "name": "k7GpS8Q2mqD0rvnObDUFeYv0A40.png",
+      "reason": "Loaded resource fetch failed: Asset bundling failed; page fetch failed: Browser Use encountered an error interacting with this webpage: TypeError: Failed to fetch\n    at ZZ (<anonymous>:1:41)\n    at <anonymous>:1:354",
+      "url": "https://framerusercontent.com/images/k7GpS8Q2mqD0rvnObDUFeYv0A40.png?scale-down-to=1024&width=1482&height=1719"
+    },
+    {
+      "contentType": null,
+      "id": "292478b6ed2dfe66",
+      "name": "zHf8DW44hdMgR8XLdO8fHyFuECc.png",
+      "reason": "Loaded resource fetch failed: Asset bundling failed; page fetch failed: Browser Use encountered an error interacting with this webpage: TypeError: Failed to fetch\n    at ZZ (<anonymous>:1:41)\n    at <anonymous>:1:354",
+      "url": "https://framerusercontent.com/images/zHf8DW44hdMgR8XLdO8fHyFuECc.png?scale-down-to=1024&width=1482&height=1719"
+    },
+    {
+      "contentType": null,
+      "id": "735b7233672fe734",
+      "name": "b1seiARRP3TKGbsD9SGHF8r9OU.png",
+      "reason": "Loaded resource fetch failed: Asset bundling failed; page fetch failed: Browser Use encountered an error interacting with this webpage: TypeError: Failed to fetch\n    at ZZ (<anonymous>:1:41)\n    at <anonymous>:1:354",
+      "url": "https://framerusercontent.com/images/b1seiARRP3TKGbsD9SGHF8r9OU.png?scale-down-to=1024&width=1482&height=1719"
+    },
+    {
+      "contentType": null,
+      "id": "eb3e89e7343648d9",
+      "name": "GR24Tml1Ge7bmcGMtYrlRc53aLM.png",
+      "reason": "Loaded resource fetch failed: Asset bundling failed; page fetch failed: Browser Use encountered an error interacting with this webpage: TypeError: Failed to fetch\n    at ZZ (<anonymous>:1:41)\n    at <anonymous>:1:354",
+      "url": "https://framerusercontent.com/images/GR24Tml1Ge7bmcGMtYrlRc53aLM.png?scale-down-to=1024&width=1482&height=1716"
+    },
+    {
+      "contentType": null,
+      "id": "91914f4f23e6d679",
+      "name": "LT3RALfzCOLpH5P4dgZobsLAH0.png",
+      "reason": "Loaded resource fetch failed: Asset bundling failed; page fetch failed: Browser Use encountered an error interacting with this webpage: TypeError: Failed to fetch\n    at ZZ (<anonymous>:1:41)\n    at <anonymous>:1:354",
+      "url": "https://framerusercontent.com/images/LT3RALfzCOLpH5P4dgZobsLAH0.png?scale-down-to=1024&width=1482&height=1719"
+    },
+    {
+      "contentType": null,
+      "id": "1bd355954458570d",
+      "name": "W09H4mKwrp18mViEZd6Eteq9EG0.png",
+      "reason": "Loaded resource fetch failed: Asset bundling failed; page fetch failed: Browser Use encountered an error interacting with this webpage: TypeError: Failed to fetch\n    at ZZ (<anonymous>:1:41)\n    at <anonymous>:1:354",
+      "url": "https://framerusercontent.com/images/W09H4mKwrp18mViEZd6Eteq9EG0.png?scale-down-to=1024&width=1479&height=1719"
+    },
+    {
+      "contentType": null,
+      "id": "ef9e0a0fd3b1f686",
+      "name": "abRfxwRvxuPFF4S73eBx3ea0.png",
+      "reason": "Loaded resource fetch failed: Asset bundling failed; page fetch failed: Browser Use encountered an error interacting with this webpage: TypeError: Failed to fetch\n    at ZZ (<anonymous>:1:41)\n    at <anonymous>:1:354",
+      "url": "https://framerusercontent.com/images/abRfxwRvxuPFF4S73eBx3ea0.png?scale-down-to=1024&width=1479&height=1716"
+    },
+    {
+      "contentType": null,
+      "id": "b8ed84f05c0c6cc1",
+      "name": "nPofPO40LbUNAfNsM8fJLw0BTZM.png",
+      "reason": "Loaded resource fetch failed: Asset bundling failed; page fetch failed: Browser Use encountered an error interacting with this webpage: TypeError: Failed to fetch\n    at ZZ (<anonymous>:1:41)\n    at <anonymous>:1:354",
+      "url": "https://framerusercontent.com/images/nPofPO40LbUNAfNsM8fJLw0BTZM.png?scale-down-to=1024&width=2295&height=2919"
+    },
+    {
+      "contentType": null,
+      "id": "376a97d6ea5f133e",
+      "name": "I1PDP61EZVQY6ImcAS31MZFRO4E.png",
+      "reason": "Loaded resource fetch failed: Asset bundling failed; page fetch failed: Browser Use encountered an error interacting with this webpage: TypeError: Failed to fetch\n    at ZZ (<anonymous>:1:41)\n    at <anonymous>:1:354",
+      "url": "https://framerusercontent.com/images/I1PDP61EZVQY6ImcAS31MZFRO4E.png?scale-down-to=1024&width=1482&height=1719"
+    },
+    {
+      "contentType": null,
+      "id": "680e04c7c2212967",
+      "name": "T8D9jUDDxA3YlOElNDKEUEYnOg.png",
+      "reason": "Loaded resource fetch failed: Asset bundling failed; page fetch failed: Browser Use encountered an error interacting with this webpage: TypeError: Failed to fetch\n    at ZZ (<anonymous>:1:41)\n    at <anonymous>:1:354",
+      "url": "https://framerusercontent.com/images/T8D9jUDDxA3YlOElNDKEUEYnOg.png?scale-down-to=1024&width=4428&height=1944"
+    },
+    {
+      "contentType": null,
+      "id": "39d2ab10efe4b411",
+      "name": "tGQ4BrDjfSSx4GKXniVGBTZbis.png",
+      "reason": "Loaded resource fetch failed: Asset bundling failed; page fetch failed: Browser Use encountered an error interacting with this webpage: TypeError: Failed to fetch\n    at ZZ (<anonymous>:1:41)\n    at <anonymous>:1:354",
+      "url": "https://framerusercontent.com/images/tGQ4BrDjfSSx4GKXniVGBTZbis.png?scale-down-to=512&width=2085&height=2082"
+    },
+    {
+      "contentType": null,
+      "id": "866124764231b125",
+      "name": "9FIX4ZKO21TMz3usCnLbkDXiU.png",
+      "reason": "Loaded resource fetch failed: Asset bundling failed; page fetch failed: Browser Use encountered an error interacting with this webpage: TypeError: Failed to fetch\n    at ZZ (<anonymous>:1:41)\n    at <anonymous>:1:354",
+      "url": "https://framerusercontent.com/images/9FIX4ZKO21TMz3usCnLbkDXiU.png?scale-down-to=512&width=2085&height=2082"
+    },
+    {
+      "contentType": null,
+      "id": "ed41dbb9e54d1342",
+      "name": "KYegiaRUFUaiZIXIcaBOaiMY.png",
+      "reason": "Loaded resource fetch failed: Asset bundling failed; page fetch failed: Browser Use encountered an error interacting with this webpage: TypeError: Failed to fetch\n    at ZZ (<anonymous>:1:41)\n    at <anonymous>:1:354",
+      "url": "https://framerusercontent.com/images/KYegiaRUFUaiZIXIcaBOaiMY.png?scale-down-to=512&width=2085&height=2082"
+    },
+    {
+      "contentType": null,
+      "id": "2ae52fc9f0cdbd44",
+      "name": "ukLAReQ9sWhpBCvRTROUUL9LQQ.jpg",
+      "reason": "Loaded resource fetch failed: Asset bundling failed; page fetch failed: Browser Use encountered an error interacting with this webpage: TypeError: Failed to fetch\n    at ZZ (<anonymous>:1:41)\n    at <anonymous>:1:354",
+      "url": "https://framerusercontent.com/images/ukLAReQ9sWhpBCvRTROUUL9LQQ.jpg?scale-down-to=512&width=1920&height=1281"
+    },
+    {
+      "contentType": null,
+      "id": "00fe375faf446f83",
+      "name": "1rnueqsna2YjAvnEQRDIEOCGMko.jpg",
+      "reason": "Loaded resource fetch failed: Asset bundling failed; page fetch failed: Browser Use encountered an error interacting with this webpage: TypeError: Failed to fetch\n    at ZZ (<anonymous>:1:41)\n    at <anonymous>:1:354",
+      "url": "https://framerusercontent.com/images/1rnueqsna2YjAvnEQRDIEOCGMko.jpg?scale-down-to=512&width=1920&height=1080"
+    },
+    {
+      "contentType": null,
+      "id": "c4876eafdad2b341",
+      "name": "i9SccFEaBUIANeF4YuIfuzhg6b0.jpg",
+      "reason": "Loaded resource fetch failed: Asset bundling failed; page fetch failed: Browser Use encountered an error interacting with this webpage: TypeError: Failed to fetch\n    at ZZ (<anonymous>:1:41)\n    at <anonymous>:1:354",
+      "url": "https://framerusercontent.com/images/i9SccFEaBUIANeF4YuIfuzhg6b0.jpg?scale-down-to=512&width=1920&height=1280"
+    },
+    {
+      "contentType": null,
+      "id": "014804e2c43e9f04",
+      "name": "favicon.ico",
+      "reason": "Loaded resource fetch failed: Asset bundling failed; page fetch failed: Browser Use encountered an error interacting with this webpage: Error: Asset request failed with HTTP 404\n    at ZZ (<anonymous>:1:102)",
+      "url": "https://getbardy.framer.website/favicon.ico"
+    }
+  ]
+}

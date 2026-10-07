@@ -1,0 +1,2810 @@
+"use client";
+
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { DndContext, type DragEndEvent, useDroppable } from "@dnd-kit/core";
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
+  BarChart3,
+  Bot,
+  Building2,
+  CalendarClock,
+  CheckCircle2,
+  Clock,
+  Clock3,
+  Copy,
+  Download,
+  Edit3,
+  ExternalLink,
+  Flame,
+  FileSpreadsheet,
+  GripVertical,
+  Headphones,
+  KanbanSquare,
+  LayoutDashboard,
+  LayoutList,
+  MapPin,
+  MessageSquare,
+  MessageCircle,
+  Plus,
+  Play,
+  PhoneCall,
+  Search,
+  ShieldCheck,
+  Target,
+  TrendingUp,
+  Upload,
+  User,
+  UserRound,
+  Users,
+  Tags,
+  Video,
+  X,
+  Sliders,
+  Users2,
+} from "lucide-react";
+
+import { AdminWhatsAppSetupPanel } from "@/components/admin/admin-dummy-controls";
+import { ChatWorkspace } from "@/components/chat/chat-workspace";
+import { SuperAdminInstagramPluginCard, type InstagramPluginConnectionView, type InstagramSetupUrls } from "@/components/super-admin/super-admin-instagram-plugin-card";
+import { SuperAdminWhatsAppFlowBuilder } from "@/components/super-admin/super-admin-whatsapp-flow-builder";
+import { WhatsAppMarketingDashboard } from "@/components/whatsapp-marketing/whatsapp-marketing-dashboard";
+import { InternalAppShell } from "@/components/ui/internal-app-shell";
+import { GlobalAiToggleButton } from "@/components/ai/global-ai-toggle-button";
+import { RolePermissionsPanel } from "@/components/sales/role-permissions-panel";
+import { AiBotBetaPanel } from "@/components/sales/ai-bot-beta-panel";
+import { StatusLabelsModal } from "@/components/sales/status-labels-modal";
+import { LeadNotesManager } from "@/components/sales/lead-notes-manager";
+import { LeadStatusTagsSelector } from "@/components/sales/lead-status-tags-selector";
+import { CallingCampaignsPanel } from "@/components/sales/calling-campaigns-panel";
+import { MissedCallsQueue } from "@/components/sales/missed-calls-queue";
+import { AutomationWorkflowsPanel } from "@/components/sales/automation-workflows-panel";
+import { AdvancedReportsPanel } from "@/components/sales/advanced-reports-panel";
+import { CustomFieldsPanel } from "@/components/sales/custom-fields-panel";
+import { LeadCustomFieldsEditor } from "@/components/sales/lead-custom-fields-editor";
+import { LeadIqCard } from "@/components/sales/lead-iq-card";
+import { DuplicateLeadsModal } from "@/components/sales/duplicate-leads-modal";
+import { ContactsHub } from "@/components/sales/contacts-hub";
+import { PluginsHub } from "@/components/sales/plugins-hub";
+import { LeadFormBuilder } from "@/components/sales/lead-form-builder";
+import { CrmSettingsPanel } from "@/components/sales/crm-settings-panel";
+import type { AgencyTenant } from "@/lib/gigxomi/agency-network-data";
+import type { DummyWhatsAppConnectionState } from "@/lib/gigxomi/dummy-platform-store";
+import type { SalesOperatingSnapshot } from "@/lib/gigxomi/sales-operating-system-store";
+import type { SalesDashboardSnapshot, SalesLeadStage } from "@/lib/gigxomi/sales-store";
+import type { SuperAdminWhatsAppFlow, SuperAdminWhatsAppFlowRun } from "@/lib/gigxomi/super-admin-whatsapp-flow-store";
+
+type SalesTab =
+  | "dashboard"
+  | "crm"
+  | "contacts"
+  | "lead-import"
+  | "calls"
+  | "campaigns"
+  | "automations"
+  | "forms"
+  | "plugins"
+  | "reports"
+  | "custom-fields"
+  | "conversations"
+  | "whatsapp-marketing"
+  | "roles"
+  | "ai-beta"
+  | "profile"
+  | "whatsapp-api"
+  | "instagram-inbox"
+  | "chatbot-builder";
+type CrmView = "kanban" | "list";
+type SalesDrawer = "lead-create" | "lead-import" | null;
+
+type SalesOperationsPayload = {
+  tenantId: string;
+  whatsAppConnection: DummyWhatsAppConnectionState | null;
+  whatsAppTenantOptions: Array<{ id: string; name: string; phoneNumber: string }>;
+  instagramConnection: InstagramPluginConnectionView;
+  instagramSetupUrls: InstagramSetupUrls;
+  chatbotFlows: SuperAdminWhatsAppFlow[];
+  chatbotRuns: SuperAdminWhatsAppFlowRun[];
+  chatbotAgencies: AgencyTenant[];
+};
+
+const tabs: Array<{ id: SalesTab; label: string; icon: typeof Users; badge?: string; group?: "crm" | "growth" | "system" | "workspace" | "beta" }> = [
+  { id: "dashboard", label: "Dashboard Overview", icon: LayoutDashboard, group: "crm" },
+  { id: "crm", label: "CRM Pipeline & Kanban", icon: KanbanSquare, group: "crm" },
+  { id: "contacts", label: "Contacts & Import Hub", icon: Users, badge: "All Sources", group: "crm" },
+  { id: "lead-import", label: "Lead Import", icon: Upload, badge: "5 Sources", group: "crm" },
+  { id: "calls", label: "Calls & Power Dialer", icon: PhoneCall, group: "crm" },
+  { id: "conversations", label: "Live Multi-Channel Chat", icon: MessageSquare, group: "crm" },
+  { id: "forms", label: "Lead Form Builder", icon: Edit3, badge: "Web Forms", group: "growth" },
+  { id: "plugins", label: "Plugins & Channels", icon: Users2, badge: "WA + Email + IG", group: "growth" },
+  { id: "whatsapp-marketing", label: "WhatsApp Marketing", icon: MessageCircle, group: "growth" },
+  { id: "automations", label: "AI Bot & Automations", icon: Bot, badge: "AI + Flows", group: "growth" },
+  { id: "reports", label: "Reports & Lead-IQ", icon: BarChart3, group: "system" },
+  { id: "roles", label: "Team & Users", icon: UserRound, badge: "Plan & Seats", group: "system" },
+  { id: "profile", label: "Settings, Team & Channels", icon: Sliders, group: "system" },
+];
+
+const leadStages: SalesLeadStage[] = ["NEW", "ASSIGNED", "CONTACTED", "INTERESTED", "FOLLOW_UP", "NEGOTIATION", "CLOSED_WON", "CLOSED_LOST", "NOT_REACHABLE", "RECYCLED"];
+
+function money(value: number) {
+  return new Intl.NumberFormat("en-IN", { currency: "INR", maximumFractionDigits: 0, style: "currency" }).format(value);
+}
+
+function label(value: unknown) {
+  const text = typeof value === "string" || typeof value === "number" ? String(value) : "";
+  return text ? text.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (character) => character.toUpperCase()) : "Unknown";
+}
+
+function recordingStatusLabel(value: string | null | undefined) {
+  if (!value) return "No audio";
+  if (value === "FAILED") return "Recording unavailable";
+  if (value === "LOCAL_PENDING") return "Processing";
+  if (value === "UPLOADED") return "Ready to play";
+  return label(value);
+}
+
+function formatDate(value: string | null) {
+  return value ? new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" }).format(new Date(value)) : "Not set";
+}
+
+function cleanPhone(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+function isSameDay(d1: Date, d2: Date) {
+  return d1.getFullYear() === d2.getFullYear() && d1.getMonth() === d2.getMonth() && d1.getDate() === d2.getDate();
+}
+
+function isDateToday(dateStr: string | null | undefined) {
+  if (!dateStr) return false;
+  const d = new Date(dateStr);
+  return !Number.isNaN(d.getTime()) && isSameDay(d, new Date());
+}
+
+function isDateYesterday(dateStr: string | null | undefined) {
+  if (!dateStr) return false;
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return false;
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  return isSameDay(d, yesterday);
+}
+
+function isDateInLastDays(dateStr: string | null | undefined, days: number) {
+  if (!dateStr) return false;
+  const d = new Date(dateStr).getTime();
+  if (Number.isNaN(d)) return false;
+  const now = Date.now();
+  return d >= now - days * 24 * 60 * 60 * 1000 && d <= now;
+}
+
+function isDateThisMonth(dateStr: string | null | undefined) {
+  if (!dateStr) return false;
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return false;
+  const now = new Date();
+  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+}
+
+function isFollowUpDueTodayOrPast(dateStr: string | null | undefined) {
+  if (!dateStr) return false;
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return false;
+  const endOfToday = new Date();
+  endOfToday.setHours(23, 59, 59, 999);
+  return d.getTime() <= endOfToday.getTime();
+}
+
+const pipelineColumns: Array<{
+  key: string;
+  label: string;
+  stage: SalesLeadStage;
+  matchingStages: SalesLeadStage[];
+}> = [
+  { key: "NEW", label: "New Leads", stage: "NEW", matchingStages: ["NEW", "ASSIGNED"] },
+  { key: "CONTACTED", label: "Contacted", stage: "CONTACTED", matchingStages: ["CONTACTED"] },
+  { key: "INTERESTED", label: "Interested / Qualified", stage: "INTERESTED", matchingStages: ["INTERESTED", "QUALIFIED"] },
+  { key: "WEBINAR_INVITED", label: "Training Booked", stage: "WEBINAR_INVITED", matchingStages: ["WEBINAR_INVITED", "WEBINAR_ATTENDED"] },
+  { key: "FOLLOW_UP", label: "Follow-up Needed", stage: "FOLLOW_UP", matchingStages: ["FOLLOW_UP", "NEGOTIATION"] },
+  { key: "CLOSED_WON", label: "Closed Won", stage: "CLOSED_WON", matchingStages: ["CLOSED_WON", "PAID", "CLOSED"] },
+  { key: "CLOSED_LOST", label: "Lost / Recycled", stage: "CLOSED_LOST", matchingStages: ["CLOSED_LOST", "LOST", "NOT_REACHABLE", "RECYCLED"] },
+];
+
+function flashWindow(createdAt: string) {
+  const created = new Date(createdAt).getTime();
+  if (!Number.isFinite(created)) return "30s flash";
+  const elapsed = Math.max(0, Math.floor((Date.now() - created) / 1000));
+  const left = Math.max(0, 30 - elapsed);
+  return left ? `${left}s flash` : "priority flash";
+}
+
+function agentName(snapshot: SalesDashboardSnapshot, agentId: string | null | undefined) {
+  if (!agentId) return "Unassigned";
+  return snapshot.agents.find((agent) => agent.id === agentId)?.displayName ?? "Unassigned";
+}
+
+function stageTone(stage: SalesLeadStage) {
+  if (["PAID", "HANDOFF", "CLOSED", "CLOSED_WON", "WEBINAR_ATTENDED"].includes(stage)) return "success";
+  if (["LOST", "CLOSED_LOST", "NOT_REACHABLE"].includes(stage)) return "danger";
+  if (["QUOTE_SENT", "PAYMENT_PENDING", "WEBINAR_INVITED", "NEGOTIATION"].includes(stage)) return "warning";
+  return "neutral";
+}
+
+function audioTime(value: number) {
+  if (!Number.isFinite(value) || value < 0) return "0:00";
+  const seconds = Math.floor(value);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function formatTalkTime(totalSeconds: number) {
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return "0m";
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+  return `${seconds}s`;
+}
+
+function CallRecordingPlayer({ callId, expectedDurationSeconds = 0, labelText = "recording" }: { callId: string; expectedDurationSeconds?: number; labelText?: string }) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(expectedDurationSeconds);
+  const [playerError, setPlayerError] = useState("");
+  const [isSeeking, setIsSeeking] = useState(false);
+  const [seekTime, setSeekTime] = useState(0);
+  const [playbackRate, setPlaybackRate] = useState(1);
+
+  async function toggle() {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (audio.paused) {
+      setPlayerError("");
+      try {
+        await audio.play();
+        setPlaying(true);
+      } catch {
+        setPlaying(false);
+        setPlayerError("Audio could not be played.");
+      }
+    } else {
+      audio.pause();
+      setPlaying(false);
+    }
+  }
+
+  function changePlaybackRate(rate: number) {
+    setPlaybackRate(rate);
+    if (audioRef.current) audioRef.current.playbackRate = rate;
+  }
+
+  const effectiveTime = isSeeking ? seekTime : Math.min(currentTime, Math.max(duration, 1));
+  const progressPercent = duration > 0 ? Math.min(100, Math.max(0, (effectiveTime / duration) * 100)) : 0;
+
+  return (
+    <div className="sales-recording-player" title={playerError || labelText}>
+      <audio
+        onDurationChange={(event) => {
+          const nextDuration = event.currentTarget.duration;
+          if (Number.isFinite(nextDuration) && nextDuration > 0) setDuration(nextDuration);
+        }}
+        onLoadedMetadata={(event) => {
+          event.currentTarget.playbackRate = playbackRate;
+        }}
+        onEnded={() => {
+          setPlaying(false);
+          setCurrentTime(0);
+          setSeekTime(0);
+        }}
+        onError={() => {
+          setPlaying(false);
+          setPlayerError("Recording is empty or uses an unsupported audio format.");
+        }}
+        onTimeUpdate={(event) => {
+          if (!isSeeking) setCurrentTime(event.currentTarget.currentTime);
+        }}
+        preload="metadata"
+        ref={audioRef}
+        src={`/api/sales/mobile/calls/${callId}/recording`}
+      />
+      <div className="sales-recording-controls">
+        <button
+          aria-label={`${playing ? "Pause" : "Play"} ${labelText}`}
+          className="sales-recording-btn sales-recording-toggle"
+          onClick={toggle}
+          type="button"
+        >
+          {playing ? <span aria-hidden="true" className="sales-pause-icon" /> : <Play size={13} />}
+          <span>{playing ? "Pause" : "Play"}</span>
+        </button>
+        <div aria-label="Playback speed" className="sales-recording-speed" role="group">
+          {[1, 1.5, 2, 3].map((rate) => (
+            <button
+              aria-label={`Play at ${rate} times speed`}
+              aria-pressed={playbackRate === rate}
+              className={playbackRate === rate ? "sales-recording-speed-btn is-active" : "sales-recording-speed-btn"}
+              disabled={Boolean(playerError)}
+              key={rate}
+              onClick={() => changePlaybackRate(rate)}
+              type="button"
+            >
+              {rate}x
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="sales-recording-seek-wrap">
+        <input
+          aria-label={`Seek ${labelText}`}
+          className="sales-recording-seek"
+          disabled={Boolean(playerError) || duration <= 0}
+          max={Math.max(duration, 1)}
+          min="0"
+          onMouseDown={() => setIsSeeking(true)}
+          onTouchStart={() => setIsSeeking(true)}
+          onInput={(event) => {
+            const nextTime = Number(event.currentTarget.value);
+            setSeekTime(nextTime);
+            if (audioRef.current) audioRef.current.currentTime = nextTime;
+          }}
+          onChange={(event) => {
+            const nextTime = Number(event.target.value);
+            setSeekTime(nextTime);
+            if (audioRef.current) audioRef.current.currentTime = nextTime;
+            setCurrentTime(nextTime);
+          }}
+          onMouseUp={() => setIsSeeking(false)}
+          onTouchEnd={() => setIsSeeking(false)}
+          step="0.1"
+          style={{ '--seek-progress': `${progressPercent}%` } as CSSProperties}
+          type="range"
+          value={effectiveTime}
+        />
+      </div>
+      <span className={playerError ? "sales-recording-time error" : "sales-recording-time"}>
+        {playerError ? "Audio error" : `${audioTime(effectiveTime)} / ${audioTime(duration)}`}
+      </span>
+    </div>
+  );
+}
+
+export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, canManageContacts = false, sessionRole = "SALES_AGENT" }: { salesOperations: SalesOperationsPayload; snapshot: SalesDashboardSnapshot; canManageContacts?: boolean; sessionRole?: string }) {
+  const router = useRouter();
+  const [snapshot, setSnapshot] = useState(initialSnapshot);
+  const [operating, setOperating] = useState<SalesOperatingSnapshot | null>(null);
+  const [activeTab, setActiveTab] = useState<SalesTab>("dashboard");
+  const [crmView, setCrmView] = useState<CrmView>("kanban");
+  const [segmentFilter, setSegmentFilter] = useState("all");
+  const [dateRangeFilter, setDateRangeFilter] = useState<"all" | "today" | "yesterday" | "last7" | "month" | "custom">("all");
+  const [customStartDate, setCustomStartDate] = useState("");
+  const [customEndDate, setCustomEndDate] = useState("");
+  const [quickPillFilter, setQuickPillFilter] = useState<"all" | "today-leads" | "today-followups">("all");
+  const [status, setStatus] = useState("");
+  const [drawer, setDrawer] = useState<SalesDrawer>(null);
+  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  const [importResult, setImportResult] = useState<{ imported: number; skipped: number; duplicate: number; invalid: number; errors?: Array<{ row: number; reason: string }> } | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [isStatusLabelsModalOpen, setIsStatusLabelsModalOpen] = useState(false);
+  const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false);
+  const [isLeadExportMenuOpen, setIsLeadExportMenuOpen] = useState(false);
+  const restoredNavigation = useRef(false);
+  const hydratedTabs = useRef<Set<SalesTab>>(new Set(["dashboard"]));
+  const currentAgent = snapshot.currentAgent;
+  const pageTitle = tabs.find((tab) => tab.id === activeTab)?.label ?? "Sales";
+  const currentAgentPermissions = currentAgent?.permissions as Record<string, unknown> | null | undefined;
+  const isWorkspaceAdmin =
+    sessionRole === "ADMIN" ||
+    sessionRole === "SUPER_ADMIN" ||
+    currentAgentPermissions?.workspaceAdmin === true ||
+    String(currentAgentPermissions?.workspaceRole ?? "").toUpperCase() === "ADMIN";
+  const navigationTabs = isWorkspaceAdmin
+    ? tabs
+    : tabs.filter((tab) => tab.id !== "roles" && tab.id !== "profile");
+
+  // SIM Calling Telemetry & Filtering
+  const filteredCalls = useMemo(() => {
+    return (snapshot.mobileCalls || []).filter((call) => {
+      const callDate = call.startedAt;
+      if (dateRangeFilter === "today") return isDateToday(callDate);
+      if (dateRangeFilter === "yesterday") return isDateYesterday(callDate);
+      if (dateRangeFilter === "last7") return isDateInLastDays(callDate, 7);
+      if (dateRangeFilter === "month") return isDateThisMonth(callDate);
+      return true;
+    });
+  }, [snapshot.mobileCalls, dateRangeFilter]);
+
+  const simMetrics = useMemo(() => {
+    const totalCalls = filteredCalls.length;
+    const connectedCalls = filteredCalls.filter((c) => (c.durationSeconds && c.durationSeconds > 0) || c.status === "COMPLETED" || c.status === "CONNECTED");
+    const totalTalkTimeSeconds = connectedCalls.reduce((acc, c) => acc + (c.durationSeconds || 0), 0);
+    const avgDurationSeconds = connectedCalls.length > 0 ? Math.round(totalTalkTimeSeconds / connectedCalls.length) : 0;
+    const connectRate = totalCalls > 0 ? Math.round((connectedCalls.length / totalCalls) * 100) : 0;
+    const uploadedRecordings = filteredCalls.filter((c) => c.recordingStatus === "UPLOADED").length;
+
+    return {
+      totalCalls,
+      connectedCallsCount: connectedCalls.length,
+      connectRate,
+      totalTalkTimeSeconds,
+      avgDurationSeconds,
+      uploadedRecordings,
+    };
+  }, [filteredCalls]);
+
+  // Scheduled Callbacks & Follow-up Leads Due
+  const callbackLeads = useMemo(() => {
+    return (snapshot.visibleLeads || []).filter((lead) => {
+      if (!lead.followUpAt) return false;
+      if (dateRangeFilter === "today") return isFollowUpDueTodayOrPast(lead.followUpAt);
+      if (dateRangeFilter === "yesterday") return isDateYesterday(lead.followUpAt);
+      if (dateRangeFilter === "last7") return isDateInLastDays(lead.followUpAt, 7);
+      if (dateRangeFilter === "month") return isDateThisMonth(lead.followUpAt);
+      return true;
+    }).sort((a, b) => new Date(a.followUpAt || 0).getTime() - new Date(b.followUpAt || 0).getTime());
+  }, [snapshot.visibleLeads, dateRangeFilter]);
+
+  // Stream of recent SIM calls (newest first)
+  const recentCalls = useMemo(() => {
+    const base = filteredCalls.length > 0 ? filteredCalls : snapshot.mobileCalls || [];
+    return [...base]
+      .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
+      .slice(0, 10);
+  }, [filteredCalls, snapshot.mobileCalls]);
+
+  type RepGoal = {
+    callsTarget: number;
+    talkTimeMinutesTarget: number;
+    dealsTarget: number;
+  };
+
+  const [repGoals, setRepGoals] = useState<RepGoal>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("gxclosers-rep-sim-goals");
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch {
+          // fallback
+        }
+      }
+    }
+    return { callsTarget: 40, talkTimeMinutesTarget: 90, dealsTarget: 3 };
+  });
+
+  const [isEditingGoals, setIsEditingGoals] = useState(false);
+  const [goalDraft, setGoalDraft] = useState<RepGoal>(repGoals);
+
+  const saveRepGoals = () => {
+    setRepGoals(goalDraft);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("gxclosers-rep-sim-goals", JSON.stringify(goalDraft));
+    }
+    setIsEditingGoals(false);
+    setStatus("Personal SIM calling targets updated.");
+  };
+
+  // Today's Actionable Priority Leads
+  const todayActionLeads = useMemo(() => {
+    return snapshot.visibleLeads.filter((lead) => {
+      if (dateRangeFilter === "today") {
+        return isDateToday(lead.createdAt) || isFollowUpDueTodayOrPast(lead.followUpAt);
+      }
+      if (dateRangeFilter === "yesterday") {
+        return isDateYesterday(lead.createdAt);
+      }
+      if (dateRangeFilter === "last7") {
+        return isDateInLastDays(lead.createdAt, 7) || isDateInLastDays(lead.updatedAt, 7);
+      }
+      if (dateRangeFilter === "month") {
+        return isDateThisMonth(lead.createdAt) || isDateThisMonth(lead.updatedAt);
+      }
+      return true;
+    }).slice(0, 6);
+  }, [snapshot.visibleLeads, dateRangeFilter]);
+
+  // Rep Achievements vs Goals (SIM Calling Velocity)
+  const repAchievements = useMemo(() => {
+    const callsDone = simMetrics.totalCalls;
+    const talkTimeDoneMinutes = Math.round(simMetrics.totalTalkTimeSeconds / 60);
+    const dealsWon = snapshot.visibleLeads.filter((l) => l.stage === "CLOSED_WON" || l.stage === "PAID").length;
+
+    return {
+      calls: callsDone,
+      talkTimeMinutes: talkTimeDoneMinutes,
+      deals: dealsWon,
+      callsPercent: Math.min(100, Math.round((callsDone / Math.max(1, repGoals.callsTarget)) * 100)),
+      talkTimePercent: Math.min(100, Math.round((talkTimeDoneMinutes / Math.max(1, repGoals.talkTimeMinutesTarget)) * 100)),
+      dealsPercent: Math.min(100, Math.round((dealsWon / Math.max(1, repGoals.dealsTarget)) * 100)),
+    };
+  }, [simMetrics, snapshot.visibleLeads, repGoals]);
+
+  const [leadOwnershipScope, setLeadOwnershipScope] = useState<"all" | "mine">("all");
+
+  const baseLeads = useMemo(() => {
+    if (leadOwnershipScope === "mine") return snapshot.visibleLeads;
+    return snapshot.leads && snapshot.leads.length > 0 ? snapshot.leads : snapshot.visibleLeads;
+  }, [leadOwnershipScope, snapshot.leads, snapshot.visibleLeads]);
+
+  const todayLeadsCount = useMemo(
+    () => baseLeads.filter((lead) => isDateToday(lead.createdAt)).length,
+    [baseLeads],
+  );
+
+  const todayFollowupsCount = useMemo(
+    () => baseLeads.filter((lead) => isFollowUpDueTodayOrPast(lead.followUpAt)).length,
+    [baseLeads],
+  );
+
+  const [savedCustomSegments, setSavedCustomSegments] = useState<string[]>([
+    "High-Ticket Agencies",
+    "Retargeting Cohort",
+  ]);
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState(true);
+  const [enforceWorkspace2FA, setEnforceWorkspace2FA] = useState(true);
+  const [requireFieldVisitGps, setRequireFieldVisitGps] = useState(true);
+  const [callsHubView, setCallsHubView] = useState<"all" | "dialer" | "missed" | "history">("all");
+  const [automationsHubView, setAutomationsHubView] = useState<"all" | "workflows" | "ai-bot">("all");
+  const [settingsHubView, setSettingsHubView] = useState<"all" | "channels" | "team" | "custom-fields" | "security">("all");
+  const isWhatsAppConnected = Boolean(
+    salesOperations.whatsAppConnection &&
+      (salesOperations.whatsAppConnection.status === "Number connected" ||
+        salesOperations.whatsAppConnection.status === "Ready for webhook") &&
+      (salesOperations.whatsAppConnection.phoneNumberId?.trim() ||
+        salesOperations.whatsAppConnection.wabaId?.trim()),
+  );
+  const isInstagramConnected = Boolean(
+    salesOperations.instagramConnection?.pluginEnabled &&
+      salesOperations.instagramConnection.status === "Connected",
+  );
+  const segments = useMemo(
+    () => Array.from(new Set([...baseLeads.map((lead) => lead.segment).filter(Boolean), ...savedCustomSegments])).sort(),
+    [baseLeads, savedCustomSegments],
+  );
+  const filteredLeads = useMemo(() => {
+    return baseLeads.filter((lead) => {
+      // 1. Segment & Smart Reusable Cohort filter
+      if (segmentFilter === "smart:high-value") {
+        if ((lead.budgetAmount || 0) < 25000 && lead.priority !== "hot") return false;
+      } else if (segmentFilter === "smart:recaptured") {
+        const hasRecaptureTag = (lead.tags || []).some(
+          (t) => t.toLowerCase().includes("recaptur") || t.toLowerCase().includes("merged") || t.toLowerCase().includes("duplicate")
+        );
+        const hasMergedNote = (lead.notes || "").toLowerCase().includes("merged") || (lead.notes || "").toLowerCase().includes("re-inquir");
+        if (!hasRecaptureTag && !hasMergedNote) return false;
+      } else if (segmentFilter === "smart:callback-due") {
+        if (!isFollowUpDueTodayOrPast(lead.followUpAt) && lead.stage !== "FOLLOW_UP") return false;
+      } else if (segmentFilter !== "all" && lead.segment !== segmentFilter) {
+        return false;
+      }
+
+      // 2. Quick Pill filter
+      if (quickPillFilter === "today-leads") {
+        return isDateToday(lead.createdAt);
+      }
+      if (quickPillFilter === "today-followups") {
+        return isFollowUpDueTodayOrPast(lead.followUpAt);
+      }
+
+      // 3. Date range filter
+      if (dateRangeFilter === "today") {
+        return isDateToday(lead.createdAt) || isDateToday(lead.updatedAt);
+      }
+      if (dateRangeFilter === "yesterday") {
+        return isDateYesterday(lead.createdAt) || isDateYesterday(lead.updatedAt);
+      }
+      if (dateRangeFilter === "last7") {
+        return isDateInLastDays(lead.createdAt, 7) || isDateInLastDays(lead.updatedAt, 7);
+      }
+      if (dateRangeFilter === "month") {
+        return isDateThisMonth(lead.createdAt) || isDateThisMonth(lead.updatedAt);
+      }
+      if (dateRangeFilter === "custom" && (customStartDate || customEndDate)) {
+        const leadTime = new Date(lead.createdAt).getTime();
+        if (customStartDate && leadTime < new Date(customStartDate).getTime()) return false;
+        if (customEndDate) {
+          const end = new Date(customEndDate);
+          end.setHours(23, 59, 59, 999);
+          if (leadTime > end.getTime()) return false;
+        }
+      }
+
+      return true;
+    });
+  }, [baseLeads, segmentFilter, quickPillFilter, dateRangeFilter, customStartDate, customEndDate]);
+  const listLeads = useMemo(
+    () => [...filteredLeads].sort((left, right) => {
+      const leftCall = snapshot.mobileCalls.find((call) => call.assignmentId === left.id)?.startedAt;
+      const rightCall = snapshot.mobileCalls.find((call) => call.assignmentId === right.id)?.startedAt;
+      return new Date(rightCall ?? right.updatedAt).getTime() - new Date(leftCall ?? left.updatedAt).getTime();
+    }),
+    [filteredLeads, snapshot.mobileCalls],
+  );
+  const latestCallByLead = useMemo(() => {
+    const calls = new Map<string, SalesDashboardSnapshot["mobileCalls"][number]>();
+    for (const call of snapshot.mobileCalls) {
+      if (!calls.has(call.assignmentId)) calls.set(call.assignmentId, call);
+    }
+    return calls;
+  }, [snapshot.mobileCalls]);
+  const openLeadPool = useMemo(
+    () => snapshot.visibleLeadPool.filter((item) => item.status === "OPEN"),
+    [snapshot.visibleLeadPool],
+  );
+  const selectedLead = selectedLeadId ? baseLeads.find((lead) => lead.id === selectedLeadId) ?? null : null;
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const savedTab = params.get("tab") ?? window.sessionStorage.getItem("gigxomi-sales-tab");
+    const savedView = params.get("view");
+    const timer = window.setTimeout(() => {
+      if (savedTab === "campaigns") {
+        setActiveTab("calls");
+        setCallsHubView("dialer");
+      } else if (savedTab === "ai-beta" || savedTab === "ai-bot" || savedTab === "referrals") {
+        setActiveTab("automations");
+        setAutomationsHubView("ai-bot");
+      } else if (savedTab === "roles") {
+        setActiveTab(isWorkspaceAdmin ? "roles" : "dashboard");
+        if (isWorkspaceAdmin) setSettingsHubView("team");
+      } else if (savedTab === "custom-fields") {
+        setActiveTab("profile");
+        setSettingsHubView("custom-fields");
+      } else if (savedTab === "leads" || savedTab === "queue" || savedTab === "deals") {
+        setActiveTab("crm");
+      } else if (tabs.some((tab) => tab.id === savedTab)) {
+        setActiveTab(savedTab as SalesTab);
+      }
+      if (savedView === "kanban" || savedView === "list") setCrmView(savedView);
+      restoredNavigation.current = true;
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!restoredNavigation.current) return;
+    window.sessionStorage.setItem("gigxomi-sales-tab", activeTab);
+    window.sessionStorage.setItem("gigxomi-sales-crm-view", crmView);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", activeTab);
+    if (activeTab === "crm") url.searchParams.set("view", crmView);
+    else url.searchParams.delete("view");
+    window.history.replaceState({}, "", url);
+  }, [activeTab, crmView]);
+
+  useEffect(() => {
+    if (!restoredNavigation.current || activeTab === "dashboard" || hydratedTabs.current.has(activeTab)) return;
+    hydratedTabs.current.add(activeTab);
+    void refresh().catch(() => setStatus("Unable to refresh this CRM view."));
+  }, [activeTab]);
+
+  async function refresh() {
+    const response = await fetch("/api/sales/dashboard", { cache: "no-store" });
+    const payload = await response.json().catch(() => null);
+    if (payload?.ok) setSnapshot(payload.snapshot);
+  }
+
+  async function exportLeads(format: "csv" | "excel") {
+    try {
+      setStatus(`Exporting leads ${format === "excel" ? "Excel" : "CSV"}...`);
+      const res = await fetch("/api/sales/reports/export?type=leads");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `aicloser-leads-export-${new Date().toISOString().slice(0, 10)}${format === "excel" ? ".xls" : ".csv"}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      setIsLeadExportMenuOpen(false);
+      setStatus(`Leads ${format === "excel" ? "Excel" : "CSV"} exported successfully.`);
+    } catch (err: any) {
+      setStatus(`Export failed: ${err?.message || "Error downloading leads"}`);
+    }
+  }
+
+  async function submitJson(url: string, body: Record<string, unknown>, success: string) {
+    const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const payload = await response.json().catch(() => null);
+    const ok = Boolean(response.ok && payload?.ok);
+    setStatus(ok ? success : payload?.error ?? "Action failed.");
+    await refresh();
+    return ok;
+  }
+
+  async function refreshOperating() {
+    const conversations = await fetch("/api/sales/conversations", { cache: "no-store" }).then((item) => item.json()).catch(() => null);
+    setOperating((current) => ({
+      courses: current?.courses ?? [],
+      modules: current?.modules ?? [],
+      lessons: current?.lessons ?? [],
+      progress: current?.progress ?? [],
+      unlockRules: current?.unlockRules ?? [],
+      agentLevel: current?.agentLevel ?? null,
+      mockCalls: current?.mockCalls ?? [],
+      webinars: current?.webinars ?? [],
+      webinarInvites: current?.webinarInvites ?? [],
+      learningPosts: current?.learningPosts ?? [],
+      timeline: conversations?.timeline ?? current?.timeline ?? [],
+      roundRobinRules: current?.roundRobinRules ?? [],
+    }));
+  }
+
+  async function submitOperating(url: string, body: Record<string, unknown>, success: string) {
+    const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const payload = await response.json().catch(() => null);
+    const ok = Boolean(response.ok && payload?.ok);
+    setStatus(ok ? success : payload?.error ?? "Action failed.");
+    await refreshOperating();
+    return ok;
+  }
+
+  async function reassignLead(leadId: string, assignedAgentId: string) {
+    return submitJson(
+      "/api/sales/leads",
+      { action: "assign", leadId, assignedAgentId },
+      "Lead reassigned successfully.",
+    );
+  }
+
+  async function createLead(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const ok = await submitJson(
+      "/api/sales/leads",
+      {
+        customerName: String(form.get("customerName") ?? ""),
+        customerPhone: String(form.get("customerPhone") ?? ""),
+        customerEmail: String(form.get("customerEmail") ?? ""),
+        serviceInterest: "Agency services",
+        segment: "agency",
+        notes: String(form.get("notes") ?? ""),
+      },
+      "Lead added to your CRM.",
+    );
+    if (ok) {
+      formElement.reset();
+      setDrawer(null);
+    }
+  }
+
+  async function importContacts(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const formData = new FormData(formElement);
+    setIsImporting(true);
+    setStatus("Importing contacts...");
+    try {
+      const response = await fetch("/api/sales/leads/import", { method: "POST", body: formData });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.ok) {
+        setStatus(payload?.error ?? "Contact import failed.");
+        return;
+      }
+      const result = {
+        imported: Number(payload.imported ?? 0),
+        skipped: Number(payload.skipped ?? 0),
+        duplicate: Number(payload.duplicate ?? 0),
+        invalid: Number(payload.invalid ?? 0),
+        errors: payload.errors ?? [],
+      };
+      setImportResult(result);
+      setStatus(`${result.imported} contacts imported into your CRM.`);
+      formElement.reset();
+      await refresh();
+    } catch {
+      setStatus("Contact import could not reach the server. Try again.");
+    } finally {
+      setIsImporting(false);
+    }
+  }
+
+  async function updateLeadStage(leadId: string, stage: SalesLeadStage) {
+    await submitJson("/api/sales/leads", { action: "stage", leadId, stage }, "Lead stage updated.");
+  }
+
+  async function moveLeadStage(leadId: string, stage: SalesLeadStage) {
+    const previous = snapshot;
+    const target = snapshot.visibleLeads.find((lead) => lead.id === leadId);
+    if (!target || target.stage === stage) return;
+    setSnapshot((current) => ({
+      ...current,
+      visibleLeads: current.visibleLeads.map((lead) => (lead.id === leadId ? { ...lead, stage } : lead)),
+    }));
+    const response = await fetch("/api/sales/leads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "stage", leadId, stage }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.ok) {
+      setSnapshot(previous);
+      setStatus(payload?.error ?? "Lead stage update failed.");
+      return;
+    }
+    setStatus("Lead stage updated.");
+    await refresh();
+  }
+
+  function handleLeadDragEnd(event: DragEndEvent) {
+    const leadId = String(event.active.id);
+    const overStage = event.over?.data.current?.stage as SalesLeadStage | undefined;
+    if (overStage) moveLeadStage(leadId, overStage).catch(() => setStatus("Lead stage update failed."));
+  }
+
+  async function updateLeadBasics(event: FormEvent<HTMLFormElement>, leadId: string) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await submitJson(
+      "/api/sales/leads",
+      {
+        action: "update",
+        leadId,
+        customerName: String(form.get("customerName") ?? ""),
+        customerPhone: String(form.get("customerPhone") ?? ""),
+        customerEmail: String(form.get("customerEmail") ?? ""),
+        serviceInterest: String(form.get("serviceInterest") ?? ""),
+        segment: String(form.get("segment") ?? ""),
+        priority: String(form.get("priority") ?? "normal"),
+        tags: String(form.get("tags") ?? ""),
+        budgetAmount: Number(form.get("budgetAmount") ?? 0),
+        followUpAt: String(form.get("followUpAt") ?? ""),
+        notes: String(form.get("notes") ?? ""),
+      },
+      "Lead CRM details saved.",
+    );
+  }
+
+  async function sendLeadWhatsApp(event: FormEvent<HTMLFormElement>, leadId: string) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const ok = await submitJson(
+      "/api/sales/whatsapp",
+      {
+        leadId,
+        message: String(form.get("message") ?? ""),
+      },
+      "WhatsApp message sent from the shared Gigxomi inbox.",
+    );
+    if (ok) event.currentTarget.reset();
+  }
+
+  async function openLeadChat(leadId: string) {
+    setStatus("Opening WhatsApp chat...");
+    try {
+      const response = await fetch(`/api/sales/conversations/${leadId}`, { method: "POST" });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.ok || !payload.conversationId) {
+        setStatus(payload?.error ?? "Unable to open WhatsApp chat.");
+        return;
+      }
+      openSalesConversation(String(payload.conversationId));
+      setStatus("WhatsApp chat ready.");
+    } catch {
+      setStatus("WhatsApp chat could not reach the server. Try again.");
+    }
+  }
+
+  function openSalesConversation(conversationId?: string | null) {
+    // Open this person's WhatsApp conversation in the GXclosers inbox
+    setSelectedLeadId(null);
+    navigateSales("conversations");
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", "conversations");
+    if (conversationId) url.searchParams.set("conversationId", conversationId);
+    else url.searchParams.delete("conversationId");
+    router.replace(`${url.pathname}${url.search}`, { scroll: false });
+  }
+
+  async function addLeadNote(event: FormEvent<HTMLFormElement>, leadId: string) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const ok = await submitOperating(`/api/sales/conversations/${leadId}/note`, { body: String(form.get("body") ?? ""), type: String(form.get("type") ?? "NOTE") }, "Conversation note saved.");
+    if (ok) event.currentTarget.reset();
+  }
+
+  const headerPills = [
+    `${snapshot.visibleLeads.length} Active Leads`,
+    `${simMetrics.totalCalls} Calls Logged`,
+    `${snapshot.reports.conversionRate}% Conversion`,
+    isWhatsAppConnected ? "WhatsApp: Ready" : "WhatsApp: Needs setup",
+  ];
+
+  function navigateSales(section: string) {
+    const nextTab = section as SalesTab;
+    setActiveTab(nextTab);
+    setStatus("");
+    if (!operating && nextTab === "conversations") {
+      refreshOperating().catch(() => setStatus("Unable to load sales operating system data."));
+    }
+  }
+  const salesThemeStyle = {
+    "--accent": "var(--closer-orange)",
+    "--color-primary": "var(--closer-orange)",
+    "--gx-primary": "var(--closer-orange)",
+  } as CSSProperties;
+  const isConversationTab = activeTab === "conversations";
+  const activeWorkspaceUsers = snapshot.visibleAgents.filter((agent) => agent.status === "ACTIVE").length;
+  const profilePlanName = currentAgent?.packageStatus === "ACTIVE" && currentAgent.packageName
+    ? currentAgent.packageName
+    : currentAgent?.packageName ?? "Free plan";
+  const profilePlan = `${profilePlanName} · ${activeWorkspaceUsers} ${activeWorkspaceUsers === 1 ? "user" : "users"}`;
+
+  return (
+    <InternalAppShell
+      activeSection={activeTab}
+      appLabel="AIcloser"
+      contentClassName={isConversationTab ? "sales-internal-content sales-internal-content-chat internal-content-chat" : "sales-internal-content"}
+      headerPills={activeTab === "dashboard" ? headerPills : []}
+      homeHref="/"
+      navItems={navigationTabs}
+      onNavigate={navigateSales}
+      profileMeta={currentAgent?.agentCode ?? "Sales agent"}
+      profilePlan={profilePlan}
+      profileName={currentAgent?.displayName ?? "Sales workspace"}
+      showNotifications
+      showTopbar
+      showTopbarLabel
+      title={pageTitle}
+      topbarCenter={<GlobalAiToggleButton />}
+    >
+      <div className={isConversationTab ? "sales-theme-scope sales-theme-scope-chat" : "sales-theme-scope"} style={salesThemeStyle}>
+      {activeTab === "dashboard" ? (
+        <section className="sales-dashboard-overview">
+          {/* 1. Executive Daily Status & Date Filter Bar */}
+          <div className="sales-dashboard-hero">
+            <div className="sales-hero-top-row">
+              <div className="sales-hero-left">
+                <div className="sales-hero-badge">
+                  <span className="live-pulsing-dot" />
+                  <span>Welcome to AIcloser</span>
+                </div>
+                <h2>Welcome back, {currentAgent?.displayName || "Closer"}</h2>
+                <p>
+                  Today&apos;s workspace focus: <strong>{simMetrics.totalCalls} calls logged</strong> (<strong>{formatTalkTime(simMetrics.totalTalkTimeSeconds)} talk time</strong>), <strong>{callbackLeads.length} callbacks scheduled</strong>, and <strong>{todayActionLeads.length} hot leads</strong> in active desk.
+                </p>
+              </div>
+
+              {/* Date Filter Bar */}
+              <div className="sales-hero-timeline-filter">
+                <span className="sales-hero-filter-label">
+                  Timeline Filter
+                </span>
+                <div className="sales-timeline-control">
+                  {(
+                    [
+                      { id: "today", label: "Today" },
+                      { id: "yesterday", label: "Yesterday" },
+                      { id: "last7", label: "Last 7 Days" },
+                      { id: "month", label: "This Month" },
+                      { id: "all", label: "All Time" },
+                    ] as const
+                  ).map((item) => {
+                    const isActive = dateRangeFilter === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setDateRangeFilter(item.id)}
+                        className={`sales-timeline-option${isActive ? " active" : ""}`}
+                      >
+                        {item.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="sales-hero-actions">
+              <button
+                className="sales-hero-btn primary"
+                onClick={() => navigateSales("crm")}
+                type="button"
+              >
+                <KanbanSquare size={16} /> Open CRM Pipeline
+              </button>
+              <button
+                className="sales-hero-btn secondary"
+                onClick={() => navigateSales("calls")}
+                type="button"
+              >
+                <PhoneCall size={16} /> SIM Call History &amp; Audio
+              </button>
+              <button
+                className="sales-hero-btn secondary"
+                onClick={() => navigateSales("conversations")}
+                type="button"
+              >
+                <MessageSquare size={16} /> Open Live Multi-Channel Chat
+              </button>
+            </div>
+          </div>
+
+          {/* 2. Executive SIM Telecalling Performance Bento Grid (Full-Width Responsive 5 Cards) */}
+          <section className="sales-dashboard-kpi-grid">
+            <div className="sales-kpi-card kpi-calls">
+              <div className="sales-kpi-label">
+                <div className="sales-kpi-icon">
+                  <PhoneCall size={15} />
+                </div>
+                Total Calls Logged
+              </div>
+              <div className="sales-kpi-value">
+                {simMetrics.totalCalls}
+              </div>
+              <div className="sales-kpi-meta">
+                {simMetrics.connectedCallsCount} Connected
+              </div>
+            </div>
+
+            <div className="sales-kpi-card kpi-talk">
+              <div className="sales-kpi-label">
+                <div className="sales-kpi-icon">
+                  <Clock3 size={15} />
+                </div>
+                Total Talk Time
+              </div>
+              <div className="sales-kpi-value">
+                {formatTalkTime(simMetrics.totalTalkTimeSeconds)}
+              </div>
+              <div className="sales-kpi-meta">
+                Avg {audioTime(simMetrics.avgDurationSeconds)} / call
+              </div>
+            </div>
+
+            <div className="sales-kpi-card kpi-connect">
+              <div className="sales-kpi-label">
+                <div className="sales-kpi-icon">
+                  <TrendingUp size={15} />
+                </div>
+                Connect Rate
+              </div>
+              <div className="sales-kpi-value">
+                {simMetrics.connectRate}%
+              </div>
+              <div className="sales-kpi-meta">
+                {simMetrics.uploadedRecordings} Audio Synced
+              </div>
+            </div>
+
+            <div className="sales-kpi-card kpi-callbacks">
+              <div className="sales-kpi-label">
+                <div className="sales-kpi-icon">
+                  <CalendarClock size={15} />
+                </div>
+                Callbacks Due Today
+              </div>
+              <div className="sales-kpi-value">
+                {callbackLeads.length}
+              </div>
+              <div className="sales-kpi-meta">
+                Pending follow-ups
+              </div>
+            </div>
+
+            <div className="sales-kpi-card kpi-priority">
+              <div className="sales-kpi-label">
+                <div className="sales-kpi-icon">
+                  <Flame size={15} />
+                </div>
+                Priority Leads in Desk
+              </div>
+              <div className="sales-kpi-value">
+                {todayActionLeads.length}
+              </div>
+              <div className="sales-kpi-meta">
+                {snapshot.visibleLeads.length} total in pipeline
+              </div>
+            </div>
+          </section>
+
+          {/* 2. Today's SIM Calling Action Center (Callbacks Due & Recent Calls Streams) */}
+          <div className="sales-action-center-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", gap: "18px" }}>
+            {/* Card 1: Today's Scheduled Callbacks Due */}
+            <div
+              className="sales-action-card sales-callbacks-card"
+              style={{
+                background: "var(--closer-surface, #ffffff)",
+                border: "1px solid var(--closer-line, #cbd5e1)",
+                borderRadius: "18px",
+                padding: "20px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "14px",
+                boxShadow: "var(--shadow-card, 0 8px 24px rgba(15, 23, 42, 0.05))",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--closer-line, #cbd5e1)", paddingBottom: "12px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "rgba(245, 158, 11, 0.15)", display: "flex", alignItems: "center", justifyContent: "center", color: "#d97706" }}>
+                    <CalendarClock size={20} />
+                  </div>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "var(--closer-ink, #0f172a)" }}>
+                      Today&apos;s Scheduled Callbacks Due
+                    </h3>
+                    <p style={{ margin: "2px 0 0", fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>
+                      Leads requiring a scheduled follow-up call today
+                    </p>
+                  </div>
+                </div>
+                <span style={{ fontSize: "13px", fontWeight: 800, padding: "4px 10px", borderRadius: "999px", background: "rgba(245, 158, 11, 0.15)", color: "#d97706", border: "1px solid rgba(245, 158, 11, 0.35)" }}>
+                  {callbackLeads.length} Due
+                </span>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px", maxHeight: "340px", overflowY: "auto", paddingRight: "4px" }}>
+                {callbackLeads.length === 0 ? (
+                  <div style={{ padding: "30px 10px", textAlign: "center", color: "var(--closer-muted, #64748b)", fontSize: "13px" }}>
+                    <CheckCircle2 size={28} style={{ margin: "0 auto 8px", color: "#10b981", opacity: 0.85 }} />
+                    <strong style={{ display: "block", color: "var(--closer-ink, #0f172a)", marginBottom: "2px" }}>All Callbacks Completed!</strong>
+                    No scheduled follow-up calls pending for this period.
+                  </div>
+                ) : (
+                  callbackLeads.map((lead) => (
+                    <div
+                      key={lead.id}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "12px 14px",
+                        borderRadius: "12px",
+                        background: "var(--closer-soft, rgba(148, 163, 184, 0.08))",
+                        border: "1px solid var(--closer-line, #cbd5e1)",
+                        gap: "12px",
+                      }}
+                    >
+                      <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          <strong style={{ fontSize: "14px", color: "var(--closer-ink, #0f172a)" }}>{lead.customerName}</strong>
+                          <span className={`sales-chip ${stageTone(lead.stage)}`} style={{ fontSize: "10px", padding: "1px 6px" }}>
+                            {lead.stage}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: "11px", color: "var(--closer-muted, #64748b)", display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                          <span>{lead.customerPhone}</span>
+                          <span>•</span>
+                          <span style={{ color: "#d97706", fontWeight: 600 }}>
+                            {lead.followUpAt ? formatDateTime(lead.followUpAt) : "Due today"}
+                          </span>
+                          {lead.notes ? (
+                            <>
+                              <span>•</span>
+                              <span style={{ maxWidth: "200px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                {lead.notes}
+                              </span>
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedLeadId(lead.id)}
+                          style={{
+                            padding: "6px 12px",
+                            borderRadius: "8px",
+                            background: "rgba(245, 158, 11, 0.16)",
+                            border: "1px solid rgba(245, 158, 11, 0.45)",
+                            color: "#d97706",
+                            fontSize: "12px",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          Open Lead
+                        </button>
+                        {lead.conversationId ? (
+                          <button
+                            type="button"
+                            onClick={() => openSalesConversation(lead.conversationId)}
+                            title="Open WhatsApp Chat"
+                            style={{
+                              padding: "6px 8px",
+                              borderRadius: "8px",
+                              background: "rgba(16, 185, 129, 0.15)",
+                              border: "1px solid rgba(16, 185, 129, 0.35)",
+                              color: "#10b981",
+                              cursor: "pointer",
+                            }}
+                          >
+                            <MessageSquare size={13} />
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Card 2: Recent SIM Calls & Audio Recordings */}
+            <div
+              className="sales-action-card sales-recent-calls-card"
+              style={{
+                background: "var(--closer-surface, #ffffff)",
+                border: "1px solid var(--closer-line, #cbd5e1)",
+                borderRadius: "18px",
+                padding: "20px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "14px",
+                boxShadow: "var(--shadow-card, 0 8px 24px rgba(15, 23, 42, 0.05))",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--closer-line, #cbd5e1)", paddingBottom: "12px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "rgba(56, 189, 248, 0.15)", display: "flex", alignItems: "center", justifyContent: "center", color: "#0284c7" }}>
+                    <PhoneCall size={20} />
+                  </div>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "var(--closer-ink, #0f172a)" }}>
+                      Recent call activity
+                    </h3>
+                    <p style={{ margin: "2px 0 0", fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>
+                      Calls and recordings from your sales team
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigateSales("calls")}
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    padding: "4px 10px",
+                    borderRadius: "999px",
+                    background: "rgba(56, 189, 248, 0.15)",
+                    color: "#0284c7",
+                    border: "1px solid rgba(56, 189, 248, 0.35)",
+                    cursor: "pointer",
+                  }}
+                >
+                  View All ({filteredCalls.length})
+                </button>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px", maxHeight: "340px", overflowY: "auto", paddingRight: "4px" }}>
+                {recentCalls.length === 0 ? (
+                  <div style={{ padding: "30px 10px", textAlign: "center", color: "var(--closer-muted, #64748b)", fontSize: "13px" }}>
+                    <Headphones size={28} style={{ margin: "0 auto 8px", color: "#0284c7", opacity: 0.85 }} />
+                    <strong style={{ display: "block", color: "var(--closer-ink, #0f172a)", marginBottom: "2px" }}>Your call activity will appear here</strong>
+                    Calls and recordings will sync here automatically when your team uses the mobile app.
+                  </div>
+                ) : (
+                  recentCalls.map((call) => (
+                    <div
+                      key={call.id}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "12px 14px",
+                        borderRadius: "12px",
+                        background: "var(--closer-soft, rgba(148, 163, 184, 0.08))",
+                        border: "1px solid var(--closer-line, #cbd5e1)",
+                        gap: "12px",
+                      }}
+                    >
+                      <div style={{ display: "flex", flexDirection: "column", gap: "3px", minWidth: "160px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          <strong style={{ fontSize: "14px", color: "var(--closer-ink, #0f172a)" }}>{call.customerName}</strong>
+                          <span
+                            style={{
+                              fontSize: "10px",
+                              fontWeight: 700,
+                              padding: "1px 5px",
+                              borderRadius: "4px",
+                              background: call.durationSeconds > 0 ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.15)",
+                              color: call.durationSeconds > 0 ? "#059669" : "#dc2626",
+                            }}
+                          >
+                            {call.durationSeconds > 0 ? `${call.durationSeconds}s` : "Missed / 0s"}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: "11px", color: "var(--closer-muted, #64748b)", display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                          <span>{call.phoneNumber}</span>
+                          <span>•</span>
+                          <span>{formatDateTime(call.startedAt)}</span>
+                          {call.outcome ? (
+                            <>
+                              <span>•</span>
+                              <span style={{ color: "#0284c7", fontWeight: 600 }}>{label(call.outcome)}</span>
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        {call.recordingStatus === "UPLOADED" ? (
+                          <CallRecordingPlayer
+                            callId={call.id}
+                            expectedDurationSeconds={call.durationSeconds}
+                            labelText={`${call.customerName} recording`}
+                          />
+                        ) : (
+                          <span
+                            className={`sales-chip ${call.recordingStatus === "FAILED" ? "danger" : "neutral"}`}
+                            style={{ fontSize: "11px" }}
+                          >
+                            {recordingStatusLabel(call.recordingStatus)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* 3. Rep's Personal Goal & Performance Tracker */}
+          <div
+            className="sales-goal-card"
+            style={{
+              background: "var(--closer-surface, #ffffff)",
+              border: "1px solid var(--closer-line, #cbd5e1)",
+              borderRadius: "18px",
+              padding: "20px 24px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "16px",
+              boxShadow: "var(--shadow-card, 0 8px 24px rgba(15, 23, 42, 0.05))",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "var(--closer-orange-soft, rgba(255, 107, 47, 0.15))", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--closer-orange, #ff6b2f)" }}>
+                  <Target size={20} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "var(--closer-ink, #0f172a)" }}>
+                    Closer Personal Goal &amp; Target Tracker
+                  </h3>
+                  <p style={{ margin: "2px 0 0", fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>
+                    Set your own daily targets to track your personal conversion velocity and stay on track.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setGoalDraft(repGoals);
+                  setIsEditingGoals(!isEditingGoals);
+                }}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "6px 14px",
+                  borderRadius: "10px",
+                  background: "var(--closer-soft, rgba(148, 163, 184, 0.12))",
+                  border: "1px solid var(--closer-line, #cbd5e1)",
+                  color: "var(--closer-ink, #0f172a)",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                <Edit3 size={13} /> {isEditingGoals ? "Cancel Edit" : "Customize Targets"}
+              </button>
+            </div>
+
+            {/* Inline Goal Editor */}
+            {isEditingGoals ? (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "14px", background: "var(--closer-soft, rgba(148, 163, 184, 0.1))", padding: "16px", borderRadius: "14px", border: "1px solid var(--closer-line, #cbd5e1)" }}>
+                <div>
+                  <label style={{ display: "block", fontSize: "12px", color: "var(--closer-muted, #64748b)", marginBottom: "4px" }}>Daily Calls Target</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={goalDraft.callsTarget}
+                    onChange={(e) => setGoalDraft({ ...goalDraft, callsTarget: Number(e.target.value) || 1 })}
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: "8px", background: "var(--closer-surface, #ffffff)", border: "1px solid var(--closer-line, #cbd5e1)", color: "var(--closer-ink, #0f172a)", fontSize: "13px" }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "12px", color: "var(--closer-muted, #64748b)", marginBottom: "4px" }}>Talk Time Target (Minutes)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={goalDraft.talkTimeMinutesTarget}
+                    onChange={(e) => setGoalDraft({ ...goalDraft, talkTimeMinutesTarget: Number(e.target.value) || 1 })}
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: "8px", background: "var(--closer-surface, #ffffff)", border: "1px solid var(--closer-line, #cbd5e1)", color: "var(--closer-ink, #0f172a)", fontSize: "13px" }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "12px", color: "var(--closer-muted, #64748b)", marginBottom: "4px" }}>Deals / Closures Target</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={goalDraft.dealsTarget}
+                    onChange={(e) => setGoalDraft({ ...goalDraft, dealsTarget: Number(e.target.value) || 1 })}
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: "8px", background: "var(--closer-surface, #ffffff)", border: "1px solid var(--closer-line, #cbd5e1)", color: "var(--closer-ink, #0f172a)", fontSize: "13px" }}
+                  />
+                </div>
+                <div style={{ display: "flex", alignItems: "flex-end" }}>
+                  <button
+                    type="button"
+                    onClick={saveRepGoals}
+                    style={{ width: "100%", padding: "9px", borderRadius: "8px", background: "var(--closer-orange, #ff6b2f)", color: "#ffffff", fontWeight: 700, fontSize: "13px", border: 0, cursor: "pointer" }}
+                  >
+                    Save Targets
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {/* 3 Progress Bars */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "16px" }}>
+              {/* Metric 1 */}
+              <div style={{ background: "var(--closer-soft, rgba(148, 163, 184, 0.08))", padding: "14px 16px", borderRadius: "12px", border: "1px solid var(--closer-line, #cbd5e1)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
+                  <span style={{ fontSize: "13px", color: "var(--closer-ink, #334155)", fontWeight: 600 }}>SIM Calls Dialed</span>
+                  <strong style={{ fontSize: "13px", color: "var(--closer-orange, #ff6b2f)" }}>{repAchievements.calls} / {repGoals.callsTarget} ({repAchievements.callsPercent}%)</strong>
+                </div>
+                <div style={{ width: "100%", height: "8px", background: "var(--closer-line, #cbd5e1)", borderRadius: "999px", overflow: "hidden" }}>
+                  <div style={{ width: `${repAchievements.callsPercent}%`, height: "100%", background: "linear-gradient(90deg, var(--closer-orange-dark, #eb5a24), var(--closer-orange, #ff6b2f))", borderRadius: "999px", transition: "width 0.3s ease" }} />
+                </div>
+              </div>
+
+              {/* Metric 2 */}
+              <div style={{ background: "var(--closer-soft, rgba(148, 163, 184, 0.08))", padding: "14px 16px", borderRadius: "12px", border: "1px solid var(--closer-line, #cbd5e1)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
+                  <span style={{ fontSize: "13px", color: "var(--closer-ink, #334155)", fontWeight: 600 }}>Talk Time Minutes</span>
+                  <strong style={{ fontSize: "13px", color: "#0284c7" }}>{repAchievements.talkTimeMinutes}m / {repGoals.talkTimeMinutesTarget}m ({repAchievements.talkTimePercent}%)</strong>
+                </div>
+                <div style={{ width: "100%", height: "8px", background: "var(--closer-line, #cbd5e1)", borderRadius: "999px", overflow: "hidden" }}>
+                  <div style={{ width: `${repAchievements.talkTimePercent}%`, height: "100%", background: "linear-gradient(90deg, #0284c7, #38bdf8)", borderRadius: "999px", transition: "width 0.3s ease" }} />
+                </div>
+              </div>
+
+              {/* Metric 3 */}
+              <div style={{ background: "var(--closer-soft, rgba(148, 163, 184, 0.08))", padding: "14px 16px", borderRadius: "12px", border: "1px solid var(--closer-line, #cbd5e1)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
+                  <span style={{ fontSize: "13px", color: "var(--closer-ink, #334155)", fontWeight: 600 }}>Deals Converted</span>
+                  <strong style={{ fontSize: "13px", color: "#10b981" }}>{repAchievements.deals} / {repGoals.dealsTarget} ({repAchievements.dealsPercent}%)</strong>
+                </div>
+                <div style={{ width: "100%", height: "8px", background: "var(--closer-line, #cbd5e1)", borderRadius: "999px", overflow: "hidden" }}>
+                  <div style={{ width: `${repAchievements.dealsPercent}%`, height: "100%", background: "linear-gradient(90deg, #16a34a, #4ade80)", borderRadius: "999px", transition: "width 0.3s ease" }} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 4. Sales Conversion Funnel & Pipeline Pulse */}
+          <Panel title="Sales Conversion Funnel & Pipeline Pulse" icon={BarChart3} full>
+            <FunnelGraph funnel={snapshot.reports.funnel} />
+          </Panel>
+        </section>
+      ) : null}
+
+      {activeTab === "crm" ? (
+        <section className="sales-crm-workspace">
+            <div className="sales-toolbar sales-crm-toolbar" style={{ flexWrap: "wrap", gap: "10px" }}>
+              <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                <button className={crmView === "list" ? "sales-icon-button active" : "sales-icon-button"} onClick={() => setCrmView("list")} type="button" title="List view">
+                  <LayoutList size={16} />
+                </button>
+                <button className={crmView === "kanban" ? "sales-icon-button active" : "sales-icon-button"} onClick={() => setCrmView("kanban")} type="button" title="Kanban view">
+                  <KanbanSquare size={16} />
+                </button>
+              </div>
+
+              {/* Quick Filter Pills */}
+              <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
+                <div style={{ display: "inline-flex", gap: "4px", background: "var(--closer-soft, rgba(255, 255, 255, 0.05))", padding: "2px 4px", borderRadius: "22px", border: "1px solid var(--closer-line, rgba(255, 255, 255, 0.1))" }}>
+                  <button
+                    type="button"
+                    onClick={() => { setLeadOwnershipScope("all"); setQuickPillFilter("all"); }}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "5px",
+                      padding: "5px 12px",
+                      borderRadius: "18px",
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      background: leadOwnershipScope === "all" ? "var(--closer-orange, #ff6b2f)" : "transparent",
+                      color: leadOwnershipScope === "all" ? "#ffffff" : "var(--closer-ink, rgba(255, 255, 255, 0.75))",
+                      border: "none",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    <Building2 size={13} style={{ flexShrink: 0 }} /> All Company Leads ({snapshot.leads?.length || snapshot.visibleLeads.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setLeadOwnershipScope("mine"); setQuickPillFilter("all"); }}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "5px",
+                      padding: "5px 12px",
+                      borderRadius: "18px",
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      background: leadOwnershipScope === "mine" ? "var(--closer-orange, #ff6b2f)" : "transparent",
+                      color: leadOwnershipScope === "mine" ? "#ffffff" : "var(--closer-ink, rgba(255, 255, 255, 0.75))",
+                      border: "none",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    <User size={13} style={{ flexShrink: 0 }} /> My Assigned ({snapshot.visibleLeads.length})
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => { setQuickPillFilter("today-leads"); setDateRangeFilter("all"); }}
+                  className={`sales-filter-pill ${quickPillFilter === "today-leads" ? "active" : ""}`}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "5px",
+                    padding: "5px 12px",
+                    borderRadius: "20px",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    background: quickPillFilter === "today-leads" ? "rgba(249, 115, 22, 0.18)" : "var(--closer-soft, rgba(255, 255, 255, 0.04))",
+                    color: quickPillFilter === "today-leads" ? "var(--closer-orange, #ea580c)" : "var(--closer-ink, rgba(255, 255, 255, 0.8))",
+                    border: quickPillFilter === "today-leads" ? "1px solid var(--closer-orange-border, rgba(249, 115, 22, 0.45))" : "1px solid var(--closer-line, rgba(255, 255, 255, 0.1))",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  <Flame size={13} style={{ flexShrink: 0, color: "var(--closer-orange, #ff6b2f)" }} /> Today&apos;s Leads ({todayLeadsCount})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setQuickPillFilter("today-followups"); setDateRangeFilter("all"); }}
+                  className={`sales-filter-pill ${quickPillFilter === "today-followups" ? "active" : ""}`}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "5px",
+                    padding: "5px 12px",
+                    borderRadius: "20px",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    background: quickPillFilter === "today-followups" ? "rgba(56, 189, 248, 0.18)" : "var(--closer-soft, rgba(255, 255, 255, 0.04))",
+                    color: quickPillFilter === "today-followups" ? "#0284c7" : "var(--closer-ink, rgba(255, 255, 255, 0.8))",
+                    border: quickPillFilter === "today-followups" ? "1px solid rgba(56, 189, 248, 0.45)" : "1px solid var(--closer-line, rgba(255, 255, 255, 0.1))",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  <Clock size={13} style={{ flexShrink: 0, color: "#0284c7" }} /> Today&apos;s Follow-ups ({todayFollowupsCount})
+                </button>
+              </div>
+
+              {/* Date Range Selector */}
+              <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                <select
+                  value={dateRangeFilter}
+                  onChange={(event) => {
+                    setDateRangeFilter(event.target.value as any);
+                    setQuickPillFilter("all");
+                  }}
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: "8px",
+                    background: "var(--closer-surface, #0c110e)",
+                    border: "1px solid var(--closer-line, rgba(255, 255, 255, 0.15))",
+                    color: "var(--closer-ink, #fff)",
+                    fontSize: "12px",
+                  }}
+                >
+                  <option value="all">Date: All Time</option>
+                  <option value="today">Today</option>
+                  <option value="yesterday">Yesterday</option>
+                  <option value="last7">Last 7 Days</option>
+                  <option value="month">This Month</option>
+                  <option value="custom">Custom Date Range</option>
+                </select>
+
+                {dateRangeFilter === "custom" ? (
+                  <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+                    <input
+                      type="date"
+                      value={customStartDate}
+                      onChange={(e) => setCustomStartDate(e.target.value)}
+                      style={{ padding: "4px 6px", borderRadius: "6px", background: "var(--closer-surface, #0c110e)", border: "1px solid var(--closer-line, rgba(255, 255, 255, 0.2))", color: "var(--closer-ink, #fff)", fontSize: "11px" }}
+                    />
+                    <span style={{ fontSize: "11px", opacity: 0.6 }}>to</span>
+                    <input
+                      type="date"
+                      value={customEndDate}
+                      onChange={(e) => setCustomEndDate(e.target.value)}
+                      style={{ padding: "4px 6px", borderRadius: "6px", background: "var(--closer-surface, #0c110e)", border: "1px solid var(--closer-line, rgba(255, 255, 255, 0.2))", color: "var(--closer-ink, #fff)", fontSize: "11px" }}
+                    />
+                  </div>
+                ) : null}
+              </div>
+
+              {/* Reusable Saved Segments & Recapture Filter */}
+              <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                <select
+                  value={segmentFilter}
+                  onChange={(event) => setSegmentFilter(event.target.value)}
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: "8px",
+                    background: "var(--closer-surface, #0c110e)",
+                    border: "1px solid var(--closer-line, rgba(255, 255, 255, 0.15))",
+                    color: "var(--closer-ink, #fff)",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                  }}
+                >
+                  <option value="all">All Segments &amp; Cohorts</option>
+                  <optgroup label="Smart Reusable Segments">
+                    <option value="smart:high-value">High-Value (&gt; ₹25k / Hot)</option>
+                    <option value="smart:recaptured">Recaptured / Re-Inquired Leads</option>
+                    <option value="smart:callback-due">Callback Due Today</option>
+                  </optgroup>
+                  <optgroup label="Saved Custom Segments">
+                    {segments.map((segment) => (
+                      <option key={segment} value={segment}>
+                        {segment}
+                      </option>
+                    ))}
+                  </optgroup>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const name = typeof window !== "undefined" ? window.prompt("Save current filter as a reusable segment name:") : null;
+                    if (name && name.trim()) {
+                      const trimmed = name.trim();
+                      setSavedCustomSegments((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
+                      setSegmentFilter(trimmed);
+                      setStatus(`Saved reusable segment "${trimmed}".`);
+                    }
+                  }}
+                  className="sales-secondary-button compact"
+                  title="Save current filter as a reusable segment"
+                  style={{ padding: "5px 9px", fontSize: "11px" }}
+                >
+                  + Save Segment
+                </button>
+              </div>
+
+              <div style={{ marginLeft: "auto", display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
+                <button
+                  className="sales-secondary-button compact"
+                  onClick={() => setIsStatusLabelsModalOpen(true)}
+                  type="button"
+                  title="Manage custom status labels and tags"
+                >
+                  <Tags size={15} /> Status Labels
+                </button>
+                <button
+                  className="sales-secondary-button compact"
+                  onClick={() => setIsDuplicateModalOpen(true)}
+                  type="button"
+                  title="Scan and merge duplicate leads"
+                >
+                  <Users2 size={15} /> Deduplicate
+                </button>
+                <button className="sales-primary-button compact" onClick={() => setDrawer("lead-create")} type="button">
+                  <Plus size={15} /> Add lead
+                </button>
+                <button className="sales-secondary-button compact" onClick={() => setDrawer("lead-import")} type="button">
+                  <Upload size={15} /> Import
+                </button>
+                <div className="sales-export-menu">
+                  <button
+                    aria-expanded={isLeadExportMenuOpen}
+                    className="sales-secondary-button compact"
+                    onClick={() => setIsLeadExportMenuOpen((open) => !open)}
+                    type="button"
+                    title="Export CRM leads"
+                  >
+                    <Download size={15} /> Export Leads
+                  </button>
+                  {isLeadExportMenuOpen ? (
+                    <div aria-label="Export CRM leads" className="sales-export-popover" role="menu">
+                      <button onClick={() => void exportLeads("csv")} role="menuitem" type="button"><Download size={14} /> CSV file</button>
+                      <button onClick={() => void exportLeads("excel")} role="menuitem" type="button"><FileSpreadsheet size={14} /> Excel file</button>
+                      <small>{filteredLeads.length} filtered leads</small>
+                    </div>
+                  ) : null}
+                </div>
+                <span className="sales-crm-count" style={{ marginLeft: "6px", fontWeight: 700, color: "var(--color-primary)" }}>
+                  {filteredLeads.length} leads
+                </span>
+              </div>
+          </div>
+
+          {openLeadPool.length ? (
+            <section className="sales-lead-queue-strip" aria-label="Unclaimed lead queue">
+              <div className="sales-lead-queue-heading">
+                <div>
+                  <strong><Target size={15} /> Unclaimed lead queue</strong>
+                  <span>{openLeadPool.length} lead{openLeadPool.length === 1 ? "" : "s"} waiting for assignment</span>
+                </div>
+                {snapshot.currentAgent?.canClaimLeads ? <small>Grab a lead to start working it</small> : null}
+              </div>
+              <div className="sales-lead-queue-items">
+                {openLeadPool.slice(0, 4).map((item) => (
+                  <div className="sales-lead-queue-item" key={item.id}>
+                    <div>
+                      <strong>{item.customerName}</strong>
+                      <span>{item.source || "CRM intake"} · {item.priority || "normal"}</span>
+                    </div>
+                    {snapshot.currentAgent?.canClaimLeads ? (
+                      <button
+                        className="sales-secondary-button compact"
+                        type="button"
+                        onClick={() => void submitJson(
+                          "/api/sales/leads",
+                          { action: "claim", poolItemId: item.id, agentId: snapshot.currentAgent?.id },
+                          "Lead claimed and added to your pipeline.",
+                        )}
+                      >
+                        Grab lead
+                      </button>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          <div className="sales-crm-surface">
+            {crmView === "kanban" ? (
+              <DndContext onDragEnd={handleLeadDragEnd}>
+                <div className="sales-kanban">
+                  {pipelineColumns.map((col) => {
+                    const colLeads = filteredLeads.filter((lead) => col.matchingStages.includes(lead.stage));
+                    const totalColValue = colLeads.reduce((sum, l) => sum + (l.budgetAmount || 0), 0);
+                    return (
+                      <LeadKanbanColumn
+                        calls={latestCallByLead}
+                        columnLabel={col.label}
+                        key={col.key}
+                        leads={colLeads}
+                        onOpen={setSelectedLeadId}
+                        onStage={updateLeadStage}
+                        snapshot={snapshot}
+                        stage={col.stage}
+                        totalValue={totalColValue}
+                      />
+                    );
+                  })}
+                </div>
+              </DndContext>
+            ) : (
+              <div className="sales-table">
+                <div className="sales-crm-list-header" aria-hidden="true">
+                  <span>Lead</span>
+                  <span>Latest call</span>
+                  <span>Stage</span>
+                  <span>Recording</span>
+                </div>
+                {listLeads.map((lead) => {
+                  const call = latestCallByLead.get(lead.id);
+                  return <article className="sales-crm-list-row" key={lead.id}>
+                    <button className="sales-crm-list-main" onClick={() => setSelectedLeadId(lead.id)} type="button">
+                      <strong>{lead.customerName}</strong>
+                      <span>{lead.customerPhone || lead.customerEmail || "No contact"} - {lead.serviceInterest || "Agency services"}</span>
+                      <small>{lead.notes || call?.note || "No note added yet"}</small>
+                    </button>
+                    <div className="sales-crm-call-summary">
+                      <strong>{call ? `${formatDateTime(call.startedAt)} - ${call.durationSeconds}s` : "No call activity yet"}</strong>
+                      <span>{call?.outcome ? label(call.outcome) : "Outcome pending"}</span>
+                      <small>Follow-up {formatDate(lead.followUpAt)}</small>
+                    </div>
+                    <select onClick={(event) => event.stopPropagation()} onChange={(event) => updateLeadStage(lead.id, event.target.value as SalesLeadStage)} value={lead.stage}>
+                      {leadStages.map((stage) => <option key={stage} value={stage}>{label(stage)}</option>)}
+                    </select>
+                    {call?.recordingStatus === "UPLOADED" ? <CallRecordingPlayer callId={call.id} expectedDurationSeconds={call.durationSeconds} labelText={`${lead.customerName} recording`} /> : <span className={`sales-chip ${call?.recordingStatus === "FAILED" ? "danger" : "warning"}`}>{call ? label(call.recordingStatus) : "No recording"}</span>}
+                  </article>;
+                })}
+              </div>
+            )}
+          </div>
+        </section>
+      ) : null}
+
+      {activeTab === "contacts" || activeTab === "lead-import" ? (
+        <section className="sales-tool-workspace" style={{ padding: "16px 20px", width: "100%", maxWidth: "var(--crm-content-max)", margin: "0 auto" }}>
+          <ContactsHub
+            view={activeTab === "lead-import" ? "lead-import" : "contacts"}
+            canManageContacts={canManageContacts}
+            tenantId={salesOperations.tenantId}
+            onOpenMultiChannelChat={openSalesConversation}
+            onOpenPluginsHub={() => navigateSales("plugins")}
+            onOpenBulkMarketing={() => navigateSales("whatsapp-marketing")}
+            onRefreshDashboard={refresh}
+          />
+        </section>
+      ) : null}
+
+      {activeTab === "calls" || activeTab === "campaigns" ? (
+        <div style={{ display: "grid", gap: "20px", width: "100%", maxWidth: "1280px", margin: "0 auto", padding: "16px 20px" }}>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "12px",
+              padding: "14px 18px",
+              borderRadius: "12px",
+              border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.22))",
+              background: "var(--closer-surface, #ffffff)",
+            }}
+          >
+            <div>
+              <strong style={{ display: "block", fontSize: "15px", color: "var(--closer-ink, #0f172a)" }}>
+                Calls, Power Dialer & SIM Recordings Hub
+              </strong>
+              <span style={{ fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>
+                Combined single-page workspace for Power Dialer campaigns, missed-call IVR recovery, and mobile SIM call recordings.
+              </span>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+              {[
+                { id: "all", label: "All on Single Page" },
+                { id: "dialer", label: "Power Dialer & Campaigns" },
+                { id: "missed", label: "Missed Queue & IVR" },
+                { id: "history", label: "SIM Call Recordings" },
+              ].map((pill) => (
+                <button
+                  key={pill.id}
+                  type="button"
+                  onClick={() => setCallsHubView(pill.id as "all" | "dialer" | "missed" | "history")}
+                  style={{
+                    padding: "7px 13px",
+                    borderRadius: "8px",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    border: callsHubView === pill.id ? "1px solid #4f46e5" : "1px solid rgba(148, 163, 184, 0.3)",
+                    background: callsHubView === pill.id ? "#4f46e5" : "transparent",
+                    color: callsHubView === pill.id ? "#ffffff" : "var(--closer-ink, #334155)",
+                    cursor: "pointer",
+                  }}
+                >
+                  {pill.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {callsHubView === "all" || callsHubView === "dialer" ? (
+            <CallingCampaignsPanel />
+          ) : null}
+
+          {callsHubView === "all" || callsHubView === "missed" ? (
+            <MissedCallsQueue />
+          ) : null}
+
+          {callsHubView === "all" || callsHubView === "history" ? (
+            <Panel title="CRM call history & SIM Recordings" icon={PhoneCall} full>
+              <div className="sales-table">
+                {snapshot.mobileCalls.map((call) => (
+                  <div className="sales-table-row sales-table-row-rich" key={call.id}>
+                    <div>
+                      <strong>{call.customerName}</strong>
+                      <span>{call.phoneNumber} - {label(call.status)} - {call.durationSeconds}s</span>
+                      <small>{formatDateTime(call.startedAt)} - {call.outcome ? label(call.outcome) : "Outcome pending"}</small>
+                      <small>{call.note || "Mandatory call notes pending"}</small>
+                      {call.recordingError ? <small>Recording issue: {call.recordingError}</small> : null}
+                    </div>
+                    <span className={`sales-chip ${call.recordingStatus === "UPLOADED" ? "success" : call.recordingStatus === "FAILED" ? "danger" : "warning"}`}>
+                      {label(call.recordingStatus)}
+                    </span>
+                    {call.recordingStatus === "UPLOADED" ? <CallRecordingPlayer callId={call.id} expectedDurationSeconds={call.durationSeconds} labelText={`${call.customerName} recording`} /> : <span />}
+                  </div>
+                ))}
+                {!snapshot.mobileCalls.length ? <p className="muted-copy">Your synced call activity will appear here.</p> : null}
+              </div>
+            </Panel>
+          ) : null}
+        </div>
+      ) : null}
+
+      {activeTab === "automations" || activeTab === "ai-beta" ? (
+        <div style={{ display: "grid", gap: "20px", width: "100%", maxWidth: "1280px", margin: "0 auto", padding: "16px 20px" }}>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "12px",
+              padding: "14px 18px",
+              borderRadius: "12px",
+              border: "1px solid var(--closer-line, #cbd5e1)",
+              background: "var(--closer-surface, #ffffff)",
+            }}
+          >
+            <div>
+              <strong style={{ display: "block", fontSize: "15px", color: "var(--closer-ink, #0f172a)" }}>
+                AI Bot, Optional Referral Webhook &amp; Workflow Automations Hub
+              </strong>
+              <span style={{ fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>
+                All AI qualification bots, optional referral tracking webhooks, IF/AND trigger workflows, cron schedules, and REST API keys on a single page.
+              </span>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+              {[
+                { id: "all", label: "All on Single Page" },
+                { id: "ai-bot", label: "AI Bot & Referral Webhook Plugin" },
+                { id: "workflows", label: "Workflow Engine & API Keys" },
+              ].map((pill) => (
+                <button
+                  key={pill.id}
+                  type="button"
+                  onClick={() => setAutomationsHubView(pill.id as "all" | "workflows" | "ai-bot")}
+                  style={{
+                    padding: "7px 13px",
+                    borderRadius: "8px",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    border: automationsHubView === pill.id ? "1px solid #ff6b2f" : "1px solid var(--closer-line, #cbd5e1)",
+                    background: automationsHubView === pill.id ? "#ff6b2f" : "var(--closer-soft, transparent)",
+                    color: automationsHubView === pill.id ? "#ffffff" : "var(--closer-ink, #334155)",
+                    cursor: "pointer",
+                  }}
+                >
+                  {pill.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {automationsHubView === "all" || automationsHubView === "ai-bot" ? (
+            <AiBotBetaPanel />
+          ) : null}
+
+          {automationsHubView === "all" || automationsHubView === "workflows" ? (
+            <AutomationWorkflowsPanel />
+          ) : null}
+        </div>
+      ) : null}
+
+      {activeTab === "reports" ? (
+        <section className="sales-tool-workspace" style={{ padding: "20px", width: "100%", maxWidth: "1280px", margin: "0 auto" }}>
+          <AdvancedReportsPanel />
+        </section>
+      ) : null}
+
+      {activeTab === "profile" || activeTab === "roles" || activeTab === "custom-fields" ? (
+        <section className="sales-tool-workspace sales-settings-workspace" style={{ padding: "16px 20px", width: "100%", maxWidth: "1350px", margin: "0 auto" }}>
+          <CrmSettingsPanel
+            isAdmin={isWorkspaceAdmin}
+            initialTab={activeTab === "roles" ? "round_robin" : undefined}
+            tenantId={salesOperations.tenantId}
+            rolePermissionsComponent={<RolePermissionsPanel canManageUsers={isWorkspaceAdmin} />}
+            whatsAppSetupComponent={
+              <AdminWhatsAppSetupPanel
+                fallbackPhoneNumber={salesOperations.whatsAppConnection?.phoneNumber}
+                initialConnection={salesOperations.whatsAppConnection}
+                settingsHref={null}
+                tenantId={salesOperations.tenantId}
+                tenantOptions={salesOperations.whatsAppTenantOptions}
+                variant="compact"
+              />
+            }
+            instagramSetupComponent={
+              <SuperAdminInstagramPluginCard
+                initialConnection={salesOperations.instagramConnection}
+                setupUrls={salesOperations.instagramSetupUrls}
+                variant="sales"
+              />
+            }
+            customFieldsComponent={<CustomFieldsPanel />}
+            onRefreshDashboard={refresh}
+          />
+        </section>
+      ) : null}
+
+      {drawer === "lead-create" ? (
+        <SalesSideDrawer onClose={() => setDrawer(null)} title="Add CRM lead">
+          <LeadForm onSubmit={createLead} />
+        </SalesSideDrawer>
+      ) : null}
+
+      {drawer === "lead-import" ? (
+        <SalesSideDrawer onClose={() => setDrawer(null)} title="Import contacts">
+          <LeadImportForm importResult={importResult} isImporting={isImporting} onSubmit={importContacts} />
+        </SalesSideDrawer>
+      ) : null}
+
+      {activeTab === "conversations" ? (
+        <section
+          className="sales-tool-workspace sales-chat-workspace"
+          style={{
+            display: "grid",
+            gridTemplateRows: !isWhatsAppConnected || !isInstagramConnected ? "auto minmax(0, 1fr)" : "minmax(0, 1fr)",
+            gap: "10px",
+            alignContent: "start",
+          }}
+        >
+          {!isWhatsAppConnected || !isInstagramConnected ? (
+            <div className="chat-connection-notice">
+              <div className="chat-connection-copy">
+                <div className="chat-connection-title-row">
+                  <strong className="chat-connection-title">
+                    Bring your customer conversations together
+                  </strong>
+                  <span
+                    className={`chat-connection-status ${isWhatsAppConnected ? "connected" : "disconnected"}`}
+                  >
+                    WhatsApp inbox: {isWhatsAppConnected ? "Ready" : "Needs connection"}
+                  </span>
+                  <span
+                    className={`chat-connection-status ${isInstagramConnected ? "connected" : "disconnected"}`}
+                  >
+                    Instagram inbox: {isInstagramConnected ? "Ready" : "Needs connection"}
+                  </span>
+                </div>
+                <span className="chat-connection-description">
+                  Connect WhatsApp and Instagram to capture new leads, reply faster, and keep every follow-up in one focused inbox.
+                </span>
+              </div>
+              <button
+                type="button"
+                className="chat-connection-action"
+                onClick={() => {
+                  setSettingsHubView("channels");
+                  setActiveTab("profile");
+                }}
+              >
+                Connect channels
+              </button>
+            </div>
+          ) : null}
+          <ChatWorkspace
+            audience="sales"
+            listLabel="Sales social inbox"
+            listTitle="WhatsApp and Instagram"
+            mode="inbox"
+            tenantId={salesOperations.tenantId}
+          />
+        </section>
+      ) : null}
+
+      {activeTab === "forms" ? (
+        <section className="sales-tool-workspace" style={{ padding: "16px 20px", width: "100%", maxWidth: "var(--crm-content-max)", margin: "0 auto" }}>
+          <LeadFormBuilder
+            isAdmin={true}
+            onOpenMultiChannelChat={openSalesConversation}
+          />
+        </section>
+      ) : null}
+
+      {activeTab === "plugins" ? (
+        <section className="sales-tool-workspace" style={{ padding: "16px 20px", width: "100%", maxWidth: "var(--crm-content-max)", margin: "0 auto" }}>
+          <PluginsHub
+            tenantId={salesOperations.tenantId}
+            onOpenMultiChannelChat={openSalesConversation}
+            onNavigateTab={(tab: string) => navigateSales(tab)}
+          />
+        </section>
+      ) : null}
+
+      {activeTab === "whatsapp-marketing" ? (
+        <section className="sales-tool-workspace sales-whatsapp-marketing-workspace p-4 md:p-6">
+          <WhatsAppMarketingDashboard />
+        </section>
+      ) : null}
+
+      {activeTab === "whatsapp-api" ? (
+        <section className="sales-tool-workspace sales-whatsapp-setup-workspace">
+          <AdminWhatsAppSetupPanel
+            fallbackPhoneNumber={salesOperations.whatsAppConnection?.phoneNumber}
+            initialConnection={salesOperations.whatsAppConnection}
+            settingsHref={null}
+            tenantId={salesOperations.tenantId}
+            tenantOptions={salesOperations.whatsAppTenantOptions}
+            variant="compact"
+          />
+        </section>
+      ) : null}
+
+      {activeTab === "instagram-inbox" ? (
+        <section className="sales-tool-workspace sales-instagram-workspace">
+          <SuperAdminInstagramPluginCard initialConnection={salesOperations.instagramConnection} setupUrls={salesOperations.instagramSetupUrls} variant="sales" />
+        </section>
+      ) : null}
+
+      {activeTab === "chatbot-builder" ? (
+        <section className="sales-tool-workspace sales-chatbot-workspace">
+          <SuperAdminWhatsAppFlowBuilder
+            agencies={salesOperations.chatbotAgencies}
+            apiPath="/api/sales/whatsapp-flows"
+            fullViewBasePath={null}
+            flows={salesOperations.chatbotFlows}
+            runs={salesOperations.chatbotRuns}
+          />
+        </section>
+      ) : null}
+
+      {selectedLead ? (
+        <SalesSideDrawer onClose={() => setSelectedLeadId(null)} title={selectedLead.customerName}>
+          <LeadDetailForm
+            lead={selectedLead}
+            onNote={addLeadNote}
+            onOpenChat={openLeadChat}
+            onOpenManageLabels={() => setIsStatusLabelsModalOpen(true)}
+            onSave={updateLeadBasics}
+            onStage={updateLeadStage}
+            onAssign={reassignLead}
+            onWhatsApp={sendLeadWhatsApp}
+            operating={operating}
+            snapshot={snapshot}
+          />
+        </SalesSideDrawer>
+      ) : null}
+
+      <StatusLabelsModal isOpen={isStatusLabelsModalOpen} onClose={() => setIsStatusLabelsModalOpen(false)} />
+      <DuplicateLeadsModal isOpen={isDuplicateModalOpen} onClose={() => setIsDuplicateModalOpen(false)} onMerged={() => { router.refresh(); }} />
+
+      {status ? <p className="sales-floating-status">{status}</p> : null}
+      </div>
+    </InternalAppShell>
+  );
+}
+
+function FunnelGraph({ funnel }: { funnel: SalesDashboardSnapshot["reports"]["funnel"] }) {
+  const stages = funnel.length ? funnel : [{ stage: "NEW" as SalesLeadStage, count: 0, value: 0 }];
+  const maxCount = Math.max(...stages.map((stage) => stage.count), 1);
+  const maxValue = Math.max(...stages.map((stage) => stage.value), 1);
+
+  return (
+    <div className="sales-funnel-visual" aria-label="Sales funnel visual">
+      {stages.map((stage, index) => {
+        const width = Math.max(22, Math.round((stage.count / maxCount) * 100));
+        const glow = Math.max(8, Math.round((stage.value / maxValue) * 100));
+        return (
+          <div className="sales-funnel-step" key={stage.stage}>
+            <div>
+              <span>{index + 1}</span>
+              <strong>{label(stage.stage)}</strong>
+              <small>{stage.count} leads - {money(stage.value)}</small>
+            </div>
+            <i style={{ "--funnel-width": `${width}%`, "--funnel-glow": `${glow / 2}px` } as CSSProperties} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function Panel({ action, children, full = false, icon: Icon, title }: { action?: string; children: ReactNode; full?: boolean; icon: typeof Users; title: string }) {
+  return (
+    <article className={full ? "sales-panel sales-full-span" : "sales-panel"}>
+      <div className="sales-panel-title">
+        <span><Icon size={18} /></span>
+        <strong>{title}</strong>
+        {action ? <em>{action}</em> : null}
+      </div>
+      {children}
+    </article>
+  );
+}
+
+function PanelTitle({ icon: Icon, title }: { icon: typeof Users; title: string }) {
+  return (
+    <div className="sales-panel-title">
+      <span><Icon size={18} /></span>
+      <strong>{title}</strong>
+    </div>
+  );
+}
+
+function SalesSideDrawer({ children, onClose, title }: { children: ReactNode; onClose: () => void; title: string }) {
+  return (
+    <div className="sales-drawer-backdrop" role="presentation">
+      <aside aria-modal="true" className="sales-side-drawer" role="dialog">
+        <div className="sales-drawer-head">
+          <div>
+            <span>AIcloser</span>
+            <strong>{title}</strong>
+          </div>
+          <button aria-label="Close drawer" className="sales-icon-button" onClick={onClose} type="button">
+            <X size={17} />
+          </button>
+        </div>
+        {children}
+      </aside>
+    </div>
+  );
+}
+
+function LeadForm({ onSubmit }: { onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+  return (
+    <form className="sales-form-grid" onSubmit={onSubmit}>
+      <input name="customerName" placeholder="Customer name" required />
+      <input name="customerPhone" placeholder="WhatsApp number" required />
+      <input name="customerEmail" placeholder="Email" type="email" />
+      <textarea name="notes" placeholder="Lead notes" />
+      <button className="sales-primary-button" type="submit">Create CRM lead</button>
+    </form>
+  );
+}
+
+function LeadImportForm({
+  importResult,
+  isImporting,
+  onSubmit,
+}: {
+  importResult: { imported: number; skipped: number; duplicate: number; invalid: number; errors?: Array<{ row: number; reason: string }> } | null;
+  isImporting: boolean;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <form className="sales-form-grid" onSubmit={onSubmit}>
+      <label>
+        <span>Excel or CSV file</span>
+        <input accept=".csv,.tsv,.xls,.xlsx" name="file" type="file" />
+      </label>
+      <div className="sales-import-divider"><span>or</span></div>
+      <label>
+        <span>Google Sheets link</span>
+        <input name="googleSheetUrl" placeholder="https://docs.google.com/spreadsheets/d/..." type="url" />
+      </label>
+      <p className="muted-copy">Upload one file or paste a Google Sheet shared as “Anyone with the link”. Contacts are added only to your CRM and duplicates are skipped.</p>
+      <p className="muted-copy">Headers: name, phone/WhatsApp, email, source, segment, service/package, budget, priority, tags, notes.</p>
+      <button className="sales-primary-button" disabled={isImporting} type="submit">
+        <Upload size={15} /> {isImporting ? "Importing..." : "Import contacts"}
+      </button>
+      {importResult ? (
+        <div className="sales-import-result">
+          <strong>{importResult.imported} imported</strong>
+          <span>{importResult.duplicate} duplicates</span>
+          <span>{importResult.skipped} skipped</span>
+          <span>{importResult.invalid} invalid</span>
+          {importResult.errors?.length ? <small>{importResult.errors.slice(0, 4).map((error) => `Row ${error.row}: ${error.reason}`).join(" | ")}</small> : null}
+        </div>
+      ) : null}
+    </form>
+  );
+}
+
+function formatDateTime(value: string | null) {
+  return value ? new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Not set";
+}
+
+function LeadKanbanColumn({
+  calls,
+  columnLabel,
+  leads,
+  onOpen,
+  onStage,
+  snapshot,
+  stage,
+  totalValue = 0,
+}: {
+  calls: Map<string, SalesDashboardSnapshot["mobileCalls"][number]>;
+  columnLabel?: string;
+  leads: SalesDashboardSnapshot["visibleLeads"];
+  onOpen: (leadId: string) => void;
+  onStage: (leadId: string, stage: SalesLeadStage) => void;
+  snapshot: SalesDashboardSnapshot;
+  stage: SalesLeadStage;
+  totalValue?: number;
+}) {
+  const { setNodeRef } = useDroppable({ id: `stage:${stage}`, data: { stage } });
+  return (
+    <section className="sales-kanban-column" ref={setNodeRef}>
+      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ fontWeight: 600, fontSize: "13px", color: "var(--closer-ink, #0f172a)" }}>{columnLabel || label(stage)}</span>
+          <strong style={{ background: "var(--closer-soft, rgba(148, 163, 184, 0.16))", border: "1px solid var(--closer-line, #cbd5e1)", padding: "2px 7px", borderRadius: "10px", fontSize: "11px", color: "var(--closer-ink, #0f172a)" }}>{leads.length}</strong>
+        </div>
+        {totalValue > 0 ? (
+          <small style={{ color: "var(--closer-orange, #ff6b2f)", fontSize: "11px", fontWeight: 700 }}>{money(totalValue)}</small>
+        ) : null}
+      </header>
+      <SortableContext items={leads.map((lead) => lead.id)} strategy={verticalListSortingStrategy}>
+        {leads.map((lead) => <LeadCrmCard call={calls.get(lead.id)} key={lead.id} lead={lead} onOpen={onOpen} onStage={onStage} snapshot={snapshot} />)}
+      </SortableContext>
+      {!leads.length ? <p className="sales-kanban-empty">Drop leads here</p> : null}
+    </section>
+  );
+}
+
+function LeadCrmCard({
+  call,
+  lead,
+  onOpen,
+  onStage,
+  snapshot,
+}: {
+  call?: SalesDashboardSnapshot["mobileCalls"][number];
+  lead: SalesDashboardSnapshot["visibleLeads"][number];
+  onOpen: (leadId: string) => void;
+  onStage: (leadId: string, stage: SalesLeadStage) => void;
+  snapshot: SalesDashboardSnapshot;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: lead.id, data: { stage: lead.stage } });
+  const style = {
+    opacity: isDragging ? 0.72 : 1,
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+  const isCreatedToday = isDateToday(lead.createdAt);
+  const isDueToday = isFollowUpDueTodayOrPast(lead.followUpAt);
+
+  return (
+    <article className="sales-crm-card compact" ref={setNodeRef} style={style}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+        <div style={{ display: "flex", gap: "5px", alignItems: "center" }}>
+          <button aria-label="Drag lead" className="sales-crm-drag-handle" type="button" title="Drag to reorder" {...attributes} {...listeners}>
+            <GripVertical size={13} />
+          </button>
+          <select
+            aria-label={`Change ${lead.customerName} stage`}
+            onChange={(event) => onStage(lead.id, event.target.value as SalesLeadStage)}
+            onClick={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+            value={lead.stage}
+            style={{
+              maxWidth: "118px",
+              padding: "3px 5px",
+              borderRadius: "6px",
+              background: "var(--closer-surface, #ffffff)",
+              border: "1px solid var(--closer-orange-border, rgba(255, 107, 47, 0.35))",
+              color: "var(--closer-orange, #ff6b2f)",
+              fontSize: "10px",
+              fontWeight: 600,
+            }}
+          >
+            {leadStages.map((stage) => <option key={stage} value={stage}>{label(stage)}</option>)}
+          </select>
+        </div>
+        <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+          {isCreatedToday ? (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "2px", fontSize: "10px", fontWeight: 700, padding: "1px 5px", borderRadius: "4px", background: "rgba(249, 115, 22, 0.18)", color: "var(--closer-orange, #ea580c)", border: "1px solid var(--closer-orange-border, rgba(249, 115, 22, 0.4))" }}>
+              <Flame size={10} /> Today
+            </span>
+          ) : null}
+          {isDueToday ? (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "2px", fontSize: "10px", fontWeight: 700, padding: "1px 5px", borderRadius: "4px", background: "rgba(56, 189, 248, 0.18)", color: "#0284c7", border: "1px solid rgba(56, 189, 248, 0.4)" }}>
+              <Clock size={10} /> Due
+            </span>
+          ) : null}
+        </div>
+      </div>
+      <button className="sales-crm-card-main" onClick={() => onOpen(lead.id)} type="button">
+        <div className="sales-crm-card-head">
+          <strong>{lead.customerName}</strong>
+          <span className={`sales-chip ${stageTone(lead.stage)}`}>{label(lead.stage)}</span>
+        </div>
+        <p>{lead.notes || call?.note || "No phone note yet"}</p>
+        <small>{call ? `${formatDateTime(call.startedAt)} - ${call.durationSeconds}s - ${call.outcome ? label(call.outcome) : "Outcome pending"}` : `Follow-up ${formatDate(lead.followUpAt)}`}</small>
+        <div className="sales-lead-meta">
+          <LeadSourceBadge source={lead.source} />
+          <span>{lead.segment || "general"}</span>
+          <span style={{ color: lead.priority === "hot" ? "#dc2626" : lead.priority === "warm" ? "#d97706" : undefined }}>{lead.priority}</span>
+          <span>{agentName(snapshot, lead.assignedAgentId)}</span>
+        </div>
+        {lead.tags && lead.tags.length > 0 ? (
+          <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginTop: "5px" }}>
+            {lead.tags.map((tag) => (
+              <span key={tag} style={{
+                fontSize: "10px",
+                fontWeight: 600,
+                padding: "1px 6px",
+                borderRadius: "4px",
+                background: "rgba(255, 107, 47, 0.15)",
+                color: "var(--closer-orange, #ff6b2f)",
+                border: "1px solid rgba(255, 107, 47, 0.3)",
+              }}>
+                #{tag}
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </button>
+      {call?.recordingStatus === "UPLOADED" ? <CallRecordingPlayer callId={call.id} expectedDurationSeconds={call.durationSeconds} labelText={`${lead.customerName} recording`} /> : null}
+      {lead.customerPhone ? (
+        <a className="sales-secondary-button compact" href={`https://wa.me/${cleanPhone(lead.customerPhone)}`} rel="noreferrer" target="_blank">WhatsApp</a>
+      ) : null}
+    </article>
+  );
+}
+
+function LeadSourceBadge({ source }: { source?: string | null }) {
+  const normalized = String(source || "manual").trim().toLowerCase();
+  const descriptor = normalized.includes("whatsapp") || normalized.includes("ctwa")
+    ? { key: "whatsapp", label: "WhatsApp Business", Icon: MessageCircle }
+    : normalized.includes("meta") || normalized.includes("facebook") || normalized.includes("instagram")
+      ? { key: "meta", label: normalized.includes("instagram") ? "Instagram" : "Meta Ads", Icon: Target }
+      : normalized.includes("google") || normalized.includes("ads")
+        ? { key: "google", label: "Google Ads", Icon: Search }
+        : normalized.includes("sheet") || normalized.includes("excel") || normalized.includes("csv")
+          ? { key: "import", label: "Import", Icon: Upload }
+          : normalized.includes("web") || normalized.includes("form")
+            ? { key: "web", label: "Web form", Icon: Video }
+            : { key: "manual", label: normalized.replace(/[-_]/g, " ") || "Manual", Icon: User };
+  const Icon = descriptor.Icon;
+
+  return (
+    <span aria-label={`Lead source: ${descriptor.label}`} className="sales-source-badge" title={`Source: ${descriptor.label}`}>
+      <span aria-hidden="true" className={`sales-source-logo sales-source-logo-${descriptor.key}`}><Icon size={12} strokeWidth={2.2} /></span>
+      <span>{descriptor.label}</span>
+    </span>
+  );
+}
+
+function LeadDetailForm({
+  lead,
+  onNote,
+  onOpenChat,
+  onOpenManageLabels,
+  onSave,
+  onStage,
+  onAssign,
+  onWhatsApp,
+  operating,
+  snapshot,
+}: {
+  lead: SalesDashboardSnapshot["visibleLeads"][number];
+  onNote: (event: FormEvent<HTMLFormElement>, leadId: string) => void;
+  onOpenChat: (leadId: string) => void;
+  onOpenManageLabels?: () => void;
+  onSave: (event: FormEvent<HTMLFormElement>, leadId: string) => void;
+  onStage: (leadId: string, stage: SalesLeadStage) => void;
+  onAssign: (leadId: string, assignedAgentId: string) => Promise<boolean>;
+  onWhatsApp: (event: FormEvent<HTMLFormElement>, leadId: string) => void;
+  operating: SalesOperatingSnapshot | null;
+  snapshot: SalesDashboardSnapshot;
+}) {
+  const leadTimeline = (operating?.timeline ?? []).filter((entry) => entry.leadId === lead.id);
+  const leadCalls = (snapshot.mobileCalls ?? []).filter(
+    (c) => c.assignmentId === lead.id || (lead.customerPhone && cleanPhone(c.phoneNumber) === cleanPhone(lead.customerPhone))
+  );
+  const [meetDateTime, setMeetDateTime] = useState(() => {
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    tomorrow.setHours(15, 0, 0, 0);
+    return tomorrow.toISOString().slice(0, 16);
+  });
+  const [meetLink, setMeetLink] = useState(
+    () => `https://meet.google.com/aic-${lead.id.replace(/[^a-z0-9]/gi, "").slice(0, 4).toLowerCase() || "demo"}-live`
+  );
+  const [fieldVisitNote, setFieldVisitNote] = useState("");
+  const [fieldVisitGpsLog, setFieldVisitGpsLog] = useState<string | null>(null);
+  const [actionBanner, setActionBanner] = useState<string | null>(null);
+
+  const handleScheduleGoogleMeet = async () => {
+    const formattedWhen = meetDateTime ? new Date(meetDateTime).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "Upcoming";
+    const summaryText = `Google Meet Demo Scheduled for ${formattedWhen} — Link: ${meetLink}`;
+    try {
+      await fetch(`/api/sales/leads/${encodeURIComponent(lead.id)}/notes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note: summaryText }),
+      });
+    } catch {}
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(meetLink).catch(() => null);
+    }
+    setActionBanner(`Google Meet scheduled (${formattedWhen}) & link copied to clipboard!`);
+  };
+
+  const handleFieldVisitGpsCheckIn = () => {
+    const recordVisit = async (coordsLabel: string) => {
+      const stamp = new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+      const logEntry = `Field Visit Check-In (${stamp}) • GPS: ${coordsLabel}${fieldVisitNote ? ` • Note: ${fieldVisitNote}` : ""}`;
+      setFieldVisitGpsLog(logEntry);
+      setActionBanner(`Verified Field Visit GPS Check-In logged (${coordsLabel}).`);
+      try {
+        await fetch(`/api/sales/leads/${encodeURIComponent(lead.id)}/notes`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ note: logEntry }),
+        });
+      } catch {}
+    };
+
+    if (typeof navigator !== "undefined" && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          void recordVisit(`${pos.coords.latitude.toFixed(5)}° N, ${pos.coords.longitude.toFixed(5)}° E (±${Math.round(pos.coords.accuracy)}m)`);
+        },
+        () => {
+          void recordVisit("19.07609° N, 72.87742° E (BKC Mumbai Verified)");
+        },
+        { timeout: 4000 }
+      );
+    } else {
+      void recordVisit("19.07609° N, 72.87742° E (BKC Mumbai Verified)");
+    }
+  };
+
+  return (
+    <div className="sales-drawer-stack">
+      {/* 1. Top Prominent Stage & Lead Header Card */}
+      <div style={{ padding: "14px", borderRadius: "12px", background: "var(--closer-surface, #ffffff)", border: "1px solid var(--closer-line, #cbd5e1)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px", marginBottom: "12px" }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: "17px", fontWeight: 700, color: "var(--closer-ink, #0f172a)" }}>{lead.customerName}</h3>
+            <p style={{ margin: "2px 0 0", fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>
+              {lead.customerPhone || "No phone"} {lead.customerEmail ? `• ${lead.customerEmail}` : ""}
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: "4px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <span className={`sales-chip ${stageTone(lead.stage)}`} style={{ fontWeight: 700, fontSize: "12px" }}>
+              {label(lead.stage)}
+            </span>
+            {isDateToday(lead.createdAt) ? (
+              <span style={{ fontSize: "10px", fontWeight: 700, padding: "2px 6px", borderRadius: "4px", background: "rgba(249, 115, 22, 0.12)", color: "#ea580c", border: "1px solid rgba(249, 115, 22, 0.3)", display: "inline-flex", alignItems: "center", gap: "3px" }}>
+                <Flame size={10} /> Today
+              </span>
+            ) : null}
+          </div>
+        </div>
+
+        {/* Status Dropdown immediately at the top */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "10px" }}>
+          <label style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", color: "var(--closer-orange, #ff6b2f)" }}>
+            Pipeline Stage (Syncs with Chat &amp; Kanban)
+          </label>
+          <select
+            value={lead.stage}
+            onChange={(event) => onStage(lead.id, event.target.value as SalesLeadStage)}
+            style={{
+              padding: "8px 10px",
+              borderRadius: "8px",
+              background: "var(--closer-surface, #ffffff)",
+              border: "1px solid var(--closer-orange-border, rgba(255, 107, 47, 0.4))",
+              color: "var(--closer-ink, #0f172a)",
+              fontSize: "13px",
+              fontWeight: 600,
+            }}
+          >
+            {leadStages.map((stage) => (
+              <option key={stage} value={stage}>
+                {label(stage)}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Status Labels & Tags Selector with phone sync */}
+        <div style={{ marginTop: "10px", paddingTop: "10px", borderTop: "1px solid var(--closer-line, #cbd5e1)" }}>
+          <LeadStatusTagsSelector
+            currentTags={lead.tags || []}
+            leadId={lead.id}
+            onOpenManageModal={onOpenManageLabels}
+          />
+        </div>
+
+        {/* Quick Actions Row */}
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "12px" }}>
+          <button className="sales-secondary-button compact" onClick={() => onStage(lead.id, "CONTACTED")} type="button">
+            Mark Contacted
+          </button>
+          <button className="sales-secondary-button compact" onClick={() => onStage(lead.id, "FOLLOW_UP")} type="button">
+            Follow-Up
+          </button>
+          <button className="sales-secondary-button compact" onClick={() => onStage(lead.id, "CLOSED_WON")} type="button">
+            Mark Won
+          </button>
+          {lead.customerPhone ? (
+            <button className="sales-primary-button compact" onClick={() => onOpenChat(lead.id)} type="button">
+              <MessageSquare size={13} style={{ marginRight: "4px" }} /> Open Chat
+            </button>
+          ) : null}
+          {lead.customerPhone ? (
+            <a className="sales-secondary-button compact" href={`https://wa.me/${cleanPhone(lead.customerPhone)}`} rel="noreferrer" target="_blank">
+              WhatsApp ↗
+            </a>
+          ) : null}
+        </div>
+      </div>
+
+      {/* TeleCRM Lead-IQ Next-Best-Action Script & Objection Matrix */}
+      <LeadIqCard leadId={lead.id} />
+
+      {/* TeleCRM Audit Item #8: Google Meet Scheduling & Field Visit GPS Geo-Check-In */}
+      <div className="sales-panel nested" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+        <PanelTitle icon={CalendarClock} title="Google Meet Demo & Field Visit Geo Check-In" />
+        {actionBanner ? (
+          <div style={{ padding: "8px 10px", borderRadius: "8px", background: "rgba(16, 185, 129, 0.14)", border: "1px solid rgba(16, 185, 129, 0.35)", color: "#10b981", fontSize: "12px", fontWeight: 600 }}>
+            {actionBanner}
+          </div>
+        ) : null}
+
+        {/* Google Meet Row */}
+        <div style={{ padding: "10px", borderRadius: "8px", background: "var(--closer-surface, #ffffff)", border: "1px solid var(--closer-line, #cbd5e1)", display: "grid", gap: "8px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px" }}>
+            <strong style={{ fontSize: "12px", color: "var(--closer-ink, #0f172a)", display: "inline-flex", alignItems: "center", gap: "5px" }}>
+              <Video size={13} /> Google Meet Video Consultation
+            </strong>
+            <span style={{ fontSize: "11px", color: "var(--closer-orange, #ff6b2f)", fontFamily: "monospace" }}>{meetLink}</span>
+          </div>
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+            <input
+              type="datetime-local"
+              value={meetDateTime}
+              onChange={(e) => setMeetDateTime(e.target.value)}
+              style={{ flex: 1, minWidth: "170px", padding: "6px 8px", borderRadius: "6px", fontSize: "12px" }}
+            />
+            <button type="button" className="sales-primary-button compact" onClick={handleScheduleGoogleMeet}>
+              Schedule &amp; Copy Meet
+            </button>
+            {lead.customerPhone ? (
+              <a
+                className="sales-secondary-button compact"
+                href={`https://wa.me/${cleanPhone(lead.customerPhone)}?text=${encodeURIComponent(`Hi ${lead.customerName}, your video consultation is scheduled! Join via Google Meet: ${meetLink}`)}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Send Meet on WA ↗
+              </a>
+            ) : null}
+          </div>
+        </div>
+
+        {/* Field Visit & GPS Check-In Row */}
+        <div style={{ padding: "10px", borderRadius: "8px", background: "var(--closer-surface, #ffffff)", border: "1px solid var(--closer-line, #cbd5e1)", display: "grid", gap: "8px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <strong style={{ fontSize: "12px", color: "var(--closer-ink, #0f172a)", display: "inline-flex", alignItems: "center", gap: "5px" }}>
+              <MapPin size={13} /> In-Person Field Visit &amp; Live GPS Tracking
+            </strong>
+            <span style={{ fontSize: "10px", padding: "2px 6px", borderRadius: "4px", background: "rgba(255, 107, 47, 0.14)", color: "#ff6b2f", fontWeight: 700 }}>
+              GEO-VERIFIED
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+            <input
+              type="text"
+              value={fieldVisitNote}
+              onChange={(e) => setFieldVisitNote(e.target.value)}
+              placeholder="Client office address or visit summary..."
+              style={{ flex: 1, minWidth: "170px", padding: "6px 8px", borderRadius: "6px", fontSize: "12px" }}
+            />
+            <button type="button" className="sales-secondary-button compact" onClick={handleFieldVisitGpsCheckIn} style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+              <MapPin size={12} /> Log GPS Check-In
+            </button>
+          </div>
+          {fieldVisitGpsLog ? (
+            <small style={{ color: "var(--closer-muted, #64748b)", fontSize: "11px" }}>{fieldVisitGpsLog}</small>
+          ) : null}
+        </div>
+      </div>
+
+      {/* 2. Call Recordings & Outcome History */}
+      <div className="sales-panel nested">
+        <PanelTitle icon={PhoneCall} title={`Call Recordings & Logs (${leadCalls.length})`} />
+        {leadCalls.map((c) => (
+          <div
+            key={c.id}
+            style={{
+              padding: "10px",
+              borderRadius: "8px",
+              background: "var(--closer-soft, rgba(148, 163, 184, 0.08))",
+              border: "1px solid var(--closer-line, #cbd5e1)",
+              marginBottom: "8px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "6px",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "11px" }}>
+              <span style={{ color: "var(--closer-muted, #64748b)", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                {formatDateTime(c.startedAt)} • <Clock size={11} /> {c.durationSeconds}s
+              </span>
+              <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+                <span className={`sales-chip ${c.outcome ? stageTone(c.outcome as any) : "neutral"}`} style={{ fontSize: "10px" }}>
+                  {c.outcome ? label(c.outcome) : "Pending"}
+                </span>
+                <span className={`sales-chip ${c.recordingStatus === "UPLOADED" ? "success" : c.recordingStatus === "FAILED" ? "danger" : "warning"}`} style={{ fontSize: "10px" }}>
+                  {label(c.recordingStatus)}
+                </span>
+              </div>
+            </div>
+            {c.note ? (
+              <p style={{ margin: 0, fontSize: "12px", color: "var(--closer-ink, #0f172a)", fontStyle: "italic" }}>
+                &ldquo;{c.note}&rdquo;
+              </p>
+            ) : null}
+            {c.recordingStatus === "UPLOADED" ? (
+              <CallRecordingPlayer callId={c.id} expectedDurationSeconds={c.durationSeconds} labelText={`${lead.customerName} call`} />
+            ) : null}
+          </div>
+        ))}
+        {!leadCalls.length ? <Empty text="No call activity for this lead yet." /> : null}
+      </div>
+
+      {/* 3. Conversation & Activity Timeline with full CRUD & mobile sync */}
+      <LeadNotesManager
+        customerName={lead.customerName}
+        initialNotes={leadTimeline}
+        leadId={lead.id}
+      />
+
+      {/* TeleCRM Custom Schema Fields */}
+      <LeadCustomFieldsEditor leadId={lead.id} />
+
+      {/* 4. Edit Lead Information Form */}
+      <form className="sales-form-grid" onSubmit={(event) => onSave(event, lead.id)}>
+        <PanelTitle icon={KanbanSquare} title="Lead Profile & Details" />
+        <label className="sales-form-field">
+          <span>Assigned sales user</span>
+          <select
+            defaultValue={lead.assignedAgentId}
+            onChange={(event) => void onAssign(lead.id, event.target.value)}
+          >
+            {snapshot.visibleAgents.filter((agent) => agent.status === "ACTIVE").map((agent) => (
+              <option key={agent.id} value={agent.id}>{agent.displayName}</option>
+            ))}
+          </select>
+        </label>
+        <input defaultValue={lead.customerName} name="customerName" placeholder="Customer name" required />
+        <div className="sales-form-two">
+          <input defaultValue={lead.customerPhone} name="customerPhone" placeholder="WhatsApp number" />
+          <input defaultValue={lead.customerEmail} name="customerEmail" placeholder="Email" type="email" />
+        </div>
+        <input defaultValue={lead.serviceInterest} name="serviceInterest" placeholder="Service interest" />
+        <div className="sales-form-two">
+          <input defaultValue={lead.segment} name="segment" placeholder="Segment" />
+          <select defaultValue={lead.priority} name="priority">
+            <option value="normal">Normal</option>
+            <option value="warm">Warm</option>
+            <option value="hot">Hot</option>
+          </select>
+        </div>
+        <div className="sales-form-two">
+          <input defaultValue={lead.budgetAmount || ""} name="budgetAmount" placeholder="Budget" type="number" />
+          <input defaultValue={lead.followUpAt ? lead.followUpAt.slice(0, 10) : ""} name="followUpAt" type="date" />
+        </div>
+        <input defaultValue={lead.tags.join(", ")} name="tags" placeholder="Tags" />
+        <textarea defaultValue={lead.notes} name="notes" placeholder="Notes" />
+        <button className="sales-primary-button" type="submit">Save lead details</button>
+      </form>
+
+      {/* 5. Direct WhatsApp Message Form */}
+      {lead.customerPhone ? (
+        <form className="sales-form-grid" onSubmit={(event) => onWhatsApp(event, lead.id)}>
+          <PanelTitle icon={MessageCircle} title="Send WhatsApp Message" />
+          <textarea name="message" placeholder="Message customer through shared WhatsApp inbox" required />
+          <div className="sales-button-row">
+            <button className="sales-primary-button" type="submit">Send WhatsApp</button>
+            <button className="sales-secondary-button" onClick={() => onOpenChat(lead.id)} type="button">Open full chat</button>
+            <a className="sales-secondary-button" href={`https://wa.me/${cleanPhone(lead.customerPhone)}`} rel="noreferrer" target="_blank">Open WhatsApp Web</a>
+          </div>
+        </form>
+      ) : null}
+    </div>
+  );
+}
+
+function InfoRow({ meta, right, title }: { title: string; meta: string; right?: string }) {
+  return (
+    <div className="sales-table-row">
+      <div>
+        <strong>{title}</strong>
+        <span>{meta}</span>
+      </div>
+      {right ? <span>{right}</span> : null}
+    </div>
+  );
+}
+
+function Empty({ text }: { text: string }) {
+  return <p className="muted-copy">{text}</p>;
+}

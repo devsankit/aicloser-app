@@ -1,0 +1,13 @@
+[
+  {
+    "workflowId": "wf-new-lead-instant-ack",
+    "workflowName": "Instant WhatsApp Welcome on Inbound Lead",
+    "leadId": "cmuwlgszr001amwf4uipmlsm3",
+    "leadName": "Pooja Bhatia",
+    "triggerEvent": "LEAD_CREATED (Webhook)",
+    "status": "SUCCESS",
+    "details": "Executed 1 action(s) for lead Pooja Bhatia",
+    "id": "log-muwlgt1v-970s",
+    "executedAt": "2026-10-06T11:27:33.907Z"
+  }
+]

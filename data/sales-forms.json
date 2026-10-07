@@ -1,0 +1,58 @@
+[
+  {
+    "id": "frm-demo-request",
+    "slug": "book-demo",
+    "title": "Request Live Platform Demo",
+    "description": "Connect with a senior sales closer within 15 minutes to evaluate AIcloser capabilities.",
+    "source": "website-demo",
+    "fieldIds": [
+      "fld-industry",
+      "fld-decision-maker",
+      "fld-team-size"
+    ],
+    "includeCustomerName": true,
+    "includeCustomerPhone": true,
+    "includeCustomerEmail": true,
+    "includeServiceInterest": true,
+    "assignedAgentId": null,
+    "targetStage": "NEW",
+    "tags": [
+      "Inbound Form",
+      "Demo Request"
+    ],
+    "successMessage": "Thank you! Our sales team is calling your number right away.",
+    "redirectUrl": null,
+    "isActive": true,
+    "submissionsCount": 15,
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-10-06T11:27:24.195Z"
+  },
+  {
+    "id": "frm-pricing-inquiry",
+    "slug": "pricing-quote",
+    "title": "Get Custom Agency Quote",
+    "description": "Provide your business volume details for a volume-discounted enterprise quote.",
+    "source": "pricing-calculator",
+    "fieldIds": [
+      "fld-industry",
+      "fld-city",
+      "fld-team-size"
+    ],
+    "includeCustomerName": true,
+    "includeCustomerPhone": true,
+    "includeCustomerEmail": true,
+    "includeServiceInterest": true,
+    "assignedAgentId": null,
+    "targetStage": "NEW",
+    "tags": [
+      "High Intent",
+      "Enterprise Quote"
+    ],
+    "successMessage": "Your quote request has been received. Check your WhatsApp for the proposal link.",
+    "redirectUrl": null,
+    "isActive": true,
+    "submissionsCount": 8,
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  }
+]

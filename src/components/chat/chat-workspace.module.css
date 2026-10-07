@@ -1,0 +1,487 @@
+.shell {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: transparent;
+  color: var(--foreground);
+  overflow: hidden;
+  align-self: stretch;
+}
+
+.rail {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
+  overflow: hidden;
+}
+
+.railBody {
+  display: grid;
+  align-content: start;
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.railScrollFrame {
+  position: relative;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.railScrollFrame :global(.chat-inbox-thread-scroll) {
+  padding-right: 4px;
+}
+
+.sidebarEmpty {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 18px 18px 20px;
+}
+
+.sidebarEmptyBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: rgba(125, 149, 185, 0.2);
+  color: var(--foreground);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.sidebarEmpty strong {
+  font-size: 0.98rem;
+  line-height: 1.25;
+}
+
+.sidebarEmpty p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.stage {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+
+.stageHeader {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  backdrop-filter: none;
+}
+
+.stageBody {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.messageViewportFrame {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+.messageViewportFrame :global(.chat-message-scroll) {
+  padding-right: 8px;
+}
+
+.messageViewport {
+  position: relative;
+  min-height: 0;
+  height: 100%;
+  align-self: stretch;
+  background: transparent;
+}
+
+.messageViewport :global(.chat-message-group) {
+  position: relative;
+  z-index: 1;
+  gap: 10px;
+}
+
+.messageViewport :global(.chat-bubble .message-role) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 7px;
+  color: rgba(228, 235, 244, 0.82);
+  line-height: 1.2;
+}
+
+.messageViewport :global(.chat-bubble-row.outgoing .chat-bubble .message-role) {
+  justify-content: flex-end;
+}
+
+.messageViewport :global(.message-role-name) {
+  color: var(--foreground);
+  font-weight: 800;
+}
+
+.messageViewport :global(.message-role-context) {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1px solid var(--closer-orange-border, rgba(255, 107, 47, 0.32));
+  background: var(--closer-orange-soft, rgba(255, 107, 47, 0.14));
+  color: var(--closer-orange, #ff6b2f);
+  font-size: 0.66rem;
+  font-weight: 800;
+}
+
+.composerDock {
+  position: relative;
+  flex-shrink: 0;
+  z-index: 16;
+  padding-bottom: 0;
+  align-self: stretch;
+  width: 100%;
+}
+
+.stageEmpty {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  padding: 28px 24px 24px;
+}
+
+.stageEmptyInner {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  max-width: 44ch;
+  text-align: center;
+}
+
+.stageEmptyIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  background: var(--closer-orange-soft, rgba(255, 107, 47, 0.14));
+  border: 1px solid var(--closer-orange-border, rgba(255, 107, 47, 0.25));
+  color: var(--closer-orange, #ff6b2f);
+}
+
+.stageEmptyInner strong {
+  font-size: 1.16rem;
+  line-height: 1.2;
+}
+
+.stageEmptyInner p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.detailsBackdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 18;
+  display: grid;
+  justify-items: end;
+  padding: 14px;
+  background: rgba(5, 8, 12, 0.38);
+  backdrop-filter: blur(6px);
+}
+
+.detailsSheet {
+  width: min(360px, calc(100vw - 40px));
+  height: 100%;
+  max-height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--closer-line, rgba(255, 255, 255, 0.1));
+  border-radius: 24px;
+  background: var(--closer-surface, #18191c);
+  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.34);
+  overflow: hidden;
+}
+
+.sheetHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sheetTitleGroup strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 1rem;
+}
+
+.detailsScroll {
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding-right: 4px;
+}
+
+.detailsGrid {
+  display: grid;
+  gap: 12px;
+}
+
+.compactStageHeader {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding-inline: 14px;
+}
+
+.compactStageHeaderMain {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.compactStageHeader :global(.chat-thread-head-toolbar) {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.compactStageHeader :global(.chat-thread-head-action-group) {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.compactStageHeader :global(.chat-thread-head-actions) {
+  justify-content: flex-end;
+}
+
+.railFullScreen {
+  height: 100%;
+  max-height: none;
+  min-height: 0;
+  border-bottom: 0;
+}
+
+.railFullScreen .railBody {
+  height: 100%;
+  max-height: none;
+  overflow-y: auto;
+}
+
+.stageFullScreen {
+  height: 100%;
+  min-height: 0;
+}
+
+@media (max-width: 1180px) {
+  .shell {
+    grid-template-columns: 320px minmax(0, 1fr);
+  }
+}
+@media (max-width: 860px) {
+  .shell {
+    grid-template-columns: 1fr;
+    height: 100%;
+    min-height: 0;
+  }
+
+  .rail {
+    max-height: min(42svh, 380px);
+    border-right: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .railFullScreen {
+    max-height: none;
+    border-bottom: 0;
+  }
+
+  .stage {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .stageFullScreen {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .compactStageHeader {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    padding: 9px 12px 10px;
+    z-index: 24;
+  }
+
+  .compactStageHeaderMain {
+    width: 100%;
+  }
+
+  .compactStageHeader :global(.chat-thread-head-toolbar) {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    gap: 8px;
+    overflow-x: auto;
+    overflow-y: visible;
+    padding: 1px 0 2px;
+    scrollbar-width: none;
+  }
+
+  .compactStageHeader :global(.chat-thread-head-toolbar::-webkit-scrollbar) {
+    display: none;
+  }
+
+  .compactStageHeader :global(.chat-thread-head-action-group) {
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+  }
+
+  .compactStageHeader :global(.chat-control-popover) {
+    position: fixed;
+    inset: auto 12px max(12px, env(safe-area-inset-bottom, 0px));
+    width: auto;
+    min-width: 0;
+    max-width: calc(100vw - 24px);
+    max-height: min(68svh, 620px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    z-index: 40;
+  }
+
+  .compactStageHeader :global(.chat-control-popover > *) {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .compactStageHeader :global(.chat-assign-popover > .ui-button-primary) {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    width: 100%;
+    box-shadow: 0 -12px 24px rgba(11, 15, 23, 0.94);
+  }
+
+  .railBody {
+    scrollbar-width: none;
+  }
+
+  .railBody::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+
+  .detailsBackdrop {
+    align-content: end;
+    padding: 12px;
+  }
+
+  .detailsSheet {
+    width: 100%;
+    max-height: min(72vh, 720px);
+  }
+}
+@media (max-width: 640px) {
+  .rail {
+    max-height: min(44svh, 360px);
+  }
+
+  .railFullScreen {
+    max-height: none;
+  }
+
+  .stage {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .stageFullScreen {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .messageViewport {
+    min-height: 0;
+  }
+
+  .messageViewportFrame :global(.chat-message-scroll) {
+    padding-inline: 12px;
+    padding-right: 12px;
+    scrollbar-gutter: auto;
+  }
+
+  .messageViewport :global(.chat-bubble-row) {
+    gap: 8px;
+  }
+
+  .messageViewport :global(.chat-bubble-avatar) {
+    width: 30px;
+    height: 30px;
+    flex: 0 0 30px;
+  }
+
+  .messageViewport :global(.chat-bubble) {
+    max-width: calc(100% - 38px);
+    padding: 11px 12px 9px;
+    border-radius: 16px;
+  }
+
+  .composerDock {
+    padding-bottom: 12px;
+  }
+}
+
+.shell :global(.chat-sales-macro-bar) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.shell :global(.chat-sales-macro-bar button) {
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+}
+
+.shell :global(.chat-sales-macro-bar button:hover) {
+  transform: translateY(-1px);
+  filter: brightness(1.1);
+}
