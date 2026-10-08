@@ -2919,24 +2919,34 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
         <section className="sales-tool-workspace" style={{ padding: "16px 20px", width: "100%", maxWidth: "var(--crm-content-max)", margin: "0 auto" }}>
           <PluginsHub
             tenantId={salesOperations.tenantId}
+            whatsAppCloudStatus={salesOperations.whatsAppConnection?.status || "Needs setup"}
+            instagramStatus={salesOperations.instagramConnection?.pluginEnabled ? "Plugin enabled" : "Needs setup"}
             onOpenMultiChannelChat={openSalesConversation}
             onNavigateTab={(tab: string) => navigateSales(tab)}
             whatsAppCloudPanel={
-              <AdminWhatsAppSetupPanel
-                fallbackPhoneNumber={salesOperations.whatsAppConnection?.phoneNumber}
-                initialConnection={salesOperations.whatsAppConnection}
-                settingsHref={null}
-                tenantId={salesOperations.tenantId}
-                tenantOptions={salesOperations.whatsAppTenantOptions}
-                variant="compact"
-              />
+              isWorkspaceAdmin ? (
+                <AdminWhatsAppSetupPanel
+                  fallbackPhoneNumber={salesOperations.whatsAppConnection?.phoneNumber}
+                  initialConnection={salesOperations.whatsAppConnection}
+                  settingsHref={null}
+                  tenantId={salesOperations.tenantId}
+                  tenantOptions={salesOperations.whatsAppTenantOptions}
+                  variant="compact"
+                />
+              ) : (
+                <div className="brief-card"><strong>Workspace admin access required</strong><p className="muted-copy">Ask your workspace admin to connect WhatsApp Cloud API and enable bulk marketing.</p></div>
+              )
             }
             instagramPluginPanel={
-              <SuperAdminInstagramPluginCard
-                initialConnection={salesOperations.instagramConnection}
-                setupUrls={salesOperations.instagramSetupUrls}
-                variant={isWorkspaceAdmin ? "default" : "sales"}
-              />
+              isWorkspaceAdmin ? (
+                <SuperAdminInstagramPluginCard
+                  initialConnection={salesOperations.instagramConnection}
+                  setupUrls={salesOperations.instagramSetupUrls}
+                  variant="default"
+                />
+              ) : (
+                <div className="brief-card"><strong>Workspace admin access required</strong><p className="muted-copy">Ask your workspace admin to connect Instagram Business permissions.</p></div>
+              )
             }
           />
         </section>
