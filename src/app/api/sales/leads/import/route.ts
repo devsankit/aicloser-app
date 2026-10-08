@@ -145,8 +145,8 @@ function parseImportPayload(row: ImportRow, index: number, sourceTag: string) {
   const customerName =
     pick(row, ["name", "full name", "customer name", "contact name", "customer"]) ||
     [pick(row, ["first name", "firstname", "given name"]), pick(row, ["last name", "lastname", "family name"])].filter(Boolean).join(" ");
-  const customerPhone = pick(row, ["phone", "phone number", "cell phone", "contact no", "contact number", "mobile", "mobile number", "whatsapp", "whatsapp no", "whatsapp number"]);
-  const customerEmail = pick(row, ["email", "e-mail", "email id", "email address"]);
+  const customerPhone = pick(row, ["phone", "phone number", "phone 1 - value", "phone 2 - value", "cell phone", "contact no", "contact number", "mobile", "mobile number", "whatsapp", "whatsapp no", "whatsapp number"]);
+  const customerEmail = pick(row, ["email", "e-mail", "email id", "email address", "e-mail 1 - value", "email 1 - value"]);
   return {
     row: index + 2,
     customerName: customerName || customerPhone || customerEmail || `Imported lead ${index + 1}`,
@@ -244,7 +244,7 @@ export async function POST(request: Request) {
     const dedupeKeys = contactKeys(parsed);
     if (!parsed.customerPhone && !parsed.customerEmail) {
       skipped += 1;
-      errors.push({ row: index + 2, reason: "Missing name, phone, and email." });
+      errors.push({ row: index + 2, reason: "Add a phone number or email address. Email is optional for phone contacts." });
       continue;
     }
     if (dedupeKeys.some((key) => seen.has(key))) {

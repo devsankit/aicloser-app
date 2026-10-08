@@ -1363,7 +1363,7 @@ export function ContactsHub({
         </div>
       ) : null}
 
-      {isLeadImportView && (importPreview || lastImportReport) ? (
+      {(importPreview || lastImportReport) ? (
         <section className="crm-panel crm-import-review" aria-live="polite" style={{ padding: 20, borderRadius: 18 }}>
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
             <div>
@@ -2133,7 +2133,7 @@ export function ContactsHub({
             {sheetsTab === "raw_paste" ? (
               <div style={{ display: "grid", gap: 8 }}>
                 <label style={{ fontSize: 12, fontWeight: 700 }}>
-                  Paste Rows from Excel / Google Sheets or Raw Phone Numbers (One per line: <code>Name, Phone, Email</code>)
+                  Paste Rows from Excel / Google Sheets or Raw Phone Numbers (One per line: <code>Name, Phone, Email (optional)</code>)
                 </label>
                 <textarea
                   rows={5}
@@ -2152,8 +2152,9 @@ export function ContactsHub({
                 style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
               >
                 <Upload size={15} />
-                {busyAction === "import_sheet_file" ? "Importing Contacts..." : "Import Contacts Now"}
+                {busyAction === "import_sheet_file" ? "Preparing preview..." : "Preview contacts"}
               </button>
+              {importPreview ? <button type="button" className="primary-button" disabled={busyAction === "commit_import" || importPreview.valid === 0} onClick={() => void handleCommitImport()}>{busyAction === "commit_import" ? "Saving..." : `Import ${importPreview.valid} contacts`}</button> : null}
             </div>
           </form>
         </div>

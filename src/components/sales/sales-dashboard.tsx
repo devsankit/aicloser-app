@@ -1567,6 +1567,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       <div className={isConversationTab ? "sales-theme-scope sales-theme-scope-chat" : "sales-theme-scope"} style={salesThemeStyle}>
       {activeTab === "dashboard" ? (
         <section className="sales-dashboard-overview">
+          {canViewTeamData ? <TeamActivityPanel /> : null}
           {/* 1. Executive Daily Status & Date Filter Bar */}
           <div className="sales-dashboard-hero">
             <div className="sales-hero-top-row">
@@ -2735,14 +2736,12 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
         <section className="sales-tool-workspace" style={{ padding: "20px", width: "100%", maxWidth: "1280px", margin: "0 auto" }}>
           <ReferralCommissionPanel snapshot={snapshot} canRequestWithdrawal={sessionRole === "SALES_AGENT"} />
           <AdvancedReportsPanel selectedAgentId={viewingAgentId === "all" ? null : viewingAgentId} selectedAgentName={viewingAgent?.displayName ?? null} />
-          {canViewTeamData ? <TeamActivityPanel /> : null}
         </section>
       ) : null}
 
       {activeTab === "roles" ? (
         <section className="sales-tool-workspace sales-team-users-workspace" style={{ padding: "16px 24px 28px", width: "100%", maxWidth: "none", margin: 0 }}>
           <RolePermissionsPanel canManageUsers={isWorkspaceAdmin} />
-          {isWorkspaceAdmin ? <TeamActivityPanel /> : null}
         </section>
       ) : null}
 

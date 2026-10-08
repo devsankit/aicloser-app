@@ -1177,7 +1177,17 @@ export async function createInternalUser(input: CreateInternalUserInput, options
       ],
     },
   });
-  if (duplicate) return { ok: false as const, error: "An internal user already exists with that email or phone." };
+  if (duplicate) {
+    const emailConflict = duplicate.email?.toLowerCase() === email;
+    return {
+      ok: false as const,
+      code: emailConflict ? "EMAIL_ALREADY_REGISTERED" : "PHONE_ALREADY_REGISTERED",
+      field: emailConflict ? "email" : "phone",
+      error: emailConflict
+        ? "This email is already registered. Sign in to your existing account or use another email."
+        : "This phone number is already linked to an account. Use another phone number or sign in to the existing account.",
+    };
+  }
 
   const salt = randomBytes(16).toString("hex");
   const nextPackageStatus = selectedPackage ? input.packageStatus ?? "ACTIVE" : null;

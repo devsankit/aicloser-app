@@ -48,13 +48,13 @@ export function TeamActivityPanel() {
     <section className="crm-panel" style={{ marginTop: 20, padding: 20 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", marginBottom: 14 }}>
         <div><h3 style={{ margin: 0 }}>Closer device activity</h3><p className="muted-copy" style={{ margin: "5px 0 0" }}>One mobile seat and one desktop seat per closer.</p></div>
-        <button type="button" className="sales-secondary-button compact" onClick={() => void load()}>Refresh</button>
+        <button type="button" className="secondary-button" onClick={() => void load().catch((error) => setMessage(error instanceof Error ? error.message : "Activity could not be loaded."))}>Refresh</button>
       </div>
       {message ? <p className="error-copy">{message}</p> : null}
       {loading ? <p className="muted-copy">Loading activity…</p> : users.length === 0 ? <p className="muted-copy">No closer activity found.</p> : (
-        <div style={{ overflowX: "auto" }}><table className="sales-data-table"><thead><tr><th>User</th><th>Mobile</th><th>Desktop</th></tr></thead><tbody>{users.map((user) => <tr key={user.userId}>
-          <td><strong>{user.displayName}</strong><br /><small>{user.email || ""}</small></td>
-          {[user.mobile, user.desktop].map((client, index) => <td key={index}><strong>{client.status}</strong><br /><small>Last login: {format(client.lastLoginAt)}</small><br /><small>Last active: {format(client.lastActiveAt)}</small>{client.deviceName ? <><br /><small>{client.deviceName}{client.appVersion ? ` · ${client.appVersion}` : ""}</small></> : null}{client.sessionId ? <><br /><button type="button" className="sales-secondary-button compact" onClick={() => void revoke(user.userId, index === 0 ? "MOBILE" : "DESKTOP")}>Revoke</button></> : null}</td>)}
+        <div style={{ overflowX: "auto", border: "1px solid var(--border, #dbe2ea)", borderRadius: 12 }}><table className="crm-data-table" style={{ width: "100%", minWidth: 680, borderCollapse: "collapse", textAlign: "left" }}><thead><tr><th style={{ padding: 16 }}>Team member</th><th style={{ padding: 16 }}>Mobile device</th><th style={{ padding: 16 }}>Desktop session</th></tr></thead><tbody>{users.map((user) => <tr key={user.userId} style={{ borderTop: "1px solid var(--border, #dbe2ea)" }}>
+          <td style={{ padding: 16, verticalAlign: "top" }}><strong>{user.displayName}</strong><br /><small>{user.email || ""}</small></td>
+          {[user.mobile, user.desktop].map((client, index) => <td key={index} style={{ padding: 16, verticalAlign: "top", lineHeight: 1.7 }}><span style={{ display: "inline-block", padding: "2px 9px", borderRadius: 20, fontSize: 12, background: client.status === "ONLINE" ? "rgba(16,185,129,.12)" : "rgba(148,163,184,.12)", color: client.status === "ONLINE" ? "#059669" : "var(--muted)" }}>{client.status === "NEVER_CONNECTED" ? "Not connected" : client.status === "ONLINE" ? "Online" : "Offline"}</span><br /><small>Last login: {format(client.lastLoginAt)}</small><br /><small>Last active: {format(client.lastActiveAt)}</small>{client.deviceName ? <><br /><small>{client.deviceName}{client.appVersion ? ` · ${client.appVersion}` : ""}</small></> : null}{client.sessionId ? <><br /><button type="button" className="secondary-button" onClick={() => void revoke(user.userId, index === 0 ? "MOBILE" : "DESKTOP").catch(() => setMessage("Session could not be revoked. Please retry."))}>Revoke session</button></> : null}</td>)}
         </tr>)}</tbody></table></div>
       )}
     </section>
