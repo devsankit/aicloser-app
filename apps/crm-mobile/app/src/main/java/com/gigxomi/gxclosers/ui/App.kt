@@ -838,10 +838,29 @@ private fun parseLeadContext(raw: String): List<LeadContextEvent> {
                     Text(lead.customerEmail.ifBlank { "No email address" }, color = GxMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
+            if ((vm.bootstrap?.pendingNotes ?: 0) > 0) {
+                Surface(
+                    color = GxWarning.copy(alpha = .10f),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, GxWarning.copy(alpha = .28f)),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.EditNote, null, tint = GxWarning, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "Complete ${vm.bootstrap?.pendingNotes} pending call note${if ((vm.bootstrap?.pendingNotes ?: 0) == 1) "" else "s"} before starting another call. Open Calls to finish it.",
+                            color = GxWarning,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp,
+                        )
+                    }
+                }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = { vm.startCall(lead) },
-                    enabled = lead.customerPhone.isNotBlank() && !vm.busy,
+                    enabled = lead.customerPhone.isNotBlank() && !vm.busy && (vm.bootstrap?.pendingNotes ?: 0) == 0,
                     colors = ButtonDefaults.buttonColors(containerColor = GxAccent, contentColor = Color.White),
                     modifier = Modifier.weight(1f).height(48.dp),
                     shape = RoundedCornerShape(14.dp)

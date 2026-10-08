@@ -312,9 +312,20 @@ export async function POST(request: Request) {
       if (/^(name|full name|phone|mobile)\b/i.test(line) && line.includes(",")) continue; // header row
       const parts = line.split(/[,\t;|]/).map((p) => p.trim());
       if (parts.length >= 2) {
-        const phoneCandidate = parts.find((p) => p.replace(/\D/g, "").length >= 8) || parts[1];
-        const emailCandidate = parts.find((p) => p.includes("@")) || "";
-        const nameCandidate = parts.find((p) => p !== phoneCandidate && p !== emailCandidate) || phoneCandidate;
+        // Keep columns distinct. Digit-count alone can mistake an email such
+        // as qa.20261008@example.com for a phone and swap name/phone values.
+        const emailIndex = parts.findIndex((p) => p.includes("@"));
+        const phoneIndex = parts.findIndex(
+          (p, index) =>
+            index !== emailIndex &&
+            /^\+?[\d\s().-]{8,}$/.test(p) &&
+            p.replace(/\D/g, "").length >= 8,
+        );
+        const phoneCandidate = phoneIndex >= 0 ? parts[phoneIndex] : parts[1];
+        const emailCandidate = emailIndex >= 0 ? parts[emailIndex] : "";
+        const nameCandidate =
+          parts.find((p, index) => index !== phoneIndex && index !== emailIndex && /[A-Za-z]/.test(p)) ||
+          (phoneCandidate ? `Contact ${phoneCandidate.slice(-4)}` : "New Contact");
         itemsToImport.push({
           name: nameCandidate,
           phone: phoneCandidate,
