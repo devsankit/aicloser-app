@@ -41,6 +41,14 @@
       "status": "PASS_LOCAL",
       "details": "Contacts & Import Hub no longer renders a clickable Bulk Campaign action when no contacts are selected. After selecting one contact, the action appears with the exact selected count and passes only those IDs to the campaign flow."
     },
+    "roleScopedDashboardUi": {
+      "status": "PASS_LOCAL_READ_ONLY",
+      "details": "Local rendered sessions confirmed Admin sees the full workspace surface, Manager sees team/contacts/import controls and team data, and Closer sees only Dashboard, CRM, Grab Leads, and Chat with 36 scoped leads. A Closer direct Contacts URL did not expose the admin contacts hub; the CRM drawer showed no delete control and retained previous-handler context."
+    },
+    "contactsDirectoryLoad": {
+      "status": "PASS_LOCAL_WITH_RETRY",
+      "details": "The local Contacts directory first showed its explicit temporary-unavailable state during the slow initial response, then the visible Retry contacts action loaded all 718 contacts. No silent empty directory was shown; the initial response latency remains a performance follow-up."
+    },
     "effectivePermissionRefresh": {
       "status": "PASS_CODE_VERIFIED",
       "details": "Open dashboards now refresh role permissions on focus and every 30 seconds, and the refresh API resolves the configured workspace role before selecting the permission matrix. Manager team visibility follows that same effective role."
