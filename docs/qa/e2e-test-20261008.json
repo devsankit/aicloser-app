@@ -79,6 +79,14 @@
       "status": "PASS_WITH_EXPECTED_DEVICE_BLOCK",
       "details": "Fresh APK login reproduced the active-session conflict and displayed the Login here takeover action. Setup remained correctly blocked by existing device ownership; it did not silently reassign the company phone. A stale-session recovery fix was committed in 4ee160d. A setup fail-closed fix was committed in 3bfe01a: denied permissions, call-screening role, or overlay access no longer register the device and show a corrective message. A successful registration on a previously unregistered closer device was not completed because the workspace had no spare closer seat/device assignment. An additional mobile refresh fix in b010639 now sends expired-session responses from Inbox, learning, chat, customer-360, and lesson refreshes back to Login instead of leaving the user on a generic error screen; the rebuilt APK launched to Login after the stored session was cleared. The foreground lifecycle now also refreshes bootstrap permissions, lead/call data, and recording state when the app returns from background."
     },
+    "liveAdminMobileBootstrap": {
+      "status": "PASS_LIVE_API",
+      "details": "The live mobile login accepted the verified Admin account without exposing the token in evidence; the authenticated bootstrap returned HTTP 200 with Admin role, 723 leads, 5 calls, and permissions."
+    },
+    "test2CredentialCheck": {
+      "status": "BLOCKED_INVALID_CREDENTIALS",
+      "details": "The supplied test2 account/password was rejected by both live mobile login (401 InvalidCredentials) and live web login redirect. This is an account/credential state issue, not a mobile-only authentication mismatch; no password reset or account mutation was performed."
+    },
     "outgoingCallApiLifecycle": {
       "status": "PASS",
       "leadId": "cmuzm597z0009aajppbo4tkzb",
