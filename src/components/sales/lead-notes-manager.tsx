@@ -244,8 +244,10 @@ export function LeadNotesManager({
             }}
           />
           <button
+            aria-label={isSaving ? "Saving note" : newNoteBody.trim() ? "Add note" : "Add note (enter text first)"}
             type="submit"
             disabled={isSaving || !newNoteBody.trim()}
+            title={isSaving ? "Saving note" : newNoteBody.trim() ? "Add note" : "Enter a note before adding"}
             className="sales-primary-button compact"
             style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "6px 12px", whiteSpace: "nowrap" }}
           >

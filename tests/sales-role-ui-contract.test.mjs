@@ -6,6 +6,7 @@ const dashboard = fs.readFileSync(new URL("../src/components/sales/sales-dashboa
 const dashboardRoute = fs.readFileSync(new URL("../src/app/dashboard/page.tsx", import.meta.url), "utf8");
 const permissionsRoute = fs.readFileSync(new URL("../src/app/api/sales/roles/features/route.ts", import.meta.url), "utf8");
 const rolePanel = fs.readFileSync(new URL("../src/components/sales/role-permissions-panel.tsx", import.meta.url), "utf8");
+const leadNotes = fs.readFileSync(new URL("../src/components/sales/lead-notes-manager.tsx", import.meta.url), "utf8");
 
 test("lead form builder receives the authenticated workspace admin role", () => {
   assert.match(dashboard, /<LeadFormBuilder\s+isAdmin=\{isWorkspaceAdmin\}/);
@@ -50,4 +51,10 @@ test("CRM recording states use one user-facing status label", () => {
   assert.match(dashboard, /call \? recordingStatusLabel\(call\.recordingStatus\) : "No recording"/);
   assert.match(dashboard, /\{recordingStatusLabel\(call\.recordingStatus\)\}/);
   assert.match(dashboard, /\{recordingStatusLabel\(c\.recordingStatus\)\}/);
+});
+
+test("disabled lead actions explain the prerequisite", () => {
+  assert.match(dashboard, /Add note \(enter text first\)/);
+  assert.match(dashboard, /Save follow-up \(choose a date first\)/);
+  assert.match(leadNotes, /Add note \(enter text first\)/);
 });

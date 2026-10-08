@@ -3667,7 +3667,15 @@ function LeadDetailForm({
             <label htmlFor="lead-quick-note">Conversation note</label>
             <div className="sales-note-composer-row">
               <input id="lead-quick-note" aria-label="Add a quick lead note" onChange={(event) => setQuickNote(event.target.value)} placeholder="Add note for this lead..." value={quickNote} />
-              <button className="sales-secondary-button compact" disabled={quickSaving || !quickNote.trim()} type="submit"><FileText size={12} /> {quickSaving ? "Saving" : "Add note"}</button>
+              <button
+                aria-label={quickSaving ? "Saving note" : quickNote.trim() ? "Add note" : "Add note (enter text first)"}
+                className="sales-secondary-button compact"
+                disabled={quickSaving || !quickNote.trim()}
+                title={quickSaving ? "Saving note" : quickNote.trim() ? "Add note" : "Enter a note before saving"}
+                type="submit"
+              >
+                <FileText size={12} /> {quickSaving ? "Saving" : "Add note"}
+              </button>
             </div>
           </form>
           <form className="sales-followup-composer" onSubmit={saveQuickFollowUp}>
@@ -3695,7 +3703,15 @@ function LeadDetailForm({
             </div>
             <div className="sales-followup-composer-footer">
               <span className="sales-followup-preview"><CalendarClock size={13} aria-hidden="true" /> {followUpPreview}</span>
-              <button className="sales-primary-button compact" disabled={quickSaving || !followUpDate} type="submit"><CalendarPlus size={12} /> {quickSaving ? "Saving..." : "Save follow-up"}</button>
+              <button
+                aria-label={quickSaving ? "Saving follow-up" : followUpDate ? "Save follow-up" : "Save follow-up (choose a date first)"}
+                className="sales-primary-button compact"
+                disabled={quickSaving || !followUpDate}
+                title={quickSaving ? "Saving follow-up" : followUpDate ? "Save follow-up" : "Choose a follow-up date before saving"}
+                type="submit"
+              >
+                <CalendarPlus size={12} /> {quickSaving ? "Saving..." : "Save follow-up"}
+              </button>
             </div>
           </form>
         </div>
