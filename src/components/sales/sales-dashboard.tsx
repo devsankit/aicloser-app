@@ -2852,7 +2852,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       {activeTab === "forms" ? (
         <section className="sales-tool-workspace" style={{ padding: "16px 20px", width: "100%", maxWidth: "var(--crm-content-max)", margin: "0 auto" }}>
           <LeadFormBuilder
-            isAdmin={true}
+            isAdmin={isWorkspaceAdmin}
             onOpenMultiChannelChat={openSalesConversation}
           />
         </section>
