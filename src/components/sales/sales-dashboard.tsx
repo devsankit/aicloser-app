@@ -2580,7 +2580,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                       <button aria-label={`Add note to ${lead.customerName}`} className="sales-secondary-button compact crm-list-action" onClick={() => setSelectedLeadId(lead.id)} title="Open notes and activity" type="button"><FileText size={13} /> Notes</button>
                       <button aria-label={`Schedule follow-up for ${lead.customerName}`} className="sales-secondary-button compact crm-list-action" onClick={() => setSelectedLeadId(lead.id)} title="Open follow-up and lead details" type="button"><CalendarPlus size={13} /> Follow-up</button>
                       <button aria-label={`Open details for ${lead.customerName}`} className="sales-secondary-button compact crm-list-action" onClick={() => setSelectedLeadId(lead.id)} title="Open full lead details" type="button"><ExternalLink size={13} /> Details</button>
-                      {call?.recordingStatus === "UPLOADED" ? <CallRecordingPlayer callId={call.id} expectedDurationSeconds={call.durationSeconds} labelText={`${lead.customerName} recording`} /> : <span className={`sales-chip ${call?.recordingStatus === "FAILED" ? "danger" : "warning"}`}>{call ? label(call.recordingStatus) : "No recording"}</span>}
+                      {call?.recordingStatus === "UPLOADED" ? <CallRecordingPlayer callId={call.id} expectedDurationSeconds={call.durationSeconds} labelText={`${lead.customerName} recording`} /> : <span className={`sales-chip ${call?.recordingStatus === "FAILED" ? "danger" : "warning"}`}>{call ? recordingStatusLabel(call.recordingStatus) : "No recording"}</span>}
                     </div>
                   </article>;
                 })}
@@ -2677,7 +2677,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                       {call.recordingError ? <small>Recording issue: {call.recordingError}</small> : null}
                     </div>
                     <span className={`sales-chip ${call.recordingStatus === "UPLOADED" ? "success" : call.recordingStatus === "FAILED" ? "danger" : "warning"}`}>
-                      {label(call.recordingStatus)}
+                      {recordingStatusLabel(call.recordingStatus)}
                     </span>
                     {call.recordingStatus === "UPLOADED" ? <CallRecordingPlayer callId={call.id} expectedDurationSeconds={call.durationSeconds} labelText={`${call.customerName} recording`} /> : <span />}
                   </div>
@@ -3848,7 +3848,7 @@ function LeadDetailForm({
                   {c.outcome ? label(c.outcome) : "Pending"}
                 </span>
                 <span className={`sales-chip ${c.recordingStatus === "UPLOADED" ? "success" : c.recordingStatus === "FAILED" ? "danger" : "warning"}`} style={{ fontSize: "10px" }}>
-                  {label(c.recordingStatus)}
+                  {recordingStatusLabel(c.recordingStatus)}
                 </span>
               </div>
             </div>

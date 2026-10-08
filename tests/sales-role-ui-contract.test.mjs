@@ -44,3 +44,10 @@ test("full seat plans explain and prevent blocked user creation", () => {
   assert.match(rolePanel, /disabled=\{creatingUser \|\| seatsExhausted\}/);
   assert.match(rolePanel, /role=\{userNotice\.type === "error" \? "alert" : "status"\}/);
 });
+
+test("CRM recording states use one user-facing status label", () => {
+  assert.match(dashboard, /function recordingStatusLabel\(value: string \| null \| undefined\)/);
+  assert.match(dashboard, /call \? recordingStatusLabel\(call\.recordingStatus\) : "No recording"/);
+  assert.match(dashboard, /\{recordingStatusLabel\(call\.recordingStatus\)\}/);
+  assert.match(dashboard, /\{recordingStatusLabel\(c\.recordingStatus\)\}/);
+});
