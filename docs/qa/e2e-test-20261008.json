@@ -33,6 +33,10 @@
       "status": "PASS_READ_ONLY_WITH_UI_FIXES",
       "details": "Live Admin navigation was opened item by item. Dashboard, CRM, Contacts, Lead Import, Calls & Power Dialer, Chat, Lead Form Builder, Plugins, WhatsApp Marketing, AI Bot, Developer, Reports, and Team & Users resolved to distinct surfaces. Grab Leads showed a closer-oriented round-robin claim queue with no available leads and was not useful for Admin; Settings, Team & Channels resolved to the Team & Users surface and was blocked by the sidebar footer overlap in the current deployment. Local fix now hides Grab Leads for workspace Admins and reserves a third sidebar grid row so Settings remains accessible; no live campaign, call, or data mutation was triggered during the audit."
     },
+    "callsPowerDialerAudit": {
+      "status": "PASS_READ_ONLY_WITH_RECORDING_FOLLOW_UP",
+      "details": "Admin Calls & Power Dialer opened successfully and exposed the single-page hub for outbound campaigns, sequential dialing, missed-call/IVR recovery, SIM call history, and recording playback. New Calling Campaign opens a clear setup form (name, objective, daily target, cooldown); the form was opened and cancelled without creating a campaign. Existing QA call history rendered owner, duration, disposition, notes, playback speed controls, and seek controls. Several QA recordings correctly surfaced Recording unavailable because native emulator audio was not captured; the synthetic WAV path remains separately verified."
+    },
     "seatCapacityCreationUx": {
       "status": "PASS_LOCAL",
       "details": "When all plan seats are active, the Team & Users screen explains the limit on first render, keeps the optional phone field available, and disables account creation with an accessible upgrade action instead of allowing a confusing no-op click."

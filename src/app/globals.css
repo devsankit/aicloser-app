@@ -39235,6 +39235,8 @@ body,
 
 /* Keep account actions anchored while only the navigation list scrolls. */
 .internal-theme-root .internal-sidebar {
+  /* The collapse control is out of flow; reserve only brand, nav, and footer rows. */
+  grid-template-rows: auto minmax(0, 1fr) auto !important;
   overflow: hidden !important;
 }
 
