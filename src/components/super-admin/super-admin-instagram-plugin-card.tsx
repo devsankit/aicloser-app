@@ -34,18 +34,6 @@ type ApiPayload = {
   connection?: InstagramPluginConnectionView;
 };
 
-function getDisplaySetupUrl(value: string) {
-  try {
-    const url = new URL(value);
-    if (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "gigxomi.com" || url.hostname.endsWith(".gigxomi.com")) {
-      return `https://app.aicloser.in${url.pathname}${url.search}${url.hash}`;
-    }
-  } catch {
-    // Keep malformed setup values visible so the admin can correct them.
-  }
-  return value;
-}
-
 function getAccountLabel(connection: InstagramPluginConnectionView) {
   if (!connection) {
     return "No account connected yet";
@@ -110,11 +98,6 @@ export function SuperAdminInstagramPluginCard({
     }
   }
 
-  async function copySetupUrl(label: string, value: string) {
-    await navigator.clipboard?.writeText(value).catch(() => undefined);
-    setStatusMessage(`${label} copied.`);
-  }
-
   return (
     <SurfaceCard className={isSalesVariant ? "sales-instagram-plugin-card" : ""}>
       <div className="control-card-header">
@@ -130,77 +113,44 @@ export function SuperAdminInstagramPluginCard({
             </p>
           </div>
         </div>
-        <StatusPill>{instagramStatus}</StatusPill>
-      </div>
-
-      <div className="brief-grid three-up">
-        <div className="brief-card">
-          <PluginBrandMark brand="instagram" size="sm" />
-          <strong>{getAccountLabel(connection)}</strong>
-          <p className="muted-copy">
-            {isSalesVariant ? "Sales inbox uses this account scope for routed Instagram conversations." : "Connected account used as the sender for Instagram Graph replies."}
-          </p>
-        </div>
-        <div className="brief-card">
-          <span className="meta-pill">Reply permission</span>
-          <strong>Messages API</strong>
-          <p className="muted-copy">The login asks for message and basic profile permissions needed for inbox replies.</p>
-        </div>
-        <div className="brief-card">
-          <span className="meta-pill">Webhook remains</span>
-          <strong>Existing inbox feed</strong>
-          <p className="muted-copy">This does not change the webhook URL; it only refreshes the token used to reply from AI Closer.</p>
-        </div>
-      </div>
-
-      {isSalesVariant ? (
-        <div className="brief-card sales-instagram-readiness">
-          <span className="meta-pill">Sales inbox</span>
-          <strong>WhatsApp and Instagram threads stay isolated per sales account.</strong>
-          <p className="muted-copy">
-            Instagram OAuth controls remain under the platform integration until sales-account Instagram login is enabled.
-          </p>
-        </div>
-      ) : (
-        <div className="brief-grid two-up">
-          {[
-            ["OAuth redirect URI", getDisplaySetupUrl(setupUrls.oauthRedirectUri)],
-            ["Deauthorize callback URL", getDisplaySetupUrl(setupUrls.deauthorizeCallbackUrl)],
-            ["Data deletion request URL", getDisplaySetupUrl(setupUrls.dataDeletionRequestUrl)],
-            ["Webhook callback URL", getDisplaySetupUrl(setupUrls.webhookCallbackUrl)],
-          ].map(([label, value]) => (
-            <div className="brief-card" key={label}>
-              <span className="meta-pill">{label}</span>
-              <p className="muted-copy break-anywhere">{value}</p>
-              <button className="ui-button-ghost" onClick={() => void copySetupUrl(label, value)} type="button">
-                Copy
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <StatusPill>{instagramStatus}</StatusPill>
+          {!isSalesVariant ? (
+            pluginEnabled ? (
+              <Link className="ui-button-primary" href="/api/meta/instagram/oauth/connect">
+                Connect Instagram
+              </Link>
+            ) : (
+              <button className="ui-button-primary" disabled={isSaving} onClick={() => setPluginEnabled(true)} type="button">
+                Enable Instagram
               </button>
-            </div>
-          ))}
+            )
+          ) : null}
         </div>
-      )}
+      </div>
+
+      <div className="brief-card" style={{ display: "grid", gap: 6 }}>
+        <span className="meta-pill">Connected Instagram account</span>
+        <strong>{getAccountLabel(connection)}</strong>
+        <p className="muted-copy" style={{ margin: 0 }}>
+          {isSalesVariant ? "Instagram conversations routed to this sales inbox." : "Connect one Instagram Business account to receive DMs and reply from AI Closer."}
+        </p>
+      </div>
+
+      {!isSalesVariant && !connection?.appId ? (
+        <p className="form-error">Instagram connection is not configured yet. Add the dedicated Instagram Business app credentials on the server before OAuth can exchange a token.</p>
+      ) : null}
 
       {connection?.lastError ? <p className="form-error">{connection.lastError}</p> : null}
       {statusMessage ? <p className="helper-text">{statusMessage}</p> : null}
 
-      {isSalesVariant ? null : (
+      {!isSalesVariant && pluginEnabled ? (
         <div className="super-admin-access-actions">
-          {pluginEnabled ? (
-            <>
-              <Link className="ui-button-secondary" href="/api/meta/instagram/oauth/connect">
-                Connect Instagram inbox
-              </Link>
-              <button className="ui-button-ghost" disabled={isSaving} onClick={() => setPluginEnabled(false)} type="button">
-                Disable plugin
-              </button>
-            </>
-          ) : (
-            <button className="ui-button-secondary" disabled={isSaving} onClick={() => setPluginEnabled(true)} type="button">
-              Enable Instagram Inbox plugin
-            </button>
-          )}
+          <button className="ui-button-ghost" disabled={isSaving} onClick={() => setPluginEnabled(false)} type="button">
+            Disable plugin
+          </button>
         </div>
-      )}
+      ) : null}
     </SurfaceCard>
   );
 }
