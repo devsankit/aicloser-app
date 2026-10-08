@@ -133,6 +133,10 @@
       "status": "PASS_CODE_VERIFIED",
       "details": "Privileged Admin/Manager recording reads now require the authenticated user's tenantId, while Closer reads remain limited to the caller's own agent or delegated child assignments. A regression contract prevents the recording route from reverting to callId-only lookup."
     },
+    "recordingVoiceNoteFallbackIsolation": {
+      "status": "PASS_CODE_VERIFIED",
+      "details": "The recording upload voice-note fallback now resolves assignments by both tenantId and assignedAgentId, preventing a foreign assignment ID from being linked to the current closer's recording."
+    },
     "nativeIncomingUi": {
       "status": "PASS_NATIVE_CARD_ONLY",
       "details": "The emulator GSM trigger produced the Android native incoming-call card for the test number 9800001702. The separate AI Closer Truecaller-style detail overlay was not verified in this run."
@@ -161,7 +165,8 @@
     "disabledLeadActionGuidanceFix": "e240f7f",
     "recordingPipelineVerification": "local synthetic WAV upload + web playback verification",
     "metaIntegrationHardening": "171c283",
-    "recordingTenantIsolationFix": "d8077c0"
+    "recordingTenantIsolationFix": "d8077c0",
+    "recordingFallbackIsolationFix": "bf9be4d"
   },
   "automatedRegression": {
     "webTests": "78 passed, 0 failed",
