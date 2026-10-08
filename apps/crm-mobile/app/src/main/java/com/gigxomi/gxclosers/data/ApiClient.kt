@@ -57,7 +57,11 @@ class ApiClient(private val sessionStore: SessionStore) {
                         if (errorCode == "InvalidCredentials" || errorMsg.contains("credentials", true) || errorMsg.contains("password", true)) {
                             throw InvalidCredentialsException(errorMsg)
                         }
-                        throw ApiException(errorMsg, 401, errorCode)
+                        // Every non-login 401 means the stored mobile session can no longer
+                        // authenticate. Treat it as a revoked/expired session so the UI can
+                        // leave setup or the main app and return to the login screen instead
+                        // of leaving the user stuck on a setup card with a generic error.
+                        throw SessionRevokedException(errorMsg.ifBlank { "Your mobile session has expired. Please sign in again." })
                     }
                     409 -> {
                         if (errorCode == "ClientSlotOccupied" || errorMsg.contains("occupied", true) || errorMsg.contains("active on another device", true)) {
