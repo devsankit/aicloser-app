@@ -98,10 +98,12 @@
     "signupFix": "0002346",
     "mobileSetupFix": "90194b8",
     "mobileSessionRecoveryFix": "4ee160d",
-    "mobileSetupGuardFix": "3bfe01a"
+    "mobileSetupGuardFix": "3bfe01a",
+    "leadFormRoleFix": "bcc08d2",
+    "managerDashboardRouteFix": "277a62c"
   },
   "automatedRegression": {
-    "webTests": "64 passed, 0 failed",
+    "webTests": "67 passed, 0 failed",
     "webTypecheck": "passed",
     "androidUnitTests": "passed",
     "androidDebugBuild": "passed"
