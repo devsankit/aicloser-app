@@ -28,7 +28,7 @@ test("new mobile builds use the GXClosers identity and domain", async () => {
   assert.match(manifest, /android:label="@string\/app_name"/);
   assert.match(manifest, /android:scheme="gxclosers"/);
   assert.match(gradle, /applicationId = "com\.gigxomi\.gxclosers"/);
-  assert.match(gradle, /https:\/\/closers\.gigxomi\.com\/api/);
+  assert.match(gradle, /https:\/\/app\.aicloser\.in\/api/);
   assert.match(api, /BuildConfig\.GXCLOSERS_API_BASE/);
   assert.doesNotMatch(api, /www\.gigxomi\.com/);
   await assert.rejects(access(new URL("../apps/crm-mobile/eas.json", import.meta.url)));
