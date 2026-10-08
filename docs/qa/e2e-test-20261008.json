@@ -143,6 +143,7 @@
   "automatedRegression": {
     "webTests": "76 passed, 0 failed",
     "webTypecheck": "passed",
+    "webProductionBuild": "passed",
     "androidUnitTests": "passed",
     "androidDebugBuild": "passed"
   },
