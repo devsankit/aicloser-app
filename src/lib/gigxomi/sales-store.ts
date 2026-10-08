@@ -1656,19 +1656,50 @@ export async function updateSalesAgentProfile(input: {
   maxActiveLeads?: number | null;
   permissions?: Record<string, unknown> | null;
 }) {
-  const updated = await prisma.salesAgentProfile.update({
-    where: { id: input.agentId },
-    data: {
-      status: input.status,
-      groupId: input.groupId,
-      parentAgentId: input.parentAgentId,
-      commissionPercent: input.commissionPercent,
-      canCreateSubAgents: input.canCreateSubAgents,
-      canClaimLeads: input.canClaimLeads,
-      maxActiveLeads: input.maxActiveLeads,
-      permissions: input.permissions === undefined ? undefined : input.permissions === null ? Prisma.JsonNull : (input.permissions as Prisma.InputJsonObject),
-    },
-    include: { user: true },
+  const workspaceRole = String(input.permissions?.workspaceRole ?? "").trim().toUpperCase();
+  const authRole: AppRole | null =
+    workspaceRole === "ADMIN" || workspaceRole === "MANAGER" || workspaceRole === "SALES_AGENT"
+      ? workspaceRole
+      : null;
+
+  const updated = await prisma.$transaction(async (transaction) => {
+    const current = await transaction.salesAgentProfile.findUnique({
+      where: { id: input.agentId },
+      include: { user: true },
+    });
+    if (!current) throw new Error("Sales agent was not found.");
+
+    const profile = await transaction.salesAgentProfile.update({
+      where: { id: input.agentId },
+      data: {
+        status: input.status,
+        groupId: input.groupId,
+        parentAgentId: input.parentAgentId,
+        commissionPercent: input.commissionPercent,
+        canCreateSubAgents: input.canCreateSubAgents,
+        canClaimLeads: input.canClaimLeads,
+        maxActiveLeads: input.maxActiveLeads,
+        permissions: input.permissions === undefined ? undefined : input.permissions === null ? Prisma.JsonNull : (input.permissions as Prisma.InputJsonObject),
+      },
+      include: { user: true },
+    });
+
+    if (authRole) {
+      const rolePermission = authRole.toLowerCase();
+      const permissions = current.user.permissions.filter((permission) =>
+        !["admin", "manager", "sales_agent"].includes(permission.toLowerCase()),
+      );
+      await transaction.appAuthUser.update({
+        where: { id: current.user.id },
+        data: {
+          role: authRole,
+          assignedRole: authRole,
+          permissions: [...permissions, rolePermission],
+        },
+      });
+    }
+
+    return profile;
   });
   return mapAgent(updated);
 }

@@ -55,6 +55,7 @@ data class Bootstrap(
     val pendingNotes: Int,
     val pendingUploads: Int,
     val deviceCount: Int,
+    val permissions: Map<String, Boolean>,
 )
 
 data class InboxItem(
@@ -151,6 +152,8 @@ fun parseAvailableLead(json: JSONObject) = AvailableLead(
 fun parseBootstrap(json: JSONObject): Bootstrap {
     val dashboard = json.optJSONObject("dashboard") ?: JSONObject()
     val agentJson = json.optJSONObject("agent")
+    val permissionsJson = json.optJSONObject("permissions")
+    val permissions = permissionsJson?.keys()?.asSequence()?.associateWith { permissionsJson.optBoolean(it, true) }.orEmpty()
     return Bootstrap(
         agent = agentJson?.let { Agent(it.text("id"), it.text("displayName"), it.text("agentCode"), it.optBoolean("canClaimLeads")) },
         dashboard = Dashboard(dashboard.optInt("totalLeads"), dashboard.optInt("activeLeads"), dashboard.optInt("closedWon"), dashboard.optDouble("availableBalance")),
@@ -168,6 +171,7 @@ fun parseBootstrap(json: JSONObject): Bootstrap {
         }.orEmpty(),
         pendingNotes = json.optInt("pendingNotes"), pendingUploads = json.optInt("pendingUploads"),
         deviceCount = json.optJSONArray("devices")?.length() ?: 0,
+        permissions = permissions,
     )
 }
 

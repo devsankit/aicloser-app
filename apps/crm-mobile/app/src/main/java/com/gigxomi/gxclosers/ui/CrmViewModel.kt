@@ -28,6 +28,7 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
     var setupComplete by mutableStateOf(repository.sessionStore.setupComplete); private set
     var session by mutableStateOf(repository.sessionStore.session); private set
     var bootstrap by mutableStateOf<Bootstrap?>(null); private set
+    var featurePermissions by mutableStateOf<Map<String, Boolean>>(emptyMap()); private set
     var inbox by mutableStateOf<List<InboxItem>>(emptyList()); private set
     var inboxLoading by mutableStateOf(false); private set
     var inboxMessage by mutableStateOf<String?>(null); private set
@@ -234,6 +235,7 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
             repository.bootstrap()
         }
         bootstrap = data
+        featurePermissions = data.permissions
         CallManager.cacheLeads(getApplication(), data.leads)
         updateSyncCounts()
     }
@@ -387,6 +389,7 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
         }
         val refreshed = withContext(Dispatchers.IO) { repository.bootstrap() }
         bootstrap = refreshed
+        featurePermissions = refreshed.permissions
         inbox = withContext(Dispatchers.IO) { repository.inbox() }
         CallManager.cacheLeads(getApplication(), refreshed.leads)
     }
@@ -467,6 +470,8 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
         status = "Contact \"$trimmedName\" added to CRM."
         done()
     }
+
+    fun hasFeature(featureId: String): Boolean = featurePermissions[featureId] != false
 
     fun updateProfile(displayName: String, email: String, done: () -> Unit) = launchWork {
         if (displayName.trim().length < 2) throw IllegalArgumentException("Enter your full name.")

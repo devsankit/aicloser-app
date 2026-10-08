@@ -220,33 +220,43 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
     }
 }
 
-private data class Tab(val label: String, val icon: ImageVector)
-private val tabs = listOf(Tab("Home", Icons.Default.Home), Tab("Leads", Icons.Default.Groups), Tab("Calls", Icons.Default.Phone), Tab("Inbox", Icons.Default.Chat), Tab("Profile", Icons.Default.Person))
+private data class Tab(val key: String, val label: String, val icon: ImageVector)
 
 @Composable private fun MainScreen(vm: CrmViewModel, nav: NavHostController) {
     var selected by rememberSaveable { mutableIntStateOf(0) }
+    val tabs = remember(vm.featurePermissions) {
+        buildList {
+            if (vm.hasFeature("dashboard")) add(Tab("home", "Home", Icons.Default.Home))
+            if (vm.hasFeature("crm")) add(Tab("leads", "Leads", Icons.Default.Groups))
+            if (vm.hasFeature("calls")) add(Tab("calls", "Calls", Icons.Default.Phone))
+            if (vm.hasFeature("conversations")) add(Tab("inbox", "Inbox", Icons.Default.Chat))
+            add(Tab("profile", "Profile", Icons.Default.Person))
+        }
+    }
+    LaunchedEffect(tabs.size) { if (selected >= tabs.size) selected = 0 }
+    val activeTab = tabs.getOrNull(selected)?.key ?: "profile"
     LaunchedEffect(Unit) { if (vm.inbox.isEmpty()) vm.loadInbox(); if (vm.courses.isEmpty()) vm.loadCourses() }
-    LaunchedEffect(selected) { when { selected == 3 && vm.inbox.isEmpty() -> vm.loadInbox(); selected == 4 && vm.courses.isEmpty() -> vm.loadCourses() } }
+    LaunchedEffect(activeTab) { if (activeTab == "inbox" && vm.inbox.isEmpty()) vm.loadInbox(); if (activeTab == "profile" && vm.courses.isEmpty()) vm.loadCourses() }
     Scaffold(
         containerColor = GxBackground,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
-            GxBottomNav(selected = selected, onSelect = { selected = it })
+            GxBottomNav(tabs = tabs, selected = selected, onSelect = { selected = it })
         },
     ) { padding ->
         Box(Modifier.padding(padding)) {
-            when (selected) {
-                0 -> DashboardScreen(vm, { nav.navigate("lead-grab") }, { selected = 2 }, { selected = 4 })
-                1 -> LeadsScreen(vm, { nav.navigate("lead-grab") }) { nav.navigate("lead/${it.id}") }
-                2 -> CallsScreen(vm) { nav.navigate("disposition/$it") }
-                3 -> InboxScreen(vm) { item -> item.conversationId?.let { nav.navigate("chat/$it/${Uri.encode(item.lead.customerName)}") } }
+            when (activeTab) {
+                "home" -> DashboardScreen(vm, { if (vm.hasFeature("crm")) nav.navigate("lead-grab") }, { tabs.indexOfFirst { it.key == "calls" }.takeIf { it >= 0 }?.let { selected = it } }, { selected = tabs.indexOfFirst { it.key == "profile" }.coerceAtLeast(0) })
+                "leads" -> LeadsScreen(vm, { nav.navigate("lead-grab") }) { nav.navigate("lead/${it.id}") }
+                "calls" -> CallsScreen(vm) { nav.navigate("disposition/$it") }
+                "inbox" -> InboxScreen(vm) { item -> item.conversationId?.let { nav.navigate("chat/$it/${Uri.encode(item.lead.customerName)}") } }
                 else -> MoreScreen(vm, edit = { nav.navigate("edit-profile") }) { course, lesson -> nav.navigate("lesson/${course.id}/${lesson.id}") }
             }
         }
     }
 }
 
-@Composable private fun GxBottomNav(selected: Int, onSelect: (Int) -> Unit) {
+@Composable private fun GxBottomNav(tabs: List<Tab>, selected: Int, onSelect: (Int) -> Unit) {
     Box(Modifier.fillMaxWidth().background(Color.Transparent).padding(top = 4.dp, bottom = 4.dp).navigationBarsPadding(), contentAlignment = Alignment.Center) {
         Surface(
             color = GxSurface.copy(alpha = .86f),

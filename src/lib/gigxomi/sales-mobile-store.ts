@@ -8,6 +8,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { persistRealtimeEvent } from "@/lib/realtime/event-outbox";
 import { claimSalesLeadPoolItem, createSalesLead, getSalesSnapshotForRole, syncSalesAgentConversationLinks, updateSalesLeadStage } from "@/lib/gigxomi/sales-store";
+import { getRolePermissionsMatrix } from "@/lib/gigxomi/role-permissions-store";
 import { normalizeE164Phone, upsertMarketingContact } from "@/lib/whatsapp-marketing/contact-service";
 import type { AppRole } from "@/lib/auth/types";
 
@@ -114,6 +115,10 @@ export async function getSalesMobileBootstrap(actor: SalesMobileActor) {
     prisma.salesMobileCall.count({ where: { agentId: agent.id, noteRequired: true, noteSubmitted: false } }),
     prisma.salesMobileCall.count({ where: { agentId: agent.id, recordingStatus: { in: ["LOCAL_PENDING", "UPLOADING", "FAILED"] } } }),
   ]);
+  const rolePermissions = await getRolePermissionsMatrix();
+  const permissionsRole = actor.role in rolePermissions
+    ? actor.role as keyof typeof rolePermissions
+    : "SALES_AGENT";
   const availableLeads = snapshot.visibleLeadPool.filter((lead) => lead.status === "OPEN");
   return {
     agent: snapshot.currentAgent,
@@ -124,6 +129,7 @@ export async function getSalesMobileBootstrap(actor: SalesMobileActor) {
     availableLeadCount: availableLeads.length,
     roundRobinOptional: true,
     settings: snapshot.settings,
+    permissions: rolePermissions[permissionsRole] ?? rolePermissions.SALES_AGENT,
     devices,
     calls,
     pendingNotes,
