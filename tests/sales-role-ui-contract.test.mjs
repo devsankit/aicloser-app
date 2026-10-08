@@ -10,6 +10,7 @@ const leadNotes = fs.readFileSync(new URL("../src/components/sales/lead-notes-ma
 const globalStyles = fs.readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
 const campaignsStore = fs.readFileSync(new URL("../src/lib/gigxomi/calling-campaigns-store.ts", import.meta.url), "utf8");
 const campaignsRoute = fs.readFileSync(new URL("../src/app/api/sales/campaigns/route.ts", import.meta.url), "utf8");
+const callReportsRoute = fs.readFileSync(new URL("../src/app/api/sales/call-reports/route.ts", import.meta.url), "utf8");
 
 test("lead form builder receives the authenticated workspace admin role", () => {
   assert.match(dashboard, /<LeadFormBuilder\s+isAdmin=\{isWorkspaceAdmin\}/);
@@ -22,7 +23,7 @@ test("closer navigation stays limited to the closer workspace surface", () => {
 });
 
 test("admin navigation does not expose the closer-only grab leads queue", () => {
-  assert.match(dashboard, /isWorkspaceAdmin\s*\n\s*\? tabs\.filter\(\(tab\) => !\["grab-leads", "calls"\]\.includes\(tab\.id\)\)/);
+  assert.match(dashboard, /isWorkspaceAdmin\s*\n\s*\? tabs\.filter\(\(tab\) => tab\.id !== "grab-leads"\)/);
   assert.match(dashboard, /const canUseGrabLeads = roundRobinAccess\.enabled && Boolean\(currentAgent\?\.canClaimLeads\)/);
 });
 
@@ -118,6 +119,25 @@ test("calling campaigns contain only tenant-scoped live data", () => {
   assert.match(campaignsRoute, /resolveSessionTenantId\(auth\.session/);
   assert.match(campaignsRoute, /getCallingCampaigns\(tenantId\)/);
   assert.match(campaignsRoute, /upsertCallingCampaign\(\{ \.\.\.body, tenantId \}\)/);
-  assert.match(dashboard, /label: "Overview"/);
-  assert.match(dashboard, /callsHubView === pill\.id \? "1px solid var\(--closer-orange, #ff6b2f\)"/);
+  assert.match(dashboard, /CallReportsPanel/);
+  assert.doesNotMatch(dashboard, /Power Dialer & SIM Recordings Hub|Missed Queue & IVR|CallingCampaignsPanel|MissedCallsQueue/);
+  assert.match(dashboard, /Call Reports & Recordings/);
+  assert.match(dashboard, /api\/sales\/call-reports/);
+  assert.match(dashboard, /Incoming calls/);
+  assert.match(dashboard, /Outgoing calls/);
+  assert.match(dashboard, /Missed calls/);
+  assert.match(dashboard, /Talk time/);
+  assert.match(dashboard, /Recordings/);
+  assert.match(callReportsRoute, /requireSessionRole\(\["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"\]\)/);
+  assert.match(callReportsRoute, /resolveSessionTenantId\(auth\.session/);
+  assert.match(callReportsRoute, /user: \{ tenantId \}/);
+  assert.match(callReportsRoute, /visibleAgentIds/);
+  assert.match(callReportsRoute, /recordingStatus: "UPLOADED"/);
+});
+
+test("call reporting has no placeholder call data", () => {
+  const missedCallsStore = fs.readFileSync(new URL("../src/lib/gigxomi/missed-calls-store.ts", import.meta.url), "utf8");
+  const advancedReportsStore = fs.readFileSync(new URL("../src/lib/gigxomi/advanced-reports-store.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(missedCallsStore, /DEFAULT_MISSED_CALLS|mc-101|Vikram Malhotra|Aman Gupta/);
+  assert.doesNotMatch(advancedReportsStore, /demoData|1240|2890/);
 });

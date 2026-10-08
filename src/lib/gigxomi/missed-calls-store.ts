@@ -27,32 +27,6 @@ export type MissedCallRecord = {
 const DATA_DIR = path.join(process.cwd(), "data");
 const MISSED_CALLS_FILE = path.join(DATA_DIR, "missed-calls.json");
 
-const DEFAULT_MISSED_CALLS: MissedCallRecord[] = [
-  {
-    id: "mc-101",
-    callerNumber: "+919820011223",
-    customerName: "Vikram Malhotra",
-    missedAt: new Date(Date.now() - 18 * 60 * 1000).toISOString(), // 18m ago (breached)
-    slaMinutes: 15,
-    status: "PENDING",
-    autoAckSent: true,
-    ackSentAt: new Date(Date.now() - 17 * 60 * 1000).toISOString(),
-    callbackAttempts: 0,
-    notes: "Inbound call missed during client review meeting",
-  },
-  {
-    id: "mc-102",
-    callerNumber: "+919876543210",
-    customerName: "Aman Gupta",
-    missedAt: new Date(Date.now() - 6 * 60 * 1000).toISOString(), // 6m ago (within SLA)
-    slaMinutes: 15,
-    status: "PENDING",
-    autoAckSent: false,
-    callbackAttempts: 0,
-    notes: "High intent inbound caller from Meta Ad campaign",
-  },
-];
-
 async function ensureDataDir() {
   await mkdir(DATA_DIR, { recursive: true });
 }
@@ -61,9 +35,9 @@ export async function getMissedCalls(): Promise<MissedCallRecord[]> {
   try {
     const raw = await readFile(MISSED_CALLS_FILE, "utf8");
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    if (Array.isArray(parsed)) return parsed;
   } catch {}
-  return DEFAULT_MISSED_CALLS;
+  return [];
 }
 
 export async function saveMissedCalls(calls: MissedCallRecord[]): Promise<void> {

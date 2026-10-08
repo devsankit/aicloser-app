@@ -322,7 +322,7 @@ export type SalesDashboardSnapshot = {
   goals: SalesGoalView[];
   rewards: SalesRewardView[];
   mobileDevices: Array<{ id: string; agentId: string; deviceId: string; deviceName: string; manufacturer: string; model: string; simLabel: string; officeSimNumber: string; recordingCapability: string; recordingEnabled: boolean; lastSeenAt: string; isActive: boolean }>;
-  mobileCalls: Array<{ id: string; assignmentId: string; agentId: string; customerName: string; phoneNumber: string; deviceName: string; deviceModel: string; status: string; outcome: string; note: string; durationSeconds: number; recordingStatus: string; recordingError: string; noteSubmitted: boolean; startedAt: string; endedAt: string | null }>;
+  mobileCalls: Array<{ id: string; assignmentId: string; agentId: string; customerName: string; phoneNumber: string; deviceName: string; deviceModel: string; direction: string; status: string; outcome: string; note: string; durationSeconds: number; recordingStatus: string; recordingError: string; noteSubmitted: boolean; startedAt: string; endedAt: string | null }>;
   reports: {
     assignedLeads: number;
     openQueueLeads: number;
@@ -1493,6 +1493,7 @@ export async function getSalesSnapshotForRole(
           phoneNumber: call.phoneNumber,
           deviceName: call.device?.deviceName ?? "",
           deviceModel: [call.device?.manufacturer, call.device?.model].filter(Boolean).join(" "),
+          direction: call.direction,
           status: call.status,
           outcome: call.outcome ?? "",
           note: call.note ?? "",

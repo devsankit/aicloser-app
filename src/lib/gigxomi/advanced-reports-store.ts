@@ -67,30 +67,6 @@ export async function getHourlyCallDistribution(agentId?: string | null): Promis
     }
   } catch {}
 
-  // If no calls exist yet, populate sensible baseline for previewing
-  const allZero = buckets.every((b) => b.totalCalls === 0);
-  if (allZero) {
-    const demoData = [
-      { h: 10, total: 14, conn: 9, dur: 1240 },
-      { h: 11, total: 22, conn: 16, dur: 2180 },
-      { h: 12, total: 19, conn: 11, dur: 1620 },
-      { h: 13, total: 8, conn: 5, dur: 610 },
-      { h: 14, total: 16, conn: 10, dur: 1450 },
-      { h: 15, total: 25, conn: 18, dur: 2890 },
-      { h: 16, total: 28, conn: 20, dur: 3200 },
-      { h: 17, total: 21, conn: 14, dur: 1950 },
-      { h: 18, total: 12, conn: 7, dur: 980 },
-    ];
-    for (const d of demoData) {
-      const bucket = buckets.find((b) => b.hour === d.h);
-      if (bucket) {
-        bucket.totalCalls = d.total;
-        bucket.connectedCalls = d.conn;
-        bucket.totalDurationSeconds = d.dur;
-      }
-    }
-  }
-
   return buckets;
 }
 

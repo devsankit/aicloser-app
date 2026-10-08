@@ -135,14 +135,6 @@ const StatusLabelsModal = dynamic(
   () => import("@/components/sales/status-labels-modal").then((m) => m.StatusLabelsModal),
   { ssr: false }
 );
-const CallingCampaignsPanel = dynamic(
-  () => import("@/components/sales/calling-campaigns-panel").then((m) => m.CallingCampaignsPanel),
-  { ssr: false, loading: () => <PanelLoadingSkeleton label="Loading Calling Campaigns..." /> }
-);
-const MissedCallsQueue = dynamic(
-  () => import("@/components/sales/missed-calls-queue").then((m) => m.MissedCallsQueue),
-  { ssr: false, loading: () => <PanelLoadingSkeleton label="Loading Missed Calls..." /> }
-);
 const AutomationWorkflowsPanel = dynamic(
   () => import("@/components/sales/automation-workflows-panel").then((m) => m.AutomationWorkflowsPanel),
   { ssr: false, loading: () => <PanelLoadingSkeleton label="Loading Automations..." /> }
@@ -261,7 +253,7 @@ const tabs: Array<{ id: SalesTab; label: string; icon: typeof Users; badge?: str
   { id: "grab-leads", label: "Grab Leads", icon: Hand, badge: "Queue", group: "crm" },
   { id: "contacts", label: "Contacts & Import Hub", icon: Users, badge: "All Sources", group: "crm" },
   { id: "lead-import", label: "Lead Import", icon: Upload, badge: "5 Sources", group: "crm" },
-  { id: "calls", label: "Calls & Power Dialer", icon: PhoneCall, group: "crm" },
+  { id: "calls", label: "Call Reports & Recordings", icon: PhoneCall, group: "crm" },
   { id: "conversations", label: "Live Multi-Channel Chat", icon: MessageSquare, group: "crm" },
   { id: "forms", label: "Lead Form Builder", icon: Edit3, badge: "Web Forms", group: "growth" },
   { id: "plugins", label: "Plugins & Channels", icon: Users2, badge: "WA + Email + IG", group: "growth" },
@@ -794,7 +786,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   };
   const hasFeature = (featureId: string) => isWorkspaceAdmin || liveRolePermissions?.[featureId] !== false;
   const navigationTabs = (isWorkspaceAdmin
-    ? tabs.filter((tab) => !["grab-leads", "calls"].includes(tab.id))
+    ? tabs.filter((tab) => tab.id !== "grab-leads")
     : isCloser
       ? tabs.filter((tab) => ["dashboard", "crm", "grab-leads", "conversations"].includes(tab.id))
       : tabs.filter((tab) => !["roles", "profile", "developer", "grab-leads"].includes(tab.id)))
@@ -947,7 +939,6 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(true);
   const [enforceWorkspace2FA, setEnforceWorkspace2FA] = useState(true);
   const [requireFieldVisitGps, setRequireFieldVisitGps] = useState(true);
-  const [callsHubView, setCallsHubView] = useState<"all" | "dialer" | "missed" | "history">("all");
   const [automationsHubView, setAutomationsHubView] = useState<"all" | "workflows" | "ai-bot">("all");
   const [settingsHubView, setSettingsHubView] = useState<"all" | "channels" | "team" | "custom-fields" | "security">("all");
   const isWhatsAppConnected = Boolean(
@@ -1148,7 +1139,6 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     const timer = window.setTimeout(() => {
       if (savedTab === "campaigns") {
         setActiveTab("calls");
-        setCallsHubView("dialer");
       } else if (savedTab === "ai-beta" || savedTab === "ai-bot" || savedTab === "referrals") {
         setActiveTab("automations");
         setAutomationsHubView("ai-bot");
@@ -2655,88 +2645,12 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       ) : null}
 
       {activeTab === "calls" || activeTab === "campaigns" ? (
-        <div style={{ display: "grid", gap: "20px", width: "100%", maxWidth: "1280px", margin: "0 auto", padding: "16px 20px" }}>
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: "12px",
-              padding: "14px 18px",
-              borderRadius: "12px",
-              border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.22))",
-              background: "var(--closer-surface, #ffffff)",
-            }}
-          >
-            <div>
-              <strong style={{ display: "block", fontSize: "15px", color: "var(--closer-ink, #0f172a)" }}>
-                Calls, Power Dialer & SIM Recordings Hub
-              </strong>
-              <span style={{ fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>
-                Combined single-page workspace for Power Dialer campaigns, missed-call IVR recovery, and mobile SIM call recordings.
-              </span>
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-              {[
-                { id: "all", label: "Overview" },
-                { id: "dialer", label: "Power Dialer & Campaigns" },
-                { id: "missed", label: "Missed Queue & IVR" },
-                { id: "history", label: "SIM Call Recordings" },
-              ].map((pill) => (
-                <button
-                  key={pill.id}
-                  type="button"
-                  onClick={() => setCallsHubView(pill.id as "all" | "dialer" | "missed" | "history")}
-                  style={{
-                    padding: "7px 13px",
-                    borderRadius: "8px",
-                    fontSize: "12px",
-                    fontWeight: 600,
-                    border: callsHubView === pill.id ? "1px solid var(--closer-orange, #ff6b2f)" : "1px solid rgba(148, 163, 184, 0.3)",
-                    background: callsHubView === pill.id ? "var(--closer-orange, #ff6b2f)" : "transparent",
-                    color: callsHubView === pill.id ? "#ffffff" : "var(--closer-ink, #334155)",
-                    cursor: "pointer",
-                  }}
-                >
-                  {pill.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {callsHubView === "all" || callsHubView === "dialer" ? (
-            <CallingCampaignsPanel />
-          ) : null}
-
-          {callsHubView === "all" || callsHubView === "missed" ? (
-            <MissedCallsQueue />
-          ) : null}
-
-          {callsHubView === "all" || callsHubView === "history" ? (
-            <Panel title="CRM call history & SIM Recordings" icon={PhoneCall} full>
-              <div className="sales-table">
-                {dashboardCalls.map((call) => (
-                  <div className="sales-table-row sales-table-row-rich" key={call.id}>
-                    <div>
-                      <strong>{call.customerName}</strong>
-                      <span>{call.phoneNumber} - {label(call.status)} - {call.durationSeconds}s</span>
-                      <small>{formatDateTime(call.startedAt)} - {call.outcome ? label(call.outcome) : "Outcome pending"}</small>
-                      <small>Owner: {agentName(snapshot, call.agentId)}</small>
-                      <small>{call.note || "Mandatory call notes pending"}</small>
-                      {call.recordingError ? <small>Recording issue: {call.recordingError}</small> : null}
-                    </div>
-                    <span className={`sales-chip ${call.recordingStatus === "UPLOADED" ? "success" : call.recordingStatus === "FAILED" ? "danger" : "warning"}`}>
-                      {recordingStatusLabel(call.recordingStatus)}
-                    </span>
-                    {call.recordingStatus === "UPLOADED" ? <CallRecordingPlayer callId={call.id} expectedDurationSeconds={call.durationSeconds} labelText={`${call.customerName} recording`} /> : <span />}
-                  </div>
-                ))}
-                {!dashboardCalls.length ? <p className="muted-copy">Team call activity will appear here.</p> : null}
-              </div>
-            </Panel>
-          ) : null}
-        </div>
+        <CallReportsPanel
+          agents={reportingAgents}
+          isAdmin={isWorkspaceAdmin}
+          selectedAgentId={viewingAgentId}
+          onAgentChange={updateViewingAgent}
+        />
       ) : null}
 
       {activeTab === "automations" || activeTab === "ai-beta" || activeTab === "developer" ? (
@@ -4086,6 +4000,153 @@ function AdminTeamReportingPanel({
           </table>
         </div>
       ) : <p className="muted-copy">No active sales users are available for reporting.</p>}
+    </section>
+  );
+}
+
+type CallReportRow = {
+  id: string;
+  agentId: string;
+  agentName: string;
+  customerName: string;
+  phoneNumber: string;
+  direction: string;
+  status: string;
+  durationSeconds: number;
+  recordingStatus: string;
+  recordingError: string;
+  outcome: string;
+  note: string;
+  startedAt: string;
+  endedAt: string | null;
+};
+
+type CallReportTotals = {
+  totalCalls: number;
+  inboundCalls: number;
+  outboundCalls: number;
+  missedCalls: number;
+  talkTimeSeconds: number;
+  uploadedRecordings: number;
+};
+
+function CallReportsPanel({
+  agents,
+  isAdmin,
+  selectedAgentId,
+  onAgentChange,
+}: {
+  agents: SalesDashboardSnapshot["visibleAgents"];
+  isAdmin: boolean;
+  selectedAgentId: string;
+  onAgentChange: (agentId: string) => void;
+}) {
+  const [totals, setTotals] = useState<CallReportTotals>({
+    totalCalls: 0,
+    inboundCalls: 0,
+    outboundCalls: 0,
+    missedCalls: 0,
+    talkTimeSeconds: 0,
+    uploadedRecordings: 0,
+  });
+  const [calls, setCalls] = useState<CallReportRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+
+  async function loadReports(signal?: AbortSignal) {
+    setLoading(true);
+    setError("");
+    try {
+      const query = selectedAgentId !== "all" ? `?agentId=${encodeURIComponent(selectedAgentId)}` : "";
+      const response = await fetch(`/api/sales/call-reports${query}`, { cache: "no-store", signal });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Call reports are temporarily unavailable.");
+      setTotals(payload.totals ?? {});
+      setCalls(Array.isArray(payload.calls) ? payload.calls : []);
+      setLastUpdated(new Date().toISOString());
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === "AbortError") return;
+      setError(cause instanceof Error ? cause.message : "Call reports are temporarily unavailable.");
+    } finally {
+      if (!signal?.aborted) setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadReports(controller.signal);
+    const refreshTimer = window.setInterval(() => void loadReports(), 30_000);
+    return () => {
+      controller.abort();
+      window.clearInterval(refreshTimer);
+    };
+  }, [selectedAgentId]);
+
+  const cards = [
+    { label: "Total calls", value: totals.totalCalls, tone: "var(--closer-ink, #0f172a)" },
+    { label: "Incoming calls", value: totals.inboundCalls, tone: "#0284c7" },
+    { label: "Outgoing calls", value: totals.outboundCalls, tone: "var(--closer-orange, #ff6b2f)" },
+    { label: "Missed calls", value: totals.missedCalls, tone: "#dc2626" },
+    { label: "Talk time", value: formatTalkTime(totals.talkTimeSeconds), tone: "#059669" },
+    { label: "Recordings", value: totals.uploadedRecordings, tone: "#7c3aed" },
+  ];
+
+  return (
+    <section aria-label="Call reports and recordings" style={{ display: "grid", gap: "18px", width: "100%", maxWidth: "1280px", margin: "0 auto", padding: "16px 20px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "14px", padding: "18px 20px", borderRadius: "14px", border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.22))", background: "var(--closer-surface, #ffffff)" }}>
+        <div>
+          <span style={{ display: "block", color: "var(--closer-orange, #ff6b2f)", fontSize: "11px", fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" }}>Live telephony reporting</span>
+          <h2 style={{ margin: "5px 0 4px", fontSize: "22px", color: "var(--closer-ink, #0f172a)" }}>Calls &amp; recordings</h2>
+          <p style={{ margin: 0, color: "var(--closer-muted, #64748b)", fontSize: "13px" }}>Counts and recordings are read from the connected mobile call records. They refresh automatically.</p>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+          {isAdmin ? (
+            <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>
+              User
+              <select value={selectedAgentId} onChange={(event) => onAgentChange(event.target.value)} style={{ minWidth: "180px", padding: "8px 10px", borderRadius: "8px", border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.35))", background: "var(--closer-surface, #ffffff)", color: "var(--closer-ink, #0f172a)" }}>
+                <option value="all">All reporting users</option>
+                {agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.displayName}</option>)}
+              </select>
+            </label>
+          ) : null}
+          <button type="button" onClick={() => void loadReports()} disabled={loading} className="sales-secondary-button compact">{loading ? "Refreshing…" : "Refresh"}</button>
+        </div>
+      </div>
+
+      {error ? <div role="alert" style={{ padding: "14px 16px", borderRadius: "10px", color: "#b91c1c", background: "rgba(239, 68, 68, 0.08)", border: "1px solid rgba(239, 68, 68, 0.22)" }}>{error} <button type="button" onClick={() => void loadReports()} style={{ marginLeft: "8px", cursor: "pointer" }}>Retry</button></div> : null}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "12px" }}>
+        {cards.map((card) => (
+          <div key={card.label} style={{ padding: "16px", borderRadius: "12px", border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.22))", background: "var(--closer-surface, #ffffff)" }}>
+            <span style={{ display: "block", fontSize: "12px", color: "var(--closer-muted, #64748b)", marginBottom: "8px" }}>{card.label}</span>
+            <strong style={{ fontSize: "24px", color: card.tone }}>{loading ? "—" : card.value}</strong>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.22))", borderRadius: "14px", background: "var(--closer-surface, #ffffff)", overflow: "hidden" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 18px", borderBottom: "1px solid var(--closer-line, rgba(148, 163, 184, 0.18))" }}>
+          <div><h3 style={{ margin: 0, fontSize: "16px", color: "var(--closer-ink, #0f172a)" }}>Recent call activity</h3><p style={{ margin: "4px 0 0", fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>Latest live calls and available recordings.</p></div>
+          {lastUpdated ? <span style={{ fontSize: "11px", color: "var(--closer-muted, #64748b)" }}>Updated {formatDateTime(lastUpdated)}</span> : null}
+        </div>
+        {loading ? <p className="muted-copy" style={{ padding: "24px" }}>Loading live call activity…</p> : calls.length === 0 ? <p className="muted-copy" style={{ padding: "24px" }}>No call activity is available for this selection yet.</p> : (
+          <div style={{ overflowX: "auto" }}>
+            <table className="crm-data-table" style={{ width: "100%", minWidth: "900px", borderCollapse: "collapse", textAlign: "left" }}>
+              <thead><tr><th style={{ padding: "11px 14px" }}>User</th><th style={{ padding: "11px 14px" }}>Contact</th><th style={{ padding: "11px 14px" }}>Direction</th><th style={{ padding: "11px 14px" }}>Status</th><th style={{ padding: "11px 14px" }}>Talk time</th><th style={{ padding: "11px 14px" }}>When</th><th style={{ padding: "11px 14px" }}>Recording</th></tr></thead>
+              <tbody>{calls.map((call) => <tr key={call.id} style={{ borderTop: "1px solid var(--closer-line, rgba(148, 163, 184, 0.18))" }}>
+                <td style={{ padding: "11px 14px" }}><strong>{call.agentName}</strong></td>
+                <td style={{ padding: "11px 14px" }}><strong>{call.customerName}</strong><small style={{ display: "block", color: "var(--closer-muted, #64748b)" }}>{call.phoneNumber}</small></td>
+                <td style={{ padding: "11px 14px" }}>{label(call.direction)}</td>
+                <td style={{ padding: "11px 14px" }}>{label(call.status)}{call.outcome ? <small style={{ display: "block", color: "var(--closer-muted, #64748b)" }}>{label(call.outcome)}</small> : null}</td>
+                <td style={{ padding: "11px 14px" }}>{formatTalkTime(call.durationSeconds)}</td>
+                <td style={{ padding: "11px 14px" }}>{formatDateTime(call.startedAt)}</td>
+                <td style={{ padding: "11px 14px" }}>{call.recordingStatus === "UPLOADED" ? <CallRecordingPlayer callId={call.id} expectedDurationSeconds={call.durationSeconds} labelText={`${call.customerName} recording`} /> : <span className={`sales-chip ${call.recordingStatus === "FAILED" ? "danger" : "neutral"}`}>{recordingStatusLabel(call.recordingStatus)}</span>}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </section>
   );
 }
