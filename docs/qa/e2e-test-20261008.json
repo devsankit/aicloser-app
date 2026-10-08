@@ -41,7 +41,7 @@
     },
     "mobileLogin": {
       "status": "PASS_WITH_EXPECTED_DEVICE_BLOCK",
-      "details": "Credentials accepted and the existing mobile-session conflict showed Login here. Required permissions, call-screening role, and overlay access were verified. Setup now surfaces the persistent device-ownership error when the emulator ID is already registered to another sales agent; it does not silently reassign the company phone. A stale-session recovery fix was committed in 4ee160d. A successful registration on a previously unregistered closer device was not completed because the workspace had no spare closer seat/device assignment."
+      "details": "Credentials accepted and the existing mobile-session conflict showed Login here. Required permissions, call-screening role, and overlay access were verified. Setup surfaces the persistent device-ownership error when the emulator ID is already registered to another sales agent; it does not silently reassign the company phone. A stale-session recovery fix was committed in 4ee160d. A setup fail-closed fix was committed in 3bfe01a: denied permissions, call-screening role, or overlay access no longer register the device and show a corrective message. A successful registration on a previously unregistered closer device was not completed because the workspace had no spare closer seat/device assignment."
     },
     "outgoingCallApiLifecycle": {
       "status": "PASS",
@@ -89,7 +89,8 @@
   "commits": {
     "signupFix": "0002346",
     "mobileSetupFix": "90194b8",
-    "mobileSessionRecoveryFix": "4ee160d"
+    "mobileSessionRecoveryFix": "4ee160d",
+    "mobileSetupGuardFix": "3bfe01a"
   },
   "automatedRegression": {
     "webTests": "64 passed, 0 failed",
