@@ -998,8 +998,13 @@ export function ContactsHub({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
-      if (data.ok) {
+      const data = await res.json().catch(() => null);
+      if (!data) {
+        alert("The server did not confirm distribution. Refresh Contacts and check the assigned reps before retrying. Your selected import batch has been kept.");
+        await loadAllContactsAndIntegrations();
+        return;
+      }
+      if (res.ok && data.ok) {
         setDistributeSuccess(data.message || "Auto-distributed contacts across sales agents!");
         if (selectedIds.size === 0) {
           setPendingImportBatch(null);
@@ -1013,7 +1018,7 @@ export function ContactsHub({
         alert(data.error || "Failed to auto-distribute contacts.");
       }
     } catch (err) {
-      alert("Distribution error: " + String(err));
+      alert("Could not confirm distribution. Check your connection, refresh Contacts, and verify the assigned reps before retrying.");
     } finally {
       setDistributing(false);
     }
