@@ -4,6 +4,7 @@ import test from "node:test";
 
 const dashboard = fs.readFileSync(new URL("../src/components/sales/sales-dashboard.tsx", import.meta.url), "utf8");
 const dashboardRoute = fs.readFileSync(new URL("../src/app/dashboard/page.tsx", import.meta.url), "utf8");
+const permissionsRoute = fs.readFileSync(new URL("../src/app/api/sales/roles/features/route.ts", import.meta.url), "utf8");
 
 test("lead form builder receives the authenticated workspace admin role", () => {
   assert.match(dashboard, /<LeadFormBuilder\s+isAdmin=\{isWorkspaceAdmin\}/);
@@ -24,4 +25,14 @@ test("open dashboards refresh role permissions without blocking CRM refresh", ()
   assert.match(dashboard, /setLiveRolePermissions\(permissionsPayload\.userPermissions/);
   assert.match(dashboard, /setInterval\(syncPermissions, 30_000\)/);
   assert.match(dashboard, /Permission refresh is best-effort and must not block CRM data refresh/);
+});
+
+test("permission refresh resolves the configured workspace role", () => {
+  assert.match(permissionsRoute, /const configuredWorkspaceRole = String\(\(access\?\.agent\?\.permissions/);
+  assert.match(permissionsRoute, /const effectiveRole = auth\.session\.role === "ADMIN" \|\| auth\.session\.role === "SUPER_ADMIN"/);
+  assert.match(permissionsRoute, /userPermissions: matrix\[effectiveRole as keyof RolePermissionsMatrix\]/);
+});
+
+test("manager visibility follows the effective workspace role", () => {
+  assert.match(dashboard, /const canViewTeamData = isWorkspaceAdmin \|\| effectiveWorkspaceRole === "MANAGER"/);
 });

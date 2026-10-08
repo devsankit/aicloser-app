@@ -772,7 +772,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   const canExportLeads = isWorkspaceAdmin || roundRobinAccess.allowNonAdminExportData;
   const canModifyLeads = isWorkspaceAdmin || roundRobinAccess.allowNonAdminModifyLeads;
   const canUseGrabLeads = roundRobinAccess.enabled && Boolean(currentAgent?.canClaimLeads);
-  const canViewTeamData = isWorkspaceAdmin || sessionRole === "MANAGER";
+  const canViewTeamData = isWorkspaceAdmin || effectiveWorkspaceRole === "MANAGER";
   const viewingAgent = viewingAgentId === "all"
     ? null
     : snapshot.visibleAgents.find((agent) => agent.id === viewingAgentId) ?? null;
@@ -1243,6 +1243,15 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     const response = await fetch(`/api/sales/dashboard${params.toString() ? `?${params.toString()}` : ""}`, { cache: "no-store" });
     const payload = await response.json().catch(() => null);
     if (payload?.ok) setSnapshot(payload.snapshot);
+    try {
+      const permissionsResponse = await fetch("/api/sales/roles/features", { cache: "no-store" });
+      const permissionsPayload = await permissionsResponse.json().catch(() => null);
+      if (permissionsPayload?.ok && permissionsPayload.userPermissions && typeof permissionsPayload.userPermissions === "object") {
+        setLiveRolePermissions(permissionsPayload.userPermissions as Record<string, boolean>);
+      }
+    } catch {
+      // Permission refresh is best-effort and must not block CRM data refresh.
+    }
   }
 
   function updateViewingAgent(agentId: string) {
@@ -2780,7 +2789,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
               <SuperAdminInstagramPluginCard
                 initialConnection={salesOperations.instagramConnection}
                 setupUrls={salesOperations.instagramSetupUrls}
-                variant="sales"
+                variant={isWorkspaceAdmin ? "default" : "sales"}
               />
             }
             customFieldsComponent={<CustomFieldsPanel />}
@@ -2900,7 +2909,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
 
       {activeTab === "instagram-inbox" ? (
         <section className="sales-tool-workspace sales-instagram-workspace">
-          <SuperAdminInstagramPluginCard initialConnection={salesOperations.instagramConnection} setupUrls={salesOperations.instagramSetupUrls} variant="sales" />
+          <SuperAdminInstagramPluginCard initialConnection={salesOperations.instagramConnection} setupUrls={salesOperations.instagramSetupUrls} variant={isWorkspaceAdmin ? "default" : "sales"} />
         </section>
       ) : null}
 

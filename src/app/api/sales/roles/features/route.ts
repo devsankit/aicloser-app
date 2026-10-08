@@ -52,12 +52,19 @@ export async function GET() {
 
   try {
     const matrix = await getRolePermissionsMatrix();
+    const access = auth.session.userId ? await getSalesAgentAccess(auth.session.userId) : null;
+    const configuredWorkspaceRole = String((access?.agent?.permissions as Record<string, unknown> | null | undefined)?.workspaceRole ?? "").toUpperCase();
+    const effectiveRole = auth.session.role === "ADMIN" || auth.session.role === "SUPER_ADMIN"
+      ? auth.session.role
+      : configuredWorkspaceRole === "ADMIN" || configuredWorkspaceRole === "MANAGER" || configuredWorkspaceRole === "SALES_AGENT"
+        ? configuredWorkspaceRole
+        : "SALES_AGENT";
     return NextResponse.json({
       ok: true,
       features: AVAILABLE_FEATURES,
       matrix,
-      userRole: auth.session.role,
-      userPermissions: matrix[auth.session.role as keyof RolePermissionsMatrix] || matrix.SALES_AGENT,
+      userRole: effectiveRole,
+      userPermissions: matrix[effectiveRole as keyof RolePermissionsMatrix] || matrix.SALES_AGENT,
     });
   } catch (error) {
     return NextResponse.json(
