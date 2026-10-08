@@ -7,6 +7,7 @@ const dashboardRoute = fs.readFileSync(new URL("../src/app/dashboard/page.tsx", 
 const permissionsRoute = fs.readFileSync(new URL("../src/app/api/sales/roles/features/route.ts", import.meta.url), "utf8");
 const rolePanel = fs.readFileSync(new URL("../src/components/sales/role-permissions-panel.tsx", import.meta.url), "utf8");
 const leadNotes = fs.readFileSync(new URL("../src/components/sales/lead-notes-manager.tsx", import.meta.url), "utf8");
+const globalStyles = fs.readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
 
 test("lead form builder receives the authenticated workspace admin role", () => {
   assert.match(dashboard, /<LeadFormBuilder\s+isAdmin=\{isWorkspaceAdmin\}/);
@@ -16,6 +17,15 @@ test("lead form builder receives the authenticated workspace admin role", () => 
 test("closer navigation stays limited to the closer workspace surface", () => {
   assert.match(dashboard, /tabs\.filter\(\(tab\) => \["dashboard", "crm", "grab-leads", "conversations"\]\.includes\(tab\.id\)\)/);
   assert.match(dashboard, /const isCloser = !isWorkspaceAdmin && effectiveWorkspaceRole === "SALES_AGENT"/);
+});
+
+test("admin navigation does not expose the closer-only grab leads queue", () => {
+  assert.match(dashboard, /isWorkspaceAdmin\s*\n\s*\? tabs\.filter\(\(tab\) => tab\.id !== "grab-leads"\)/);
+  assert.match(dashboard, /const canUseGrabLeads = roundRobinAccess\.enabled && Boolean\(currentAgent\?\.canClaimLeads\)/);
+});
+
+test("internal sidebar reserves space for its footer instead of covering the last menu item", () => {
+  assert.match(globalStyles, /\.internal-theme-root \.internal-sidebar\s*\{[\s\S]*?grid-template-rows:\s*auto minmax\(0, 1fr\) auto;/);
 });
 
 test("the direct dashboard route accepts the manager workspace role", () => {

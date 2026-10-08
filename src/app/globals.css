@@ -9979,6 +9979,13 @@ video.player-controls-on-hover:hover::-webkit-media-controls {
   box-shadow: none;
 }
 
+/* The collapse control is absolutely positioned, so the internal sidebar has
+   three flow rows: brand, scrollable navigation, and account footer. Keeping
+   a fourth implicit grid row makes the footer overlap the last menu item. */
+.internal-theme-root .internal-sidebar {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
 .internal-brand-block {
   display: grid;
   gap: 12px;

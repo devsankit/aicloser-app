@@ -763,7 +763,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   };
   const hasFeature = (featureId: string) => isWorkspaceAdmin || liveRolePermissions?.[featureId] !== false;
   const navigationTabs = (isWorkspaceAdmin
-    ? tabs
+    ? tabs.filter((tab) => tab.id !== "grab-leads")
     : isCloser
       ? tabs.filter((tab) => ["dashboard", "crm", "grab-leads", "conversations"].includes(tab.id))
       : tabs.filter((tab) => !["roles", "profile", "developer", "grab-leads"].includes(tab.id)))
