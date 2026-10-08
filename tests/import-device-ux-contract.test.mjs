@@ -29,5 +29,7 @@ test('discarding an import preview also clears the stale success banner', () => 
 test('device table is mounted only on the dashboard', () => {
   const source = readFileSync('src/components/sales/sales-dashboard.tsx', 'utf8');
   assert.equal(source.match(/<TeamActivityPanel \/>/g)?.length, 1);
-  assert.ok(source.includes('<section className="sales-dashboard-overview">\n          {canViewTeamData ? <TeamActivityPanel /> : null}'));
+  assert.ok(source.includes('<section className="sales-dashboard-overview">\n'));
+  assert.ok(source.includes('<div className="sales-dashboard-device-activity">\n              <TeamActivityPanel />\n            </div>'));
+  assert.ok(source.indexOf('sales-dashboard-device-activity') > source.indexOf('AdminTeamReportingPanel'));
 });

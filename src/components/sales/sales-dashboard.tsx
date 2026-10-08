@@ -1618,7 +1618,6 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       <div className={isConversationTab ? "sales-theme-scope sales-theme-scope-chat" : "sales-theme-scope"} style={salesThemeStyle}>
       {activeTab === "dashboard" ? (
         <section className="sales-dashboard-overview">
-          {canViewTeamData ? <TeamActivityPanel /> : null}
           {/* 1. Executive Daily Status & Date Filter Bar */}
           <div className="sales-dashboard-hero">
             <div className="sales-hero-top-row">
@@ -2168,6 +2167,12 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
             </div>
           </div>
           )}
+
+          {canViewTeamData ? (
+            <div className="sales-dashboard-device-activity">
+              <TeamActivityPanel />
+            </div>
+          ) : null}
 
         </section>
       ) : null}
