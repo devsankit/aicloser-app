@@ -1,4 +1,5 @@
 import { createPublicRedirect, sanitizePublicAuthError } from "@/lib/auth/public-redirect";
+import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { SUPER_ADMIN_HOME_ROUTE, SUPER_ADMIN_LOGIN_ROUTE } from "@/lib/auth/super-admin-config";
 import { authenticatePassword, findUserByIdentifier } from "@/lib/auth/store";
@@ -19,6 +20,7 @@ export async function POST(request: Request) {
     let forceReplace = false;
 
     const contentType = request.headers.get("content-type") || "";
+    const wantsJson = contentType.includes("application/json");
     if (contentType.includes("application/json")) {
       const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
       identifier = String(body.identifier ?? "").trim();
@@ -114,6 +116,19 @@ export async function POST(request: Request) {
       });
     } catch (error) {
       if (error instanceof ClientSlotOccupiedError) {
+        if (wantsJson) {
+          return NextResponse.json(
+            {
+              ok: false,
+              error: error.code,
+              message: `This user already has an active ${clientType.toLowerCase()} session.`,
+              identifier,
+              clientType,
+              redirectTo,
+            },
+            { status: 409 },
+          );
+        }
         return createPublicRedirect(loginPath, {
           error: `ClientSlotOccupied: This user already has an active ${clientType.toLowerCase()} session.`,
           identifier,
@@ -145,7 +160,10 @@ export async function POST(request: Request) {
               packageAudience: user.packageAudience,
               workspaceMode: user.workspaceMode,
             });
-    const response = createPublicRedirect(destination || getDefaultDashboardPath(effectiveRole));
+    const resolvedDestination = destination || getDefaultDashboardPath(effectiveRole);
+    const response = wantsJson
+      ? NextResponse.json({ ok: true, redirectTo: resolvedDestination })
+      : createPublicRedirect(resolvedDestination);
 
     await applySessionCookie(response, {
       userId: user.id,
@@ -175,6 +193,12 @@ export async function POST(request: Request) {
     return response;
   } catch (error) {
     console.error("Password login failed", error);
+    if (request.headers.get("content-type")?.includes("application/json")) {
+      return NextResponse.json(
+        { ok: false, error: "LoginFailed", message: sanitizePublicAuthError(error, "We could not sign you in right now. Please try again in a moment.") },
+        { status: 500 },
+      );
+    }
     return createPublicRedirect(loginPath, {
       error: sanitizePublicAuthError(error, "We could not sign you in right now. Please try again in a moment."),
     });

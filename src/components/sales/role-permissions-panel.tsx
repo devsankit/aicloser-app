@@ -197,7 +197,7 @@ export function RolePermissionsPanel({
         void loadAll();
       } else {
         setUserNotice({
-          text: data?.error || "Unable to create user account.",
+          text: data?.error || `Unable to create user account${res.status ? ` (request ${res.status})` : ""}. Please retry once; if it continues, share this message with the workspace admin.`,
           type: "error",
         });
       }

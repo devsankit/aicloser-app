@@ -264,39 +264,103 @@ export function SalesSignupForm() {
 }
 
 export function SalesPasswordLoginForm({ redirectTo = "/", error = "", message = "", identifier = "", clientType = "DESKTOP" }: { redirectTo?: string; error?: string; message?: string; identifier?: string; clientType?: string }) {
-  const isClientSlotOccupied = error.startsWith("ClientSlotOccupied:");
+  const [loginIdentifier, setLoginIdentifier] = useState(identifier);
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginNotice, setLoginNotice] = useState(error);
+  const [loginMessage, setLoginMessage] = useState(message);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const isClientSlotOccupied = loginNotice.startsWith("ClientSlotOccupied:") || loginNotice === "ClientSlotOccupied";
   const clientLabel = clientType === "MOBILE" ? "mobile" : "desktop";
+
+  useEffect(() => {
+    setLoginIdentifier(identifier);
+    setLoginNotice(error);
+    setLoginMessage(message);
+  }, [identifier, error, message]);
+
+  async function submitLogin(forceReplace = false) {
+    if (!loginIdentifier.trim() || !loginPassword.trim()) {
+      setLoginNotice("Identifier and password are required.");
+      return;
+    }
+    setIsSubmitting(true);
+    setLoginNotice("");
+    setLoginMessage("");
+    try {
+      const response = await fetch("/api/auth/login/password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          identifier: loginIdentifier.trim(),
+          password: loginPassword,
+          loginScope: "sales",
+          clientType: clientType === "MOBILE" ? "MOBILE" : "DESKTOP",
+          redirectTo,
+          forceReplace: forceReplace ? "1" : "0",
+        }),
+      });
+      const data = await response.json().catch(() => null);
+      if (response.ok && data?.ok) {
+        window.location.assign(data.redirectTo || redirectTo || "/");
+        return;
+      }
+      if (data?.error === "ClientSlotOccupied") {
+        setLoginNotice("ClientSlotOccupied: " + (data.message || `This user already has an active ${clientLabel} session.`));
+      } else {
+        setLoginNotice(data?.message || data?.error || "We could not sign you in right now. Please try again in a moment.");
+      }
+    } catch {
+      setLoginNotice("We could not sign you in right now. Please try again in a moment.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   return (
-    <form action="/api/auth/login/password" className="sales-auth-form" method="post" style={{ display: "grid", gap: "14px" }}>
+    <form className="sales-auth-form" onSubmit={(event) => { event.preventDefault(); void submitLogin(); }} style={{ display: "grid", gap: "14px" }}>
       <input name="loginScope" type="hidden" value="sales" />
       <input name="redirectTo" type="hidden" value={redirectTo} />
       <input name="clientType" type="hidden" value={clientType === "MOBILE" ? "MOBILE" : "DESKTOP"} />
       <label style={lightLabelStyle}>
         <span>Email ID or phone</span>
-        <input autoComplete="username" defaultValue={identifier} name="identifier" placeholder="you@company.com" required style={lightInputStyle} />
+        <input autoComplete="username" name="identifier" onChange={(event) => setLoginIdentifier(event.target.value)} placeholder="you@company.com" required style={lightInputStyle} value={loginIdentifier} />
       </label>
-      <SalesPasswordField autoComplete="current-password" label="Password" name="password" placeholder="Enter your workspace password" />
-      <button className="sales-primary-button" type="submit" style={primaryButtonStyle}>
+      <label style={lightLabelStyle}>
+        <span>Password</span>
+        <div style={{ position: "relative" }}>
+          <input autoComplete="current-password" name="password" onChange={(event) => setLoginPassword(event.target.value)} placeholder="Enter your workspace password" required style={{ ...lightInputStyle, paddingRight: "44px" }} type={showLoginPassword ? "text" : "password"} value={loginPassword} />
+          <button
+            aria-label={showLoginPassword ? "Hide password" : "Show password"}
+            onClick={() => setShowLoginPassword((current) => !current)}
+            type="button"
+            style={{ position: "absolute", top: "50%", right: "8px", transform: "translateY(-50%)", width: "32px", height: "32px", border: 0, borderRadius: "8px", background: "transparent", color: "#64748b", display: "grid", placeItems: "center", cursor: "pointer" }}
+          >
+            {showLoginPassword ? <EyeOff aria-hidden="true" size={16} /> : <Eye aria-hidden="true" size={16} />}
+          </button>
+        </div>
+      </label>
+      <button className="sales-primary-button" disabled={isSubmitting} type="submit" style={primaryButtonStyle}>
         <LogIn size={16} />
-        Sign In to AI Closer
+        {isSubmitting ? "Signing in…" : "Sign In to AI Closer"}
       </button>
-      {message ? <p className="sales-form-status success" style={{ margin: 0, fontSize: "0.84rem", color: "#059669", fontWeight: 600 }}>{message}</p> : null}
+      {loginMessage ? <p className="sales-form-status success" style={{ margin: 0, fontSize: "0.84rem", color: "#059669", fontWeight: 600 }}>{loginMessage}</p> : null}
       {isClientSlotOccupied ? (
         <div className="sales-auth-session-conflict" role="alert">
-          <p className="sales-form-status error" style={{ margin: 0, fontSize: "0.84rem", color: "#dc2626", fontWeight: 600 }}>{error.replace("ClientSlotOccupied: ", "")}</p>
+          <p className="sales-form-status error" style={{ margin: 0, fontSize: "0.84rem", color: "#dc2626", fontWeight: 600 }}>{loginNotice.replace("ClientSlotOccupied: ", "")}</p>
           <div className="sales-auth-session-actions">
-            <button className="sales-auth-session-action-primary" name="forceReplace" type="submit" value="1">
+            <button className="sales-auth-session-action-primary" disabled={isSubmitting} onClick={() => void submitLogin(true)} type="button">
               <LogIn size={15} /> Login here
             </button>
-            <button className="sales-auth-session-action-secondary" formAction="/api/auth/client-session/revoke" formMethod="post" type="submit">
+            <button className="sales-auth-session-action-secondary" disabled={isSubmitting} onClick={() => setLoginNotice("To log out the other session, enter the password and use Login here.")} type="button">
               Logout from there
             </button>
           </div>
-          <small>“Login here” will end the other {clientLabel} session first.</small>
+          <small>“Login here” will end the other {clientLabel} session first. Your password stays filled while this is confirmed.</small>
         </div>
-      ) : error ? (
+      ) : loginNotice ? (
         <p className="sales-form-status" style={{ margin: 0, fontSize: "0.84rem", color: "#ef4444", fontWeight: 600 }}>
-          {error}
+          {loginNotice}
         </p>
       ) : null}
     </form>
