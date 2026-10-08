@@ -207,6 +207,7 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
 
 @Composable private fun SetupScreen(vm: CrmViewModel) {
     val context = LocalContext.current
+    var setupIssue by rememberSaveable { mutableStateOf<String?>(null) }
     val roleManager = if (Build.VERSION.SDK_INT >= 29) context.getSystemService(RoleManager::class.java) else null
     val finishSetup = { vm.registerDevice {} }
     val permissions = buildList {
@@ -255,6 +256,9 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
             permissionLauncher.launch(permissions)
         }
     }
+    LaunchedEffect(vm.error) {
+        vm.error?.let { setupIssue = it }
+    }
     Page(vertical = true) {
         BrandHeader("Set up company phone", "Native Android call context and CRM sync")
         GxCard {
@@ -263,7 +267,39 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
             FeatureRow(Icons.Default.Sync, "Offline continuity", "Queue call-end events and mandatory notes until the connection returns.")
             FeatureRow(Icons.Default.Notifications, "Lead context", "Show the assigned lead and post-call action without display-over-app access.")
             Text("Android and device manufacturers can restrict call audio. GXClosers reports recording failures instead of pretending audio was captured.", color = GxWarning, fontSize = 12.sp)
-            PrimaryButton("Grant permissions and register", vm.busy) { continueSetup() }
+            setupIssue?.let { issue ->
+                Surface(
+                    color = GxDanger.copy(alpha = 0.08f),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, GxDanger.copy(alpha = 0.40f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Warning, null, tint = GxDanger, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Phone setup needs attention", color = GxDanger, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                        Text(issue, color = GxText, fontSize = 12.sp, lineHeight = 16.sp)
+                        if (issue.contains("registered to another", ignoreCase = true)) {
+                            Text(
+                                "Ask an admin to revoke the other closer's device registration, then retry here. This phone will not replace another closer automatically.",
+                                color = GxMuted,
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp
+                            )
+                        }
+                        TextButton(
+                            onClick = { setupIssue = null; continueSetup() },
+                            enabled = !vm.busy,
+                            modifier = Modifier.align(Alignment.End)
+                        ) {
+                            Text("Retry setup", color = GxAccent, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+            PrimaryButton("Grant permissions and register", vm.busy) { setupIssue = null; continueSetup() }
         }
     }
 }
