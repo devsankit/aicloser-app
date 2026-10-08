@@ -263,8 +263,12 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
             inboxMessage = null
             try {
                 inbox = withContext(Dispatchers.IO) { repository.inbox() }
-            } catch (_: Exception) {
-                inboxMessage = "Inbox could not be refreshed right now."
+            } catch (e: Exception) {
+                if (e is SessionRevokedException) {
+                    handleSessionRevoked()
+                } else {
+                    inboxMessage = e.message?.takeIf { it.isNotBlank() } ?: "Inbox could not be refreshed right now."
+                }
             } finally {
                 inboxLoading = false
             }
@@ -279,7 +283,11 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
                 courses = withContext(Dispatchers.IO) { repository.courses() }
                 if (courses.isEmpty()) learningMessage = "No published sales lessons yet."
             } catch (e: Exception) {
-                learningMessage = if (e is ApiException && e.status == 404) "The sales learning catalog is being prepared." else "Learning could not be refreshed right now."
+                if (e is SessionRevokedException) {
+                    handleSessionRevoked()
+                } else {
+                    learningMessage = if (e is ApiException && e.status == 404) "The sales learning catalog is being prepared." else e.message?.takeIf { it.isNotBlank() } ?: "Learning could not be refreshed right now."
+                }
             } finally {
                 learningLoading = false
             }
@@ -298,8 +306,10 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
                 customer360 = withContext(Dispatchers.IO) { repository.customer360(leadId) }
             } catch (e: Exception) {
                 customer360 = null
-                if (e is ApiException && e.status == 404) customer360Unavailable = true
-                else customer360Error = "Live journey sync is temporarily unavailable."
+                if (e is SessionRevokedException) {
+                    handleSessionRevoked()
+                } else if (e is ApiException && e.status == 404) customer360Unavailable = true
+                else customer360Error = e.message?.takeIf { it.isNotBlank() } ?: "Live journey sync is temporarily unavailable."
             } finally {
                 customer360Loading = false
             }
@@ -369,7 +379,11 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 chatMessages = withContext(Dispatchers.IO) { repository.chat(id) }
             } catch (e: Exception) {
-                error = e.message ?: "Conversation could not be refreshed."
+                if (e is SessionRevokedException) {
+                    handleSessionRevoked()
+                } else {
+                    error = e.message ?: "Conversation could not be refreshed."
+                }
             } finally {
                 chatLoading = false
             }
@@ -489,7 +503,11 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
                 if (confirmComplete) courses = withContext(Dispatchers.IO) { repository.courses() }
                 done?.invoke()
             } catch (e: Exception) {
-                error = e.message ?: "Training progress could not be saved."
+                if (e is SessionRevokedException) {
+                    handleSessionRevoked()
+                } else {
+                    error = e.message ?: "Training progress could not be saved."
+                }
             }
         }
     }
