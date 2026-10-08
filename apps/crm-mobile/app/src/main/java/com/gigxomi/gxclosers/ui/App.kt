@@ -115,8 +115,8 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
 }
 
 @Composable private fun LoginScreen(vm: CrmViewModel) {
-    var identifier by remember { mutableStateOf("test@aicloser.in") }
-    var password by remember { mutableStateOf("987654321") }
+    var identifier by rememberSaveable { mutableStateOf("") }
+    var password by rememberSaveable { mutableStateOf("") }
     Page(vertical = true) {
         Spacer(Modifier.height(44.dp))
         BrandHeader("AI Closer", "AI Closer CRM · Native Android Telemetry")
