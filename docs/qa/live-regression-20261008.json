@@ -1,0 +1,64 @@
+{
+  "runDate": "2026-10-08",
+  "scope": "mobile authentication, device registration, call lifecycle, disposition and recording playback",
+  "secrets": "redacted",
+  "steps": {
+    "freshDebugApk": {
+      "status": "PASS",
+      "details": "Current Android debug APK built successfully and installed on emulator-5554."
+    },
+    "invalidCredentialsFeedback": {
+      "status": "PASS",
+      "details": "The login screen surfaced a clear invalid email/phone or password message instead of silently remaining idle."
+    },
+    "mobileSessionConflict": {
+      "status": "PASS",
+      "details": "An active-session conflict showed the current device and an explicit Login here action. After hiding the keyboard and selecting the action, the app opened setup."
+    },
+    "permissionFlow": {
+      "status": "PASS",
+      "details": "Android microphone, contacts and phone-call permission prompts were exercised. Setup correctly warns that emulator/device manufacturers may restrict call audio."
+    },
+    "deviceOwnershipGuard": {
+      "status": "PASS",
+      "details": "A device already owned by a different sales agent was rejected with a clear ownership error; no silent reassignment occurred."
+    },
+    "secondEmulator": {
+      "status": "BLOCKED_ENVIRONMENT",
+      "details": "emulator-5556 showed an Android application-not-responding dialog during startup/input, so it was not used as call endpoint evidence."
+    },
+    "mobileBootstrap": {
+      "status": "PASS",
+      "httpStatus": 200,
+      "details": "QA closer mobile bootstrap returned the assigned lead projection and role SALES_AGENT."
+    },
+    "outboundCallLifecycle": {
+      "status": "PASS",
+      "httpStatus": 200,
+      "details": "One assigned QA lead stayed tenant- and closer-scoped through start, end and disposition. The call persisted as OUTBOUND/CONNECTED with duration 12 seconds."
+    },
+    "dispositionSync": {
+      "status": "PASS",
+      "httpStatus": 200,
+      "details": "Name, outcome, note, FOLLOW_UP stage and callback timestamp persisted on the same lead assignment; noteSubmitted became true."
+    },
+    "incomingUnknownCallHistory": {
+      "status": "PASS_FROM_EXISTING_QA_EVIDENCE",
+      "details": "Number 9800001103 already has a closer-specific inbound QA lead and two inbound call records. The completed call is 52 seconds, has a saved disposition, and reports recording UPLOADED."
+    },
+    "recordingPlaybackAndSeek": {
+      "status": "PASS_SYNTHETIC_AUDIO",
+      "details": "Authenticated web/mobile recording route returned the QA WAV as audio/wav with HTTP 200; bytes 0-63 returned HTTP 206 with a valid Content-Range. This verifies playback/seek transport, not native emulator microphone capture."
+    },
+    "uploadedWithoutLocalObject": {
+      "status": "FAIL_DATA_INCONSISTENCY",
+      "details": "One older call was marked UPLOADED in the database, but its local recording object was absent and the recording route returned 404. It must be reconciled against production object storage before being treated as playable."
+    }
+  },
+  "notPassed": [
+    "Real two-sided incoming/outgoing emulator audio capture",
+    "Native recording playback for the 9800001103 record from this local checkout",
+    "Second-emulator endpoint call",
+    "Full fresh signup to closer creation flow"
+  ]
+}
