@@ -121,6 +121,10 @@
       "status": "PASS_LOCAL",
       "details": "Instagram deauthorize and data-deletion callback routes now verify Meta signed_request HMAC-SHA256 signatures, require a matching configured app ID when supplied, resolve only the matching Instagram business account, clear the token and disable the tenant connection, and reject unknown accounts without mutating state. Data deletion returns a confirmation URL and code."
     },
+    "recordingTenantIsolation": {
+      "status": "PASS_CODE_VERIFIED",
+      "details": "Privileged Admin/Manager recording reads now require the authenticated user's tenantId, while Closer reads remain limited to the caller's own agent or delegated child assignments. A regression contract prevents the recording route from reverting to callId-only lookup."
+    },
     "nativeIncomingUi": {
       "status": "PASS_NATIVE_CARD_ONLY",
       "details": "The emulator GSM trigger produced the Android native incoming-call card for the test number 9800001702. The separate AI Closer Truecaller-style detail overlay was not verified in this run."
@@ -151,7 +155,7 @@
     "metaIntegrationHardening": "171c283"
   },
   "automatedRegression": {
-    "webTests": "77 passed, 0 failed",
+    "webTests": "78 passed, 0 failed",
     "webTypecheck": "passed",
     "webProductionBuild": "passed",
     "androidUnitTests": "passed",

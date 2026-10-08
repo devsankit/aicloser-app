@@ -440,8 +440,12 @@ export async function saveSalesMobileRecording(actor: SalesMobileActor, callId: 
 export async function readSalesMobileRecording(actor: SalesMobileActor, callId: string) {
   const isPrivileged = actor.role === "SUPER_ADMIN" || actor.role === "ADMIN" || actor.role === "MANAGER";
   const agent = !isPrivileged && actor.role === "SALES_AGENT" ? await getSalesMobileAgent(actor).catch(() => null) : null;
+  const tenantId = agent?.tenantId ?? (await prisma.appAuthUser.findUnique({ where: { id: actor.userId }, select: { tenantId: true } }))?.tenantId;
+  if (!tenantId) throw new Error("Your sales account is not assigned to a workspace.");
   const call = await prisma.salesMobileCall.findFirst({
-    where: isPrivileged || !agent ? { id: callId } : { id: callId, OR: [{ agentId: agent.id }, { assignment: { assignedAgent: { parentAgentId: agent.id } } }] },
+    where: isPrivileged || !agent
+      ? { id: callId, tenantId }
+      : { id: callId, tenantId, OR: [{ agentId: agent.id }, { assignment: { assignedAgent: { parentAgentId: agent.id } } }] },
   });
   if (!call?.recordingPath) throw new Error("Recording not found.");
   const fileName = safeFileName(path.basename(call.recordingPath));
