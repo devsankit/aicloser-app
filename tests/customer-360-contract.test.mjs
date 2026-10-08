@@ -50,7 +50,7 @@ test("Customer 360 remains authenticated and lead-scoped", async () => {
   const taskRoute = await read("src/app/api/sales/leads/[leadId]/tasks/route.ts");
   const service = await read("src/lib/gxclosers/customer-360.ts");
 
-  assert.match(customerRoute, /requireSessionRole\(\["SUPER_ADMIN", "SALES_AGENT"\]\)/);
+  assert.match(customerRoute, /requireSessionRole\(\["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"\]\)/);
   assert.match(customerRoute, /snapshot\.visibleLeads\.some/);
   assert.match(taskRoute, /snapshot\.visibleLeads\.some/);
   assert.doesNotMatch(service, /recordingPath/);

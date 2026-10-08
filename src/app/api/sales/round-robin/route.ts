@@ -135,6 +135,10 @@ export async function POST(request: Request) {
     const targetPoolItemIds = body.poolItemIds?.filter(Boolean) ?? [];
     const targetContacts = ((body as unknown as { contacts?: Array<{ id: string; leadId?: string; name: string; phone?: string; email?: string; tags?: string[]; source?: string }> }).contacts) || [];
 
+    if (!targetLeadIds.length && !targetPoolItemIds.length && !targetContacts.length) {
+      return NextResponse.json({ ok: false, error: "Select imported queue rows before distributing leads.", code: "DISTRIBUTION_SELECTION_REQUIRED" }, { status: 400 });
+    }
+
     let leadsToDistribute: Array<{ id: string; customerName: string; notes: string | null; tags: string[]; stage: string }> = [];
     if (targetLeadIds.length) {
       leadsToDistribute = await prisma.salesLeadAssignment.findMany({
@@ -222,13 +226,6 @@ export async function POST(request: Request) {
         leadId: newLead.id,
         customerName: newLead.customerName,
         assignedTo: agent.user.displayName,
-      });
-    }
-
-    if (!leadsToDistribute.length && !distributionLog.length && !targetLeadIds.length && !targetPoolItemIds.length && !targetContacts.length) {
-      leadsToDistribute = await prisma.salesLeadAssignment.findMany({
-        where: { stage: "NEW", assignedAgent: { user: { tenantId } } },
-        take: 200,
       });
     }
 

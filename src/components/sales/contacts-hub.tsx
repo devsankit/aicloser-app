@@ -300,6 +300,13 @@ export function ContactsHub({
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const [lastImportReport, setLastImportReport] = useState<ImportReport | null>(null);
+  const [pendingImportBatch, setPendingImportBatch] = useState<{ importBatchId: string; poolItemIds: string[] } | null>(null);
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(`aicloser-import-batch:${tenantId}`) || "null");
+      setPendingImportBatch(saved && typeof saved.importBatchId === "string" && Array.isArray(saved.poolItemIds) ? saved : null);
+    } catch { setPendingImportBatch(null); }
+  }, [tenantId]);
   const [editingContact, setEditingContact] = useState<UnifiedContactItem | null>(null);
   const [contactDraft, setContactDraft] = useState({ name: "", phone: "", email: "", tags: "", notes: "" });
 
@@ -688,6 +695,11 @@ export function ContactsHub({
           invalid: Number(data.invalid ?? importPreview.invalid),
         };
         setLastImportReport(report);
+        if (typeof data.importBatchId === "string" && Array.isArray(data.poolItemIds) && data.poolItemIds.length) {
+          const batch = { importBatchId: data.importBatchId, poolItemIds: data.poolItemIds as string[] };
+          setPendingImportBatch(batch);
+          localStorage.setItem(`aicloser-import-batch:${tenantId}`, JSON.stringify(batch));
+        }
         setImportPreview(null);
         setSelectedFile(null);
         setBanner({ tone: "success", text: `Saved ${report.imported} contacts. ${report.duplicate} duplicates were skipped.` });
@@ -958,10 +970,10 @@ export function ContactsHub({
   const handleAutoDistribute = async () => {
     const targetContacts = selectedIds.size > 0
       ? contacts.filter((c) => selectedIds.has(c.id))
-      : contacts;
+      : [];
 
-    if (targetContacts.length === 0) {
-      alert("No contacts available to distribute.");
+    if (targetContacts.length === 0 && !pendingImportBatch?.poolItemIds.length) {
+      alert("Select the imported contacts you want to distribute first.");
       return;
     }
 
@@ -971,7 +983,7 @@ export function ContactsHub({
         tenantId,
         action: "distribute",
         leadIds: targetContacts.map((c) => c.leadId).filter(Boolean),
-        poolItemIds: targetContacts.map((c) => c.poolItemId).filter(Boolean),
+        poolItemIds: selectedIds.size > 0 ? targetContacts.map((c) => c.poolItemId).filter(Boolean) : pendingImportBatch?.poolItemIds ?? [],
         contacts: targetContacts.filter((c) => !c.poolItemId).map((c) => ({
           id: c.id,
           leadId: c.leadId,
@@ -991,6 +1003,10 @@ export function ContactsHub({
       const data = await res.json();
       if (data.ok) {
         setDistributeSuccess(data.message || "Auto-distributed contacts across sales agents!");
+        if (selectedIds.size === 0) {
+          setPendingImportBatch(null);
+          localStorage.removeItem(`aicloser-import-batch:${tenantId}`);
+        }
         setSelectedIds(new Set());
         await loadAllContactsAndIntegrations();
         onRefreshDashboard?.();
@@ -2643,8 +2659,8 @@ export function ContactsHub({
               type="button"
               className="secondary-button"
               onClick={handleAutoDistribute}
-              disabled={distributing}
-              title="Auto-distribute selected or all contacts sequentially across active sales reps (Round-Robin)"
+              disabled={distributing || (selectedIds.size === 0 && !pendingImportBatch?.poolItemIds.length)}
+              title="Distribute selected contacts across active sales reps"
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -2661,7 +2677,7 @@ export function ContactsHub({
                 ? "Distributing..."
                 : selectedIds.size > 0
                   ? `Auto-Distribute (${selectedIds.size})`
-                  : "Auto-Distribute to Team"}
+                  : `Distribute import batch (${pendingImportBatch?.poolItemIds.length ?? 0})`}
             </button>
 
             {/* Send to WhatsApp Bulk Campaign */}

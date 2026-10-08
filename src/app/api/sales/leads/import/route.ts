@@ -235,6 +235,8 @@ export async function POST(request: Request) {
   let skipped = 0;
   const previewRows: Array<ReturnType<typeof parseImportPayload>> = [];
   const isPreview = String(form?.get("preview") ?? "") === "true";
+  const importBatchId = crypto.randomUUID();
+  const poolItemIds: string[] = [];
   const sourceTag = hasFile ? "excel_csv_import" : "google_sheets_sync";
 
   for (const [index, row] of rows.entries()) {
@@ -293,7 +295,8 @@ export async function POST(request: Request) {
           actorUserId: authorization.session.userId,
         });
       } else {
-        await createSalesLeadPoolItem(payload);
+        const poolItem = await createSalesLeadPoolItem(payload);
+        poolItemIds.push(poolItem.id);
       }
       imported += 1;
       for (const key of dedupeKeys) seen.add(key);
@@ -321,6 +324,8 @@ export async function POST(request: Request) {
   return NextResponse.json({
     ok: true,
     imported,
+    importBatchId,
+    poolItemIds,
     skipped,
     duplicate,
     invalid: errors.length,
