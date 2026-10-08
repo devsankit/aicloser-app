@@ -451,7 +451,7 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("RECORDING SPEED", color = GxAccent, fontSize = 10.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(1.0f to "1.0X", 1.5f to "1.5X", 2.0f to "2.0X").forEach { (speed, label) ->
+                    listOf(1.0f to "1.0X", 1.5f to "1.5X", 2.0f to "2.0X", 3.0f to "3.0X").forEach { (speed, label) ->
                         FilterChip(
                             selected = vm.playbackSpeed == speed,
                             onClick = { vm.setSpeed(speed) },
