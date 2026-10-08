@@ -2906,7 +2906,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       ) : null}
 
       {selectedLead ? (
-        <SalesSideDrawer fullScreen onClose={() => setSelectedLeadId(null)} title={selectedLead.customerName}>
+        <SalesSideDrawer onClose={() => setSelectedLeadId(null)} title={selectedLead.customerName}>
           <LeadDetailForm
             lead={selectedLead}
             onNote={addLeadNote}
