@@ -11,7 +11,7 @@
 - **Emulator dialer recording limitation.** Native dialer recording was unavailable under the current emulator locale, but the AI Closer recorder still uploaded an `UPLOADED` recording; keep this platform limitation visible in test evidence.
 - **Incoming-call broadcast edge case fixed.** The emulator omitted the number in the broadcast and the screening service marked a session too early; the receiver now resolves the active number and creates the session only after it has a number.
 - **Quick Paste parser could swap name and phone.** Numeric fragments in an email such as `qa.20261008@example.com` could win the old phone heuristic. The parser now detects email and phone-shaped columns separately and prefers the actual numeric phone column.
-- **Call action can be blocked by an unfinished disposition.** The backend correctly prevents a second call until the previous call notes are submitted, but the lead screen did not explain that state before the tap. Keep this visible as a follow-up UX fix so the closer can open the pending form directly.
+- **Call action can be blocked by an unfinished disposition — fixed.** The backend correctly prevents a second call until the previous call notes are submitted; the mobile lead card now shows the pending-note count and disables Call until the closer completes the notes from Calls.
 
 ## Verification notes
 
