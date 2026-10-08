@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import com.gigxomi.gxclosers.MainActivity
 import com.gigxomi.gxclosers.R
 
 object LeadCallNotification {
@@ -25,7 +26,13 @@ object LeadCallNotification {
             listOf(phone, lead?.stage, lead?.source, lead?.notes).mapNotNull { it?.takeIf(String::isNotBlank) }.joinToString(" · ")
         }
         val uri = if (ended && !callId.isNullOrBlank()) Uri.parse("gxclosers://disposition/$callId") else lead?.id?.takeIf(String::isNotBlank)?.let { Uri.parse("gxclosers://lead/$it") }
-        val launch = uri?.let { Intent(Intent.ACTION_VIEW, it).setPackage(context.packageName) } ?: context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return
+        val launch = uri?.let {
+            Intent(context, MainActivity::class.java).apply {
+                action = Intent.ACTION_VIEW
+                data = it
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
+        } ?: context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return
         val pending = PendingIntent.getActivity(context, if (ended) 2402 else 2401, launch, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(context, CHANNEL) else @Suppress("DEPRECATION") Notification.Builder(context)
         val notification = builder.setSmallIcon(R.drawable.ic_launcher).setColor(0xFFD7FF2F.toInt()).setContentTitle(title).setContentText(text).setStyle(Notification.BigTextStyle().bigText(text)).setContentIntent(pending).setAutoCancel(ended).setOngoing(!ended).build()

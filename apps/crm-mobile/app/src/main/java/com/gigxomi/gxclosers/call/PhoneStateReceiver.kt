@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.provider.Settings
 import android.telephony.TelephonyManager
 import android.util.Log
 import com.gigxomi.gxclosers.data.CrmRepository
@@ -27,7 +28,11 @@ class PhoneStateReceiver : BroadcastReceiver() {
         if (state == "RINGING" && phone.isNotBlank()) {
             LeadCallNotification.show(context, phone)
             CallOverlayWindow.show(context, phone)
-            if (incoming.isNotBlank() && prefs.getString("activeCallId", null).isNullOrBlank() &&
+            // Some Android/emulator PHONE_STATE broadcasts omit EXTRA_INCOMING_NUMBER
+            // on the first RINGING event. `phone` is already resolved from the
+            // broadcast or the receiver's short-lived state, so gate on that
+            // resolved value instead of dropping the backend call session.
+            if (phone.isNotBlank() && prefs.getString("activeCallId", null).isNullOrBlank() &&
                 prefs.getString("pendingInboundLeadId", null).isNullOrBlank() &&
                 !prefs.getBoolean("incomingSessionStarting", false)) {
                 startIncomingSession(context, phone)
@@ -99,7 +104,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
                 .remove("activeStartedAt")
                 .remove("pendingInboundLeadId")
             if (!sessionStarting) {
-                cleanup.remove("wasOffhook").remove("incomingSessionEnded").remove("incomingEndedAt")
+                cleanup.remove("wasOffhook").remove("incomingSessionEnded").remove("incomingEndedAt").remove("phone")
             }
             cleanup.apply()
         }
@@ -118,7 +123,14 @@ class PhoneStateReceiver : BroadcastReceiver() {
                     apply()
                 }
                 val repository = CrmRepository(context)
-                val callId = repository.startIncomingCall(lead?.id, phone, repository.sessionStore.installationId)
+                // Device registration uses the stable Android device ID. Keep
+                // incoming call sessions on that same identity; the install
+                // session UUID is only for mobile login/session ownership.
+                val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+                    ?: "${Build.MANUFACTURER}-${Build.MODEL}"
+                Log.i("GXPhoneState", "starting inbound session phone=$phone deviceId=$deviceId leadId=${lead?.id.orEmpty()}")
+                val callId = repository.startIncomingCall(lead?.id, phone, deviceId)
+                Log.i("GXPhoneState", "inbound session created callId=$callId")
                 val endedBeforeSession = prefs.getBoolean("incomingSessionEnded", false)
                 val wasOffhook = prefs.getBoolean("wasOffhook", false)
                 prefs.edit().apply {
@@ -162,6 +174,10 @@ class PhoneStateReceiver : BroadcastReceiver() {
                     .putBoolean("incomingSessionStarting", false)
                     .remove("incomingSessionEnded")
                     .remove("incomingEndedAt")
+                    .remove("pendingInboundLeadId")
+                    .remove("activeLeadId")
+                    .remove("activePhone")
+                    .remove("phone")
                     .remove("wasOffhook")
                     .apply()
             } finally {
