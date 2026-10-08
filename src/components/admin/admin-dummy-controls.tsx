@@ -425,7 +425,7 @@ function getWhatsAppConnectionDisplay(connection: DummyWhatsAppConnectionState |
     return {
       badge: "Not started",
       headline: "No WhatsApp number connected",
-      detail: "Launch Meta signup and Gigxomi will capture the authorization code, WABA, and Cloud API phone ID.",
+      detail: "Launch Meta signup and AI Closer will capture the authorization code, WABA, and Cloud API phone ID.",
     };
   }
 
@@ -445,7 +445,7 @@ function getWhatsAppConnectionDisplay(connection: DummyWhatsAppConnectionState |
       headline: connectedNumber,
       detail: hasCapturedWhatsAppLine(connection)
         ? "WhatsApp line connected from Meta signup for this agency."
-        : "Meta returned this WhatsApp number. Gigxomi is waiting for Meta to return the phone number ID before live inbox routing can start.",
+        : "Meta returned this WhatsApp number. AI Closer is waiting for Meta to return the phone number ID before live inbox routing can start.",
     };
   }
 
@@ -454,8 +454,8 @@ function getWhatsAppConnectionDisplay(connection: DummyWhatsAppConnectionState |
       badge: hasReadyWhatsAppLine(connection) ? "Connected" : "Ready for registration",
       headline: `Phone ID ${connection.phoneNumberId.trim()}`,
       detail: hasReadyWhatsAppLine(connection)
-        ? "Gigxomi captured the Meta token and Cloud API phone ID. Registration and webhook checks can continue without hiding the connected line."
-        : "Meta returned the Cloud API phone ID. Gigxomi is waiting for the Meta token before registration and webhook checks can run.",
+        ? "AI Closer captured the Meta token and Cloud API phone ID. Registration and webhook checks can continue without hiding the connected line."
+        : "Meta returned the Cloud API phone ID. AI Closer is waiting for the Meta token before registration and webhook checks can run.",
     };
   }
 
@@ -463,7 +463,7 @@ function getWhatsAppConnectionDisplay(connection: DummyWhatsAppConnectionState |
     return {
       badge: connection.status === "Number connected" ? "Business submitted" : connection.status,
       headline: "Meta account connected",
-      detail: "Gigxomi has Meta business data, but registration cannot start until Meta returns the Cloud API phone number ID.",
+      detail: "AI Closer has Meta business data, but registration cannot start until Meta returns the Cloud API phone number ID.",
     };
   }
 
@@ -478,7 +478,7 @@ function getWhatsAppConnectionDisplay(connection: DummyWhatsAppConnectionState |
   return {
     badge: connection.status,
     headline: "No WhatsApp number connected",
-    detail: "Launch Meta signup and Gigxomi will connect the selected Cloud API business line.",
+    detail: "Launch Meta signup and AI Closer will connect the selected Cloud API business line.",
   };
 }
 
@@ -1260,7 +1260,7 @@ export function AdminWhatsAppSetupPanel({
         phoneNumberId: manualDrafts.phoneNumberId,
         systemUserId: manualDrafts.systemUserId,
       },
-      "Manual WhatsApp line values saved. Gigxomi will keep these values during refresh until you switch back to Meta-detected values.",
+      "Manual WhatsApp line values saved. AI Closer will keep these values during refresh until you switch back to Meta-detected values.",
       {
         manualOverrides: nextManualOverrides,
       },
@@ -1275,7 +1275,7 @@ export function AdminWhatsAppSetupPanel({
 
     const saved = await persistConnection(
       {},
-      "Manual WhatsApp line overrides cleared. Gigxomi will now refresh the Meta-detected values for this tenant.",
+      "Manual WhatsApp line overrides cleared. AI Closer will now refresh the Meta-detected values for this tenant.",
       { manualOverrides: clearedOverrides },
     );
 
@@ -1285,7 +1285,7 @@ export function AdminWhatsAppSetupPanel({
 
     const nextConnection = await refreshLineStatus({ silent: true });
     if (nextConnection) {
-      setStatus("Manual overrides cleared. Gigxomi refreshed the live Meta values for this tenant.");
+      setStatus("Manual overrides cleared. AI Closer refreshed the live Meta values for this tenant.");
     }
   }
 
@@ -1626,7 +1626,7 @@ export function AdminWhatsAppSetupPanel({
       } else {
         const fallbackPopup = window.open(buildEmbeddedSignupUrl(connection), "_blank");
         if (!fallbackPopup) {
-          setStatus("Your browser blocked the fallback tab. Use the in-app popup or allow popups for gigxomi.com.");
+          setStatus("Your browser blocked the fallback tab. Use the in-app popup or allow popups for this site.");
           return;
         }
 
@@ -1642,10 +1642,10 @@ export function AdminWhatsAppSetupPanel({
           lastSignupEventAt: launchAt,
           note:
             connection.status === "Not started"
-              ? "Meta signup launched. Finish the popup and Gigxomi will auto-capture the returned IDs when Meta sends them back."
+              ? "Meta signup launched. Finish the popup and AI Closer will auto-capture the returned IDs when Meta sends them back."
               : connection.note,
         },
-        "Meta WhatsApp signup opened. Finish the flow in Meta and Gigxomi will capture the returned IDs automatically.",
+        "Meta WhatsApp signup opened. Finish the flow in Meta and AI Closer will capture the returned IDs automatically.",
       );
 
       setSetupProgress("waiting");
@@ -1692,9 +1692,9 @@ export function AdminWhatsAppSetupPanel({
             lastError: "",
             lastSignupEvent: result.event,
             lastSignupEventAt: capturedAt,
-            note: "Meta signup popup closed before Gigxomi received the final onboarding payload.",
+            note: "Meta signup popup closed before AI Closer received the final onboarding payload.",
           },
-          "Meta signup was closed before the final onboarding payload reached Gigxomi.",
+          "Meta signup was closed before the final onboarding payload reached AI Closer.",
         );
         return;
       }
@@ -1712,7 +1712,7 @@ export function AdminWhatsAppSetupPanel({
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to complete the Meta signup handshake.";
       setSetupProgress("error");
-      setStatus(`${message} Check the production Meta app domains, redirect URI, app secret, and Embedded Signup config on gigxomi.com.`);
+      setStatus(`${message} Check the production Meta app domains, redirect URI, app secret, and Embedded Signup configuration for AI Closer.`);
     } finally {
       setIsLaunching(false);
     }
@@ -2234,7 +2234,7 @@ export function AdminWhatsAppSetupPanel({
         </p>
       ) : null}
       <p className="muted-copy">
-        Gigxomi now starts the official Meta popup from inside the app. Complete the popup and Gigxomi will capture the authorization code, business details, WABA, and phone number details automatically for this tenant.
+        AI Closer now starts the official Meta popup from inside the app. Complete the popup and AI Closer will capture the authorization code, business details, WABA, and phone number details automatically for this tenant.
       </p>
       {connectedLineNumber ? <p className="muted-copy">Current connected WhatsApp number: {connectedLineNumber}</p> : null}
       {registrationPending ? (
@@ -2341,7 +2341,7 @@ export function AdminWhatsAppSetupPanel({
               <input
                 defaultValue={connection.publicBaseUrl}
                 onBlur={(event) => updateField("publicBaseUrl", event.target.value)}
-                placeholder="https://gigxomi.com"
+                placeholder="https://app.aicloser.in"
               />
             </label>
             <label className="freelancer-field">
