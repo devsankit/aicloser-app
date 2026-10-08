@@ -53,7 +53,7 @@
     },
     "mobileLogin": {
       "status": "PASS_WITH_EXPECTED_DEVICE_BLOCK",
-      "details": "Fresh APK login reproduced the active-session conflict and displayed the Login here takeover action. Setup remained correctly blocked by existing device ownership; it did not silently reassign the company phone. A stale-session recovery fix was committed in 4ee160d. A setup fail-closed fix was committed in 3bfe01a: denied permissions, call-screening role, or overlay access no longer register the device and show a corrective message. A successful registration on a previously unregistered closer device was not completed because the workspace had no spare closer seat/device assignment."
+      "details": "Fresh APK login reproduced the active-session conflict and displayed the Login here takeover action. Setup remained correctly blocked by existing device ownership; it did not silently reassign the company phone. A stale-session recovery fix was committed in 4ee160d. A setup fail-closed fix was committed in 3bfe01a: denied permissions, call-screening role, or overlay access no longer register the device and show a corrective message. A successful registration on a previously unregistered closer device was not completed because the workspace had no spare closer seat/device assignment. An additional mobile refresh fix in b010639 now sends expired-session responses from Inbox, learning, chat, customer-360, and lesson refreshes back to Login instead of leaving the user on a generic error screen; the rebuilt APK launched to Login after the stored session was cleared."
     },
     "outgoingCallApiLifecycle": {
       "status": "PASS",
@@ -106,7 +106,8 @@
     "leadFormRoleFix": "bcc08d2",
     "managerDashboardRouteFix": "277a62c",
     "livePermissionRefreshFix": "96b6035",
-    "effectivePermissionRefreshFix": "8091e7e"
+    "effectivePermissionRefreshFix": "8091e7e",
+    "mobileSessionRefreshFix": "b010639"
   },
   "automatedRegression": {
     "webTests": "70 passed, 0 failed",
