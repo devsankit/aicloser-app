@@ -35,7 +35,7 @@
     },
     "contactsDirectoryLive": {
       "status": "PASS_WITH_SLOW_LOAD_ON_CURRENT_DEPLOYMENT",
-      "details": "Live Contacts directory eventually loaded the three QA contacts after approximately 5–6 seconds. The currently deployed build briefly showed a spinner and still rendered Bulk Campaign while the directory was empty; timeout/error handling and empty-action guard are committed locally but require deployment to verify live."
+      "details": "Live Contacts directory eventually loaded the three QA contacts after approximately 5–6 seconds. A read-only live CSV preview using an existing CRM phone exposed that the currently deployed build reported Duplicates 0 / Import 1; the preview was discarded without saving. Local fix b475d05 now performs tenant-scoped phone/email duplicate detection before preview and save, and clears the stale preview banner on discard; deployment is required to verify the fix live."
     },
     "createCloser": {
       "status": "BLOCKED",
@@ -108,10 +108,11 @@
     "livePermissionRefreshFix": "96b6035",
     "effectivePermissionRefreshFix": "8091e7e",
     "mobileSessionRefreshFix": "b010639",
-    "mobileForegroundRefreshFix": "da2d4be"
+    "mobileForegroundRefreshFix": "da2d4be",
+    "contactImportDuplicateFix": "b475d05"
   },
   "automatedRegression": {
-    "webTests": "70 passed, 0 failed",
+    "webTests": "72 passed, 0 failed",
     "webTypecheck": "passed",
     "androidUnitTests": "passed",
     "androidDebugBuild": "passed"
