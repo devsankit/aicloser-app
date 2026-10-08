@@ -29,6 +29,14 @@
       "status": "PASS_READ_ONLY",
       "details": "Live Admin dashboard shortcuts opened Dashboard Overview, CRM Kanban, Lead Import, Contacts, Calls, and Team & Users. CRM side drawer preserved lead context; filters, stage controls, notes/follow-up actions, call history, and recording-status states were visible. Calls campaign delete actions now have explicit accessible labels."
     },
+    "seatCapacityCreationUx": {
+      "status": "PASS_LOCAL",
+      "details": "When all plan seats are active, the Team & Users screen explains the limit on first render, keeps the optional phone field available, and disables account creation with an accessible upgrade action instead of allowing a confusing no-op click."
+    },
+    "recordingStatusLabels": {
+      "status": "PASS_LOCAL",
+      "details": "CRM drawer, CRM list, call history, and Android Calls & Recordings now share user-facing labels: Ready to play, Processing, Recording unavailable, and No recording. Raw FAILED/RECORDING_UNAVAILABLE states are no longer shown as the primary label."
+    },
     "effectivePermissionRefresh": {
       "status": "PASS_CODE_VERIFIED",
       "details": "Open dashboards now refresh role permissions on focus and every 30 seconds, and the refresh API resolves the configured workspace role before selecting the permission matrix. Manager team visibility follows that same effective role."
@@ -109,10 +117,13 @@
     "effectivePermissionRefreshFix": "8091e7e",
     "mobileSessionRefreshFix": "b010639",
     "mobileForegroundRefreshFix": "da2d4be",
-    "contactImportDuplicateFix": "b475d05"
+    "contactImportDuplicateFix": "b475d05",
+    "seatCapacityCreationUxFix": "5ee950c",
+    "recordingStatusLabelFix": "2ab6d34",
+    "mobileRecordingStatusLabelFix": "7c39fde"
   },
   "automatedRegression": {
-    "webTests": "72 passed, 0 failed",
+    "webTests": "74 passed, 0 failed",
     "webTypecheck": "passed",
     "androidUnitTests": "passed",
     "androidDebugBuild": "passed"
