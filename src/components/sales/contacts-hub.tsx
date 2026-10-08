@@ -86,6 +86,23 @@ type ImportReport = ImportPreview & {
   imported: number;
 };
 
+type JsonFetchResult = {
+  response: Response;
+  data: any;
+};
+
+async function fetchJsonWithTimeout(url: string, timeoutMs = 10000): Promise<JsonFetchResult> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { cache: "no-store", signal: controller.signal });
+    const data = await response.json().catch(() => null);
+    return { response, data };
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 const SOURCE_FILTER_TABS: Array<{
   id: UnifiedContactSourceCategory | "ALL";
   label: string;
@@ -289,6 +306,7 @@ export function ContactsHub({
     SIM_MANUAL: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [contactsLoadError, setContactsLoadError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<UnifiedContactSourceCategory | "ALL">("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -357,40 +375,57 @@ export function ContactsHub({
 
   const loadAllContactsAndIntegrations = useCallback(async () => {
     setLoading(true);
-    try {
-      const qs = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : "";
-      const [contactsRes, scannerRes, emailRes] = await Promise.all([
-        fetch(`/api/sales/contacts${qs}`, { cache: "no-store" }),
-        fetch(`/api/sales/whatsapp-scanner${qs}`, { cache: "no-store" }),
-        fetch(`/api/sales/email-inbox${qs}`, { cache: "no-store" }),
-      ]);
+    setContactsLoadError(null);
+    const qs = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : "";
+    const contactsPromise = fetchJsonWithTimeout(`/api/sales/contacts${qs}`);
+    const scannerPromise = fetchJsonWithTimeout(`/api/sales/whatsapp-scanner${qs}`);
+    const emailPromise = fetchJsonWithTimeout(`/api/sales/email-inbox${qs}`);
+    const [contactsResult] = await Promise.allSettled([contactsPromise]);
 
-      const contactsJson = await contactsRes.json().catch(() => null);
-      if (contactsJson?.ok) {
-        setContacts(contactsJson.contacts || []);
-        if (contactsJson.countsByCategory) {
-          setCounts(contactsJson.countsByCategory);
-        }
-      }
-
-      const scannerJson = await scannerRes.json().catch(() => null);
-      if (scannerJson?.ok && scannerJson.scanner) {
-        setScannerState(scannerJson.scanner);
-        setWaAccountType(scannerJson.scanner.accountType || "WHATSAPP_BUSINESS");
-        setWaSyncMode(scannerJson.scanner.syncMode || "FULL_INBOX_SYNC");
-        setWaVisibility(scannerJson.scanner.visibilityMode || "TEAM_SHARED");
-      }
-
-      const emailJson = await emailRes.json().catch(() => null);
-      if (emailJson?.ok) {
-        setEmailAccounts(emailJson.accounts || []);
-        setParsedEnquiries(emailJson.enquiries || []);
-      }
-    } catch {
-      // ignore transient errors
-    } finally {
-      setLoading(false);
+    if (contactsResult.status === "fulfilled" && contactsResult.value.response.ok && contactsResult.value.data?.ok) {
+      const contactsJson = contactsResult.value.data;
+      setContacts(contactsJson.contacts || []);
+      setCounts(contactsJson.countsByCategory || {
+        ALL: 0,
+        WHATSAPP_SCANNER: 0,
+        WHATSAPP_CLOUD_API: 0,
+        EMAIL_ENQUIRY: 0,
+        SHEETS_EXCEL: 0,
+        INSTAGRAM_DM: 0,
+        SIM_MANUAL: 0,
+      });
+    } else {
+      const reason = contactsResult.status === "rejected"
+        ? contactsResult.reason instanceof Error && contactsResult.reason.name === "AbortError"
+          ? "The contacts directory timed out."
+          : "The contacts directory could not be loaded."
+        : "The contacts directory returned an error.";
+      setContactsLoadError(reason);
     }
+
+    // The directory is the primary surface. Do not keep its table in a
+    // spinner while optional integration status endpoints are still loading.
+    setLoading(false);
+
+    const [scannerResult, emailResult] = await Promise.all([
+      scannerPromise.then((value) => ({ status: "fulfilled" as const, value })).catch((reason) => ({ status: "rejected" as const, reason })),
+      emailPromise.then((value) => ({ status: "fulfilled" as const, value })).catch((reason) => ({ status: "rejected" as const, reason })),
+    ]);
+
+    if (scannerResult.status === "fulfilled" && scannerResult.value.response.ok && scannerResult.value.data?.ok && scannerResult.value.data.scanner) {
+      const scannerJson = scannerResult.value.data;
+      setScannerState(scannerJson.scanner);
+      setWaAccountType(scannerJson.scanner.accountType || "WHATSAPP_BUSINESS");
+      setWaSyncMode(scannerJson.scanner.syncMode || "FULL_INBOX_SYNC");
+      setWaVisibility(scannerJson.scanner.visibilityMode || "TEAM_SHARED");
+    }
+
+    if (emailResult.status === "fulfilled" && emailResult.value.response.ok && emailResult.value.data?.ok) {
+      const emailJson = emailResult.value.data;
+      setEmailAccounts(emailJson.accounts || []);
+      setParsedEnquiries(emailJson.enquiries || []);
+    }
+
   }, [tenantId]);
 
   useEffect(() => {
@@ -1368,6 +1403,35 @@ export function ContactsHub({
             style={{ background: "transparent", border: "none", color: "inherit", cursor: "pointer" }}
           >
             <X size={16} />
+          </button>
+        </div>
+      ) : null}
+
+      {contactsLoadError ? (
+        <div
+          className="crm-notice crm-notice-error"
+          role="alert"
+          style={{
+            padding: "12px 16px",
+            borderRadius: 12,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 12,
+            background: "rgba(239, 68, 68, 0.14)",
+            border: "1px solid rgba(239, 68, 68, 0.4)",
+            color: "#ef4444",
+            fontWeight: 600,
+            fontSize: "0.88rem",
+          }}
+        >
+          <span>{contactsLoadError} Other import tools remain available.</span>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => void loadAllContactsAndIntegrations()}
+          >
+            <RefreshCw size={14} /> Retry contacts
           </button>
         </div>
       ) : null}
@@ -2835,6 +2899,12 @@ export function ContactsHub({
                 <tr>
                   <td colSpan={8} style={{ padding: 28, textAlign: "center", color: "var(--muted)" }}>
                     Loading unified contacts directory...
+                  </td>
+                </tr>
+              ) : contactsLoadError ? (
+                <tr>
+                  <td colSpan={8} style={{ padding: 32, textAlign: "center", color: "var(--muted)" }}>
+                    Contacts are temporarily unavailable. Use Retry contacts above to try again.
                   </td>
                 </tr>
               ) : filteredContacts.length === 0 ? (
