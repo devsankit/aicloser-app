@@ -21,7 +21,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -109,6 +108,13 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
             }
             composable("chat/{id}/{name}", arguments = listOf(navArgument("id") { type = NavType.StringType }, navArgument("name") { type = NavType.StringType })) { entry ->
                 ChatScreen(vm, entry.arguments?.getString("id").orEmpty(), Uri.decode(entry.arguments?.getString("name").orEmpty())) { nav.popBackStack() }
+            }
+            composable("inbox") {
+                InboxScreen(
+                    vm = vm,
+                    open = { item -> item.conversationId?.let { nav.navigate("chat/$it/${Uri.encode(item.lead.customerName)}") } },
+                    back = { nav.popBackStack() },
+                )
             }
             composable("lesson/{courseId}/{lessonId}", arguments = listOf(navArgument("courseId") { type = NavType.StringType }, navArgument("lessonId") { type = NavType.StringType })) { entry ->
                 LessonScreen(vm, entry.arguments?.getString("courseId").orEmpty(), entry.arguments?.getString("lessonId").orEmpty()) { nav.popBackStack() }
@@ -241,14 +247,13 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
             if (vm.hasFeature("dashboard")) add(Tab("home", "Home", Icons.Default.Home))
             if (vm.hasFeature("crm")) add(Tab("leads", "Leads", Icons.Default.Groups))
             if (vm.hasFeature("calls")) add(Tab("calls", "Calls", Icons.Default.Phone))
-            if (vm.hasFeature("conversations")) add(Tab("inbox", "Inbox", Icons.Default.Chat))
-            add(Tab("profile", "Profile", Icons.Default.Person))
+            add(Tab("more", "More", Icons.Default.MoreHoriz))
         }
     }
     LaunchedEffect(tabs.size) { if (selected >= tabs.size) selected = 0 }
-    val activeTab = tabs.getOrNull(selected)?.key ?: "profile"
+    val activeTab = tabs.getOrNull(selected)?.key ?: "more"
     LaunchedEffect(Unit) { if (vm.inbox.isEmpty()) vm.loadInbox(); if (vm.courses.isEmpty()) vm.loadCourses() }
-    LaunchedEffect(activeTab) { if (activeTab == "inbox" && vm.inbox.isEmpty()) vm.loadInbox(); if (activeTab == "profile" && vm.courses.isEmpty()) vm.loadCourses() }
+    LaunchedEffect(activeTab) { if (activeTab == "inbox" && vm.inbox.isEmpty()) vm.loadInbox(); if (activeTab == "more" && vm.courses.isEmpty()) vm.loadCourses() }
     Scaffold(
         containerColor = GxBackground,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -258,11 +263,11 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
     ) { padding ->
         Box(Modifier.padding(padding)) {
             when (activeTab) {
-                "home" -> DashboardScreen(vm, { if (vm.hasFeature("crm")) nav.navigate("lead-grab") }, { tabs.indexOfFirst { it.key == "calls" }.takeIf { it >= 0 }?.let { selected = it } }, { selected = tabs.indexOfFirst { it.key == "profile" }.coerceAtLeast(0) })
+                "home" -> DashboardScreen(vm, { if (vm.hasFeature("crm")) nav.navigate("lead-grab") }, { tabs.indexOfFirst { it.key == "calls" }.takeIf { it >= 0 }?.let { selected = it } }, { selected = tabs.indexOfFirst { it.key == "more" }.coerceAtLeast(0) })
                 "leads" -> LeadsScreen(vm, { nav.navigate("lead-grab") }) { nav.navigate("lead/${it.id}") }
                 "calls" -> CallsScreen(vm) { nav.navigate("disposition/$it") }
-                "inbox" -> InboxScreen(vm) { item -> item.conversationId?.let { nav.navigate("chat/$it/${Uri.encode(item.lead.customerName)}") } }
-                else -> MoreScreen(vm, edit = { nav.navigate("edit-profile") }) { course, lesson -> nav.navigate("lesson/${course.id}/${lesson.id}") }
+                "inbox" -> InboxScreen(vm, open = { item -> item.conversationId?.let { nav.navigate("chat/$it/${Uri.encode(item.lead.customerName)}") } })
+                else -> MoreScreen(vm, edit = { nav.navigate("edit-profile") }, inbox = { nav.navigate("inbox") }) { course, lesson -> nav.navigate("lesson/${course.id}/${lesson.id}") }
             }
         }
     }
@@ -275,14 +280,13 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
             shape = RoundedCornerShape(30.dp),
             border = BorderStroke(1.dp, GxMuted.copy(alpha = .16f)),
             shadowElevation = 7.dp,
-            modifier = Modifier.fillMaxWidth(.78f).widthIn(min = 316.dp, max = 560.dp).heightIn(min = 62.dp),
+            modifier = Modifier.fillMaxWidth(.88f).widthIn(min = 316.dp, max = 560.dp).heightIn(min = 68.dp),
         ) {
-            Row(Modifier.padding(horizontal = 8.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(Modifier.padding(horizontal = 8.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 tabs.forEachIndexed { index, tab ->
                     val active = selected == index
-                    val interactionSource = remember { MutableInteractionSource() }
                     Column(
-                        modifier = Modifier.weight(1f).heightIn(min = 44.dp).clickable(interactionSource = interactionSource, indication = null) { onSelect(index) },
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp).clickable { onSelect(index) },
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
                     ) {
@@ -447,7 +451,8 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
             }
         }
 
-        GxCard {
+        val hasPlayableRecordings = data?.calls.orEmpty().any { it.recordingStatus == "UPLOADED" }
+        if (hasPlayableRecordings) GxCard {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("RECORDING SPEED", color = GxAccent, fontSize = 10.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -506,7 +511,7 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
     }
 }
 
-@Composable private fun InboxScreen(vm: CrmViewModel, open: (InboxItem) -> Unit) {
+@Composable private fun InboxScreen(vm: CrmViewModel, open: (InboxItem) -> Unit, back: (() -> Unit)? = null) {
     var search by rememberSaveable { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf("ALL") }
     val filteredInbox = remember(vm.inbox, search, filter) {
@@ -518,7 +523,8 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
         }
     }
     Page {
-        BrandHeader("Inbox", "Only conversations linked to your assigned leads")
+        if (back == null) BrandHeader("Inbox", "Only conversations linked to your assigned leads")
+        else HeaderWithBack("Inbox", "Only conversations linked to your assigned leads", back)
         OutlinedTextField(
             value = search,
             onValueChange = { search = it },
@@ -646,7 +652,7 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
     }
 }
 
-@Composable private fun MoreScreen(vm: CrmViewModel, edit: () -> Unit, openLesson: (Course, Lesson) -> Unit) {
+@Composable private fun MoreScreen(vm: CrmViewModel, edit: () -> Unit, inbox: () -> Unit, openLesson: (Course, Lesson) -> Unit) {
     val session = vm.session
     val data = vm.bootstrap
     val agent = data?.agent
@@ -677,6 +683,19 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
                 Icon(Icons.Default.School, null, tint = GxAccent, modifier = Modifier.size(20.dp)); Spacer(Modifier.width(9.dp))
                 Column(Modifier.weight(1f)) { Text("Learning score", color = GxMuted, fontSize = 11.sp); Text("$learningScore%", color = GxAccent, fontSize = 20.sp, fontWeight = FontWeight.Black) }
                 Text("$completedLessons/${lessons.size} lessons", color = GxMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        if (vm.hasFeature("conversations")) GxCard {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(color = GxAccent.copy(alpha = .14f), shape = RoundedCornerShape(14.dp)) {
+                    Icon(Icons.Default.Chat, null, tint = GxAccent, modifier = Modifier.padding(11.dp).size(22.dp))
+                }
+                Spacer(Modifier.width(11.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Team inbox", fontWeight = FontWeight.Black)
+                    Text("Review assigned conversations and reply", color = GxMuted, fontSize = 11.sp)
+                }
+                OutlinedButton(onClick = inbox, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) { Text("Open") }
             }
         }
         Surface(color = GxSurface, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, GxMuted.copy(alpha = .14f)), modifier = Modifier.fillMaxWidth()) {
