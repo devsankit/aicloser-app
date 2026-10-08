@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { useEffect, useState, type DragEvent as ReactDragEvent, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import { ArrowLeft, Bell, Check, Download, LogOut, Menu, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
+import { ArrowLeft, Bell, Check, Download, GripVertical, LogOut, Menu, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 
 import { BrandWordmark } from "@/components/ui/brand-wordmark";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
@@ -138,6 +138,16 @@ export function InternalAppShell({
     setDraggedNavId(null);
   };
 
+  const moveNavItemByOffset = (itemId: string, offset: -1 | 1) => {
+    const currentIndex = orderedNavItems.findIndex((item) => item.id === itemId);
+    const targetIndex = currentIndex + offset;
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= orderedNavItems.length) return;
+
+    const next = orderedNavItems.map((item) => item.id);
+    [next[currentIndex], next[targetIndex]] = [next[targetIndex], next[currentIndex]];
+    setNavigationOrder(next);
+  };
+
   const toggleSidebar = () => {
     setInternalSidebarMode((current) => {
       const next = current === "collapsed" ? "default" : "collapsed";
@@ -236,8 +246,38 @@ export function InternalAppShell({
   const renderNavItem = (item: ShellNavItem, keyPrefix = "nav", closeAfterNavigate = false) => {
     const Icon = item.icon;
     const isCollapsed = effectiveSidebarMode === "collapsed";
+    const dragHandle = (
+      <span
+        aria-label={`Drag to reorder ${item.label}`}
+        className="internal-nav-drag-handle"
+        draggable
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+        onDragEnd={() => setDraggedNavId(null)}
+        onDragStart={(event) => {
+          event.stopPropagation();
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("text/plain", item.id);
+          setDraggedNavId(item.id);
+        }}
+        onKeyDown={(event) => {
+          if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+          event.preventDefault();
+          event.stopPropagation();
+          moveNavItemByOffset(item.id, event.key === "ArrowUp" ? -1 : 1);
+        }}
+        role="button"
+        tabIndex={0}
+        title="Drag to reorder"
+      >
+        <GripVertical aria-hidden="true" size={14} strokeWidth={2} />
+      </span>
+    );
     const content = (
       <>
+        {dragHandle}
         <Icon className="internal-nav-icon" size={18} strokeWidth={1.8} />
         {isCollapsed ? null : (
           <>
@@ -254,8 +294,6 @@ export function InternalAppShell({
       </>
     );
     const dragProps = {
-      draggable: true,
-      onDragStart: () => setDraggedNavId(item.id),
       onDragOver: (event: ReactDragEvent<HTMLElement>) => event.preventDefault(),
       onDrop: (event: ReactDragEvent<HTMLElement>) => {
         event.preventDefault();

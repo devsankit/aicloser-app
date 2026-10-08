@@ -4,6 +4,7 @@ import android.app.Application
 import android.os.Build
 import android.provider.Settings
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
@@ -12,11 +13,17 @@ import com.gigxomi.gxclosers.BuildConfig
 import com.gigxomi.gxclosers.call.CallManager
 import com.gigxomi.gxclosers.data.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.util.Collections
+import java.util.UUID
 
 class CrmViewModel(application: Application) : AndroidViewModel(application) {
-    private val repository = CrmRepository(application)
+    val repository = CrmRepository(application)
     var authenticated by mutableStateOf(repository.sessionStore.token != null); private set
     var setupComplete by mutableStateOf(repository.sessionStore.setupComplete); private set
     var session by mutableStateOf(repository.sessionStore.session); private set
@@ -37,27 +44,180 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
     var busy by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null); private set
     var status by mutableStateOf<String?>(null); private set
+    var syncCounts by mutableStateOf(repository.getSyncCounts()); private set
+    var playbackSpeed by mutableFloatStateOf(1.0f); private set
 
-    init { if (authenticated && setupComplete) refreshAll() }
+    private var heartbeatJob: Job? = null
+    private var realtimeConnection: AutoCloseable? = null
+    private var lastEventId: String? = null
+    private val processedEventIds = Collections.synchronizedSet(HashSet<String>())
+    private var activeConversationId: String? = null
 
-    fun clearMessage() { error = null; status = null }
-    private fun launchWork(block: suspend () -> Unit) {
-        viewModelScope.launch {
-            busy = true; error = null
-            try { block() } catch (e: Exception) { error = e.message ?: "Something went wrong." } finally { busy = false }
+    init {
+        if (authenticated && setupComplete) {
+            refreshAll()
+            startRealtime()
         }
     }
 
+    fun clearMessage() { error = null; status = null }
+
+    private fun launchWork(block: suspend () -> Unit) {
+        viewModelScope.launch {
+            busy = true; error = null
+            try {
+                block()
+            } catch (e: Exception) {
+                error = when (e) {
+                    is InvalidCredentialsException -> "Invalid email/phone or password"
+                    is ClientSlotOccupiedException -> "Your mobile account is already active on another device."
+                    is SessionRevokedException -> {
+                        handleSessionRevoked()
+                        "Your mobile session was revoked or expired. Please sign in again."
+                    }
+                    is ForbiddenException -> "Access denied. Insufficient permissions."
+                    is NotFoundException -> "The requested resource was not found."
+                    is ValidationException -> e.message ?: "Validation error."
+                    is NetworkTimeoutException -> "Network timed out. Please check your connection."
+                    is SavedOfflineException -> {
+                        updateSyncCounts()
+                        e.message
+                    }
+                    else -> e.message ?: "Something went wrong."
+                }
+            } finally {
+                busy = false
+                updateSyncCounts()
+            }
+        }
+    }
+
+    fun onForeground() {
+        startHeartbeat()
+        if (authenticated && setupComplete) {
+            startRealtime()
+        }
+    }
+
+    fun onBackground() {
+        stopHeartbeat()
+        stopRealtime()
+    }
+
+    private fun startHeartbeat() {
+        heartbeatJob?.cancel()
+        heartbeatJob = viewModelScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                if (authenticated) {
+                    try {
+                        repository.heartbeat()
+                    } catch (_: SessionRevokedException) {
+                        withContext(Dispatchers.Main) { handleSessionRevoked() }
+                        break
+                    } catch (_: Exception) {
+                        // Network error during heartbeat, will retry next tick
+                    }
+                }
+                delay(60_000L)
+            }
+        }
+    }
+
+    private fun stopHeartbeat() {
+        heartbeatJob?.cancel()
+        heartbeatJob = null
+    }
+
+    private fun handleSessionRevoked() {
+        repository.sessionStore.clear()
+        authenticated = false
+        session = null
+        bootstrap = null
+        stopRealtime()
+        stopHeartbeat()
+        error = "Your mobile session was revoked or expired. Please sign in again."
+    }
+
+    private fun startRealtime() {
+        stopRealtime()
+        if (!authenticated || !setupComplete) return
+        realtimeConnection = repository.api.openRealtimeStream(lastEventId = lastEventId) { id, eventType, data ->
+            if (id != null) {
+                lastEventId = id
+                if (!processedEventIds.add(id)) return@openRealtimeStream
+            }
+            viewModelScope.launch(Dispatchers.Main) {
+                handleRealtimeEvent(eventType, data)
+            }
+        }
+    }
+
+    private fun stopRealtime() {
+        realtimeConnection?.close()
+        realtimeConnection = null
+    }
+
+    private fun handleRealtimeEvent(eventType: String, data: JSONObject) {
+        val payload = data.optJSONObject("payload") ?: data
+        when (eventType) {
+            "lead.updated" -> {
+                val leadId = payload.optString("leadId", payload.optString("id"))
+                if (leadId.isNotBlank()) refreshAll()
+            }
+            "message.created" -> {
+                val convId = payload.optString("conversationId", payload.optString("id"))
+                if (convId.isNotBlank() && convId == activeConversationId) {
+                    loadChat(convId)
+                }
+                loadInbox()
+            }
+            "message.read" -> {
+                loadInbox()
+            }
+            "call.ended" -> {
+                val callId = payload.optString("callId", payload.optString("id"))
+                if (callId.isNotBlank()) {
+                    refreshAll()
+                }
+            }
+            "recording.uploaded", "recording.failed" -> {
+                refreshAll()
+                updateSyncCounts()
+            }
+            "device.online", "device.offline" -> {
+                // Refresh device status
+            }
+        }
+    }
+
+    fun updateSyncCounts() {
+        syncCounts = repository.getSyncCounts()
+    }
+
     fun login(identifier: String, password: String, done: () -> Unit) = launchWork {
-        val result = withContext(Dispatchers.IO) { repository.login(identifier.trim(), password, deviceId(), "${Build.MANUFACTURER} ${Build.MODEL}", BuildConfig.VERSION_NAME) }
-        session = result; authenticated = true; done()
+        val result = withContext(Dispatchers.IO) { repository.login(identifier.trim(), password) }
+        session = result
+        authenticated = true
+        startHeartbeat()
+        done()
     }
 
     fun registerDevice(done: () -> Unit) = launchWork {
-        val app = getApplication<Application>()
         val id = deviceId()
-        withContext(Dispatchers.IO) { repository.registerDevice(id, "${Build.MANUFACTURER} ${Build.MODEL}", Build.MANUFACTURER, Build.MODEL, Build.VERSION.RELEASE, BuildConfig.VERSION_NAME) }
-        setupComplete = true; refreshAll(); done()
+        withContext(Dispatchers.IO) {
+            repository.registerDevice(
+                id,
+                "${Build.MANUFACTURER} ${Build.MODEL}",
+                Build.MANUFACTURER,
+                Build.MODEL,
+                Build.VERSION.RELEASE,
+                BuildConfig.VERSION_NAME
+            )
+        }
+        setupComplete = true
+        refreshAll()
+        startRealtime()
+        done()
     }
 
     fun refreshAll() = launchWork {
@@ -68,6 +228,22 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
         }
         bootstrap = data
         CallManager.cacheLeads(getApplication(), data.leads)
+        updateSyncCounts()
+    }
+
+    fun retryOfflineSync() = launchWork {
+        val synced = withContext(Dispatchers.IO) { repository.syncOffline() }
+        refreshAll()
+        status = if (synced > 0) "Synced $synced offline event(s)." else "Sync completed."
+    }
+
+    fun retryPendingRecordings() {
+        RecordingUploadWorker.retryNow(getApplication())
+        status = "Retrying recording uploads..."
+    }
+
+    fun setSpeed(speed: Float) {
+        playbackSpeed = speed
     }
 
     fun loadInbox() {
@@ -75,11 +251,16 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             inboxLoading = true
             inboxMessage = null
-            try { inbox = withContext(Dispatchers.IO) { repository.inbox() } }
-            catch (_: Exception) { inboxMessage = "Inbox could not be refreshed right now." }
-            finally { inboxLoading = false }
+            try {
+                inbox = withContext(Dispatchers.IO) { repository.inbox() }
+            } catch (_: Exception) {
+                inboxMessage = "Inbox could not be refreshed right now."
+            } finally {
+                inboxLoading = false
+            }
         }
     }
+
     fun loadCourses() {
         viewModelScope.launch {
             learningLoading = true
@@ -94,8 +275,10 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
     fun requestPack(size: Int) = launchWork { selectedPack = withContext(Dispatchers.IO) { repository.requestLeadPack(size) } }
     fun clearPack() { selectedPack = null }
+
     fun loadCustomer360(leadId: String) {
         viewModelScope.launch {
             customer360Loading = true
@@ -112,59 +295,157 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
-    fun clearCustomer360() { customer360 = null; customer360Error = null; customer360Unavailable = false; customer360Loading = false }
+
+    fun clearCustomer360() {
+        customer360 = null
+        customer360Error = null
+        customer360Unavailable = false
+        customer360Loading = false
+    }
+
     fun createFollowUpTask(leadId: String, title: String, dueAt: String, priority: String, description: String) = launchWork {
         if (title.isBlank() || dueAt.isBlank()) throw IllegalArgumentException("Task title and due date are required.")
         withContext(Dispatchers.IO) { repository.createFollowUpTask(leadId, title.trim(), dueAt.trim(), priority, description.trim()) }
         customer360 = withContext(Dispatchers.IO) { repository.customer360(leadId) }
         status = "Follow-up task scheduled."
     }
+
     fun completeTask(leadId: String, taskId: String) = launchWork {
         withContext(Dispatchers.IO) { repository.updateTaskStatus(leadId, taskId, "DONE") }
         customer360 = withContext(Dispatchers.IO) { repository.customer360(leadId) }
         status = "Task completed."
     }
+
     fun claimPack(done: () -> Unit) = launchWork {
         val pack = selectedPack ?: return@launchWork
         withContext(Dispatchers.IO) { repository.claimLeadPack(pack.id) }
-        selectedPack = null; refreshAll(); done()
+        selectedPack = null
+        refreshAll()
+        done()
     }
 
     fun startCall(lead: SalesLead) = launchWork {
         val callId = withContext(Dispatchers.IO) { repository.startCall(lead, deviceId()) }
         val app = getApplication<Application>()
-        CallManager.prepare(app, callId, lead); CallManager.dial(app, lead.customerPhone)
+        CallManager.prepare(app, callId, lead)
+        CallManager.dial(app, lead.customerPhone)
         status = "Tracked call started. Complete the disposition when the call ends."
     }
 
     fun saveDisposition(callId: String, outcome: String, note: String, followUp: String?, done: () -> Unit) = launchWork {
         if (outcome.isBlank() || note.isBlank()) throw IllegalArgumentException("Outcome and notes are required.")
-        try { withContext(Dispatchers.IO) { repository.submitDisposition(callId, outcome, note.trim(), followUp) } }
-        catch (_: SavedOfflineException) { status = "Saved offline. GXClosers will sync it when the connection returns." }
-        refreshAll(); done()
+        try {
+            withContext(Dispatchers.IO) { repository.submitDisposition(callId, outcome, note.trim(), followUp) }
+        } catch (_: SavedOfflineException) {
+            status = "Saved offline. GXClosers will sync it when connection returns."
+        }
+        refreshAll()
+        done()
+    }
+
+    fun openChat(id: String) {
+        activeConversationId = id
+        loadChat(id)
+    }
+
+    fun closeChat() {
+        activeConversationId = null
     }
 
     fun loadChat(id: String) {
         if (chatLoading) return
         viewModelScope.launch {
             chatLoading = true
-            try { chatMessages = withContext(Dispatchers.IO) { repository.chat(id) } }
-            catch (e: Exception) { error = e.message ?: "Conversation could not be refreshed." }
-            finally { chatLoading = false }
+            try {
+                chatMessages = withContext(Dispatchers.IO) { repository.chat(id) }
+            } catch (e: Exception) {
+                error = e.message ?: "Conversation could not be refreshed."
+            } finally {
+                chatLoading = false
+            }
         }
     }
+
     fun sendChat(id: String, body: String) = launchWork {
         if (body.isNotBlank()) withContext(Dispatchers.IO) { repository.sendChat(id, body.trim()) }
         chatMessages = withContext(Dispatchers.IO) { repository.chat(id) }
     }
+
     fun updateLeadStage(leadId: String, stage: String) = launchWork {
-        withContext(Dispatchers.IO) { repository.updateLeadStage(leadId, stage) }
+        try {
+            withContext(Dispatchers.IO) { repository.updateLeadStage(leadId, stage) }
+            status = "Chat labelled ${stage.replace('_', ' ').lowercase()}."
+        } catch (_: SavedOfflineException) {
+            status = "Stage saved offline. Will sync when reconnected."
+        }
         val refreshed = withContext(Dispatchers.IO) { repository.bootstrap() }
         bootstrap = refreshed
         inbox = withContext(Dispatchers.IO) { repository.inbox() }
         CallManager.cacheLeads(getApplication(), refreshed.leads)
-        status = "Chat labelled ${stage.replace('_', ' ').lowercase()}."
     }
+
+    fun addContact(
+        name: String,
+        phone: String,
+        email: String,
+        source: String = "Direct / WhatsApp",
+        serviceInterest: String = "Sales Inquiry",
+        priority: String = "HIGH",
+        notes: String = "",
+        done: () -> Unit
+    ) = launchWork {
+        val trimmedName = name.trim()
+        val trimmedPhone = phone.trim()
+        if (trimmedName.length < 2) throw IllegalArgumentException("Enter customer full name.")
+        if (trimmedPhone.length < 5) throw IllegalArgumentException("Enter a valid phone number.")
+
+        val newLead = SalesLead(
+            id = "lead_local_" + UUID.randomUUID().toString().take(8),
+            customerName = trimmedName,
+            customerPhone = trimmedPhone,
+            customerEmail = email.trim(),
+            stage = "NEW",
+            source = source.ifBlank { "Direct / Manual" },
+            serviceInterest = serviceInterest.ifBlank { "Sales Inquiry" },
+            notes = notes.trim(),
+            followUpAt = null,
+            priority = priority.ifBlank { "NORMAL" }
+        )
+
+        // Optimistically update bootstrap state and lead list
+        val currentBootstrap = bootstrap
+        if (currentBootstrap != null) {
+            val updatedLeads = listOf(newLead) + currentBootstrap.leads
+            val updatedDashboard = currentBootstrap.dashboard.copy(
+                totalLeads = currentBootstrap.dashboard.totalLeads + 1,
+                activeLeads = currentBootstrap.dashboard.activeLeads + 1
+            )
+            bootstrap = currentBootstrap.copy(
+                leads = updatedLeads,
+                dashboard = updatedDashboard
+            )
+            CallManager.cacheLeads(getApplication(), updatedLeads)
+        }
+
+        // Try syncing to backend via mobile contacts endpoint if available
+        try {
+            val payload = JSONObject()
+                .put("name", trimmedName)
+                .put("phone", trimmedPhone)
+                .put("email", email.trim())
+                .put("source", source.ifBlank { "mobile_manual" })
+                .put("notes", notes.trim())
+            withContext(Dispatchers.IO) {
+                runCatching { repository.api.post("/sales/mobile/contacts", payload) }
+            }
+        } catch (_: Exception) {
+            // Silently maintain optimistic local contact
+        }
+
+        status = "Contact \"$trimmedName\" added to CRM."
+        done()
+    }
+
     fun updateProfile(displayName: String, email: String, done: () -> Unit) = launchWork {
         if (displayName.trim().length < 2) throw IllegalArgumentException("Enter your full name.")
         session = withContext(Dispatchers.IO) { repository.updateProfile(displayName.trim(), email.trim()) }
@@ -172,15 +453,30 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
         status = "Profile updated."
         done()
     }
+
     fun saveLessonProgress(courseId: String, lessonId: String, watchedSeconds: Int, durationSeconds: Int, positionSeconds: Int, confirmComplete: Boolean, done: (() -> Unit)? = null) {
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) { repository.saveLessonProgress(courseId, lessonId, watchedSeconds, durationSeconds, positionSeconds, confirmComplete) }
                 if (confirmComplete) courses = withContext(Dispatchers.IO) { repository.courses() }
                 done?.invoke()
-            } catch (e: Exception) { error = e.message ?: "Training progress could not be saved." }
+            } catch (e: Exception) {
+                error = e.message ?: "Training progress could not be saved."
+            }
         }
     }
-    fun logout(done: () -> Unit) { repository.logout(); authenticated = false; setupComplete = false; session = null; bootstrap = null; customer360 = null; done() }
+
+    fun logout(done: () -> Unit) {
+        stopHeartbeat()
+        stopRealtime()
+        repository.logout()
+        authenticated = false
+        setupComplete = false
+        session = null
+        bootstrap = null
+        customer360 = null
+        done()
+    }
+
     private fun deviceId() = Settings.Secure.getString(getApplication<Application>().contentResolver, Settings.Secure.ANDROID_ID) ?: "${Build.MANUFACTURER}-${Build.MODEL}"
 }

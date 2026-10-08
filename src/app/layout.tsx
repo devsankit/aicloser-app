@@ -13,25 +13,11 @@ export const metadata: Metadata = {
   applicationName: "AIcloser",
   robots: { index: false, follow: false },
   icons: {
-    icon: [
-      {
-        url: "/favicon.ico",
-        sizes: "any",
-      },
-      {
-        url: "/icon.svg",
-        type: "image/svg+xml",
-      },
-      {
-        url: "/icon.png",
-        sizes: "512x512",
-        type: "image/png",
-      },
-    ],
-    shortcut: "/favicon.ico",
+    icon: [{ url: "/aicloser-favicon.svg", type: "image/svg+xml" }],
+    shortcut: "/aicloser-favicon.svg",
     apple: [
       {
-        url: "/apple-touch-icon.png",
+        url: "/apple-icon.png",
         sizes: "180x180",
         type: "image/png",
       },
@@ -54,9 +40,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en" suppressHydrationWarning>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-        <link rel="icon" href="/favicon.ico" sizes="any" />
-        <link rel="apple-touch-icon" href="/favicon.svg" />
+        <link rel="icon" href="/aicloser-favicon.svg" type="image/svg+xml" />
+        <link rel="apple-touch-icon" href="/apple-icon.png" />
         <link
           href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Space+Grotesk:wght@300..700&display=swap"
           rel="stylesheet"

@@ -22,7 +22,7 @@ test("SaaS signup provisions isolated workspace and sends the user to login", ()
   assert.match(salesAuthForm, /companyName/);
   assert.match(salesAuthForm, /Create Sales Workspace/);
   assert.match(signupPage, /SaaS Sales Workspace/);
-  assert.match(signupPage, /Zero cross-workspace data merge/);
+  assert.doesNotMatch(signupPage, /Zero cross-workspace data merge/);
 });
 
 test("provisionSaaSCloserWorkspace creates dedicated tenant, group, and active workspace admin profile", () => {

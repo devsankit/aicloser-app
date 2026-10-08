@@ -67,6 +67,7 @@ export async function POST(request: Request) {
       deviceName: readBodyString(body.deviceName).trim() || "Mobile App",
       platform: "ANDROID",
       appVersion: readBodyString(body.appVersion).trim() || null,
+      replaceExisting: true,
     });
   } catch (error) {
     if (error instanceof ClientSlotOccupiedError) {

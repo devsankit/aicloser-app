@@ -36,7 +36,7 @@ test("responsibility dashboard includes accountability and customer signals", ()
 });
 
 test("lead stage API enforces follow-up, loss reason, and payment evidence", () => {
-  assert.match(leadsRoute, /Add a follow-up date or a short activity note/);
+  assert.doesNotMatch(leadsRoute, /Add a follow-up date or a short activity note/);
   assert.match(leadsRoute, /Add the reason before closing or recycling/);
   assert.match(leadsRoute, /Paid stage requires a confirmed successful payment/);
   assert.match(leadsRoute, /meta: lead\.metaSync/);

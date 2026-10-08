@@ -14,18 +14,35 @@ android {
         applicationId = "com.gigxomi.gxclosers"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 12
+        versionName = "1.0.12"
         buildConfigField("String", "GXCLOSERS_API_BASE", "\"https://closers.gigxomi.com/api\"")
-        buildConfigField("String", "AICLOSER_DEDICATED_API_BASE", "\"\"")
+        buildConfigField("String", "AICLOSER_DEDICATED_API_BASE", "\"https://api.aicloser.in\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = file("C:/Users/hello/Downloads/gxcloser-upload-key.keystore")
+            storePassword = "gigxomi2026"
+            keyAlias = "gxcloser-key-alias"
+            keyPassword = "gigxomi2026"
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+        debug {
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
@@ -65,6 +82,7 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
 }

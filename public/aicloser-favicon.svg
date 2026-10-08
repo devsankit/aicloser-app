@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="AIcloser">
+  <defs>
+    <linearGradient id="aiCloserOrange" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff7e42" />
+      <stop offset="1" stop-color="#ea580c" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#aiCloserOrange)" />
+  <path d="M108 376 194 132h22l86 244h-48l-19-54h-60l-19 54h-48Zm79-96h36l-18-56-18 56Zm135-148h92v40h-26v164h26v40h-92v-40h26V172h-26v-40Z" fill="#fff" />
+</svg>

@@ -19,6 +19,7 @@ type ClientSessionInput = {
   tenantId: string | null;
   channel: AppClientChannel;
   installationId: string;
+  replaceExisting?: boolean;
   deviceId?: string | null;
   deviceName?: string | null;
   platform?: string | null;
@@ -39,12 +40,25 @@ export async function acquireAppClientSession(input: ClientSessionInput) {
 
     if (active?.status === AppClientSessionStatus.ACTIVE) {
       if (active.installationId !== input.installationId) {
-        throw new ClientSlotOccupiedError(input.channel, active.lastActiveAt, active.deviceName);
+        if (!input.replaceExisting) {
+          throw new ClientSlotOccupiedError(input.channel, active.lastActiveAt, active.deviceName);
+        }
+        const now = new Date();
+        await tx.appClientSession.update({
+          where: { id: active.id },
+          data: {
+            status: AppClientSessionStatus.REVOKED,
+            revokedAt: now,
+            revokeReason: "Replaced by an explicit login from another installation",
+          },
+        });
       }
-      const now = new Date();
-      const session = await tx.appClientSession.update({ where: { id: active.id }, data: { lastActiveAt: now, deviceId: input.deviceId ?? active.deviceId, deviceName: input.deviceName ?? active.deviceName, platform: input.platform ?? active.platform, appVersion: input.appVersion ?? active.appVersion } });
-      await tx.appClientSlot.update({ where: { id: slot!.id }, data: { status: "ACTIVE", lastActiveAt: now, deviceId: input.deviceId ?? slot!.deviceId, deviceName: input.deviceName ?? slot!.deviceName, platform: input.platform ?? slot!.platform, appVersion: input.appVersion ?? slot!.appVersion } });
-      return { session, resumed: true };
+      if (active.installationId === input.installationId) {
+        const now = new Date();
+        const session = await tx.appClientSession.update({ where: { id: active.id }, data: { lastActiveAt: now, deviceId: input.deviceId ?? active.deviceId, deviceName: input.deviceName ?? active.deviceName, platform: input.platform ?? active.platform, appVersion: input.appVersion ?? active.appVersion } });
+        await tx.appClientSlot.update({ where: { id: slot!.id }, data: { status: "ACTIVE", lastActiveAt: now, deviceId: input.deviceId ?? slot!.deviceId, deviceName: input.deviceName ?? slot!.deviceName, platform: input.platform ?? slot!.platform, appVersion: input.appVersion ?? slot!.appVersion } });
+        return { session, resumed: true };
+      }
     }
 
     if (!slot) {
@@ -56,6 +70,34 @@ export async function acquireAppClientSession(input: ClientSessionInput) {
     });
     await tx.appClientSlot.update({ where: { id: slot.id }, data: { status: "ACTIVE", activeSessionId: session.id, installationId: input.installationId, deviceId: input.deviceId ?? null, deviceName: input.deviceName ?? null, platform: input.platform ?? null, appVersion: input.appVersion ?? null, lastLoginAt: now, lastActiveAt: now } });
     return { session, resumed: false };
+  });
+}
+
+export async function revokeActiveAppClientSession(input: { userId: string; tenantId: string | null; channel: AppClientChannel; reason?: string }) {
+  return withClientSlotLock(input, async (tx) => {
+    const slot = await tx.appClientSlot.findFirst({
+      where: { userId: input.userId, tenantId: input.tenantId, channel: input.channel },
+      select: { id: true, activeSessionId: true },
+    });
+    if (!slot?.activeSessionId) return null;
+
+    const session = await tx.appClientSession.findUnique({ where: { id: slot.activeSessionId } });
+    if (!session || session.status !== AppClientSessionStatus.ACTIVE) return null;
+
+    const now = new Date();
+    await tx.appClientSession.update({
+      where: { id: session.id },
+      data: {
+        status: AppClientSessionStatus.REVOKED,
+        revokedAt: now,
+        revokeReason: input.reason ?? "Revoked from the login screen",
+      },
+    });
+    await tx.appClientSlot.updateMany({
+      where: { id: slot.id, activeSessionId: session.id },
+      data: { status: "AVAILABLE", activeSessionId: null, lastLogoutAt: now },
+    });
+    return session;
   });
 }
 

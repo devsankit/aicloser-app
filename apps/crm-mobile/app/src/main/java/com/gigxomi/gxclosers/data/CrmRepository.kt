@@ -1,23 +1,51 @@
 package com.gigxomi.gxclosers.data
 
 import android.content.Context
-import com.gigxomi.gxclosers.call.CallAudioRecorder
+import android.os.Build
+import com.gigxomi.gxclosers.BuildConfig
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
 class CrmRepository(context: Context) {
     val sessionStore = SessionStore(context)
-    private val api = ApiClient(sessionStore)
-    private val offline = OfflineEventStore(context)
+    val api = ApiClient(sessionStore)
+    val offline = OfflineEventStore(context)
     private val appContext = context.applicationContext
 
-    fun login(identifier: String, password: String, installationId: String, deviceName: String, appVersion: String): Session {
-        val response = api.post("/mobile/auth/login", JSONObject().put("identifier", identifier).put("password", password).put("loginScope", "sales")
-            .put("clientType", "MOBILE").put("installationId", installationId).put("deviceName", deviceName).put("appVersion", appVersion))
+    fun login(identifier: String, password: String): Session {
+        val installationId = sessionStore.installationId
+        val deviceName = "${Build.MANUFACTURER} ${Build.MODEL}"
+        val androidVersion = Build.VERSION.RELEASE
+        val appVersion = BuildConfig.VERSION_NAME
+
+        val body = JSONObject()
+            .put("identifier", identifier)
+            .put("password", password)
+            .put("loginScope", "sales")
+            .put("clientType", "MOBILE")
+            .put("installationId", installationId)
+            .put("deviceName", deviceName)
+            .put("androidVersion", androidVersion)
+            .put("appVersion", appVersion)
+            .put("replaceExisting", true)
+            .put("force", true)
+
+        val response = api.post("/mobile/auth/login", body)
         val session = parseSession(response.getJSONObject("session"))
         sessionStore.saveLogin(response.getString("token"), session)
         return session
+    }
+
+    fun heartbeat(): Boolean {
+        if (sessionStore.token.isNullOrBlank()) return false
+        val response = api.post("/auth/heartbeat", JSONObject())
+        return response.optBoolean("ok", true)
+    }
+
+    fun logout() {
+        runCatching { api.post("/auth/logout") }
+        sessionStore.clear()
     }
 
     fun bootstrap(): Bootstrap = parseBootstrap(api.get("/sales/mobile/bootstrap"))
@@ -25,11 +53,17 @@ class CrmRepository(context: Context) {
     fun courses(): List<Course> = parseCourses(api.get("/sales/lms/courses"))
 
     fun updateLeadStage(leadId: String, stage: String) {
-        api.post("/sales/leads", JSONObject()
+        val payload = JSONObject()
             .put("action", "stage")
             .put("leadId", leadId)
             .put("stage", stage)
-            .put("note", "CRM label updated from the GXClosers conversation"))
+            .put("note", "CRM label updated from the GXClosers mobile conversation")
+        try {
+            api.post("/sales/leads", payload)
+        } catch (error: Exception) {
+            offline.enqueue("lead-stage-$leadId-${System.currentTimeMillis()}", "LEAD_STAGE", payload, leadId)
+            throw SavedOfflineException("Stage saved offline. Will sync when reconnected.")
+        }
     }
 
     fun updateProfile(displayName: String, email: String): Session {
@@ -41,9 +75,14 @@ class CrmRepository(context: Context) {
 
     fun registerDevice(deviceId: String, deviceName: String, manufacturer: String, model: String, androidVersion: String, appVersion: String) {
         api.post("/sales/mobile/register-device", JSONObject()
-            .put("deviceId", deviceId).put("deviceName", deviceName).put("manufacturer", manufacturer)
-            .put("model", model).put("androidVersion", androidVersion).put("appVersion", appVersion)
-            .put("recordingCapability", "MIC_RECORDING").put("recordingEnabled", true))
+            .put("deviceId", deviceId)
+            .put("deviceName", deviceName)
+            .put("manufacturer", manufacturer)
+            .put("model", model)
+            .put("androidVersion", androidVersion)
+            .put("appVersion", appVersion)
+            .put("recordingCapability", "MIC_RECORDING")
+            .put("recordingEnabled", true))
         sessionStore.setupComplete = true
     }
 
@@ -62,35 +101,91 @@ class CrmRepository(context: Context) {
 
     fun startCall(lead: SalesLead, deviceId: String): String {
         val response = api.post("/sales/mobile/call/start", JSONObject()
-            .put("leadId", lead.id).put("phoneNumber", lead.customerPhone).put("direction", "OUTBOUND")
-            .put("deviceId", deviceId).put("recordingStatus", "NONE"))
+            .put("leadId", lead.id)
+            .put("phoneNumber", lead.customerPhone)
+            .put("direction", "OUTBOUND")
+            .put("deviceId", deviceId)
+            .put("recordingStatus", "NONE"))
         return response.getJSONObject("call").getString("id")
     }
 
     fun submitDisposition(callId: String, outcome: String, note: String, followUp: String?) {
-        val payload = JSONObject().put("callSessionId", callId).put("outcome", outcome).put("note", note)
-            .put("stageUpdate", when { outcome == "CLOSED_WON" -> "CLOSED_WON"; outcome == "LOST" -> "LOST"; outcome.startsWith("CONNECTED") -> "CONTACTED"; else -> JSONObject.NULL })
+        val payload = JSONObject()
+            .put("callSessionId", callId)
+            .put("outcome", outcome)
+            .put("note", note)
+            .put("stageUpdate", when {
+                outcome == "CLOSED_WON" -> "CLOSED_WON"
+                outcome == "LOST" -> "CLOSED_LOST"
+                outcome.startsWith("CONNECTED") -> "CONTACTED"
+                else -> JSONObject.NULL
+            })
         followUp?.takeIf(String::isNotBlank)?.let { payload.put("nextFollowUpAt", it) }
-        try { api.post("/sales/mobile/call/disposition", payload) }
-        catch (error: Exception) { offline.enqueue("disposition-$callId", "DISPOSITION", payload); throw SavedOfflineException(error.message ?: "Saved offline") }
+
+        try {
+            api.post("/sales/mobile/call/disposition", payload)
+        } catch (error: Exception) {
+            offline.enqueue("disposition-$callId", "DISPOSITION", payload, callId)
+            throw SavedOfflineException(error.message ?: "Saved offline")
+        }
     }
 
     fun syncOffline(): Int {
-        val events = offline.pending()
+        val events = offline.pendingEvents()
         if (events.isEmpty()) return 0
-        val body = JSONObject().put("events", JSONArray().apply { events.forEach { put(JSONObject().put("localEventId", it.id).put("type", it.type).put("payload", JSONObject(it.payload))) } })
-        val results = api.post("/sales/mobile/offline-events/sync", body).optJSONArray("results")?.objects().orEmpty()
-        results.filter { it.optBoolean("ok") }.forEach { offline.markSynced(it.text("idempotencyKey")) }
-        return results.count { it.optBoolean("ok") }
+
+        val ids = events.map { it.id }
+        offline.markEventSyncing(ids)
+
+        val array = JSONArray()
+        for (event in events) {
+            val jsonPayload = runCatching { JSONObject(event.payload) }.getOrElse { JSONObject() }
+            array.put(JSONObject()
+                .put("localEventId", event.id)
+                .put("idempotencyKey", event.id)
+                .put("type", event.type)
+                .put("payload", jsonPayload))
+        }
+
+        return try {
+            val body = JSONObject().put("events", array)
+            val response = api.post("/sales/mobile/offline-events/sync", body)
+            val results = response.optJSONArray("results")?.objects().orEmpty()
+            for (result in results) {
+                val key = result.text("idempotencyKey").ifBlank { result.text("localEventId") }
+                if (result.optBoolean("ok")) {
+                    offline.markEventSynced(key)
+                } else {
+                    val errMsg = result.optString("error", "Event sync failed")
+                    offline.markEventFailed(key, errMsg)
+                }
+            }
+            results.count { it.optBoolean("ok") }
+        } catch (e: Exception) {
+            for (id in ids) {
+                offline.markEventFailed(id, e.message ?: "Network error during sync")
+            }
+            0
+        }
     }
 
     fun uploadPendingRecording(): Boolean {
-        val pending = CallAudioRecorder.pending(appContext) ?: return false
-        val file = File(pending.path)
-        if (!file.exists()) return false
-        api.uploadRecording(pending.callId, pending.clientUploadId, file, pending.durationMs)
-        CallAudioRecorder.clearPending(appContext)
-        return true
+        val pending = offline.pendingRecordings().firstOrNull() ?: return false
+        val file = File(pending.filePath)
+        if (!file.exists()) {
+            offline.updateRecordingStatus(pending.clientUploadId, "FAILED", "Audio file not found")
+            return false
+        }
+        offline.updateRecordingStatus(pending.clientUploadId, "UPLOADING")
+        return try {
+            api.uploadRecording(pending.callId, pending.clientUploadId, file, pending.durationMs)
+            offline.markRecordingUploaded(pending.clientUploadId)
+            runCatching { file.delete() }
+            true
+        } catch (e: Exception) {
+            offline.incrementRecordingRetry(pending.clientUploadId, e.message ?: "Recording upload failed")
+            false
+        }
     }
 
     fun chat(conversationId: String): List<ChatMessage> {
@@ -119,15 +214,16 @@ class CrmRepository(context: Context) {
 
     fun saveLessonProgress(courseId: String, lessonId: String, watchedSeconds: Int, durationSeconds: Int, positionSeconds: Int, confirmComplete: Boolean) {
         if (!confirmComplete) return
-        api.post("/sales/lms/progress", JSONObject().put("courseId", courseId).put("lessonId", lessonId)
-            .put("watchedSeconds", watchedSeconds).put("durationSeconds", durationSeconds).put("positionSeconds", positionSeconds).put("confirmComplete", confirmComplete))
+        api.post("/sales/lms/progress", JSONObject()
+            .put("courseId", courseId)
+            .put("lessonId", lessonId)
+            .put("watchedSeconds", watchedSeconds)
+            .put("durationSeconds", durationSeconds)
+            .put("positionSeconds", positionSeconds)
+            .put("confirmComplete", confirmComplete))
     }
 
-    fun logout() {
-        runCatching { api.post("/auth/logout") }
-        sessionStore.clear()
-        offline.clear()
-    }
+    fun getSyncCounts(): SyncCounts = offline.getSyncCounts()
 }
 
 class SavedOfflineException(message: String) : Exception(message)

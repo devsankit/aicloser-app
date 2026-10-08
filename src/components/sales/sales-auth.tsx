@@ -1,7 +1,91 @@
 "use client";
 
-import { FormEvent, useState } from "react";
-import { Eye, EyeOff, LogIn, Send } from "lucide-react";
+import { FormEvent, useEffect, useRef, useState } from "react";
+import { Check, ChevronDown, Eye, EyeOff, LogIn, Search, Send } from "lucide-react";
+import { countryCodes } from "./country-codes";
+
+function CountryCodePicker({ defaultValue = "+91" }: { defaultValue?: string }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [selectedCode, setSelectedCode] = useState(defaultValue);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const selectedCountry = countryCodes.find((country) => country.dialCode === selectedCode) ?? countryCodes[0];
+  const filteredCountries = countryCodes.filter((country) => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return !normalizedQuery || country.name.toLowerCase().includes(normalizedQuery) || country.dialCode.includes(normalizedQuery);
+  });
+
+  useEffect(() => {
+    function closeOnOutsideClick(event: PointerEvent) {
+      if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) setIsOpen(false);
+    }
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
+  }, []);
+
+  useEffect(() => {
+    if (isOpen) window.setTimeout(() => searchRef.current?.focus(), 0);
+    else setQuery("");
+  }, [isOpen]);
+
+  return (
+    <div className="sales-country-picker" ref={pickerRef}>
+      <input name="countryCode" type="hidden" value={selectedCountry.dialCode} />
+      <button
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        aria-label={`Country calling code, ${selectedCountry.name}`}
+        className="sales-phone-code"
+        onClick={() => setIsOpen((current) => !current)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" || event.key === "Enter") setIsOpen(true);
+        }}
+        type="button"
+      >
+        <span>{selectedCountry.dialCode}</span>
+        <ChevronDown aria-hidden="true" size={16} />
+      </button>
+      {isOpen ? (
+        <div aria-label="Country calling codes" className="sales-country-menu" role="listbox">
+          <div className="sales-country-search">
+            <Search aria-hidden="true" size={15} />
+            <input
+              aria-label="Search countries or calling codes"
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") setIsOpen(false);
+              }}
+              placeholder="Search country or code"
+              ref={searchRef}
+              type="search"
+              value={query}
+            />
+          </div>
+          <div className="sales-country-options">
+            {filteredCountries.length ? filteredCountries.map((country) => (
+              <button
+                aria-selected={country.dialCode === selectedCode}
+                className="sales-country-option"
+                key={`${country.name}-${country.dialCode}`}
+                onClick={() => {
+                  setSelectedCode(country.dialCode);
+                  setIsOpen(false);
+                }}
+                role="option"
+                type="button"
+              >
+                <span>{country.name}</span>
+                <span>{country.dialCode}</span>
+                {country.dialCode === selectedCode ? <Check aria-hidden="true" size={14} /> : null}
+              </button>
+            )) : <p className="sales-country-empty">No country or code found</p>}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function SalesPasswordField({
   name,
@@ -126,7 +210,7 @@ export function SalesSignupForm() {
         companyName: String(form.get("companyName") ?? ""),
         displayName: String(form.get("displayName") ?? ""),
         email: String(form.get("email") ?? ""),
-        phone: String(form.get("phone") ?? ""),
+        phone: `${String(form.get("countryCode") ?? "+91").trim()}${String(form.get("phone") ?? "").replace(/[^0-9]/g, "")}`,
         password,
         confirmPassword,
       }),
@@ -159,7 +243,10 @@ export function SalesSignupForm() {
       </label>
       <label style={lightLabelStyle}>
         <span>Calling phone / WhatsApp</span>
-        <input name="phone" placeholder="+91..." required style={lightInputStyle} />
+        <div className="sales-phone-input">
+          <CountryCodePicker />
+          <input className="sales-phone-number" inputMode="tel" name="phone" placeholder="98765 43210" required style={lightInputStyle} />
+        </div>
       </label>
       <SalesPasswordField autoComplete="new-password" label="Password" name="password" placeholder="Create at least 8 characters" />
       <SalesPasswordField autoComplete="new-password" label="Confirm password" name="confirmPassword" placeholder="Enter the same password again" />
@@ -176,21 +263,38 @@ export function SalesSignupForm() {
   );
 }
 
-export function SalesPasswordLoginForm({ redirectTo = "/", error = "" }: { redirectTo?: string; error?: string }) {
+export function SalesPasswordLoginForm({ redirectTo = "/", error = "", message = "", identifier = "", clientType = "DESKTOP" }: { redirectTo?: string; error?: string; message?: string; identifier?: string; clientType?: string }) {
+  const isClientSlotOccupied = error.startsWith("ClientSlotOccupied:");
+  const clientLabel = clientType === "MOBILE" ? "mobile" : "desktop";
   return (
     <form action="/api/auth/login/password" className="sales-auth-form" method="post" style={{ display: "grid", gap: "14px" }}>
       <input name="loginScope" type="hidden" value="sales" />
       <input name="redirectTo" type="hidden" value={redirectTo} />
+      <input name="clientType" type="hidden" value={clientType === "MOBILE" ? "MOBILE" : "DESKTOP"} />
       <label style={lightLabelStyle}>
         <span>Email ID or phone</span>
-        <input name="identifier" placeholder="you@company.com" required style={lightInputStyle} />
+        <input autoComplete="username" defaultValue={identifier} name="identifier" placeholder="you@company.com" required style={lightInputStyle} />
       </label>
       <SalesPasswordField autoComplete="current-password" label="Password" name="password" placeholder="Enter your workspace password" />
       <button className="sales-primary-button" type="submit" style={primaryButtonStyle}>
         <LogIn size={16} />
         Sign In to AI Closer
       </button>
-      {error ? (
+      {message ? <p className="sales-form-status success" style={{ margin: 0, fontSize: "0.84rem", color: "#059669", fontWeight: 600 }}>{message}</p> : null}
+      {isClientSlotOccupied ? (
+        <div className="sales-auth-session-conflict" role="alert">
+          <p className="sales-form-status error" style={{ margin: 0, fontSize: "0.84rem", color: "#dc2626", fontWeight: 600 }}>{error.replace("ClientSlotOccupied: ", "")}</p>
+          <div className="sales-auth-session-actions">
+            <button className="sales-auth-session-action-primary" name="forceReplace" type="submit" value="1">
+              <LogIn size={15} /> Login here
+            </button>
+            <button className="sales-auth-session-action-secondary" formAction="/api/auth/client-session/revoke" formMethod="post" type="submit">
+              Logout from there
+            </button>
+          </div>
+          <small>“Login here” will end the other {clientLabel} session first.</small>
+        </div>
+      ) : error ? (
         <p className="sales-form-status" style={{ margin: 0, fontSize: "0.84rem", color: "#ef4444", fontWeight: 600 }}>
           {error}
         </p>

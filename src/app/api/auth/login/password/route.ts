@@ -16,6 +16,7 @@ export async function POST(request: Request) {
     let rawLoginScope = "";
     let clientType: "MOBILE" | "DESKTOP" = "DESKTOP";
     let installationId = "";
+    let forceReplace = false;
 
     const contentType = request.headers.get("content-type") || "";
     if (contentType.includes("application/json")) {
@@ -26,6 +27,7 @@ export async function POST(request: Request) {
       rawLoginScope = String(body.loginScope ?? "").trim();
       clientType = body.clientType === "MOBILE" ? "MOBILE" : "DESKTOP";
       installationId = String(body.installationId ?? "").trim();
+      forceReplace = String(body.forceReplace ?? "").trim() === "1";
     } else {
       const formData = await request.formData();
       identifier = String(formData.get("identifier") ?? "").trim();
@@ -34,6 +36,7 @@ export async function POST(request: Request) {
       rawLoginScope = String(formData.get("loginScope") ?? "").trim();
       clientType = String(formData.get("clientType") ?? "").trim().toUpperCase() === "MOBILE" ? "MOBILE" : "DESKTOP";
       installationId = String(formData.get("installationId") ?? "").trim();
+      forceReplace = String(formData.get("forceReplace") ?? "").trim() === "1";
     }
 
     const requestCookies = await cookies();
@@ -107,10 +110,16 @@ export async function POST(request: Request) {
         deviceId: clientType === "MOBILE" ? installationId : null,
         deviceName: clientType === "MOBILE" ? "Mobile App" : "Desktop Web",
         platform: clientType === "MOBILE" ? "ANDROID" : "WEB",
+        replaceExisting: forceReplace,
       });
     } catch (error) {
       if (error instanceof ClientSlotOccupiedError) {
-        return createPublicRedirect(loginPath, { error: `ClientSlotOccupied: This user already has an active ${clientType.toLowerCase()} session.` });
+        return createPublicRedirect(loginPath, {
+          error: `ClientSlotOccupied: This user already has an active ${clientType.toLowerCase()} session.`,
+          identifier,
+          clientType,
+          redirectTo,
+        });
       }
       throw error;
     }

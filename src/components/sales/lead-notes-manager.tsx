@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Check, Edit3, MessageSquare, PhoneCall, Plus, RefreshCw, Smartphone, Trash2, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Check, ChevronDown, Edit3, MessageSquare, PhoneCall, Plus, RefreshCw, Smartphone, Trash2, X } from "lucide-react";
 
 interface TimelineNote {
   id: string;
@@ -31,6 +31,25 @@ export function LeadNotesManager({
   const [editText, setEditText] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
+  const [isTypeMenuOpen, setIsTypeMenuOpen] = useState(false);
+  const typeMenuRef = useRef<HTMLDivElement | null>(null);
+  const noteTypes = [
+    { value: "NOTE", label: "Conversation Note" },
+    { value: "CALL", label: "Call Update" },
+    { value: "OBJECTION", label: "Objection Raised" },
+    { value: "FOLLOW_UP", label: "Follow-Up Scheduled" },
+  ];
+
+  useEffect(() => {
+    if (!isTypeMenuOpen) return;
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (typeMenuRef.current && !typeMenuRef.current.contains(event.target as Node)) {
+        setIsTypeMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    return () => document.removeEventListener("mousedown", closeOnOutsideClick);
+  }, [isTypeMenuOpen]);
 
   const loadNotes = async () => {
     setIsLoading(true);
@@ -178,24 +197,37 @@ export function LeadNotesManager({
       {/* Add New Note Box */}
       <form onSubmit={handleCreateNote} className="sales-form-grid sales-lead-history-composer">
         <div className="sales-lead-history-composer-row">
-          <select
-            value={newNoteType}
-            onChange={(e) => setNewNoteType(e.target.value)}
-            style={{
-              width: "140px",
-              padding: "6px 8px",
-              borderRadius: "6px",
-              background: "var(--color-surface, #ffffff)",
-              border: "1px solid var(--color-border, #cbd5e1)",
-              color: "var(--foreground, #0f172a)",
-              fontSize: "12px",
-            }}
-          >
-            <option value="NOTE">Conversation Note</option>
-            <option value="CALL">Call Update</option>
-            <option value="OBJECTION">Objection Raised</option>
-            <option value="FOLLOW_UP">Follow-Up Scheduled</option>
-          </select>
+          <div className="sales-glass-select-menu" ref={typeMenuRef}>
+            <button
+              aria-expanded={isTypeMenuOpen}
+              aria-haspopup="listbox"
+              className="sales-glass-select-trigger"
+              onClick={() => setIsTypeMenuOpen((open) => !open)}
+              type="button"
+            >
+              <span>{noteTypes.find((type) => type.value === newNoteType)?.label ?? "Conversation Note"}</span>
+              <ChevronDown size={14} className={isTypeMenuOpen ? "is-rotated" : ""} />
+            </button>
+            {isTypeMenuOpen ? (
+              <div className="sales-glass-select-options" role="listbox" aria-label="Note type">
+                {noteTypes.map((type) => (
+                  <button
+                    aria-selected={newNoteType === type.value}
+                    className={newNoteType === type.value ? "is-selected" : ""}
+                    key={type.value}
+                    onClick={() => {
+                      setNewNoteType(type.value);
+                      setIsTypeMenuOpen(false);
+                    }}
+                    role="option"
+                    type="button"
+                  >
+                    {type.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
           <input
             type="text"
             placeholder="Add note (auto-syncs to mobile SIM app)..."

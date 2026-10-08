@@ -4,15 +4,21 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { closestCorners, DndContext, type DragEndEvent, useDroppable } from "@dnd-kit/core";
-import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { closestCorners, DndContext, KeyboardSensor, PointerSensor, type DragEndEvent, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
+import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
   BarChart3,
+  ArrowDown,
+  ArrowUp,
   Bot,
   Building2,
+  CalendarDays,
   CalendarPlus,
   CalendarClock,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
   CheckCircle2,
   Clock,
   Clock3,
@@ -290,6 +296,18 @@ function formatDate(value: string | null) {
   return value ? new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" }).format(new Date(value)) : "Not set";
 }
 
+function formatLeadFollowUp(value: string | null) {
+  if (!value) return "Not scheduled";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not scheduled";
+  const now = new Date();
+  const dateLabel = isSameDay(date, now)
+    ? "Today"
+    : new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short" }).format(date);
+  const timeLabel = new Intl.DateTimeFormat("en-IN", { hour: "numeric", minute: "2-digit" }).format(date);
+  return `${dateLabel} · ${timeLabel}`;
+}
+
 function toDateTimeLocal(value: string | null | undefined) {
   if (!value) return "";
   const date = new Date(value);
@@ -297,6 +315,168 @@ function toDateTimeLocal(value: string | null | undefined) {
   const offset = date.getTimezoneOffset();
   return new Date(date.getTime() - offset * 60_000).toISOString().slice(0, 16);
 }
+
+function padCalendarPart(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function formatCalendarDateTime(date: Date, time = "09:00") {
+  const [hours, minutes] = time.split(":").map(Number);
+  const next = new Date(date);
+  next.setHours(Number.isFinite(hours) ? hours : 9, Number.isFinite(minutes) ? minutes : 0, 0, 0);
+  return `${next.getFullYear()}-${padCalendarPart(next.getMonth() + 1)}-${padCalendarPart(next.getDate())}T${padCalendarPart(next.getHours())}:${padCalendarPart(next.getMinutes())}`;
+}
+
+function calendarTime(value: string) {
+  const date = value ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime())
+    ? `${padCalendarPart(date.getHours())}:${padCalendarPart(date.getMinutes())}`
+    : "09:00";
+}
+
+function LeadFollowUpPicker({
+  labelText = "Next follow-up",
+  onChange,
+  value,
+}: {
+  labelText?: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  const pickerRef = useRef<HTMLDivElement | null>(null);
+  const selectedDate = value ? new Date(value) : null;
+  const hasSelectedDate = Boolean(selectedDate && !Number.isNaN(selectedDate.getTime()));
+  const [isOpen, setIsOpen] = useState(false);
+  const [viewMonth, setViewMonth] = useState(() => {
+    const initial = selectedDate && !Number.isNaN(selectedDate.getTime()) ? selectedDate : new Date();
+    return new Date(initial.getFullYear(), initial.getMonth(), 1);
+  });
+
+  useEffect(() => {
+    if (hasSelectedDate && selectedDate) {
+      setViewMonth(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
+    }
+  }, [hasSelectedDate, value]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!pickerRef.current?.contains(event.target as Node)) setIsOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [isOpen]);
+
+  const monthLabel = new Intl.DateTimeFormat("en-IN", { month: "long", year: "numeric" }).format(viewMonth);
+  const firstDay = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1);
+  const calendarDays = Array.from({ length: 42 }, (_, index) => {
+    const day = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), index + 1 - firstDay.getDay());
+    return day;
+  });
+  const selectedTime = hasSelectedDate && selectedDate ? calendarTime(value) : "09:00";
+
+  const chooseDay = (day: Date) => {
+    onChange(formatCalendarDateTime(day, selectedTime));
+  };
+
+  const chooseToday = () => {
+    const today = new Date();
+    setViewMonth(new Date(today.getFullYear(), today.getMonth(), 1));
+    chooseDay(today);
+  };
+
+  return (
+    <div
+      className="sales-calendar-picker"
+      onPointerDown={(event) => event.stopPropagation()}
+      ref={pickerRef}
+    >
+      <button
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
+        className={`sales-calendar-trigger${hasSelectedDate ? " is-selected" : ""}`}
+        onClick={() => setIsOpen((open) => !open)}
+        type="button"
+      >
+        <CalendarDays size={14} aria-hidden="true" />
+        <span>
+          <small>{labelText}</small>
+          <strong>{hasSelectedDate ? formatLeadFollowUp(value) : "Choose date & time"}</strong>
+        </span>
+        <ChevronDown size={14} aria-hidden="true" className={isOpen ? "is-rotated" : ""} />
+      </button>
+      {isOpen ? (
+        <div aria-label={`${labelText} calendar`} className="sales-calendar-popover" role="dialog">
+          <div className="sales-calendar-popover-head">
+            <div>
+              <small>Schedule next touch</small>
+              <strong>{monthLabel}</strong>
+            </div>
+            <div className="sales-calendar-month-actions">
+              <button aria-label="Previous month" onClick={() => setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1))} type="button"><ChevronLeft size={15} /></button>
+              <button aria-label="Next month" onClick={() => setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1))} type="button"><ChevronRight size={15} /></button>
+            </div>
+          </div>
+          <div className="sales-calendar-weekdays" aria-hidden="true">
+            {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((day) => <span key={day}>{day}</span>)}
+          </div>
+          <div className="sales-calendar-grid">
+            {calendarDays.map((day) => {
+              const isCurrentMonth = day.getMonth() === viewMonth.getMonth();
+              const isSelected = hasSelectedDate && selectedDate ? isSameDay(day, selectedDate) : false;
+              const isToday = isSameDay(day, new Date());
+              return (
+                <button
+                  aria-label={day.toLocaleDateString("en-IN", { dateStyle: "full" })}
+                  className={`${isCurrentMonth ? "" : "is-outside-month "}${isSelected ? "is-selected " : ""}${isToday ? "is-today" : ""}`}
+                  onClick={() => chooseDay(day)}
+                  type="button"
+                >
+                  {day.getDate()}
+                </button>
+              );
+            })}
+          </div>
+          <div className="sales-calendar-time-row">
+            <label htmlFor={`${labelText.replace(/\W+/g, "-").toLowerCase()}-time`}><Clock3 size={13} /> Time</label>
+            <input
+              id={`${labelText.replace(/\W+/g, "-").toLowerCase()}-time`}
+              onChange={(event) => {
+                const base = hasSelectedDate && selectedDate ? selectedDate : new Date();
+                onChange(formatCalendarDateTime(base, event.target.value));
+              }}
+              type="time"
+              value={selectedTime}
+            />
+          </div>
+          <div className="sales-calendar-popover-footer">
+            <button className="sales-calendar-text-button" onClick={() => { onChange(""); setIsOpen(false); }} type="button">Clear</button>
+            <button className="sales-calendar-text-button" onClick={chooseToday} type="button">Today</button>
+            <button className="sales-calendar-done-button" onClick={() => setIsOpen(false)} type="button">Done</button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+type LeadDetailSectionKey = "history" | "calls" | "tools" | "information";
+
+const defaultLeadDetailOrder: LeadDetailSectionKey[] = ["history", "calls", "tools", "information"];
+
+const leadDetailSectionLabels: Record<LeadDetailSectionKey, string> = {
+  history: "Notes & activity",
+  calls: "Call recordings",
+  tools: "AI, Meet & field visit",
+  information: "Lead information & integrations",
+};
 
 function cleanPhone(value: string) {
   return value.replace(/\D/g, "");
@@ -556,6 +736,10 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   });
   const restoredNavigation = useRef(false);
   const hydratedTabs = useRef<Set<SalesTab>>(new Set(["dashboard"]));
+  const kanbanSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
   const currentAgent = snapshot.currentAgent;
   const pageTitle = tabs.find((tab) => tab.id === activeTab)?.label ?? "Sales";
   const currentAgentPermissions = currentAgent?.permissions as Record<string, unknown> | null | undefined;
@@ -1358,7 +1542,6 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       navigationOrderKey={`sales-${sessionRole}-${currentAgent?.id ?? "workspace"}`}
       onNavigate={navigateSales}
       profileMeta={currentAgent?.agentCode ?? "Sales agent"}
-      hideSidebarIdentity={isCloser}
       profilePlan={isCloser ? undefined : profilePlan}
       profileName={currentAgent?.displayName ?? "Sales workspace"}
       showNotifications
@@ -2308,7 +2491,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
 
           <div className="sales-crm-surface">
             {crmView === "kanban" ? (
-      <DndContext collisionDetection={closestCorners} onDragEnd={handleLeadDragEnd}>
+      <DndContext collisionDetection={closestCorners} onDragEnd={handleLeadDragEnd} sensors={kanbanSensors}>
                 <div className="sales-kanban">
                   {pipelineColumns.map((col) => {
                     const colLeads = filteredLeads.filter((lead) => col.matchingStages.includes(lead.stage));
@@ -2324,7 +2507,6 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                         onQuickNote={addQuickLeadNote}
                         onStage={updateLeadStage}
                         canModifyLeads={canModifyLeads}
-                        snapshot={snapshot}
                         stage={col.stage}
                         totalValue={totalColValue}
                       />
@@ -2584,14 +2766,19 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       ) : null}
 
       {drawer === "lead-create" ? (
-        <SalesSideDrawer onClose={() => setDrawer(null)} title="Add CRM lead">
+        <SalesSideDrawer onClose={() => setDrawer(null)} title="Add contact manually">
           <LeadForm onSubmit={createLead} />
         </SalesSideDrawer>
       ) : null}
 
       {drawer === "lead-import" ? (
         <SalesSideDrawer onClose={() => setDrawer(null)} title="Import contacts">
-          <LeadImportForm importResult={importResult} isImporting={isImporting} onSubmit={importContacts} />
+          <LeadImportForm
+            importResult={importResult}
+            isImporting={isImporting}
+            onAddManually={() => setDrawer("lead-create")}
+            onSubmit={importContacts}
+          />
         </SalesSideDrawer>
       ) : null}
 
@@ -2706,7 +2893,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       ) : null}
 
       {selectedLead ? (
-        <SalesSideDrawer onClose={() => setSelectedLeadId(null)} title={selectedLead.customerName}>
+        <SalesSideDrawer fullScreen onClose={() => setSelectedLeadId(null)} title={selectedLead.customerName}>
           <LeadDetailForm
             lead={selectedLead}
             onNote={addLeadNote}
@@ -2786,10 +2973,10 @@ function PanelTitle({ icon: Icon, title }: { icon: typeof Users; title: string }
   );
 }
 
-function SalesSideDrawer({ children, onClose, title }: { children: ReactNode; onClose: () => void; title: string }) {
+function SalesSideDrawer({ children, fullScreen = false, onClose, title }: { children: ReactNode; fullScreen?: boolean; onClose: () => void; title: string }) {
   return (
-    <div className="sales-drawer-backdrop" role="presentation">
-      <aside aria-modal="true" className="sales-side-drawer" role="dialog">
+    <div className={`sales-drawer-backdrop${fullScreen ? " is-fullscreen" : ""}`} onClick={onClose} role="presentation">
+      <aside aria-label={`${title} details`} aria-modal="true" className={`sales-side-drawer${fullScreen ? " is-fullscreen" : ""}`} onClick={(event) => event.stopPropagation()} role="dialog">
         <div className="sales-drawer-head">
           <div>
             <span>AIcloser</span>
@@ -2808,11 +2995,23 @@ function SalesSideDrawer({ children, onClose, title }: { children: ReactNode; on
 function LeadForm({ onSubmit }: { onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
   return (
     <form className="sales-form-grid" onSubmit={onSubmit}>
-      <input name="customerName" placeholder="Customer name" required />
-      <input name="customerPhone" placeholder="WhatsApp number" required />
-      <input name="customerEmail" placeholder="Email" type="email" />
-      <textarea name="notes" placeholder="Lead notes" />
-      <button className="sales-primary-button" type="submit">Create CRM lead</button>
+      <label>
+        <span>Full name</span>
+        <input name="customerName" placeholder="e.g. Aarav Khanna" required />
+      </label>
+      <label>
+        <span>Phone / WhatsApp</span>
+        <input name="customerPhone" placeholder="e.g. +91 98112 34901" required />
+      </label>
+      <label>
+        <span>Email <small>(optional)</small></span>
+        <input name="customerEmail" placeholder="e.g. aarav@company.com" type="email" />
+      </label>
+      <label>
+        <span>Notes <small>(optional)</small></span>
+        <textarea name="notes" placeholder="Add enquiry context or next action..." rows={4} />
+      </label>
+      <button className="sales-primary-button" type="submit"><Plus size={15} /> Save contact</button>
     </form>
   );
 }
@@ -2820,10 +3019,12 @@ function LeadForm({ onSubmit }: { onSubmit: (event: FormEvent<HTMLFormElement>) 
 function LeadImportForm({
   importResult,
   isImporting,
+  onAddManually,
   onSubmit,
 }: {
   importResult: { imported: number; skipped: number; duplicate: number; invalid: number; errors?: Array<{ row: number; reason: string }> } | null;
   isImporting: boolean;
+  onAddManually: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
@@ -2851,6 +3052,15 @@ function LeadImportForm({
           {importResult.errors?.length ? <small>{importResult.errors.slice(0, 4).map((error) => `Row ${error.row}: ${error.reason}`).join(" | ")}</small> : null}
         </div>
       ) : null}
+      <div className="sales-import-manual-callout">
+        <div>
+          <strong>Adding one contact?</strong>
+          <span>Use the quick form instead of preparing a file.</span>
+        </div>
+        <button className="sales-secondary-button compact" onClick={onAddManually} type="button">
+          <Plus size={14} /> Add manually
+        </button>
+      </div>
     </form>
   );
 }
@@ -2868,7 +3078,6 @@ function LeadKanbanColumn({
   onQuickFollowUp,
   onQuickNote,
   onStage,
-  snapshot,
   stage,
   totalValue = 0,
 }: {
@@ -2880,14 +3089,19 @@ function LeadKanbanColumn({
   onQuickFollowUp: (leadId: string, followUpAt: string) => Promise<boolean>;
   onQuickNote: (leadId: string, body: string) => Promise<boolean>;
   onStage: (leadId: string, stage: SalesLeadStage) => void;
-  snapshot: SalesDashboardSnapshot;
   stage: SalesLeadStage;
   totalValue?: number;
 }) {
-  const { setNodeRef } = useDroppable({ id: `stage:${stage}`, data: { stage } });
+  const { isOver, setNodeRef } = useDroppable({ id: `stage:${stage}`, data: { stage } });
   return (
-    <section className="sales-kanban-column" ref={setNodeRef}>
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+    <section
+      aria-label={`${columnLabel || label(stage)} drop zone`}
+      className={`sales-kanban-column sales-kanban-column-${stage.toLowerCase()}${isOver ? " is-drop-target" : ""}`}
+      data-drop-active={isOver ? "true" : "false"}
+      data-stage={stage}
+      ref={setNodeRef}
+    >
+      <header className="sales-kanban-column-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
           <span style={{ fontWeight: 600, fontSize: "13px", color: "var(--closer-ink, #0f172a)" }}>{columnLabel || label(stage)}</span>
           <strong style={{ background: "var(--closer-soft, rgba(148, 163, 184, 0.16))", border: "1px solid var(--closer-line, #cbd5e1)", padding: "2px 7px", borderRadius: "10px", fontSize: "11px", color: "var(--closer-ink, #0f172a)" }}>{leads.length}</strong>
@@ -2897,7 +3111,7 @@ function LeadKanbanColumn({
         ) : null}
       </header>
       <SortableContext items={leads.map((lead) => lead.id)} strategy={verticalListSortingStrategy}>
-        {leads.map((lead) => <LeadCrmCard call={calls.get(lead.id)} canModifyLeads={canModifyLeads} key={lead.id} lead={lead} onOpen={onOpen} onQuickFollowUp={onQuickFollowUp} onQuickNote={onQuickNote} onStage={onStage} snapshot={snapshot} />)}
+        {leads.map((lead) => <LeadCrmCard call={calls.get(lead.id)} canModifyLeads={canModifyLeads} key={lead.id} lead={lead} onOpen={onOpen} onQuickFollowUp={onQuickFollowUp} onQuickNote={onQuickNote} onStage={onStage} />)}
       </SortableContext>
       {!leads.length ? <p className="sales-kanban-empty">Drop leads here</p> : null}
     </section>
@@ -2912,7 +3126,6 @@ function LeadCrmCard({
   onQuickFollowUp,
   onQuickNote,
   onStage,
-  snapshot,
 }: {
   canModifyLeads: boolean;
   call?: SalesDashboardSnapshot["mobileCalls"][number];
@@ -2921,7 +3134,6 @@ function LeadCrmCard({
   onQuickFollowUp: (leadId: string, followUpAt: string) => Promise<boolean>;
   onQuickNote: (leadId: string, body: string) => Promise<boolean>;
   onStage: (leadId: string, stage: SalesLeadStage) => void;
-  snapshot: SalesDashboardSnapshot;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: lead.id, data: { stage: lead.stage } });
   const [quickAction, setQuickAction] = useState<"note" | "follow-up" | null>(null);
@@ -2939,14 +3151,24 @@ function LeadCrmCard({
   };
   const isCreatedToday = isDateToday(lead.createdAt);
   const isDueToday = isFollowUpDueTodayOrPast(lead.followUpAt);
+  const followUpState = !lead.followUpAt ? "empty" : isDueToday ? "due" : "scheduled";
 
   return (
-    <article className="sales-crm-card compact" ref={setNodeRef} style={style}>
+    <article
+      {...attributes}
+      {...listeners}
+      aria-label={`Lead card for ${lead.customerName}. Drag anywhere on the card to move it.`}
+      aria-roledescription="draggable lead card"
+      className={`sales-crm-card compact sales-crm-card-draggable${isDragging ? " is-dragging" : ""}`}
+      ref={setNodeRef}
+      role="group"
+      style={style}
+    >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
         <div style={{ display: "flex", gap: "5px", alignItems: "center" }}>
-          <button aria-label="Drag lead" className="sales-crm-drag-handle" type="button" title="Drag to reorder" {...attributes} {...listeners}>
+          <span aria-hidden="true" className="sales-crm-drag-handle" title="Drag anywhere on the card">
             <GripVertical size={13} />
-          </button>
+          </span>
           <select
             aria-label={`Change ${lead.customerName} stage`}
             disabled={!canModifyLeads}
@@ -2969,6 +3191,16 @@ function LeadCrmCard({
           </select>
         </div>
         <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+          <button
+            aria-label={`Open full details for ${lead.customerName}`}
+            className="sales-crm-card-expand-button"
+            onClick={(event) => { event.stopPropagation(); onOpen(lead.id); }}
+            onPointerDown={(event) => event.stopPropagation()}
+            title="Open full lead details"
+            type="button"
+          >
+            <ExternalLink size={11} />
+          </button>
           {isCreatedToday ? (
             <span style={{ display: "inline-flex", alignItems: "center", gap: "2px", fontSize: "10px", fontWeight: 700, padding: "1px 5px", borderRadius: "4px", background: "rgba(249, 115, 22, 0.18)", color: "var(--closer-orange, #ea580c)", border: "1px solid var(--closer-orange-border, rgba(249, 115, 22, 0.4))" }}>
               <Flame size={10} /> Today
@@ -2983,36 +3215,35 @@ function LeadCrmCard({
       </div>
       <button className="sales-crm-card-main" onClick={() => onOpen(lead.id)} type="button">
         <div className="sales-crm-card-head">
-          <strong>{lead.customerName}</strong>
-          <span className={`sales-chip ${stageTone(lead.stage)}`}>{label(lead.stage)}</span>
-        </div>
-        <p>{lead.notes || call?.note || "No phone note yet"}</p>
-        <small>{call ? `${formatDateTime(call.startedAt)} - ${call.durationSeconds}s - ${call.outcome ? label(call.outcome) : "Outcome pending"}` : `Follow-up ${formatDate(lead.followUpAt)}`}</small>
-        <div className="sales-lead-meta">
-          <LeadSourceBadge source={lead.source} />
-          <span>{lead.segment || "general"}</span>
-          <span style={{ color: lead.priority === "hot" ? "#dc2626" : lead.priority === "warm" ? "#d97706" : undefined }}>{lead.priority}</span>
-          <span>{agentName(snapshot, lead.assignedAgentId)}</span>
-        </div>
-      {lead.tags && lead.tags.length > 0 ? (
-          <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginTop: "5px" }}>
-            {lead.tags.map((tag) => (
-              <span key={tag} style={{
-                fontSize: "10px",
-                fontWeight: 600,
-                padding: "1px 6px",
-                borderRadius: "4px",
-                background: "rgba(255, 107, 47, 0.15)",
-                color: "var(--closer-orange, #ff6b2f)",
-                border: "1px solid rgba(255, 107, 47, 0.3)",
-              }}>
-                #{tag}
-              </span>
-            ))}
+          <div className="sales-crm-card-identity">
+            <div className="sales-crm-card-identity-title">
+              <strong>{lead.customerName}</strong>
+              <LeadSourceBadge iconOnly source={lead.source} />
+            </div>
+            <span>{lead.customerPhone || lead.customerEmail || "No contact details"}</span>
           </div>
-      ) : null}
+        </div>
+        <div className="sales-crm-card-note-preview">
+          <FileText size={13} aria-hidden="true" />
+          <p>{lead.notes || call?.note || "No activity note yet."}</p>
+        </div>
+        <div className="sales-crm-card-signal-grid">
+          <div className={`sales-crm-card-signal ${followUpState}`}>
+            <span><CalendarClock size={13} /> Next follow-up</span>
+            <strong>{formatLeadFollowUp(lead.followUpAt)}</strong>
+          </div>
+          <div className="sales-crm-card-signal">
+            <span><PhoneCall size={13} /> Latest call</span>
+            <strong>{call ? `${call.durationSeconds}s${call.outcome ? ` · ${label(call.outcome)}` : " · Pending"}` : "No call logged"}</strong>
+          </div>
+        </div>
+        {lead.priority && lead.priority.toLowerCase() !== "normal" ? (
+          <div className="sales-crm-card-meta-row">
+            <span className={`sales-priority-pill ${lead.priority}`}>{label(lead.priority)}</span>
+          </div>
+        ) : null}
       </button>
-      <div className="sales-crm-card-quick-actions" style={{ display: "flex", gap: "5px", flexWrap: "wrap", marginTop: "7px" }}>
+      <div className="sales-crm-card-quick-actions" onPointerDown={(event) => event.stopPropagation()}>
         <button
           className="sales-secondary-button compact"
           disabled={!canModifyLeads || quickSaving}
@@ -3061,20 +3292,23 @@ function LeadCrmCard({
           }}
           style={{ display: "grid", gap: "5px", marginTop: "6px" }}
         >
-          <label style={{ fontSize: "11px", fontWeight: 700 }}>Next follow-up</label>
-          <input aria-label={`Next follow-up for ${lead.customerName}`} onChange={(event) => setQuickFollowUp(event.target.value)} type="datetime-local" value={quickFollowUp} />
+          <LeadFollowUpPicker
+            labelText="Next follow-up"
+            onChange={setQuickFollowUp}
+            value={quickFollowUp}
+          />
           <button className="sales-primary-button compact" disabled={quickSaving || !quickFollowUp} type="submit">{quickSaving ? "Saving..." : "Save follow-up"}</button>
         </form>
       ) : null}
-      {call?.recordingStatus === "UPLOADED" ? <CallRecordingPlayer callId={call.id} expectedDurationSeconds={call.durationSeconds} labelText={`${lead.customerName} recording`} /> : null}
+      {call?.recordingStatus === "UPLOADED" ? <div onPointerDown={(event) => event.stopPropagation()}><CallRecordingPlayer callId={call.id} expectedDurationSeconds={call.durationSeconds} labelText={`${lead.customerName} recording`} /></div> : null}
       {lead.customerPhone ? (
-        <a className="sales-secondary-button compact" href={`https://wa.me/${cleanPhone(lead.customerPhone)}`} rel="noreferrer" target="_blank">WhatsApp</a>
+        <a className="sales-secondary-button compact" href={`https://wa.me/${cleanPhone(lead.customerPhone)}`} onPointerDown={(event) => event.stopPropagation()} rel="noreferrer" target="_blank">WhatsApp</a>
       ) : null}
     </article>
   );
 }
 
-function LeadSourceBadge({ source }: { source?: string | null }) {
+function LeadSourceBadge({ iconOnly = false, source }: { iconOnly?: boolean; source?: string | null }) {
   const normalized = String(source || "manual").trim().toLowerCase();
   const descriptor = normalized.includes("whatsapp") || normalized.includes("ctwa")
     ? { key: "whatsapp", label: "WhatsApp Business", Icon: MessageCircle }
@@ -3106,9 +3340,21 @@ function LeadSourceBadge({ source }: { source?: string | null }) {
   const Icon = descriptor.Icon;
 
   return (
-    <span aria-label={`Lead source: ${descriptor.label}`} className="sales-source-badge" title={`Source: ${descriptor.label}`}>
-      <span aria-hidden="true" className={`sales-source-logo sales-source-logo-${descriptor.key}`}><Icon size={12} strokeWidth={2.2} /></span>
-      <span>{descriptor.label}</span>
+    <span aria-label={`Lead source: ${descriptor.label}`} className={`sales-source-badge${iconOnly ? " icon-only" : ""}`} title={`Source: ${descriptor.label}`}>
+      <span aria-hidden="true" className={`sales-source-logo sales-source-logo-${descriptor.key}`}>
+        {descriptor.key === "facebook" ? (
+          <svg aria-hidden="true" className="sales-source-brand-mark" viewBox="0 0 24 24" role="presentation">
+            <path d="M12 0C5.373 0 0 5.373 0 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078V12h3.047V9.356c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874V12h3.328l-.532 3.469h-2.796v8.385C19.612 22.954 24 17.99 24 12C24 5.373 18.627 0 12 0Z" fill="currentColor" />
+          </svg>
+        ) : descriptor.key === "instagram" ? (
+          <svg aria-hidden="true" className="sales-source-brand-mark" viewBox="0 0 24 24" role="presentation">
+            <path d="M7.2 0h9.6C20.8 0 24 3.2 24 7.2v9.6c0 4-3.2 7.2-7.2 7.2H7.2C3.2 24 0 20.8 0 16.8V7.2C0 3.2 3.2 0 7.2 0Zm0 2.4a4.8 4.8 0 0 0-4.8 4.8v9.6a4.8 4.8 0 0 0 4.8 4.8h9.6a4.8 4.8 0 0 0 4.8-4.8V7.2a4.8 4.8 0 0 0-4.8-4.8H7.2Zm4.8 3.6a6 6 0 1 1 0 12 6 6 0 0 1 0-12Zm0 2.4a3.6 3.6 0 1 0 0 7.2 3.6 3.6 0 0 0 0-7.2Zm6.3-3.6a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Z" fill="currentColor" />
+          </svg>
+        ) : (
+          <Icon size={13} strokeWidth={2.35} />
+        )}
+      </span>
+      {!iconOnly ? <span>{descriptor.label}</span> : null}
     </span>
   );
 }
@@ -3156,12 +3402,67 @@ function LeadDetailForm({
   const [fieldVisitGpsLog, setFieldVisitGpsLog] = useState<string | null>(null);
   const [actionBanner, setActionBanner] = useState<string | null>(null);
   const [quickNote, setQuickNote] = useState("");
-  const [followUpAt, setFollowUpAt] = useState(() => toDateTimeLocal(lead.followUpAt));
+  const [followUpDate, setFollowUpDate] = useState(() => toDateTimeLocal(lead.followUpAt).slice(0, 10));
+  const [followUpTime, setFollowUpTime] = useState(() => toDateTimeLocal(lead.followUpAt).slice(11, 16));
   const [quickSaving, setQuickSaving] = useState(false);
+  const [detailOrder, setDetailOrder] = useState<LeadDetailSectionKey[]>(defaultLeadDetailOrder);
+  const [isArrangeOpen, setIsArrangeOpen] = useState(false);
+  const arrangeControlRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    setFollowUpAt(toDateTimeLocal(lead.followUpAt));
+    const nextFollowUp = toDateTimeLocal(lead.followUpAt);
+    setFollowUpDate(nextFollowUp.slice(0, 10));
+    setFollowUpTime(nextFollowUp.slice(11, 16));
   }, [lead.followUpAt]);
+
+  useEffect(() => {
+    if (!isArrangeOpen) return undefined;
+
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!arrangeControlRef.current?.contains(event.target as Node)) {
+        setIsArrangeOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsArrangeOpen(false);
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [isArrangeOpen]);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem("aicloser:lead-detail-order");
+      if (!saved) return;
+      const parsed = JSON.parse(saved) as unknown;
+      if (Array.isArray(parsed) && defaultLeadDetailOrder.every((key) => parsed.includes(key))) {
+        setDetailOrder(parsed as LeadDetailSectionKey[]);
+      }
+    } catch {
+      // Keep the safe default order when storage is unavailable or malformed.
+    }
+  }, []);
+
+  const moveDetailSection = (section: LeadDetailSectionKey, direction: -1 | 1) => {
+    setDetailOrder((current) => {
+      const index = current.indexOf(section);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= current.length) return current;
+      const next = [...current];
+      [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+      try {
+        window.localStorage.setItem("aicloser:lead-detail-order", JSON.stringify(next));
+      } catch {
+        // The current session order still applies if persistence is blocked.
+      }
+      return next;
+    });
+  };
 
   const saveQuickNote = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -3174,11 +3475,17 @@ function LeadDetailForm({
 
   const saveQuickFollowUp = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!followUpAt) return;
+    if (!followUpDate) return;
     setQuickSaving(true);
-    await onQuickFollowUp(lead.id, new Date(followUpAt).toISOString());
+    const localFollowUp = `${followUpDate}T${followUpTime || "09:00"}`;
+    await onQuickFollowUp(lead.id, new Date(localFollowUp).toISOString());
     setQuickSaving(false);
   };
+
+  const followUpPreviewDate = followUpDate ? new Date(`${followUpDate}T${followUpTime || "09:00"}`) : null;
+  const followUpPreview = followUpPreviewDate && !Number.isNaN(followUpPreviewDate.getTime())
+    ? new Intl.DateTimeFormat("en-IN", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(followUpPreviewDate)
+    : "No follow-up scheduled";
 
   const handleScheduleGoogleMeet = async () => {
     const formattedWhen = meetDateTime ? new Date(meetDateTime).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "Upcoming";
@@ -3307,22 +3614,96 @@ function LeadDetailForm({
           ) : null}
         </div>
 
-        <div style={{ display: "grid", gap: "8px", marginTop: "12px", paddingTop: "12px", borderTop: "1px solid var(--closer-line, #cbd5e1)" }}>
-          <strong style={{ fontSize: "12px", color: "var(--closer-ink, #0f172a)" }}>Next action</strong>
-          <form onSubmit={saveQuickNote} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: "6px" }}>
-            <input aria-label="Add a quick lead note" onChange={(event) => setQuickNote(event.target.value)} placeholder="Add note for this lead..." value={quickNote} />
-            <button className="sales-secondary-button compact" disabled={quickSaving || !quickNote.trim()} type="submit"><FileText size={12} /> {quickSaving ? "Saving" : "Add note"}</button>
+        <div className="sales-next-action-block">
+          <div className="sales-next-action-heading">
+            <div>
+              <strong>Next action</strong>
+              <span>Keep the next touchpoint visible and actionable.</span>
+            </div>
+          </div>
+          <form className="sales-note-composer" onSubmit={saveQuickNote}>
+            <label htmlFor="lead-quick-note">Conversation note</label>
+            <div className="sales-note-composer-row">
+              <input id="lead-quick-note" aria-label="Add a quick lead note" onChange={(event) => setQuickNote(event.target.value)} placeholder="Add note for this lead..." value={quickNote} />
+              <button className="sales-secondary-button compact" disabled={quickSaving || !quickNote.trim()} type="submit"><FileText size={12} /> {quickSaving ? "Saving" : "Add note"}</button>
+            </div>
           </form>
-          <form onSubmit={saveQuickFollowUp} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: "6px", alignItems: "center" }}>
-            <label style={{ display: "grid", gap: "3px", fontSize: "11px", fontWeight: 700, color: "var(--closer-muted, #64748b)" }}>
-              Follow-up date &amp; time
-              <input aria-label="Next follow-up date and time" onChange={(event) => setFollowUpAt(event.target.value)} type="datetime-local" value={followUpAt} />
-            </label>
-            <button className="sales-primary-button compact" disabled={quickSaving || !followUpAt} type="submit"><CalendarPlus size={12} /> Save follow-up</button>
+          <form className="sales-followup-composer" onSubmit={saveQuickFollowUp}>
+            <div className="sales-followup-composer-heading">
+              <div className="sales-followup-composer-title">
+                <span className="sales-followup-icon" aria-hidden="true"><CalendarDays size={15} /></span>
+                <div>
+                  <strong>Next follow-up</strong>
+                  <span>Choose a date and time for the next touch.</span>
+                </div>
+              </div>
+              <span className={`sales-followup-status${followUpDate ? " is-scheduled" : ""}`}>
+                {followUpDate ? "Scheduled" : "Not set"}
+              </span>
+            </div>
+            <div className="sales-followup-fields">
+              <LeadFollowUpPicker
+                labelText="Follow-up date & time"
+                onChange={(nextValue) => {
+                  setFollowUpDate(nextValue.slice(0, 10));
+                  setFollowUpTime(nextValue.slice(11, 16));
+                }}
+                value={followUpDate ? `${followUpDate}T${followUpTime || "09:00"}` : ""}
+              />
+            </div>
+            <div className="sales-followup-composer-footer">
+              <span className="sales-followup-preview"><CalendarClock size={13} aria-hidden="true" /> {followUpPreview}</span>
+              <button className="sales-primary-button compact" disabled={quickSaving || !followUpDate} type="submit"><CalendarPlus size={12} /> {quickSaving ? "Saving..." : "Save follow-up"}</button>
+            </div>
           </form>
+        </div>
+
+        <div className="sales-detail-arrange-control" ref={arrangeControlRef}>
+          <button
+            aria-expanded={isArrangeOpen}
+            className="sales-secondary-button compact"
+            onClick={() => setIsArrangeOpen((open) => !open)}
+            type="button"
+          >
+            <Sliders size={13} /> Arrange details <ChevronDown size={13} className={isArrangeOpen ? "is-rotated" : ""} />
+          </button>
+          {isArrangeOpen ? (
+            <div aria-label="Arrange lead detail sections" className="sales-detail-arrange-panel">
+              <div className="sales-detail-arrange-heading">
+                <strong>Detail order</strong>
+                <span>Choose what appears first in this drawer.</span>
+              </div>
+              {detailOrder.map((section, index) => (
+                <div className="sales-detail-arrange-row" key={section}>
+                  <span><GripVertical size={14} /> {index + 1}. {leadDetailSectionLabels[section]}</span>
+                  <div>
+                    <button
+                      aria-label={`Move ${leadDetailSectionLabels[section]} up`}
+                      className="sales-detail-arrange-button"
+                      disabled={index === 0}
+                      onClick={() => moveDetailSection(section, -1)}
+                      type="button"
+                    >
+                      <ArrowUp size={14} />
+                    </button>
+                    <button
+                      aria-label={`Move ${leadDetailSectionLabels[section]} down`}
+                      className="sales-detail-arrange-button"
+                      disabled={index === detailOrder.length - 1}
+                      onClick={() => moveDetailSection(section, 1)}
+                      type="button"
+                    >
+                      <ArrowDown size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
 
+      <div className="sales-lead-detail-section" style={{ order: detailOrder.indexOf("tools") + 1 }}>
       <details className="sales-lead-advanced-details">
         <summary>More tools: AI guidance, Meet and field visit</summary>
         {/* TeleCRM Lead-IQ Next-Best-Action Script & Objection Matrix */}
@@ -3396,8 +3777,10 @@ function LeadDetailForm({
         </div>
       </div>
       </details>
+      </div>
 
       {/* 2. Call Recordings & Outcome History */}
+      <div className="sales-lead-detail-section" style={{ order: detailOrder.indexOf("calls") + 1 }}>
       <div className="sales-panel nested">
         <PanelTitle icon={PhoneCall} title={`Call Recordings & Logs (${leadCalls.length})`} />
         {leadCalls.map((c) => (
@@ -3439,14 +3822,18 @@ function LeadDetailForm({
         ))}
         {!leadCalls.length ? <Empty text="No call activity for this lead yet." /> : null}
       </div>
+      </div>
 
       {/* 3. Conversation & Activity Timeline with full CRUD & mobile sync */}
-      <LeadNotesManager
-        customerName={lead.customerName}
-        initialNotes={leadTimeline}
-        leadId={lead.id}
-      />
+      <div className="sales-lead-detail-section" style={{ order: detailOrder.indexOf("history") + 1 }}>
+        <LeadNotesManager
+          customerName={lead.customerName}
+          initialNotes={leadTimeline}
+          leadId={lead.id}
+        />
+      </div>
 
+      <div className="sales-lead-detail-section" style={{ order: detailOrder.indexOf("information") + 1 }}>
       <details className="sales-lead-advanced-details">
         <summary>Lead information and integrations</summary>
         {/* TeleCRM Custom Schema Fields */}
@@ -3502,6 +3889,7 @@ function LeadDetailForm({
           </form>
         ) : null}
       </details>
+      </div>
     </div>
   );
 }

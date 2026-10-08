@@ -4,7 +4,7 @@
   "private": true,
   "description": "AIcloser — Dedicated SIM-based AI Sales & Telecalling CRM.",
   "scripts": {
-    "dev": "next dev --webpack -p 3010",
+    "dev": "next dev --turbopack -p 3010",
     "build": "next build --webpack",
     "start": "node node_modules/next/dist/bin/next start -p 3010",
     "lint": "eslint",

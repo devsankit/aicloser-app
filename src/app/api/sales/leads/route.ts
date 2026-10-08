@@ -40,17 +40,12 @@ export async function POST(request: Request) {
     }
     const stage = String(body.stage ?? "NEW") as SalesLeadStage;
     if (!salesLeadStages.has(stage)) return NextResponse.json({ ok: false, error: "Choose a valid lead stage." }, { status: 400 });
-    const existingLead = snapshot.visibleLeads.find((lead) => lead.id === leadId);
     const note = typeof body.note === "string" ? body.note.trim() : "";
     const followUpAt = typeof body.followUpAt === "string" ? body.followUpAt.trim() : "";
     if (followUpAt && Number.isNaN(new Date(followUpAt).getTime())) {
       return NextResponse.json({ ok: false, error: "Choose a valid follow-up date." }, { status: 422 });
     }
-    const activeStages = new Set<SalesLeadStage>(["CONTACTED", "INTERESTED", "WEBINAR_INVITED", "WEBINAR_ATTENDED", "FOLLOW_UP", "NEGOTIATION", "QUALIFIED", "QUOTE_SENT", "PAYMENT_PENDING"]);
     const requiresReason = new Set<SalesLeadStage>(["CLOSED_LOST", "LOST", "NOT_REACHABLE", "RECYCLED"]);
-    if (activeStages.has(stage) && !note && !followUpAt && !existingLead?.followUpAt) {
-      return NextResponse.json({ ok: false, error: "Add a follow-up date or a short activity note before moving this lead." }, { status: 422 });
-    }
     if (requiresReason.has(stage) && note.length < 3) {
       return NextResponse.json({ ok: false, error: "Add the reason before closing or recycling this lead." }, { status: 422 });
     }

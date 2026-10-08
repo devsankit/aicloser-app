@@ -7,7 +7,8 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { persistRealtimeEvent } from "@/lib/realtime/event-outbox";
-import { claimSalesLeadPoolItem, getSalesSnapshotForRole, syncSalesAgentConversationLinks, updateSalesLeadStage } from "@/lib/gigxomi/sales-store";
+import { claimSalesLeadPoolItem, createSalesLead, getSalesSnapshotForRole, syncSalesAgentConversationLinks, updateSalesLeadStage } from "@/lib/gigxomi/sales-store";
+import { normalizeE164Phone, upsertMarketingContact } from "@/lib/whatsapp-marketing/contact-service";
 import type { AppRole } from "@/lib/auth/types";
 
 const RECORDING_ROOT = path.join(process.cwd(), "data", "uploads", "sales-recordings");
@@ -213,7 +214,15 @@ export async function startSalesMobileCall(actor: SalesMobileActor, input: Recor
       recordingStatus: clean(input.recordingStatus).toUpperCase() === "RECORDING_UNAVAILABLE" ? "RECORDING_UNAVAILABLE" : "NONE",
     },
   });
-  await prisma.salesActivityLog.create({ data: { assignmentId: assignment.id, actorUserId: actor.userId, action: "MOBILE_CALL_STARTED", metadata: { callId: call.id, direction: call.direction } } });
+  await prisma.salesActivityLog.create({
+    data: {
+      tenantId: agent.tenantId,
+      assignmentId: assignment.id,
+      actorUserId: actor.userId,
+      action: "MOBILE_CALL_STARTED",
+      metadata: { callId: call.id, direction: call.direction },
+    },
+  });
   return call;
 }
 
@@ -240,7 +249,15 @@ export async function endSalesMobileCall(actor: SalesMobileActor, input: Record<
       recordingError: clean(input.recordingError) || existing.recordingError,
     },
   });
-  await prisma.salesActivityLog.create({ data: { assignmentId: call.assignmentId, actorUserId: actor.userId, action: "MOBILE_CALL_ENDED", metadata: { callId: call.id, status: call.status, durationSeconds: call.durationSeconds } } });
+  await prisma.salesActivityLog.create({
+    data: {
+      tenantId: agent.tenantId,
+      assignmentId: call.assignmentId,
+      actorUserId: actor.userId,
+      action: "MOBILE_CALL_ENDED",
+      metadata: { callId: call.id, status: call.status, durationSeconds: call.durationSeconds },
+    },
+  });
   await persistRealtimeEvent({
     topic: `tenant:${agent.tenantId}`,
     tenantId: agent.tenantId,
@@ -265,7 +282,16 @@ export async function submitSalesMobileDisposition(actor: SalesMobileActor, inpu
   const updated = await prisma.$transaction(async (tx) => {
     const savedCall = await tx.salesMobileCall.update({ where: { id: call.id }, data: { outcome, note, nextFollowUpAt, noteSubmitted: true } });
     await tx.salesLeadAssignment.update({ where: { id: call.assignmentId }, data: { notes: note, followUpAt: nextFollowUpAt, lastContactedAt: call.connectedAt ?? call.endedAt ?? new Date() } });
-    await tx.salesActivityLog.create({ data: { assignmentId: call.assignmentId, actorUserId: actor.userId, action: "MOBILE_CALL_DISPOSITION", note, metadata: { callId: call.id, outcome, nextFollowUpAt } } });
+    await tx.salesActivityLog.create({
+      data: {
+        tenantId: agent.tenantId,
+        assignmentId: call.assignmentId,
+        actorUserId: actor.userId,
+        action: "MOBILE_CALL_DISPOSITION",
+        note,
+        metadata: { callId: call.id, outcome, nextFollowUpAt }
+      }
+    });
     return savedCall;
   });
   const stage = clean(input.stageUpdate).toUpperCase();
@@ -397,6 +423,123 @@ export async function syncSalesMobileContacts(actor: SalesMobileActor, contacts:
     return lead ? [{ leadId: lead.id, displayName: clean(contact.displayName), matchedPhone: phones.find((phone) => byPhone.has(phone)) }] : [];
   });
   return { matched: matches.length, matches };
+}
+
+export type SalesMobileContactInput = {
+  name?: unknown;
+  phone?: unknown;
+  email?: unknown;
+  source?: unknown;
+  tags?: unknown;
+  notes?: unknown;
+};
+
+function normalizeContactTags(value: unknown) {
+  const values = Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : [];
+  return Array.from(new Set(values.map(clean).filter(Boolean))).slice(0, 30);
+}
+
+function toMobileContactResult(lead: {
+  id: string;
+  customerName: string;
+  customerPhone: string | null;
+  customerEmail: string | null;
+  stage: string;
+  tags: string[];
+  notes: string | null;
+}) {
+  return {
+    id: lead.id,
+    leadId: lead.id,
+    name: lead.customerName,
+    phone: lead.customerPhone || "",
+    email: lead.customerEmail || "",
+    stage: lead.stage,
+    tags: lead.tags,
+    notes: lead.notes || "",
+  };
+}
+
+export async function upsertSalesMobileContact(actor: SalesMobileActor, input: SalesMobileContactInput) {
+  const agent = await getSalesMobileAgent(actor);
+  if (!agent.tenantId) throw new Error("Your sales profile is not assigned to a workspace.");
+
+  const name = clean(input.name);
+  const rawPhone = clean(input.phone);
+  const email = clean(input.email).toLowerCase();
+  const notes = clean(input.notes);
+  const source = clean(input.source) || "mobile_manual";
+  const tags = Array.from(new Set(["Mobile Contact", ...normalizeContactTags(input.tags)]));
+
+  if (!name) throw new Error("Contact name is required.");
+  if (!rawPhone) throw new Error("Contact phone is required.");
+
+  const normalizedPhone = normalizeE164Phone(rawPhone);
+  if (!normalizedPhone.valid) throw new Error(normalizedPhone.error);
+
+  const marketingResult = await upsertMarketingContact({
+    tenantId: agent.tenantId,
+    fullName: name,
+    phone: normalizedPhone.e164,
+    email: email || undefined,
+    tags,
+    optInSource: source,
+  });
+  if (!marketingResult.ok || !marketingResult.contact) throw new Error(marketingResult.error || "Contact sync failed.");
+
+  const existingLeads = await prisma.salesLeadAssignment.findMany({
+    where: { assignedAgentId: agent.id },
+    select: { id: true, customerName: true, customerPhone: true, customerEmail: true, source: true, stage: true, tags: true, notes: true },
+    orderBy: { updatedAt: "desc" },
+  });
+  const normalizedEmail = email || null;
+  const existing = existingLeads.find((lead) => {
+    const leadPhone = normalizeE164Phone(lead.customerPhone || "");
+    const phoneMatches = leadPhone.valid && leadPhone.e164 === normalizedPhone.e164;
+    const emailMatches = Boolean(normalizedEmail && lead.customerEmail?.trim().toLowerCase() === normalizedEmail);
+    return phoneMatches || emailMatches;
+  });
+
+  if (existing) {
+    const mergedTags = Array.from(new Set([...(existing.tags || []), ...tags]));
+    const lead = await prisma.salesLeadAssignment.update({
+      where: { id: existing.id },
+      data: {
+        customerName: name,
+        customerPhone: normalizedPhone.e164,
+        customerEmail: email || undefined,
+        source: existing.source || source,
+        tags: mergedTags,
+        notes: notes || undefined,
+        activityLogs: {
+          create: {
+            actorUserId: actor.userId,
+            action: "LEAD_UPDATED",
+            note: "Contact synced from mobile CRM.",
+          },
+        },
+      },
+      select: { id: true, customerName: true, customerPhone: true, customerEmail: true, stage: true, tags: true, notes: true },
+    });
+    return { created: false, updated: true, contact: toMobileContactResult(lead), marketingContactId: marketingResult.contact.id };
+  }
+
+  const lead = await createSalesLead({
+    assignedAgentId: agent.id,
+    actorUserId: actor.userId,
+    customerName: name,
+    customerPhone: normalizedPhone.e164,
+    customerEmail: email || undefined,
+    source,
+    serviceInterest: "Mobile Contact",
+    segment: "CRM Contact",
+    priority: "normal",
+    tags,
+    notes,
+    stage: "NEW",
+  });
+
+  return { created: true, updated: false, contact: toMobileContactResult(lead), marketingContactId: marketingResult.contact.id };
 }
 
 type OfflineEventInput = { localEventId?: unknown; idempotencyKey?: unknown; type?: unknown; payload?: unknown; deviceId?: unknown };

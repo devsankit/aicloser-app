@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Shield, Smartphone, Zap } from "lucide-react";
+import { Zap } from "lucide-react";
 
 import { SalesPasswordLoginForm } from "@/components/sales/sales-auth";
 import { BrandWordmark } from "@/components/ui/brand-wordmark";
@@ -88,27 +88,13 @@ export default async function SalesLoginPage({
             </p>
           </div>
 
-          {/* Quick value trust badges */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: "8px",
-              padding: "11px 12px",
-              background: "#f8fafc",
-              borderRadius: "12px",
-              border: "1px solid #e2e8f0",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11.5px", fontWeight: 600, color: "#334155" }}>
-              <Smartphone size={14} style={{ color: "#ff6b2f", flexShrink: 0 }} /> SIM Call & Audio Sync
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11.5px", fontWeight: 600, color: "#334155" }}>
-              <Shield size={14} style={{ color: "#0284c7", flexShrink: 0 }} /> Role Access Matrix
-            </div>
-          </div>
-
-          <SalesPasswordLoginForm error={value(params.error)} redirectTo={value(params.redirectTo) || "/"} />
+          <SalesPasswordLoginForm
+            clientType={value(params.clientType)}
+            error={value(params.error)}
+            identifier={value(params.identifier)}
+            message={value(params.message)}
+            redirectTo={value(params.redirectTo) || "/"}
+          />
 
           <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: "16px", textAlign: "center" }}>
             <p style={{ margin: 0, fontSize: "13px", color: "#64748b" }}>
