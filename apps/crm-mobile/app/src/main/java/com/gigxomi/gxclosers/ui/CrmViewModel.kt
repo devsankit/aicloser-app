@@ -65,6 +65,7 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
     // Keep a session conflict visible after the transient snackbar is dismissed.
     // The conflict card owns its lifecycle and is cleared when a new login starts.
     fun clearMessage() { error = null; status = null }
+    fun showError(message: String) { error = message }
 
     private fun launchWork(block: suspend () -> Unit) {
         viewModelScope.launch {
