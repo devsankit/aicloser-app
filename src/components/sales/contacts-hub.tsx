@@ -322,9 +322,7 @@ export function ContactsHub({
   // 2. Google Sheets & Excel/CSV State
   const [sheetsTab, setSheetsTab] = useState<"excel_file" | "google_sheets" | "raw_paste">("excel_file");
   const [googleSheetUrl, setGoogleSheetUrl] = useState("");
-  const [rawPasteText, setRawPasteText] = useState(
-    "Aarav Khanna, +91 98112 34901, aarav@khannaventures.in\nPriya Nair, +91 98450 11229, priya@nairstudio.com\nRishi Oberoi, +91 98209 88321, rishi@oberoirealty.in",
-  );
+  const [rawPasteText, setRawPasteText] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const contactsTableShellRef = useRef<HTMLDivElement | null>(null);
   const [contactsTableScroll, setContactsTableScroll] = useState({ left: 0, max: 0 });
@@ -1069,7 +1067,7 @@ export function ContactsHub({
               </span>
             </div>
             <h2 className="crm-contacts-title">
-              {isLeadImportView ? "Lead Import Center" : "All Contacts"}
+              {isLeadImportView ? "Choose an import source" : "All Contacts"}
             </h2>
             <p className="crm-contacts-description">
               {isLeadImportView
@@ -1177,11 +1175,13 @@ export function ContactsHub({
             tabIndex={0}
             onClick={() => {
               setSheetsTab("google_sheets");
+              setImportPreview(null);
               setActiveDrawer(activeDrawer === "sheets_excel" && sheetsTab === "google_sheets" ? null : "sheets_excel");
             }}
             onKeyDown={(event) =>
               handleImportCardKeyDown(event, () => {
                 setSheetsTab("google_sheets");
+                setImportPreview(null);
                 setActiveDrawer(activeDrawer === "sheets_excel" && sheetsTab === "google_sheets" ? null : "sheets_excel");
               })
             }
@@ -1223,11 +1223,13 @@ export function ContactsHub({
             tabIndex={0}
             onClick={() => {
               setSheetsTab("excel_file");
+              setImportPreview(null);
               setActiveDrawer(activeDrawer === "sheets_excel" && sheetsTab === "excel_file" ? null : "sheets_excel");
             }}
             onKeyDown={(event) =>
               handleImportCardKeyDown(event, () => {
                 setSheetsTab("excel_file");
+                setImportPreview(null);
                 setActiveDrawer(activeDrawer === "sheets_excel" && sheetsTab === "excel_file" ? null : "sheets_excel");
               })
             }
@@ -1269,10 +1271,12 @@ export function ContactsHub({
             tabIndex={0}
             onClick={() => {
               setSheetsTab("raw_paste");
+              setImportPreview(null);
               setActiveDrawer(activeDrawer === "sheets_excel" && sheetsTab === "raw_paste" ? null : "sheets_excel");
             }}
             onKeyDown={(event) => handleImportCardKeyDown(event, () => {
               setSheetsTab("raw_paste");
+              setImportPreview(null);
               setActiveDrawer(activeDrawer === "sheets_excel" && sheetsTab === "raw_paste" ? null : "sheets_excel");
             })}
             style={{ cursor: "pointer", padding: 16, borderRadius: 14 }}
@@ -2034,7 +2038,7 @@ export function ContactsHub({
                 Spreadsheet & Bulk Phone Number Importer
               </span>
               <h3 style={{ margin: "6px 0 4px", fontSize: "1.18rem", fontWeight: 800 }}>
-                Import Contacts from Excel (.xlsx / .xls), CSV, or Google Sheets
+                {sheetsTab === "raw_paste" ? "Paste contacts for review" : sheetsTab === "google_sheets" ? "Connect a Google Sheet" : "Upload a spreadsheet"}
               </h3>
               <p style={{ margin: 0, fontSize: "0.84rem", color: "var(--muted)" }}>
                 Automatically normalizes phone numbers to E.164 (<code>+91...</code>), deduplicates existing contacts, and syncs to Contacts + CRM Pipeline.
@@ -2050,11 +2054,11 @@ export function ContactsHub({
             </button>
           </div>
 
-          <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+          {!isLeadImportView && <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
             <button
               type="button"
               className={sheetsTab === "excel_file" ? "primary-button" : "secondary-button"}
-              onClick={() => setSheetsTab("excel_file")}
+              onClick={() => { setSheetsTab("excel_file"); setImportPreview(null); }}
               style={{ fontSize: 13 }}
             >
               <FileSpreadsheet size={15} style={{ marginRight: 6 }} />
@@ -2063,7 +2067,7 @@ export function ContactsHub({
             <button
               type="button"
               className={sheetsTab === "google_sheets" ? "primary-button" : "secondary-button"}
-              onClick={() => setSheetsTab("google_sheets")}
+              onClick={() => { setSheetsTab("google_sheets"); setImportPreview(null); }}
               style={{ fontSize: 13 }}
             >
               <Globe size={15} style={{ marginRight: 6 }} />
@@ -2072,13 +2076,13 @@ export function ContactsHub({
             <button
               type="button"
               className={sheetsTab === "raw_paste" ? "primary-button" : "secondary-button"}
-              onClick={() => setSheetsTab("raw_paste")}
+              onClick={() => { setSheetsTab("raw_paste"); setImportPreview(null); }}
               style={{ fontSize: 13 }}
             >
               <Upload size={15} style={{ marginRight: 6 }} />
               Quick Paste Phone Numbers / CSV Rows
             </button>
-          </div>
+          </div>}
 
           <form onSubmit={handleImportFileOrGoogleSheet} style={{ display: "grid", gap: 14 }}>
             {sheetsTab === "excel_file" ? (
@@ -2098,7 +2102,7 @@ export function ContactsHub({
                   type="file"
                   accept=".xlsx,.xls,.csv,.tsv"
                   style={{ display: "none" }}
-                  onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                  onChange={(e) => { setSelectedFile(e.target.files?.[0] || null); setImportPreview(null); }}
                 />
                 <FileSpreadsheet size={28} color="#ff6b2f" style={{ marginBottom: 8 }} />
                 <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>
@@ -2120,7 +2124,7 @@ export function ContactsHub({
                 <input
                   type="url"
                   value={googleSheetUrl}
-                  onChange={(e) => setGoogleSheetUrl(e.target.value)}
+                  onChange={(e) => { setGoogleSheetUrl(e.target.value); setImportPreview(null); }}
                   placeholder="https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit#gid=0"
                   style={{ padding: "10px 14px", borderRadius: 10, fontSize: 13 }}
                 />
@@ -2138,7 +2142,8 @@ export function ContactsHub({
                 <textarea
                   rows={5}
                   value={rawPasteText}
-                  onChange={(e) => setRawPasteText(e.target.value)}
+                  onChange={(e) => { setRawPasteText(e.target.value); setImportPreview(null); }}
+                  placeholder="Name, Phone, Email (optional) — or one phone number per line"
                   style={{ padding: 12, borderRadius: 10, fontFamily: "monospace", fontSize: 12.5 }}
                 />
               </div>
