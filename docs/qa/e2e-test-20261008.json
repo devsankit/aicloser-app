@@ -113,6 +113,10 @@
       "status": "PASS_WITH_RECORDING_LIMITATION",
       "details": "Both calls appeared in the live SIM call history with duration, outcome, owner, notes, and explicit recording-unavailable error. Playback/speed controls were not passable because the emulator had no connected audio endpoint and no real recording was uploaded."
     },
+    "recordingPipelineSynthetic": {
+      "status": "PASS_LOCAL",
+      "details": "A valid 1-second WAV was uploaded through the authenticated mobile recording endpoint for QA call cmuzp8it40004ygf4d0oivzqj on lead cmuz6k9it0009ksf4j8qlptyp. The call reached UPLOADED, the full recording returned 200/audio-wav with 16044 bytes, and a bytes=0-63 request returned 206 with Content-Range bytes 0-63/16044. The local web dashboard player verified play/pause, 1x/1.5x/2x/3x selection, and forward/backward seeking. This validates the server and web playback path; it does not replace native emulator microphone capture."
+    },
     "nativeIncomingUi": {
       "status": "PASS_NATIVE_CARD_ONLY",
       "details": "The emulator GSM trigger produced the Android native incoming-call card for the test number 9800001702. The separate AI Closer Truecaller-style detail overlay was not verified in this run."
@@ -139,6 +143,7 @@
     "mobileRecordingStatusLabelFix": "7c39fde",
     "bulkCampaignSelectionGuardFix": "04ceaa3",
     "disabledLeadActionGuidanceFix": "e240f7f"
+    ,"recordingPipelineVerification": "local synthetic WAV upload + web playback verification"
   },
   "automatedRegression": {
     "webTests": "76 passed, 0 failed",
