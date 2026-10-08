@@ -25,6 +25,14 @@
       "status": "PASS_READ_ONLY",
       "details": "Admin Team & Users page exposed seat usage, optional phone input, role assignment, permission matrix, lock/reset/remove actions, and the mobile/desktop device table. No destructive action or plan change was performed."
     },
+    "dashboardControlAudit": {
+      "status": "PASS_READ_ONLY",
+      "details": "Live Admin dashboard shortcuts opened Dashboard Overview, CRM Kanban, Lead Import, Contacts, Calls, and Team & Users. CRM side drawer preserved lead context; filters, stage controls, notes/follow-up actions, call history, and recording-status states were visible. Calls campaign delete actions now have explicit accessible labels."
+    },
+    "contactsDirectoryLive": {
+      "status": "PASS_WITH_SLOW_LOAD_ON_CURRENT_DEPLOYMENT",
+      "details": "Live Contacts directory eventually loaded the three QA contacts after approximately 5–6 seconds. The currently deployed build briefly showed a spinner and still rendered Bulk Campaign while the directory was empty; timeout/error handling and empty-action guard are committed locally but require deployment to verify live."
+    },
     "createCloser": {
       "status": "BLOCKED",
       "reason": "Fresh workspace is Free 1/1 seats; no additional seat was available. No billing or plan mutation was performed."
@@ -41,7 +49,7 @@
     },
     "mobileLogin": {
       "status": "PASS_WITH_EXPECTED_DEVICE_BLOCK",
-      "details": "Credentials accepted and the existing mobile-session conflict showed Login here. Required permissions, call-screening role, and overlay access were verified. Setup surfaces the persistent device-ownership error when the emulator ID is already registered to another sales agent; it does not silently reassign the company phone. A stale-session recovery fix was committed in 4ee160d. A setup fail-closed fix was committed in 3bfe01a: denied permissions, call-screening role, or overlay access no longer register the device and show a corrective message. A successful registration on a previously unregistered closer device was not completed because the workspace had no spare closer seat/device assignment."
+      "details": "Fresh APK login reproduced the active-session conflict and displayed the Login here takeover action. Setup remained correctly blocked by existing device ownership; it did not silently reassign the company phone. A stale-session recovery fix was committed in 4ee160d. A setup fail-closed fix was committed in 3bfe01a: denied permissions, call-screening role, or overlay access no longer register the device and show a corrective message. A successful registration on a previously unregistered closer device was not completed because the workspace had no spare closer seat/device assignment."
     },
     "outgoingCallApiLifecycle": {
       "status": "PASS",
