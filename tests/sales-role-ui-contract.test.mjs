@@ -35,6 +35,15 @@ test("admin dashboard is a team reporting view and excludes admin-owned work", (
   assert.match(dashboard, /Review Team Calls &amp; Audio/);
 });
 
+test("Plugins & Channels opens WhatsApp and Instagram setup panels in place", () => {
+  const pluginsHub = fs.readFileSync(new URL("../src/components/sales/plugins-hub.tsx", import.meta.url), "utf8");
+  assert.match(dashboard, /whatsAppCloudPanel=\{/);
+  assert.match(dashboard, /instagramPluginPanel=\{/);
+  assert.match(pluginsHub, /scrollIntoView\(\{ behavior: "smooth", block: "start" \}\)/);
+  assert.match(pluginsHub, /WhatsApp bulk marketing onboarding/);
+  assert.match(pluginsHub, /Connect WABA → register the phone → subscribe the webhook/);
+});
+
 test("internal sidebar reserves space for its footer instead of covering the last menu item", () => {
   assert.match(globalStyles, /\.internal-theme-root \.internal-sidebar\s*\{[\s\S]*?grid-template-rows:\s*auto minmax\(0, 1fr\) auto;/);
 });

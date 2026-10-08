@@ -2921,6 +2921,23 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
             tenantId={salesOperations.tenantId}
             onOpenMultiChannelChat={openSalesConversation}
             onNavigateTab={(tab: string) => navigateSales(tab)}
+            whatsAppCloudPanel={
+              <AdminWhatsAppSetupPanel
+                fallbackPhoneNumber={salesOperations.whatsAppConnection?.phoneNumber}
+                initialConnection={salesOperations.whatsAppConnection}
+                settingsHref={null}
+                tenantId={salesOperations.tenantId}
+                tenantOptions={salesOperations.whatsAppTenantOptions}
+                variant="compact"
+              />
+            }
+            instagramPluginPanel={
+              <SuperAdminInstagramPluginCard
+                initialConnection={salesOperations.instagramConnection}
+                setupUrls={salesOperations.instagramSetupUrls}
+                variant={isWorkspaceAdmin ? "default" : "sales"}
+              />
+            }
           />
         </section>
       ) : null}

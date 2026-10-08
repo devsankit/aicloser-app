@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Bot,
   CheckCircle2,
@@ -52,6 +52,16 @@ export function PluginsHub({
   instagramPluginPanel,
 }: PluginsHubProps) {
   const [selectedPlugin, setSelectedPlugin] = useState<PluginCardId>("whatsapp_scanner");
+  const configurationRef = useRef<HTMLDivElement>(null);
+
+  function openPluginConfiguration(pluginId: PluginCardId) {
+    setSelectedPlugin(pluginId);
+  }
+
+  useEffect(() => {
+    if (selectedPlugin === "whatsapp_scanner") return;
+    window.requestAnimationFrame(() => configurationRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }, [selectedPlugin]);
 
   const plugins: Array<{
     id: PluginCardId;
@@ -354,7 +364,7 @@ export function PluginsHub({
                   <button
                     type="button"
                     className="primary-button"
-                    onClick={() => setSelectedPlugin("whatsapp_cloud_api")}
+                    onClick={() => openPluginConfiguration("whatsapp_cloud_api")}
                     style={{
                       flex: 1,
                       fontSize: 12.5,
@@ -372,7 +382,7 @@ export function PluginsHub({
                   <button
                     type="button"
                     className="primary-button"
-                    onClick={() => setSelectedPlugin("instagram_api")}
+                    onClick={() => openPluginConfiguration("instagram_api")}
                     style={{
                       flex: 1,
                       fontSize: 12.5,
@@ -456,7 +466,7 @@ export function PluginsHub({
 
       {/* Live Embedded Plugin Configuration Section */}
       {selectedPlugin === "whatsapp_cloud_api" && whatsAppCloudPanel ? (
-        <div className="crm-panel" style={{ padding: 20, borderRadius: 18 }}>
+        <div className="crm-panel" ref={configurationRef} style={{ padding: 20, borderRadius: 18, scrollMarginTop: 20 }} tabIndex={-1}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
             <div>
               <span style={{ fontSize: 11, fontWeight: 700, color: "#ff6b2f", textTransform: "uppercase" }}>
@@ -467,12 +477,18 @@ export function PluginsHub({
               </h3>
             </div>
           </div>
+          <div style={{ display: "grid", gap: 8, marginBottom: 16, padding: "12px 14px", borderRadius: 12, background: "rgba(255, 107, 47, 0.08)", border: "1px solid rgba(255, 107, 47, 0.18)" }}>
+            <strong style={{ fontSize: "0.86rem" }}>WhatsApp bulk marketing onboarding</strong>
+            <span style={{ color: "var(--muted)", fontSize: "0.78rem", lineHeight: 1.5 }}>
+              Connect WABA → register the phone → subscribe the webhook → sync approved templates. Bulk sends still require Meta approval, customer opt-in, and compliant marketing templates.
+            </span>
+          </div>
           {whatsAppCloudPanel}
         </div>
       ) : null}
 
       {selectedPlugin === "instagram_api" && instagramPluginPanel ? (
-        <div className="crm-panel" style={{ padding: 20, borderRadius: 18 }}>
+        <div className="crm-panel" ref={configurationRef} style={{ padding: 20, borderRadius: 18, scrollMarginTop: 20 }} tabIndex={-1}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
             <div>
               <span style={{ fontSize: 11, fontWeight: 700, color: "#ec4899", textTransform: "uppercase" }}>
