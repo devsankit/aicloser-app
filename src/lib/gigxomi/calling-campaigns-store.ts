@@ -31,6 +31,7 @@ export type CampaignMemberLead = {
 };
 
 export type CallingCampaign = {
+  tenantId: string;
   id: string;
   name: string;
   description: string;
@@ -49,71 +50,39 @@ export type CallingCampaign = {
 };
 
 const DATA_DIR = path.join(process.cwd(), "data");
-const CAMPAIGNS_FILE = path.join(DATA_DIR, "calling-campaigns.json");
 
-const DEFAULT_SCRIPT = `Hi [Customer Name], this is [Agent Name] from Gigxomi / AIcloser.
+function requireTenantId(tenantId: string) {
+  const normalized = tenantId?.trim();
+  if (!normalized) throw new Error("TenantScopeRequired");
+  return normalized;
+}
 
-I noticed your interest in scaling your agency sales pipeline. We help high-ticket service businesses automate their WhatsApp client follow-ups and SIM calling workflows.
-
-Do you currently have 2 minutes to see how our teams are closing 3x more deals?`;
-
-const DEFAULT_CAMPAIGNS: CallingCampaign[] = [
-  {
-    id: "cmp-march-inbound",
-    name: "Q1 Agency Inbound Follow-Up Blitz",
-    description: "Rapid outbound calling cadence for all high-intent inbound website and Meta leads.",
-    status: "ACTIVE",
-    dailyTarget: 50,
-    cooldownSeconds: 5,
-    scriptTemplate: DEFAULT_SCRIPT,
-    assignedAgentIds: [],
-    totalLeads: 25,
-    dialedCount: 14,
-    connectedCount: 9,
-    convertedCount: 3,
-    createdAt: "2026-03-01T00:00:00.000Z",
-    updatedAt: "2026-03-01T00:00:00.000Z",
-    leads: [],
-  },
-  {
-    id: "cmp-cold-outreach",
-    name: "E-Commerce Founders Calling Drive",
-    description: "Outbound campaign targeting D2C and Shopify brand owners for marketing video growth.",
-    status: "ACTIVE",
-    dailyTarget: 60,
-    cooldownSeconds: 4,
-    scriptTemplate: DEFAULT_SCRIPT,
-    assignedAgentIds: [],
-    totalLeads: 40,
-    dialedCount: 22,
-    connectedCount: 12,
-    convertedCount: 4,
-    createdAt: "2026-03-15T00:00:00.000Z",
-    updatedAt: "2026-03-15T00:00:00.000Z",
-    leads: [],
-  },
-];
+function campaignsFileForTenant(tenantId: string) {
+  const safeTenantId = Buffer.from(requireTenantId(tenantId)).toString("base64url");
+  return path.join(DATA_DIR, `calling-campaigns-${safeTenantId}.json`);
+}
 
 async function ensureDataDir() {
   await mkdir(DATA_DIR, { recursive: true });
 }
 
-export async function getCallingCampaigns(): Promise<CallingCampaign[]> {
+export async function getCallingCampaigns(tenantId: string): Promise<CallingCampaign[]> {
+  const campaignsFile = campaignsFileForTenant(tenantId);
   try {
-    const raw = await readFile(CAMPAIGNS_FILE, "utf8");
+    const raw = await readFile(campaignsFile, "utf8");
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    if (Array.isArray(parsed)) return parsed;
   } catch {}
-  return DEFAULT_CAMPAIGNS;
+  return [];
 }
 
-export async function saveCallingCampaigns(campaigns: CallingCampaign[]): Promise<void> {
+export async function saveCallingCampaigns(campaigns: CallingCampaign[], tenantId: string): Promise<void> {
   await ensureDataDir();
-  await writeFile(CAMPAIGNS_FILE, JSON.stringify(campaigns, null, 2), "utf8");
+  await writeFile(campaignsFileForTenant(tenantId), JSON.stringify(campaigns, null, 2), "utf8");
 }
 
-export async function getCampaignById(id: string): Promise<CallingCampaign | null> {
-  const campaigns = await getCallingCampaigns();
+export async function getCampaignById(id: string, tenantId: string): Promise<CallingCampaign | null> {
+  const campaigns = await getCallingCampaigns(tenantId);
   const found = campaigns.find((c) => c.id === id);
   if (!found) return null;
 
@@ -121,7 +90,7 @@ export async function getCampaignById(id: string): Promise<CallingCampaign | nul
   if (!found.leads || found.leads.length === 0) {
     try {
       const dbLeads = await prisma.salesLeadAssignment.findMany({
-        where: { customerPhone: { not: null } },
+        where: { tenantId, customerPhone: { not: null } },
         take: 30,
         orderBy: { createdAt: "desc" },
       });
@@ -136,7 +105,7 @@ export async function getCampaignById(id: string): Promise<CallingCampaign | nul
         assignedAgentId: l.assignedAgentId,
       }));
       found.totalLeads = found.leads.length;
-      await saveCallingCampaigns(campaigns);
+      await saveCallingCampaigns(campaigns, tenantId);
     } catch {}
   }
 
@@ -149,7 +118,8 @@ export async function upsertCallingCampaign(
     leadIds?: string[];
   }
 ): Promise<CallingCampaign> {
-  const campaigns = await getCallingCampaigns();
+  const tenantId = requireTenantId(campaign.tenantId);
+  const campaigns = await getCallingCampaigns(tenantId);
   const now = new Date().toISOString();
 
   if (campaign.id) {
@@ -162,7 +132,7 @@ export async function upsertCallingCampaign(
         updatedAt: now,
       };
       campaigns[idx] = updated;
-      await saveCallingCampaigns(campaigns);
+      await saveCallingCampaigns(campaigns, tenantId);
       return updated;
     }
   }
@@ -171,7 +141,7 @@ export async function upsertCallingCampaign(
   let initialLeads: CampaignMemberLead[] = [];
   try {
     const dbLeads = await prisma.salesLeadAssignment.findMany({
-      where: { customerPhone: { not: null } },
+      where: { tenantId, customerPhone: { not: null } },
       take: 50,
       orderBy: { createdAt: "desc" },
     });
@@ -189,6 +159,7 @@ export async function upsertCallingCampaign(
 
   const created: CallingCampaign = {
     ...campaign,
+    tenantId,
     id: `cmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
     totalLeads: initialLeads.length,
     dialedCount: 0,
@@ -199,13 +170,13 @@ export async function upsertCallingCampaign(
     updatedAt: now,
   };
   campaigns.push(created);
-  await saveCallingCampaigns(campaigns);
+  await saveCallingCampaigns(campaigns, tenantId);
   return created;
 }
 
-export async function deleteCallingCampaign(id: string): Promise<void> {
-  const campaigns = await getCallingCampaigns();
-  await saveCallingCampaigns(campaigns.filter((c) => c.id !== id));
+export async function deleteCallingCampaign(id: string, tenantId: string): Promise<void> {
+  const campaigns = await getCallingCampaigns(tenantId);
+  await saveCallingCampaigns(campaigns.filter((c) => c.id !== id), tenantId);
 }
 
 // Log a dial attempt & disposition during power dialing session
@@ -217,9 +188,10 @@ export async function submitCallDisposition(
     notes?: string;
     agentId?: string;
     durationSeconds?: number;
-  }
+  },
+  tenantId: string
 ): Promise<{ ok: boolean; campaign: CallingCampaign }> {
-  const campaigns = await getCallingCampaigns();
+  const campaigns = await getCallingCampaigns(tenantId);
   const campaign = campaigns.find((c) => c.id === campaignId);
   if (!campaign) throw new Error("Campaign not found");
 
@@ -251,17 +223,20 @@ export async function submitCallDisposition(
     else if (input.disposition === "CONNECTED") newStage = "CONTACTED";
 
     if (newStage) {
-      await prisma.salesLeadAssignment.update({
-        where: { id: leadId },
-        data: {
-          stage: newStage,
-          lastContactedAt: new Date(),
-          notes: input.notes ? `[Campaign: ${campaign.name}] ${input.notes}` : undefined,
-        },
-      });
+      const lead = await prisma.salesLeadAssignment.findFirst({ where: { id: leadId, tenantId }, select: { id: true } });
+      if (lead) {
+        await prisma.salesLeadAssignment.update({
+          where: { id: lead.id },
+          data: {
+            stage: newStage,
+            lastContactedAt: new Date(),
+            notes: input.notes ? `[Campaign: ${campaign.name}] ${input.notes}` : undefined,
+          },
+        });
+      }
     }
   } catch {}
 
-  await saveCallingCampaigns(campaigns);
+  await saveCallingCampaigns(campaigns, tenantId);
   return { ok: true, campaign };
 }

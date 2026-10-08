@@ -794,7 +794,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   };
   const hasFeature = (featureId: string) => isWorkspaceAdmin || liveRolePermissions?.[featureId] !== false;
   const navigationTabs = (isWorkspaceAdmin
-    ? tabs.filter((tab) => tab.id !== "grab-leads")
+    ? tabs.filter((tab) => !["grab-leads", "calls"].includes(tab.id))
     : isCloser
       ? tabs.filter((tab) => ["dashboard", "crm", "grab-leads", "conversations"].includes(tab.id))
       : tabs.filter((tab) => !["roles", "profile", "developer", "grab-leads"].includes(tab.id)))
@@ -1576,7 +1576,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   ];
 
   function navigateSales(section: string) {
-    const nextTab = section as SalesTab;
+    const nextTab = (isWorkspaceAdmin && section === "calls" ? "reports" : section) as SalesTab;
     setActiveTab(nextTab);
     setStatus("");
     if (!operating && nextTab === "conversations") {
@@ -1680,6 +1680,14 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                   type="button"
                 >
                   <Hand size={16} /> Grab next lead
+                </button>
+              ) : isWorkspaceAdmin ? (
+                <button
+                  className="sales-hero-btn secondary"
+                  onClick={() => navigateSales("reports")}
+                  type="button"
+                >
+                  <BarChart3 size={16} /> Open Team Report
                 </button>
               ) : (
                 <button
@@ -2671,7 +2679,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
               {[
-                { id: "all", label: "All on Single Page" },
+                { id: "all", label: "Overview" },
                 { id: "dialer", label: "Power Dialer & Campaigns" },
                 { id: "missed", label: "Missed Queue & IVR" },
                 { id: "history", label: "SIM Call Recordings" },
@@ -2685,8 +2693,8 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                     borderRadius: "8px",
                     fontSize: "12px",
                     fontWeight: 600,
-                    border: callsHubView === pill.id ? "1px solid #4f46e5" : "1px solid rgba(148, 163, 184, 0.3)",
-                    background: callsHubView === pill.id ? "#4f46e5" : "transparent",
+                    border: callsHubView === pill.id ? "1px solid var(--closer-orange, #ff6b2f)" : "1px solid rgba(148, 163, 184, 0.3)",
+                    background: callsHubView === pill.id ? "var(--closer-orange, #ff6b2f)" : "transparent",
                     color: callsHubView === pill.id ? "#ffffff" : "var(--closer-ink, #334155)",
                     cursor: "pointer",
                   }}

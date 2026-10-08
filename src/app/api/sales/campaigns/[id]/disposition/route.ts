@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSessionRole } from "@/lib/api/require-session-role";
+import { resolveSessionTenantId } from "@/lib/api/resolve-session-tenant";
 import { submitCallDisposition } from "@/lib/gigxomi/calling-campaigns-store";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -12,12 +13,13 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (!body.leadId || !body.disposition) {
       return NextResponse.json({ ok: false, error: "leadId and disposition are required" }, { status: 400 });
     }
+    const tenantId = resolveSessionTenantId(auth.session, body.tenantId);
     const result = await submitCallDisposition(id, body.leadId, {
       disposition: body.disposition,
       notes: body.notes,
       agentId: auth.session.userId,
       durationSeconds: body.durationSeconds,
-    });
+    }, tenantId);
     return NextResponse.json(result);
   } catch (error: any) {
     return NextResponse.json({ ok: false, error: error?.message || "Failed to submit disposition" }, { status: 500 });

@@ -8,6 +8,7 @@ import { PowerDialerModal } from "@/components/sales/power-dialer-modal";
 export function CallingCampaignsPanel() {
   const [campaigns, setCampaigns] = useState<CallingCampaign[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [activeDialerCampaign, setActiveDialerCampaign] = useState<CallingCampaign | null>(null);
 
   // New campaign modal
@@ -20,14 +21,20 @@ export function CallingCampaignsPanel() {
 
   const loadCampaigns = async () => {
     setLoading(true);
+    setError("");
     try {
       const res = await fetch("/api/sales/campaigns");
       const data = await res.json();
       if (data.ok) {
         setCampaigns(data.campaigns || []);
+      } else {
+        setCampaigns([]);
+        setError(data.error || "Calling campaigns are temporarily unavailable.");
       }
     } catch (err) {
       console.error("Failed to load campaigns", err);
+      setCampaigns([]);
+      setError("Calling campaigns are temporarily unavailable. Try again.");
     } finally {
       setLoading(false);
     }
@@ -183,9 +190,17 @@ export function CallingCampaignsPanel() {
         <div style={{ padding: "3rem", textAlign: "center", color: "var(--closer-muted, #64748b)" }}>
           Loading calling campaigns...
         </div>
+      ) : error ? (
+        <div style={{ padding: "2rem", textAlign: "center", color: "var(--closer-muted, #64748b)", border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.22))", borderRadius: "12px" }}>
+          <strong style={{ display: "block", color: "var(--closer-ink, #0f172a)", marginBottom: "0.4rem" }}>Live campaign data unavailable</strong>
+          <span style={{ display: "block", marginBottom: "1rem" }}>{error}</span>
+          <button type="button" onClick={loadCampaigns} style={{ padding: "0.5rem 0.9rem", borderRadius: "7px", border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.35))", background: "transparent", color: "inherit", cursor: "pointer", fontWeight: 700 }}>
+            Retry
+          </button>
+        </div>
       ) : campaigns.length === 0 ? (
         <div style={{ padding: "3rem", textAlign: "center", color: "var(--closer-muted, #64748b)" }}>
-          No calling campaigns created yet. Click "+ New Calling Campaign" above to launch an autodialer drive.
+          No calling campaigns created yet. Create one above to launch an autodialer drive. This workspace has no sample or placeholder campaigns.
         </div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", gap: "1rem" }}>

@@ -8,6 +8,8 @@ const permissionsRoute = fs.readFileSync(new URL("../src/app/api/sales/roles/fea
 const rolePanel = fs.readFileSync(new URL("../src/components/sales/role-permissions-panel.tsx", import.meta.url), "utf8");
 const leadNotes = fs.readFileSync(new URL("../src/components/sales/lead-notes-manager.tsx", import.meta.url), "utf8");
 const globalStyles = fs.readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
+const campaignsStore = fs.readFileSync(new URL("../src/lib/gigxomi/calling-campaigns-store.ts", import.meta.url), "utf8");
+const campaignsRoute = fs.readFileSync(new URL("../src/app/api/sales/campaigns/route.ts", import.meta.url), "utf8");
 
 test("lead form builder receives the authenticated workspace admin role", () => {
   assert.match(dashboard, /<LeadFormBuilder\s+isAdmin=\{isWorkspaceAdmin\}/);
@@ -20,8 +22,14 @@ test("closer navigation stays limited to the closer workspace surface", () => {
 });
 
 test("admin navigation does not expose the closer-only grab leads queue", () => {
-  assert.match(dashboard, /isWorkspaceAdmin\s*\n\s*\? tabs\.filter\(\(tab\) => tab\.id !== "grab-leads"\)/);
+  assert.match(dashboard, /isWorkspaceAdmin\s*\n\s*\? tabs\.filter\(\(tab\) => !\["grab-leads", "calls"\]\.includes\(tab\.id\)\)/);
   assert.match(dashboard, /const canUseGrabLeads = roundRobinAccess\.enabled && Boolean\(currentAgent\?\.canClaimLeads\)/);
+});
+
+test("admin dashboard keeps calling as reporting, not an admin dialer action", () => {
+  assert.match(dashboard, /isWorkspaceAdmin && section === "calls" \? "reports" : section/);
+  assert.match(dashboard, /<BarChart3 size=\{16\} \/> Open Team Report/);
+  assert.match(dashboard, /isCloser \? \([\s\S]*?Grab next lead[\s\S]*?\) : isWorkspaceAdmin \? \([\s\S]*?Open Team Report[\s\S]*?\) : \(/);
 });
 
 test("admin dashboard is a team reporting view and excludes admin-owned work", () => {
@@ -98,4 +106,18 @@ test("disabled lead actions explain the prerequisite", () => {
   assert.match(dashboard, /Add note \(enter text first\)/);
   assert.match(dashboard, /Save follow-up \(choose a date first\)/);
   assert.match(leadNotes, /Add note \(enter text first\)/);
+});
+
+test("calling campaigns contain only tenant-scoped live data", () => {
+  assert.doesNotMatch(campaignsStore, /DEFAULT_CAMPAIGNS|cmp-march-inbound|cmp-cold-outreach|Q1 Agency Inbound|E-Commerce Founders/);
+  assert.match(campaignsStore, /tenantId: string;/);
+  assert.match(campaignsStore, /function campaignsFileForTenant\(tenantId: string\)/);
+  assert.match(campaignsStore, /export async function getCallingCampaigns\(tenantId: string\)/);
+  assert.match(campaignsStore, /return \[\];/);
+  assert.match(campaignsStore, /where: \{ tenantId, customerPhone: \{ not: null \} \}/);
+  assert.match(campaignsRoute, /resolveSessionTenantId\(auth\.session/);
+  assert.match(campaignsRoute, /getCallingCampaigns\(tenantId\)/);
+  assert.match(campaignsRoute, /upsertCallingCampaign\(\{ \.\.\.body, tenantId \}\)/);
+  assert.match(dashboard, /label: "Overview"/);
+  assert.match(dashboard, /callsHubView === pill\.id \? "1px solid var\(--closer-orange, #ff6b2f\)"/);
 });
