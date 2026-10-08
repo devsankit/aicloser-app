@@ -142,6 +142,53 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
             PrimaryButton("Sign in to AI Closer", vm.busy, enabled = identifier.isNotBlank() && password.isNotBlank()) {
                 vm.login(identifier, password) {}
             }
+
+            vm.sessionConflict?.let { conflict ->
+                Surface(
+                    color = GxDanger.copy(alpha = 0.08f),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, GxDanger.copy(alpha = 0.40f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Warning, null, tint = GxDanger, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Active Session on Another Device", color = GxDanger, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                        Text(
+                            conflict.message ?: "This user already has an active mobile session on another device.",
+                            color = GxText,
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
+                        )
+                        if (!conflict.deviceName.isNullOrBlank()) {
+                            Text("Current device: ${conflict.deviceName}", color = GxMuted, fontSize = 11.sp)
+                        }
+                        Spacer(Modifier.height(2.dp))
+                        Button(
+                            onClick = { vm.login(identifier, password, forceReplace = true) {} },
+                            enabled = !vm.busy,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = GxAccent,
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth().height(42.dp)
+                        ) {
+                            Icon(Icons.Default.Login, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Login here", fontWeight = FontWeight.Black, fontSize = 13.sp)
+                        }
+                        Text(
+                            "“Login here” will end the session on your other mobile device and activate this phone.",
+                            color = GxMuted,
+                            fontSize = 10.sp,
+                            lineHeight = 14.sp
+                        )
+                    }
+                }
+            }
         }
         Text("Connected securely to app.aicloser.in", color = GxMuted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
     }
@@ -265,6 +312,7 @@ private val tabs = listOf(Tab("Home", Icons.Default.Home), Tab("Leads", Icons.De
 @Composable private fun LeadsScreen(vm: CrmViewModel, grab: () -> Unit, open: (SalesLead) -> Unit) {
     var search by rememberSaveable { mutableStateOf("") }
     var stageFilter by rememberSaveable { mutableStateOf("ALL") }
+    var showAddContact by rememberSaveable { mutableStateOf(false) }
     val leads = vm.bootstrap?.leads.orEmpty()
     val stages = remember(leads) { leads.map { it.stage }.filter(String::isNotBlank).distinct().sorted() }
     val filteredLeads = remember(leads, search, stageFilter) {
@@ -275,8 +323,37 @@ private val tabs = listOf(Tab("Home", Icons.Default.Home), Tab("Leads", Icons.De
             matchesStage && matchesSearch
         }
     }
+
+    if (showAddContact) {
+        AddContactDialog(
+            busy = vm.busy,
+            onDismiss = { showAddContact = false },
+            onAdd = { name, phone, email, notes ->
+                vm.addContact(name, phone, email, notes = notes) {
+                    showAddContact = false
+                }
+            }
+        )
+    }
+
     Page {
-        BrandHeader("My Leads", "Assigned opportunities and follow-ups")
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("AI CLOSER", color = GxAccent, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+                Text("My Leads", fontSize = 26.sp, fontWeight = FontWeight.Black)
+                Text("Assigned opportunities and follow-ups", color = GxMuted, fontSize = 13.sp)
+            }
+            Button(
+                onClick = { showAddContact = true },
+                colors = ButtonDefaults.buttonColors(containerColor = GxAccent, contentColor = Color.White),
+                shape = RoundedCornerShape(12.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Add Contact", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+        }
         GxCard(accent = true) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(color = GxAccent.copy(alpha = .14f), shape = RoundedCornerShape(16.dp)) { Icon(Icons.Default.Bolt, null, tint = GxAccent, modifier = Modifier.padding(12.dp).size(23.dp)) }
@@ -1180,3 +1257,134 @@ private fun formatMessageDay(value: String): String {
 }
 @Composable private fun EmptyCard(copy: String) { GxCard { Text(copy, color = GxMuted) } }
 private fun formatDate(value: String): String = runCatching { DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a").withZone(ZoneId.systemDefault()).format(Instant.parse(value)) }.getOrDefault(value)
+
+@Composable
+private fun AddContactDialog(
+    busy: Boolean,
+    onDismiss: () -> Unit,
+    onAdd: (name: String, phone: String, email: String, notes: String) -> Unit
+) {
+    var name by rememberSaveable { mutableStateOf("") }
+    var phone by rememberSaveable { mutableStateOf("") }
+    var email by rememberSaveable { mutableStateOf("") }
+    var notes by rememberSaveable { mutableStateOf("") }
+    var localError by rememberSaveable { mutableStateOf<String?>(null) }
+
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = GxSurface,
+            border = BorderStroke(1.dp, GxAccent.copy(alpha = 0.35f)),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(20.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("Add New Contact", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+                        Text("Save lead directly into CRM pipeline", color = GxMuted, fontSize = 11.sp)
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, "Close", tint = GxMuted)
+                    }
+                }
+
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it; localError = null },
+                    label = { Text("Customer Full Name *") },
+                    placeholder = { Text("e.g. Aarav Khanna") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = phone,
+                    onValueChange = { phone = it; localError = null },
+                    label = { Text("Phone Number *") },
+                    placeholder = { Text("e.g. 9811234901") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it },
+                    label = { Text("Email (Optional)") },
+                    placeholder = { Text("e.g. aarav@company.com") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = notes,
+                    onValueChange = { notes = it },
+                    label = { Text("Discussion Notes (Optional)") },
+                    placeholder = { Text("e.g. Interested in CRM demo, requested call back") },
+                    minLines = 3,
+                    maxLines = 4,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                localError?.let { err ->
+                    Text(err, color = GxDanger, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                }
+
+                Spacer(Modifier.height(4.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        enabled = !busy,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f).height(46.dp)
+                    ) {
+                        Text("Cancel", fontWeight = FontWeight.Bold)
+                    }
+                    Button(
+                        onClick = {
+                            if (name.trim().length < 2) {
+                                localError = "Please enter customer's full name"
+                                return@Button
+                            }
+                            if (phone.trim().replace(Regex("[^0-9]"), "").length < 7) {
+                                localError = "Please enter a valid phone number (at least 7 digits)"
+                                return@Button
+                            }
+                            onAdd(name.trim(), phone.trim(), email.trim(), notes.trim())
+                        },
+                        enabled = !busy,
+                        colors = ButtonDefaults.buttonColors(containerColor = GxAccent, contentColor = Color.White),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1.3f).height(46.dp)
+                    ) {
+                        if (busy) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Save Contact", fontWeight = FontWeight.Black, fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

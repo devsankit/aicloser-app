@@ -14,7 +14,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 open class ApiException(message: String, val status: Int, val errorCode: String? = null) : Exception(message)
 class InvalidCredentialsException(message: String = "Invalid email/phone or password") : ApiException(message, 401, "InvalidCredentials")
 class SessionRevokedException(message: String = "This client session is no longer active") : ApiException(message, 401, "SessionRevoked")
-class ClientSlotOccupiedException(message: String = "Your mobile account is already active on another device.") : ApiException(message, 409, "ClientSlotOccupied")
+class ClientSlotOccupiedException(
+    message: String = "Your mobile account is already active on another device.",
+    val deviceName: String? = null,
+    val lastActiveAt: String? = null
+) : ApiException(message, 409, "ClientSlotOccupied")
 class ForbiddenException(message: String = "Access denied. Insufficient permissions.") : ApiException(message, 403, "Forbidden")
 class NotFoundException(message: String = "The requested resource was not found.") : ApiException(message, 404, "NotFound")
 class ValidationException(message: String = "Validation error.") : ApiException(message, 422, "ValidationError")
@@ -57,7 +61,14 @@ class ApiClient(private val sessionStore: SessionStore) {
                     }
                     409 -> {
                         if (errorCode == "ClientSlotOccupied" || errorMsg.contains("occupied", true) || errorMsg.contains("active on another device", true)) {
-                            throw ClientSlotOccupiedException("Your mobile account is already active on another device.")
+                            val dataObj = payload.optJSONObject("data")
+                            val devName = payload.optString("deviceName", dataObj?.optString("deviceName", "") ?: "").ifBlank { null }
+                            val activeAt = payload.optString("lastActiveAt", dataObj?.optString("lastActiveAt", "") ?: "").ifBlank { null }
+                            throw ClientSlotOccupiedException(
+                                message = errorMsg.ifBlank { "Your mobile account is already active on another device." },
+                                deviceName = devName,
+                                lastActiveAt = activeAt
+                            )
                         }
                         throw ApiException(errorMsg, 409, errorCode)
                     }
@@ -129,7 +140,7 @@ class ApiClient(private val sessionStore: SessionStore) {
         return requestAt(base, "/api/v1/recordings/${upload.getString("id")}/complete", "POST", JSONObject().put("sizeBytes", file.length()))
     }
 
-    private fun requestAt(base: String, path: String, method: String, body: JSONObject? = null): JSONObject {
+    fun requestAt(base: String, path: String, method: String, body: JSONObject? = null): JSONObject {
         val connection = URL("${base.trimEnd('/')}/${path.trimStart('/')}").openConnection() as HttpURLConnection
         try {
             connection.requestMethod = method

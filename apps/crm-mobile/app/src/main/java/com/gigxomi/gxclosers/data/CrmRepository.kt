@@ -13,7 +13,7 @@ class CrmRepository(context: Context) {
     val offline = OfflineEventStore(context)
     private val appContext = context.applicationContext
 
-    fun login(identifier: String, password: String): Session {
+    fun login(identifier: String, password: String, forceReplace: Boolean = false): Session {
         val installationId = sessionStore.installationId
         val deviceName = "${Build.MANUFACTURER} ${Build.MODEL}"
         val androidVersion = Build.VERSION.RELEASE
@@ -28,8 +28,9 @@ class CrmRepository(context: Context) {
             .put("deviceName", deviceName)
             .put("androidVersion", androidVersion)
             .put("appVersion", appVersion)
-            .put("replaceExisting", true)
-            .put("force", true)
+            .put("replaceExisting", forceReplace)
+            .put("forceReplace", forceReplace)
+            .put("force", forceReplace)
 
         val response = api.post("/mobile/auth/login", body)
         val session = parseSession(response.getJSONObject("session"))

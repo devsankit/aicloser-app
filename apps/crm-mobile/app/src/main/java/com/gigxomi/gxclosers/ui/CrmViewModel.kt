@@ -41,6 +41,7 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
     var customer360Loading by mutableStateOf(false); private set
     var customer360Error by mutableStateOf<String?>(null); private set
     var customer360Unavailable by mutableStateOf(false); private set
+    var sessionConflict by mutableStateOf<ClientSlotOccupiedException?>(null); private set
     var busy by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null); private set
     var status by mutableStateOf<String?>(null); private set
@@ -60,7 +61,7 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun clearMessage() { error = null; status = null }
+    fun clearMessage() { error = null; status = null; sessionConflict = null }
 
     private fun launchWork(block: suspend () -> Unit) {
         viewModelScope.launch {
@@ -70,7 +71,10 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 error = when (e) {
                     is InvalidCredentialsException -> "Invalid email/phone or password"
-                    is ClientSlotOccupiedException -> "Your mobile account is already active on another device."
+                    is ClientSlotOccupiedException -> {
+                        sessionConflict = e
+                        e.message ?: "Your mobile account is already active on another device."
+                    }
                     is SessionRevokedException -> {
                         handleSessionRevoked()
                         "Your mobile session was revoked or expired. Please sign in again."
@@ -194,8 +198,9 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
         syncCounts = repository.getSyncCounts()
     }
 
-    fun login(identifier: String, password: String, done: () -> Unit) = launchWork {
-        val result = withContext(Dispatchers.IO) { repository.login(identifier.trim(), password) }
+    fun login(identifier: String, password: String, forceReplace: Boolean = false, done: () -> Unit) = launchWork {
+        sessionConflict = null
+        val result = withContext(Dispatchers.IO) { repository.login(identifier.trim(), password, forceReplace = forceReplace) }
         session = result
         authenticated = true
         startHeartbeat()
@@ -427,16 +432,31 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
             CallManager.cacheLeads(getApplication(), updatedLeads)
         }
 
-        // Try syncing to backend via mobile contacts endpoint if available
+        // Sync to backend via dedicated API https://api.aicloser.in/api/v1/mobile/contacts or fallback
         try {
-            val payload = JSONObject()
+            val contactObj = JSONObject()
                 .put("name", trimmedName)
                 .put("phone", trimmedPhone)
                 .put("email", email.trim())
-                .put("source", source.ifBlank { "mobile_manual" })
                 .put("notes", notes.trim())
+                .put("tags", org.json.JSONArray(listOf("hot", "mobile")))
+                .put("source", "MOBILE_MANUAL")
+
+            val dedicatedPayload = JSONObject().put("contact", contactObj)
+
             withContext(Dispatchers.IO) {
-                runCatching { repository.api.post("/sales/mobile/contacts", payload) }
+                // Try dedicated production API first
+                try {
+                    repository.api.requestAt(
+                        BuildConfig.AICLOSER_DEDICATED_API_BASE,
+                        "/api/v1/mobile/contacts",
+                        "POST",
+                        dedicatedPayload
+                    )
+                } catch (_: Exception) {
+                    // Fall back to main web app API route
+                    repository.api.post("/sales/mobile/contacts", dedicatedPayload)
+                }
             }
         } catch (_: Exception) {
             // Silently maintain optimistic local contact

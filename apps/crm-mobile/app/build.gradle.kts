@@ -14,8 +14,8 @@ android {
         applicationId = "com.gigxomi.gxclosers"
         minSdk = 26
         targetSdk = 36
-        versionCode = 12
-        versionName = "1.0.12"
+        versionCode = 13
+        versionName = "1.0.13"
         buildConfigField("String", "GXCLOSERS_API_BASE", "\"https://closers.gigxomi.com/api\"")
         buildConfigField("String", "AICLOSER_DEDICATED_API_BASE", "\"https://api.aicloser.in\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
