@@ -511,7 +511,7 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        call.recordingStatus.replace('_', ' '),
+                        recordingStatusLabel(call.recordingStatus),
                         color = when (call.recordingStatus) {
                             "UPLOADED" -> GxSuccess
                             "UPLOADING" -> GxWarning
@@ -1402,6 +1402,14 @@ private fun formatMessageDay(value: String): String {
 }
 @Composable private fun EmptyCard(copy: String) { GxCard { Text(copy, color = GxMuted) } }
 private fun formatDate(value: String): String = runCatching { DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a").withZone(ZoneId.systemDefault()).format(Instant.parse(value)) }.getOrDefault(value)
+
+private fun recordingStatusLabel(value: String): String = when (value) {
+    "UPLOADED" -> "Ready to play"
+    "UPLOADING", "LOCAL_PENDING" -> "Processing"
+    "FAILED", "RECORDING_UNAVAILABLE" -> "Recording unavailable"
+    "NONE" -> "No recording"
+    else -> value.replace('_', ' ').lowercase().replaceFirstChar { it.uppercase() }
+}
 
 @Composable
 private fun AddContactDialog(
