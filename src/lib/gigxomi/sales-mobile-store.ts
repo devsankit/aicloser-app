@@ -202,7 +202,12 @@ export async function startSalesMobileCall(actor: SalesMobileActor, input: Recor
   const pending = await prisma.salesMobileCall.count({ where: { agentId: agent.id, noteRequired: true, noteSubmitted: false } });
   if (pending) throw new Error("Submit the pending call disposition before starting another call.");
   const assignmentId = clean(input.leadId || input.assignmentId);
-  const assignment = await prisma.salesLeadAssignment.findFirst({ where: { id: assignmentId, assignedAgentId: agent.id } });
+  const phone = normalizePhone(input.phoneNumber);
+  const assignment = assignmentId
+    ? await prisma.salesLeadAssignment.findFirst({ where: { id: assignmentId, assignedAgentId: agent.id } })
+    : phone
+      ? await prisma.salesLeadAssignment.findFirst({ where: { assignedAgentId: agent.id, customerPhone: { contains: phone } }, orderBy: { updatedAt: "desc" } })
+      : null;
   if (!assignment) throw new Error("This lead is not assigned to you.");
   let device = null;
   if (clean(input.deviceId)) {

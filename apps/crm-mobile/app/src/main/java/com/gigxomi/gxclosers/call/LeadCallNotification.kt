@@ -17,10 +17,14 @@ object LeadCallNotification {
     fun show(context: Context, phone: String, ended: Boolean = false, callId: String? = null) {
         if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         if (Build.VERSION.SDK_INT >= 26) context.getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel(CHANNEL, "Sales call context", NotificationManager.IMPORTANCE_HIGH))
-        val lead = context.getSharedPreferences("gxclosers_leads", Context.MODE_PRIVATE).getString(phone.filter(Char::isDigit).takeLast(10), null)?.split("\u001F")
-        val title = if (ended) "Complete call notes" else lead?.getOrNull(1)?.ifBlank { null } ?: "GXClosers sales call"
-        val text = if (ended) "${lead?.getOrNull(1) ?: phone} · Add the required disposition and sync the recording." else listOf(phone, lead?.getOrNull(2), lead?.getOrNull(3)).filterNotNull().filter(String::isNotBlank).joinToString(" · ")
-        val uri = if (ended && !callId.isNullOrBlank()) Uri.parse("gxclosers://disposition/$callId") else lead?.getOrNull(0)?.takeIf(String::isNotBlank)?.let { Uri.parse("gxclosers://lead/$it") }
+        val lead = CallManager.lookup(context, phone)
+        val title = if (ended) "Complete call notes" else lead?.name ?: "GXClosers sales call"
+        val text = if (ended) {
+            "${lead?.name ?: phone} · Add the required disposition and sync the recording."
+        } else {
+            listOf(phone, lead?.stage, lead?.source, lead?.notes).mapNotNull { it?.takeIf(String::isNotBlank) }.joinToString(" · ")
+        }
+        val uri = if (ended && !callId.isNullOrBlank()) Uri.parse("gxclosers://disposition/$callId") else lead?.id?.takeIf(String::isNotBlank)?.let { Uri.parse("gxclosers://lead/$it") }
         val launch = uri?.let { Intent(Intent.ACTION_VIEW, it).setPackage(context.packageName) } ?: context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return
         val pending = PendingIntent.getActivity(context, if (ended) 2402 else 2401, launch, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(context, CHANNEL) else @Suppress("DEPRECATION") Notification.Builder(context)

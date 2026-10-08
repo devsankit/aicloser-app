@@ -17,7 +17,9 @@ android {
         versionCode = 13
         versionName = "1.0.13"
         buildConfigField("String", "GXCLOSERS_API_BASE", "\"https://app.aicloser.in/api\"")
-        buildConfigField("String", "AICLOSER_DEDICATED_API_BASE", "\"https://api.aicloser.in\"")
+        // Login/session tokens are issued by app.aicloser.in. Keep recording uploads
+        // on the same API until the dedicated service accepts the same issuer.
+        buildConfigField("String", "AICLOSER_DEDICATED_API_BASE", "\"\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
