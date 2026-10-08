@@ -29,6 +29,10 @@
       "status": "PASS_READ_ONLY",
       "details": "Live Admin dashboard shortcuts opened Dashboard Overview, CRM Kanban, Lead Import, Contacts, Calls, and Team & Users. CRM side drawer preserved lead context; filters, stage controls, notes/follow-up actions, call history, and recording-status states were visible. Calls campaign delete actions now have explicit accessible labels."
     },
+    "adminMenuAudit": {
+      "status": "PASS_READ_ONLY_WITH_UI_FIXES",
+      "details": "Live Admin navigation was opened item by item. Dashboard, CRM, Contacts, Lead Import, Calls & Power Dialer, Chat, Lead Form Builder, Plugins, WhatsApp Marketing, AI Bot, Developer, Reports, and Team & Users resolved to distinct surfaces. Grab Leads showed a closer-oriented round-robin claim queue with no available leads and was not useful for Admin; Settings, Team & Channels resolved to the Team & Users surface and was blocked by the sidebar footer overlap in the current deployment. Local fix now hides Grab Leads for workspace Admins and reserves a third sidebar grid row so Settings remains accessible; no live campaign, call, or data mutation was triggered during the audit."
+    },
     "seatCapacityCreationUx": {
       "status": "PASS_LOCAL",
       "details": "When all plan seats are active, the Team & Users screen explains the limit on first render, keeps the optional phone field available, and disables account creation with an accessible upgrade action instead of allowing a confusing no-op click."
@@ -170,10 +174,12 @@
     "recordingPipelineVerification": "local synthetic WAV upload + web playback verification",
     "metaIntegrationHardening": "171c283",
     "recordingTenantIsolationFix": "d8077c0",
-    "recordingFallbackIsolationFix": "bf9be4d"
+    "recordingFallbackIsolationFix": "bf9be4d",
+    "adminNavigationCleanupFix": "8459e84",
+    "sidebarFooterOverlapFix": "8459e84"
   },
   "automatedRegression": {
-    "webTests": "78 passed, 0 failed",
+    "webTests": "80 passed, 0 failed",
     "webTypecheck": "passed",
     "webProductionBuild": "passed",
     "androidUnitTests": "passed",
