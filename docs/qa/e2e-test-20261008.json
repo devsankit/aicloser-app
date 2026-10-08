@@ -152,7 +152,8 @@
     "bulkCampaignSelectionGuardFix": "04ceaa3",
     "disabledLeadActionGuidanceFix": "e240f7f",
     "recordingPipelineVerification": "local synthetic WAV upload + web playback verification",
-    "metaIntegrationHardening": "171c283"
+    "metaIntegrationHardening": "171c283",
+    "recordingTenantIsolationFix": "d8077c0"
   },
   "automatedRegression": {
     "webTests": "78 passed, 0 failed",
