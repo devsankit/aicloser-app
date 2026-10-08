@@ -103,6 +103,9 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
     fun onForeground() {
         startHeartbeat()
         if (authenticated && setupComplete) {
+            // Re-read the bootstrap projection when returning from background so
+            // role permissions, leads, calls, and recording states are not stale.
+            refreshAll()
             startRealtime()
         }
     }
