@@ -734,6 +734,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     allowNonAdminImportData: false,
     allowNonAdminExportData: false,
   });
+  const [liveRolePermissions, setLiveRolePermissions] = useState(rolePermissions);
   const restoredNavigation = useRef(false);
   const hydratedTabs = useRef<Set<SalesTab>>(new Set(["dashboard"]));
   const kanbanSensors = useSensors(
@@ -760,7 +761,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     reports: "referrals",
     roles: "role_management",
   };
-  const hasFeature = (featureId: string) => isWorkspaceAdmin || rolePermissions?.[featureId] !== false;
+  const hasFeature = (featureId: string) => isWorkspaceAdmin || liveRolePermissions?.[featureId] !== false;
   const navigationTabs = (isWorkspaceAdmin
     ? tabs
     : isCloser
@@ -1094,6 +1095,16 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    const syncPermissions = () => { void refresh(viewingAgentId).catch(() => undefined); };
+    window.addEventListener("focus", syncPermissions);
+    const interval = window.setInterval(syncPermissions, 30_000);
+    return () => {
+      window.removeEventListener("focus", syncPermissions);
+      window.clearInterval(interval);
+    };
+  }, [viewingAgentId]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);

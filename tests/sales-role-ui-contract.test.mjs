@@ -18,3 +18,10 @@ test("closer navigation stays limited to the closer workspace surface", () => {
 test("the direct dashboard route accepts the manager workspace role", () => {
   assert.match(dashboardRoute, /requirePageRole\(\["SALES_AGENT", "ADMIN", "MANAGER"\]/);
 });
+
+test("open dashboards refresh role permissions without blocking CRM refresh", () => {
+  assert.match(dashboard, /fetch\("\/api\/sales\/roles\/features", \{ cache: "no-store" \}\)/);
+  assert.match(dashboard, /setLiveRolePermissions\(permissionsPayload\.userPermissions/);
+  assert.match(dashboard, /setInterval\(syncPermissions, 30_000\)/);
+  assert.match(dashboard, /Permission refresh is best-effort and must not block CRM data refresh/);
+});
