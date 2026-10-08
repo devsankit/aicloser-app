@@ -32,7 +32,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
     }
   }
 
-  await requirePageRole(["SALES_AGENT", "ADMIN"], "/login?redirectTo=%2Fdashboard");
+  await requirePageRole(["SALES_AGENT", "ADMIN", "MANAGER"], "/login?redirectTo=%2Fdashboard");
   const session = await getSessionContext();
   const access = await getSalesAgentAccess(session.userId);
   if (!access.ok) {
