@@ -29,6 +29,10 @@
       "status": "PASS_READ_ONLY",
       "details": "Live Admin dashboard shortcuts opened Dashboard Overview, CRM Kanban, Lead Import, Contacts, Calls, and Team & Users. CRM side drawer preserved lead context; filters, stage controls, notes/follow-up actions, call history, and recording-status states were visible. Calls campaign delete actions now have explicit accessible labels."
     },
+    "effectivePermissionRefresh": {
+      "status": "PASS_CODE_VERIFIED",
+      "details": "Open dashboards now refresh role permissions on focus and every 30 seconds, and the refresh API resolves the configured workspace role before selecting the permission matrix. Manager team visibility follows that same effective role."
+    },
     "contactsDirectoryLive": {
       "status": "PASS_WITH_SLOW_LOAD_ON_CURRENT_DEPLOYMENT",
       "details": "Live Contacts directory eventually loaded the three QA contacts after approximately 5–6 seconds. The currently deployed build briefly showed a spinner and still rendered Bulk Campaign while the directory was empty; timeout/error handling and empty-action guard are committed locally but require deployment to verify live."
@@ -101,10 +105,11 @@
     "mobileSetupGuardFix": "3bfe01a",
     "leadFormRoleFix": "bcc08d2",
     "managerDashboardRouteFix": "277a62c",
-    "livePermissionRefreshFix": "96b6035"
+    "livePermissionRefreshFix": "96b6035",
+    "effectivePermissionRefreshFix": "8091e7e"
   },
   "automatedRegression": {
-    "webTests": "68 passed, 0 failed",
+    "webTests": "70 passed, 0 failed",
     "webTypecheck": "passed",
     "androidUnitTests": "passed",
     "androidDebugBuild": "passed"
