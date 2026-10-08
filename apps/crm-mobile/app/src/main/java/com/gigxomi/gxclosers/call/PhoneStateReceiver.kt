@@ -27,7 +27,9 @@ class PhoneStateReceiver : BroadcastReceiver() {
         if (state == "RINGING" && phone.isNotBlank()) {
             LeadCallNotification.show(context, phone)
             CallOverlayWindow.show(context, phone)
-            if (incoming.isNotBlank() && prefs.getString("activeCallId", null).isNullOrBlank() && prefs.getString("pendingInboundLeadId", null).isNullOrBlank()) {
+            if (incoming.isNotBlank() && prefs.getString("activeCallId", null).isNullOrBlank() &&
+                prefs.getString("pendingInboundLeadId", null).isNullOrBlank() &&
+                !prefs.getBoolean("incomingSessionStarting", false)) {
                 startIncomingSession(context, phone)
             }
         }
@@ -46,6 +48,17 @@ class PhoneStateReceiver : BroadcastReceiver() {
             val pending = CallAudioRecorder.stop(context)
             context.stopService(Intent(context, CallRecordingService::class.java))
             val callId = prefs.getString("activeCallId", null)
+            val sessionStarting = prefs.getBoolean("incomingSessionStarting", false)
+
+            // The server request can still be in flight when a very short
+            // call ends. Keep enough state for startIncomingSession() to close
+            // the call after it receives the newly-created call ID.
+            if (callId.isNullOrBlank() && sessionStarting) {
+                prefs.edit()
+                    .putBoolean("incomingSessionEnded", true)
+                    .putLong("incomingEndedAt", System.currentTimeMillis())
+                    .apply()
+            }
 
             if (!callId.isNullOrBlank()) {
                 val started = prefs.getLong("activeStartedAt", System.currentTimeMillis())
@@ -79,29 +92,78 @@ class PhoneStateReceiver : BroadcastReceiver() {
                     }
                 }
             }
-            prefs.edit().remove("activeCallId").remove("activeLeadId").remove("activePhone").remove("activeStartedAt").remove("pendingInboundLeadId").remove("wasOffhook").apply()
+            val cleanup = prefs.edit()
+                .remove("activeCallId")
+                .remove("activeLeadId")
+                .remove("activePhone")
+                .remove("activeStartedAt")
+                .remove("pendingInboundLeadId")
+            if (!sessionStarting) {
+                cleanup.remove("wasOffhook").remove("incomingSessionEnded").remove("incomingEndedAt")
+            }
+            cleanup.apply()
         }
     }
 
     private fun startIncomingSession(context: Context, phone: String) {
         val pendingResult = goAsync()
+        val prefs = context.getSharedPreferences(CallAudioRecorder.PREFS, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("incomingSessionStarting", true).apply()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val lead = CallManager.lookup(context, phone) ?: return@launch
-                val prefs = context.getSharedPreferences(CallAudioRecorder.PREFS, Context.MODE_PRIVATE)
-                prefs.edit().putString("pendingInboundLeadId", lead.id).putString("direction", "INBOUND").apply()
+                val lead = CallManager.lookup(context, phone)
+                prefs.edit().apply {
+                    lead?.id?.let { putString("pendingInboundLeadId", it) }
+                    putString("direction", "INBOUND")
+                    apply()
+                }
                 val repository = CrmRepository(context)
-                val callId = repository.startIncomingCall(lead.id, phone, repository.sessionStore.installationId)
+                val callId = repository.startIncomingCall(lead?.id, phone, repository.sessionStore.installationId)
+                val endedBeforeSession = prefs.getBoolean("incomingSessionEnded", false)
+                val wasOffhook = prefs.getBoolean("wasOffhook", false)
+                prefs.edit().apply {
+                    putString("activeCallId", callId)
+                    lead?.id?.let { putString("activeLeadId", it) }
+                    putString("activePhone", phone)
+                    putString("direction", "INBOUND")
+                    putLong("activeStartedAt", System.currentTimeMillis())
+                    putBoolean("incomingSessionStarting", false)
+                    apply()
+                }
+                // RINGING -> OFFHOOK can happen before the network request
+                // returns. Start recording as soon as the server gives us the
+                // stable call ID instead of silently missing the beginning.
+                if (endedBeforeSession) {
+                    val payload = JSONObject()
+                        .put("callSessionId", callId)
+                        .put("status", if (wasOffhook) "COMPLETED" else "MISSED")
+                        .put("endedAt", Instant.ofEpochMilli(prefs.getLong("incomingEndedAt", System.currentTimeMillis())).toString())
+                        .put("durationSeconds", 0)
+                        .put("recordingStatus", if (wasOffhook) "RECORDING_UNAVAILABLE" else "NONE")
+                    OfflineEventStore(context).enqueue("call-end-$callId", "CALL_END", payload, callId)
+                    CoroutineScope(Dispatchers.IO).launch {
+                        runCatching { CrmRepository(context).syncOffline() }
+                    }
+                    prefs.edit()
+                        .remove("activeCallId")
+                        .remove("activeLeadId")
+                        .remove("activePhone")
+                        .remove("activeStartedAt")
+                        .remove("wasOffhook")
+                        .remove("incomingSessionEnded")
+                        .remove("incomingEndedAt")
+                        .apply()
+                } else if (wasOffhook) {
+                    startRecorder(context, callId)
+                }
+            } catch (error: Exception) {
+                Log.e("GXPhoneState", "Could not create incoming call session", error)
                 prefs.edit()
-                    .putString("activeCallId", callId)
-                    .putString("activeLeadId", lead.id)
-                    .putString("activePhone", phone)
-                    .putString("direction", "INBOUND")
-                    .putLong("activeStartedAt", System.currentTimeMillis())
+                    .putBoolean("incomingSessionStarting", false)
+                    .remove("incomingSessionEnded")
+                    .remove("incomingEndedAt")
+                    .remove("wasOffhook")
                     .apply()
-            } catch (_: Exception) {
-                // Unknown/offline callers still get the caller card; the call is not
-                // attached to CRM until a later supported sync is available.
             } finally {
                 pendingResult.finish()
             }

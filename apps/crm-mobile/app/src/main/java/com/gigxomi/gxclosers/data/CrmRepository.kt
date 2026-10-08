@@ -110,13 +110,15 @@ class CrmRepository(context: Context) {
         return response.getJSONObject("call").getString("id")
     }
 
-    fun startIncomingCall(leadId: String, phone: String, deviceId: String): String {
-        val response = api.post("/sales/mobile/call/start", JSONObject()
-            .put("leadId", leadId)
+    fun startIncomingCall(leadId: String?, phone: String, deviceId: String): String {
+        val payload = JSONObject()
             .put("phoneNumber", phone)
             .put("direction", "INBOUND")
             .put("deviceId", deviceId)
-            .put("recordingStatus", "NONE"))
+            .put("recordingStatus", "NONE")
+            .put("allowUnmatched", true)
+        leadId?.takeIf(String::isNotBlank)?.let { payload.put("leadId", it) }
+        val response = api.post("/sales/mobile/call/start", payload)
         return response.getJSONObject("call").getString("id")
     }
 

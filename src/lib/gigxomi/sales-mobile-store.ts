@@ -208,7 +208,27 @@ export async function startSalesMobileCall(actor: SalesMobileActor, input: Recor
     : phone
       ? await prisma.salesLeadAssignment.findFirst({ where: { assignedAgentId: agent.id, customerPhone: { contains: phone } }, orderBy: { updatedAt: "desc" } })
       : null;
-  if (!assignment) throw new Error("This lead is not assigned to you.");
+  let resolvedAssignment = assignment;
+  if (!resolvedAssignment && input.allowUnmatched === true && phone) {
+    // Calls can arrive before a CRM lead is imported or assigned. Persist the
+    // caller under the current tenant and mobile agent so the call, recording,
+    // notes, and future enrichment all have a stable CRM parent.
+    const contactName = clean(input.contactName) || `Unknown caller · ${clean(input.phoneNumber) || phone}`;
+    resolvedAssignment = await createSalesLead({
+      tenantId: agent.tenantId,
+      assignedAgentId: agent.id,
+      actorUserId: actor.userId,
+      customerName: contactName,
+      customerPhone: clean(input.phoneNumber) || phone,
+      source: clean(input.source) || "PHONE_CALL",
+      serviceInterest: "Phone enquiry",
+      segment: "Company call",
+      priority: "normal",
+      stage: "NEW",
+      notes: clean(input.notes) || "Auto-created from a company phone call. Enrich this contact from CRM.",
+    });
+  }
+  if (!resolvedAssignment) throw new Error("This lead is not assigned to you.");
   let device = null;
   if (clean(input.deviceId)) {
     device = await prisma.salesMobileDevice.findFirst({ where: { deviceId: clean(input.deviceId), agentId: agent.id, isActive: true } });
@@ -217,10 +237,10 @@ export async function startSalesMobileCall(actor: SalesMobileActor, input: Recor
   const call = await prisma.salesMobileCall.create({
     data: {
       tenantId: agent.tenantId,
-      assignmentId: assignment.id,
+      assignmentId: resolvedAssignment.id,
       agentId: agent.id,
       deviceId: device?.id ?? null,
-      phoneNumber: clean(input.phoneNumber) || assignment.customerPhone || "",
+      phoneNumber: clean(input.phoneNumber) || resolvedAssignment.customerPhone || "",
       direction: clean(input.direction).toUpperCase() === "INBOUND" ? "INBOUND" : "OUTBOUND",
       recordingStatus: clean(input.recordingStatus).toUpperCase() === "RECORDING_UNAVAILABLE" ? "RECORDING_UNAVAILABLE" : "NONE",
     },
@@ -228,7 +248,7 @@ export async function startSalesMobileCall(actor: SalesMobileActor, input: Recor
   await prisma.salesActivityLog.create({
     data: {
       tenantId: agent.tenantId,
-      assignmentId: assignment.id,
+      assignmentId: resolvedAssignment.id,
       actorUserId: actor.userId,
       action: "MOBILE_CALL_STARTED",
       metadata: { callId: call.id, direction: call.direction },
