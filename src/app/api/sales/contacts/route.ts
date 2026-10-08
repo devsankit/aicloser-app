@@ -17,6 +17,7 @@ export type UnifiedContactSourceCategory =
 export type UnifiedContactItem = {
   id: string;
   leadId?: string;
+  poolItemId?: string;
   marketingContactId?: string;
   conversationId?: string;
   name: string;
@@ -120,6 +121,17 @@ export async function GET(request: Request) {
 
   const agentsById = new Map(salesSnapshot.agents.map((a) => [a.id, a.displayName]));
   const unifiedMap = new Map<string, UnifiedContactItem>();
+  const openPoolByPhone = new Map(
+    salesSnapshot.visibleLeadPool
+      .filter((item) => item.status === "OPEN")
+      .map((item) => [phoneKey(item.customerPhone), item.id] as const)
+      .filter(([phone]) => phone),
+  );
+  const openPoolByEmail = new Map(
+    salesSnapshot.visibleLeadPool
+      .filter((item) => item.status === "OPEN" && item.customerEmail)
+      .map((item) => [item.customerEmail.trim().toLowerCase(), item.id] as const),
+  );
 
   // 1. Seed from SalesLeadAssignment (CRM Pipeline Leads)
   for (const lead of salesSnapshot.visibleLeads) {
@@ -133,6 +145,7 @@ export async function GET(request: Request) {
     unifiedMap.set(mapKey, {
       id: lead.id,
       leadId: lead.id,
+      poolItemId: openPoolByPhone.get(pKey) || openPoolByEmail.get(eKey),
       conversationId: lead.conversationId || undefined,
       name: lead.customerName || displayPhone || eKey || "Unnamed Contact",
       phone: displayPhone,
@@ -160,6 +173,7 @@ export async function GET(request: Request) {
 
     if (existing) {
       existing.marketingContactId = mc.id;
+      existing.poolItemId = existing.poolItemId || openPoolByPhone.get(pKey) || openPoolByEmail.get(eKey);
       if (!existing.email && mc.email) existing.email = mc.email;
       if (!existing.phone && mc.e164Phone) existing.phone = mc.e164Phone;
       existing.tags = Array.from(new Set([...existing.tags, ...(mc.tags || [])]));
@@ -171,6 +185,7 @@ export async function GET(request: Request) {
       unifiedMap.set(mapKey, {
         id: mc.id,
         marketingContactId: mc.id,
+        poolItemId: openPoolByPhone.get(pKey) || openPoolByEmail.get(eKey),
         name: mc.fullName || mc.e164Phone,
         phone: mc.e164Phone,
         email: mc.email || "",

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireSessionRole } from "@/lib/api/require-session-role";
 import { resolveSessionTenantId } from "@/lib/api/resolve-session-tenant";
 import { prisma } from "@/lib/prisma";
-import { getSalesSnapshotForRole } from "@/lib/gigxomi/sales-store";
+import { claimSalesLeadPoolItem, getSalesSnapshotForRole } from "@/lib/gigxomi/sales-store";
 import {
   type RoundRobinSettings,
   readRoundRobinSettings,
@@ -73,6 +73,7 @@ export async function POST(request: Request) {
     action?: "save_settings" | "distribute" | "assign_single";
     settings?: Partial<RoundRobinSettings>;
     leadIds?: string[];
+    poolItemIds?: string[];
   };
 
   const tenantId = resolveSessionTenantId(auth.session, body.tenantId);
@@ -131,6 +132,7 @@ export async function POST(request: Request) {
 
     // Find leads to distribute
     const targetLeadIds = body.leadIds?.length ? body.leadIds : [];
+    const targetPoolItemIds = body.poolItemIds?.filter(Boolean) ?? [];
     const targetContacts = ((body as unknown as { contacts?: Array<{ id: string; leadId?: string; name: string; phone?: string; email?: string; tags?: string[]; source?: string }> }).contacts) || [];
 
     let leadsToDistribute: Array<{ id: string; customerName: string; notes: string | null; tags: string[]; stage: string }> = [];
@@ -143,6 +145,33 @@ export async function POST(request: Request) {
     let nextIdx = currentSettings.lastAssignedIndex;
     const distributionLog: Array<{ leadId: string; customerName: string; assignedTo: string }> = [];
     const processedLeadIds = new Set(leadsToDistribute.map((l) => l.id));
+
+    // Imported queue items are intentionally claimed before CRM contacts so a
+    // selected import cannot be turned into a duplicate direct assignment.
+    if (targetPoolItemIds.length) {
+      const queueItems = await prisma.salesLeadPoolItem.findMany({
+        where: { id: { in: targetPoolItemIds }, tenantId, status: "OPEN" },
+        orderBy: { createdAt: "asc" },
+      });
+
+      for (const queueItem of queueItems) {
+        const reservedAgent = queueItem.assignedAgentId
+          ? pool.find((agent) => agent.id === queueItem.assignedAgentId)
+          : null;
+        nextIdx = (nextIdx + 1) % pool.length;
+        const agent = reservedAgent ?? pool[nextIdx];
+        const result = await claimSalesLeadPoolItem({
+          poolItemId: queueItem.id,
+          agentId: agent.id,
+          actorUserId: auth.session.userId,
+        });
+        distributionLog.push({
+          leadId: result.lead.id,
+          customerName: result.lead.customerName,
+          assignedTo: agent.user.displayName,
+        });
+      }
+    }
 
     // Also process contacts from targetContacts
     for (const c of targetContacts) {
@@ -196,7 +225,7 @@ export async function POST(request: Request) {
       });
     }
 
-    if (!leadsToDistribute.length && !distributionLog.length && !targetLeadIds.length && !targetContacts.length) {
+    if (!leadsToDistribute.length && !distributionLog.length && !targetLeadIds.length && !targetPoolItemIds.length && !targetContacts.length) {
       leadsToDistribute = await prisma.salesLeadAssignment.findMany({
         where: { stage: "NEW", assignedAgent: { user: { tenantId } } },
         take: 200,

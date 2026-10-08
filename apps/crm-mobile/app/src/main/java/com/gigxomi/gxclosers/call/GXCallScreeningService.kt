@@ -13,7 +13,6 @@ class GXCallScreeningService : CallScreeningService() {
             .putString("phone", number)
             .putString("state", "RINGING")
             .putString("direction", "INBOUND")
-            .putString("pendingInboundLeadId", lead?.id)
             .putLong("callStartedAt", System.currentTimeMillis())
             .apply()
         if (number.isNotBlank()) {

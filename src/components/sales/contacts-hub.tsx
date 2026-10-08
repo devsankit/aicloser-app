@@ -971,7 +971,8 @@ export function ContactsHub({
         tenantId,
         action: "distribute",
         leadIds: targetContacts.map((c) => c.leadId).filter(Boolean),
-        contacts: targetContacts.map((c) => ({
+        poolItemIds: targetContacts.map((c) => c.poolItemId).filter(Boolean),
+        contacts: targetContacts.filter((c) => !c.poolItemId).map((c) => ({
           id: c.id,
           leadId: c.leadId,
           name: c.name,
