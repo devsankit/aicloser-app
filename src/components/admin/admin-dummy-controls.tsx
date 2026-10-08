@@ -112,9 +112,23 @@ async function fetchWhatsAppConnection(tenantId?: string, options?: { sync?: boo
     searchParams.set("sync", "1");
   }
   const query = searchParams.toString();
-  const response = await fetch(`/api/admin/whatsapp${query ? `?${query}` : ""}`, { cache: "no-store", credentials: "include" });
-  const payload = await response.json();
-  return (payload.connection ?? null) as DummyWhatsAppConnectionState | null;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10_000);
+
+  try {
+    const response = await fetch(`/api/admin/whatsapp${query ? `?${query}` : ""}`, {
+      cache: "no-store",
+      credentials: "include",
+      signal: controller.signal,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) {
+      throw new Error(String(payload.error ?? "Unable to load WhatsApp setup."));
+    }
+    return (payload.connection ?? null) as DummyWhatsAppConnectionState | null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 async function fetchYouTubeConnection() {
@@ -1004,6 +1018,7 @@ export function AdminWhatsAppSetupPanel({
   const [isSubscribingWebhook, setIsSubscribingWebhook] = useState(false);
   const [isRegisteringPhone, setIsRegisteringPhone] = useState(false);
   const [showAdvancedDebug, setShowAdvancedDebug] = useState(false);
+  const [connectionLoadKey, setConnectionLoadKey] = useState(0);
   const [manualDrafts, setManualDrafts] = useState<WhatsAppManualDrafts>(() => buildManualWhatsAppDrafts(initialConnection));
   const [registrationPin, setRegistrationPin] = useState("");
   const [testRecipient, setTestRecipient] = useState("");
@@ -1052,12 +1067,19 @@ export function AdminWhatsAppSetupPanel({
         connectionRef.current = nextConnection;
         setConnection(nextConnection);
       })
-      .catch(() => {
+      .catch((error) => {
         if (cancelled) {
           return;
         }
         connectionRef.current = null;
         setConnection(initialConnection);
+        setStatus(
+          error instanceof DOMException && error.name === "AbortError"
+            ? "WhatsApp setup request timed out. Check the connection and try again."
+            : error instanceof Error
+              ? error.message
+              : "Unable to load WhatsApp setup. Check the connection and try again.",
+        );
       })
       .finally(() => {
         if (cancelled) {
@@ -1069,7 +1091,7 @@ export function AdminWhatsAppSetupPanel({
     return () => {
       cancelled = true;
     };
-  }, [activeTenantId, initialConnection, initialTenantId]);
+  }, [activeTenantId, connectionLoadKey, initialConnection, initialTenantId]);
 
   useEffect(() => {
     setManualDrafts(buildManualWhatsAppDrafts(connection));
@@ -2007,9 +2029,22 @@ export function AdminWhatsAppSetupPanel({
   if (!connection) {
     return (
       <article className="brief-card">
-        <span className="meta-pill">Loading</span>
-        <strong>Preparing WhatsApp setup</strong>
-        <p className="muted-copy">Reload the page once if the account setup draft does not appear automatically.</p>
+        <span className="meta-pill">{status ? "Needs attention" : "Loading"}</span>
+        <strong>{status ? "WhatsApp setup unavailable" : "Preparing WhatsApp setup"}</strong>
+        <p className="muted-copy">{status ?? "Opening the saved tenant configuration before any optional Meta refresh work."}</p>
+        {status ? (
+          <button
+            className="secondary-button"
+            onClick={() => {
+              setStatus(null);
+              setIsLoadingConnection(true);
+              setConnectionLoadKey((value) => value + 1);
+            }}
+            type="button"
+          >
+            Retry loading
+          </button>
+        ) : null}
       </article>
     );
   }

@@ -46,6 +46,15 @@ test("Plugins & Channels routes channel setup to existing settings", () => {
   assert.match(dashboard, /<SuperAdminInstagramPluginCard/);
 });
 
+test("WhatsApp setup cannot remain in an indefinite loading state", () => {
+  const whatsapp = fs.readFileSync(new URL("../src/components/admin/admin-dummy-controls.tsx", import.meta.url), "utf8");
+  assert.match(whatsapp, /new AbortController\(\)/);
+  assert.match(whatsapp, /setTimeout\(\(\) => controller\.abort\(\), 10_000\)/);
+  assert.match(whatsapp, /WhatsApp setup unavailable/);
+  assert.match(whatsapp, /Retry loading/);
+  assert.match(whatsapp, /setConnectionLoadKey\(\(value\) => value \+ 1\)/);
+});
+
 test("internal sidebar reserves space for its footer instead of covering the last menu item", () => {
   assert.match(globalStyles, /\.internal-theme-root \.internal-sidebar\s*\{[\s\S]*?grid-template-rows:\s*auto minmax\(0, 1fr\) auto;/);
 });
