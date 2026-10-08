@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.telephony.TelephonyManager
+import android.util.Log
 import com.gigxomi.gxclosers.data.CrmRepository
 import com.gigxomi.gxclosers.data.OfflineEventStore
 import kotlinx.coroutines.CoroutineScope
@@ -20,11 +21,12 @@ class PhoneStateReceiver : BroadcastReceiver() {
         val prefs = context.getSharedPreferences(CallAudioRecorder.PREFS, Context.MODE_PRIVATE)
         val incoming = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER).orEmpty()
         val phone = incoming.ifBlank { prefs.getString("activePhone", prefs.getString("phone", "")).orEmpty() }
+        Log.i("GXPhoneState", "state=$state incoming=$incoming resolved=$phone")
         prefs.edit().putString("state", state).putString("phone", phone).putLong("updatedAt", System.currentTimeMillis()).apply()
 
         if (state == "RINGING" && phone.isNotBlank()) {
             LeadCallNotification.show(context, phone)
-            showCallerCard(context, phone)
+            CallOverlayWindow.show(context, phone)
             if (incoming.isNotBlank() && prefs.getString("activeCallId", null).isNullOrBlank() && prefs.getString("pendingInboundLeadId", null).isNullOrBlank()) {
                 startIncomingSession(context, phone)
             }
@@ -40,7 +42,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
 
         if (state == "IDLE") {
             LeadCallNotification.cancelIncoming(context)
-            hideCallerCard(context)
+            CallOverlayWindow.remove()
             val pending = CallAudioRecorder.stop(context)
             context.stopService(Intent(context, CallRecordingService::class.java))
             val callId = prefs.getString("activeCallId", null)
@@ -115,16 +117,4 @@ class PhoneStateReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun showCallerCard(context: Context, phone: String) {
-        runCatching {
-            val service = Intent(context, CallOverlayService::class.java)
-                .setAction(CallOverlayService.ACTION_SHOW)
-                .putExtra(CallOverlayService.EXTRA_PHONE, phone)
-            if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(service) else context.startService(service)
-        }
-    }
-
-    private fun hideCallerCard(context: Context) {
-        runCatching { context.startService(Intent(context, CallOverlayService::class.java).setAction(CallOverlayService.ACTION_HIDE)) }
-    }
 }

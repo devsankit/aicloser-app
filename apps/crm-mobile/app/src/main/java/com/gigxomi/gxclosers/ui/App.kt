@@ -18,6 +18,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -42,6 +43,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -120,7 +123,7 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
     var password by rememberSaveable { mutableStateOf("") }
     Page(vertical = true) {
         Spacer(Modifier.height(44.dp))
-        BrandHeader("AI Closer", "AI Closer CRM · Native Android Telemetry")
+        BrandHeader("AI Closer", "AI Closer CRM · Native Android Telemetry", fullLogo = true)
         GxCard {
             Text("Sign in to AI Closer", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
             Text("Access your SIM calling telemetry, audio recordings, and CRM pipeline.", color = GxMuted)
@@ -1226,9 +1229,26 @@ private fun formatMessageDay(value: String): String {
 @Composable private fun Page(vertical: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
     Column(Modifier.fillMaxSize().background(GxBackground).then(if (vertical) Modifier.verticalScroll(rememberScrollState()) else Modifier.verticalScroll(rememberScrollState())).imePadding().padding(start = 16.dp, top = 5.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(13.dp), content = content)
 }
-@Composable private fun BrandHeader(title: String, subtitle: String) {
-    Column(Modifier.fillMaxWidth()) {
-        Text("AI CLOSER", color = GxAccent, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+@Composable private fun BrandHeader(title: String, subtitle: String, fullLogo: Boolean = false) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        if (fullLogo) {
+            Image(
+                painter = painterResource(com.gigxomi.gxclosers.R.drawable.ic_ai_closer_banner),
+                contentDescription = "AI Closer",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+            )
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Image(
+                    painter = painterResource(com.gigxomi.gxclosers.R.drawable.ic_ai_closer_logo),
+                    contentDescription = "AI Closer",
+                    modifier = Modifier.size(34.dp),
+                )
+                Spacer(Modifier.width(10.dp))
+                Text("AI CLOSER", color = GxAccent, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+            }
+        }
         Text(title, fontSize = 26.sp, fontWeight = FontWeight.Black)
         Text(subtitle, color = GxMuted, fontSize = 13.sp)
     }

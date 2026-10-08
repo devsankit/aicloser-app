@@ -2,12 +2,12 @@ package com.gigxomi.gxclosers.call
 
 import android.telecom.Call
 import android.telecom.CallScreeningService
-import android.content.Intent
-import android.os.Build
+import android.util.Log
 
 class GXCallScreeningService : CallScreeningService() {
     override fun onScreenCall(details: Call.Details) {
         val number = details.handle?.schemeSpecificPart.orEmpty()
+        Log.i("GXCallScreening", "screened incoming number=$number")
         val lead = CallManager.lookup(this, number)
         getSharedPreferences(CallAudioRecorder.PREFS, MODE_PRIVATE).edit()
             .putString("phone", number)
@@ -18,12 +18,7 @@ class GXCallScreeningService : CallScreeningService() {
             .apply()
         if (number.isNotBlank()) {
             LeadCallNotification.show(this, number)
-            runCatching {
-                val overlay = Intent(this, CallOverlayService::class.java)
-                    .setAction(CallOverlayService.ACTION_SHOW)
-                    .putExtra(CallOverlayService.EXTRA_PHONE, number)
-                if (Build.VERSION.SDK_INT >= 26) startForegroundService(overlay) else startService(overlay)
-            }
+            CallOverlayWindow.show(this, number)
         }
         respondToCall(details, CallResponse.Builder().setDisallowCall(false).setRejectCall(false).build())
     }
