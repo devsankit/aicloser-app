@@ -44,7 +44,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -131,10 +130,10 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
     var password by rememberSaveable { mutableStateOf("") }
     Page(vertical = true) {
         Spacer(Modifier.height(44.dp))
-        BrandHeader("AI Closer", "AI Closer CRM · Native Android Telemetry", fullLogo = true)
+        BrandHeader("Welcome back", "Your calls, recordings, and CRM pipeline in one place.", fullLogo = true)
         GxCard {
             Text("Sign in to AI Closer", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
-            Text("Access your SIM calling telemetry, audio recordings, and CRM pipeline.", color = GxMuted)
+            Text("Sign in to manage your calls, recordings, and assigned leads.", color = GxMuted)
             OutlinedTextField(
                 identifier,
                 { identifier = it },
@@ -1338,12 +1337,23 @@ private fun formatMessageDay(value: String): String {
 @Composable private fun BrandHeader(title: String, subtitle: String, fullLogo: Boolean = false) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         if (fullLogo) {
-            Image(
-                painter = painterResource(com.gigxomi.gxclosers.R.drawable.ic_ai_closer_banner),
-                contentDescription = "AI Closer",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Image(
+                    painter = painterResource(com.gigxomi.gxclosers.R.drawable.ic_ai_closer_logo),
+                    contentDescription = null,
+                    modifier = Modifier.size(44.dp),
+                )
+                Text(
+                    "Closer",
+                    color = GxText,
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = (-1).sp,
+                )
+            }
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Image(
