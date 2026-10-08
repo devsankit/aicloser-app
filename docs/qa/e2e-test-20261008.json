@@ -100,10 +100,11 @@
     "mobileSessionRecoveryFix": "4ee160d",
     "mobileSetupGuardFix": "3bfe01a",
     "leadFormRoleFix": "bcc08d2",
-    "managerDashboardRouteFix": "277a62c"
+    "managerDashboardRouteFix": "277a62c",
+    "livePermissionRefreshFix": "96b6035"
   },
   "automatedRegression": {
-    "webTests": "67 passed, 0 failed",
+    "webTests": "68 passed, 0 failed",
     "webTypecheck": "passed",
     "androidUnitTests": "passed",
     "androidDebugBuild": "passed"
