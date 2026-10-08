@@ -228,7 +228,7 @@ export function SalesSignupForm() {
   }
 
   return (
-    <form className="sales-auth-form" onSubmit={handleSubmit} style={{ display: "grid", gap: "14px" }}>
+    <form action="/api/sales/auth/signup" method="post" className="sales-auth-form" onSubmit={handleSubmit} style={{ display: "grid", gap: "14px" }}>
       <label style={lightLabelStyle}>
         <span>Company / Workspace name</span>
         <input name="companyName" placeholder="e.g. Apex Sales or Growth Media" required style={lightInputStyle} />
@@ -318,7 +318,7 @@ export function SalesPasswordLoginForm({ redirectTo = "/", error = "", message =
   }
 
   return (
-    <form className="sales-auth-form" onSubmit={(event) => { event.preventDefault(); void submitLogin(); }} style={{ display: "grid", gap: "14px" }}>
+    <form action="/api/auth/login/password" method="post" className="sales-auth-form" onSubmit={(event) => { event.preventDefault(); void submitLogin(); }} style={{ display: "grid", gap: "14px" }}>
       <input name="loginScope" type="hidden" value="sales" />
       <input name="redirectTo" type="hidden" value={redirectTo} />
       <input name="clientType" type="hidden" value={clientType === "MOBILE" ? "MOBILE" : "DESKTOP"} />

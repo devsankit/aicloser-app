@@ -2742,7 +2742,7 @@ export function ContactsHub({
 
         {/* Contacts Table */}
         <div className="crm-table-scroll-region">
-          <div className="crm-table-scroll-toolbar">
+          {contactsTableScroll.max > 0 && <div className="crm-table-scroll-toolbar">
             <span className="crm-table-scroll-hint">Scroll horizontally to view all contact details</span>
             <div className="crm-table-scroll-controls" role="group" aria-label="Contacts table horizontal scroll controls">
               <button
@@ -2788,7 +2788,7 @@ export function ContactsHub({
                 <ChevronRight size={16} aria-hidden="true" />
               </button>
             </div>
-          </div>
+          </div>}
           <div
             ref={contactsTableShellRef}
             className="crm-table-shell"
