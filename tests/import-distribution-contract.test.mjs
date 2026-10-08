@@ -27,6 +27,13 @@ test("Contacts hub preserves an exact import batch and never defaults to all con
   assert.match(ui, /contacts\.filter\(\(c\) => selectedIds\.has\(c\.id\)\)\s*: \[\]/);
 });
 
+test("Bulk campaigns require an explicit contact selection", async () => {
+  const ui = await source("src/components/sales/contacts-hub.tsx");
+  assert.match(ui, /onOpenBulkMarketing && selectedIds\.size > 0/);
+  assert.match(ui, /onClick=\{\(\) => onOpenBulkMarketing\(Array\.from\(selectedIds\)\)\}/);
+  assert.doesNotMatch(ui, /onOpenBulkMarketing\(selectedIds\.size > 0 \? Array\.from\(selectedIds\) : undefined\)/);
+});
+
 test("CSV preview counts tenant phone and email duplicates before save", async () => {
   const route = await source("src/app/api/sales/contacts/route.ts");
   assert.match(route, /const getImportKeys =/);

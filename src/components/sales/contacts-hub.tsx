@@ -2761,11 +2761,11 @@ export function ContactsHub({
             </button>
 
             {/* Send to WhatsApp Bulk Campaign */}
-            {onOpenBulkMarketing && filteredContacts.length > 0 ? (
+            {onOpenBulkMarketing && selectedIds.size > 0 ? (
               <button
                 type="button"
                 className="primary-button"
-                onClick={() => onOpenBulkMarketing(selectedIds.size > 0 ? Array.from(selectedIds) : undefined)}
+                onClick={() => onOpenBulkMarketing(Array.from(selectedIds))}
                 title="Send selected contacts to WhatsApp Bulk Marketing Broadcast"
                 style={{
                   display: "inline-flex",
@@ -2777,7 +2777,7 @@ export function ContactsHub({
                 }}
               >
                 <Send size={13} />
-                Bulk Campaign {selectedIds.size > 0 ? `(${selectedIds.size})` : ""}
+                Bulk Campaign ({selectedIds.size})
               </button>
             ) : null}
           </div>
