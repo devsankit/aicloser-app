@@ -1,0 +1,90 @@
+{
+  "testRun": "Live CRM + Android call verification",
+  "date": "2026-10-08",
+  "environment": {
+    "web": "https://app.aicloser.in",
+    "androidPackage": "com.gigxomi.gxclosers",
+    "emulators": ["emulator-5554", "emulator-5556"],
+    "credentials": "redacted"
+  },
+  "results": {
+    "freshSignupLocalBackend": {
+      "status": "PASS",
+      "workspace": "AI Closer QA E2E 20261008",
+      "adminEmail": "qa.e2e.20261008@aicloser.in"
+    },
+    "freshSignupLiveEndpoint": {
+      "status": "BLOCKED",
+      "reason": "Live server still ran the pre-fix signup code and returned the workspace foreign-key error. Fix is committed but live deployment was not available in this environment."
+    },
+    "liveAdminLogin": {
+      "status": "PASS",
+      "workspaceCode": "GX-QA-DBF3D0"
+    },
+    "createCloser": {
+      "status": "BLOCKED",
+      "reason": "Fresh workspace is Free 1/1 seats; no additional seat was available. No billing or plan mutation was performed."
+    },
+    "csvImport": {
+      "status": "PASS",
+      "validRows": 1,
+      "duplicates": 0,
+      "assignedTo": "QA E2E Admin 20261008"
+    },
+    "roundRobin": {
+      "status": "BLOCKED",
+      "reason": "Requires multiple active sales users; blocked by the 1/1 seat limit."
+    },
+    "mobileLogin": {
+      "status": "PASS_WITH_SETUP_ISSUE",
+      "details": "Credentials accepted. Existing mobile-session conflict was shown with Login here. Required permissions and backend device registration were verified. The setup screen did not transition after the already-granted-permissions callback; a mobile UX fix was committed in 90194b8."
+    },
+    "outgoingCallApiLifecycle": {
+      "status": "PASS",
+      "leadId": "cmuzm597z0009aajppbo4tkzb",
+      "callId": "cmuzmp6k4000gaajpzlp2emjv",
+      "direction": "OUTBOUND",
+      "statusAfterEnd": "CONNECTED",
+      "durationSeconds": 8,
+      "disposition": "CONNECTED_INTERESTED",
+      "stage": "CONTACTED",
+      "callback": "2026-10-10T10:00:00.000Z",
+      "recordingStatus": "RECORDING_UNAVAILABLE"
+    },
+    "incomingUnknownCallApiLifecycle": {
+      "status": "PASS",
+      "leadId": "cmuzmpewl000laajphupxule4",
+      "callId": "cmuzmpewx000naajp3vw0yg9o",
+      "phone": "9800001701",
+      "source": "PHONE_CALL",
+      "direction": "INBOUND",
+      "statusAfterEnd": "CONNECTED",
+      "durationSeconds": 6,
+      "disposition": "CONNECTED_INTERESTED",
+      "stage": "CONTACTED",
+      "callback": "2026-10-11T10:00:00.000Z",
+      "recordingStatus": "RECORDING_UNAVAILABLE"
+    },
+    "webCrmSync": {
+      "status": "PASS",
+      "details": "Live Kanban showed both QA leads, correct phone numbers, source labels, Contacted stage, notes, callbacks, latest call duration/outcome, and Previously handled by QA E2E Admin 20261008."
+    },
+    "webCallHistory": {
+      "status": "PASS_WITH_RECORDING_LIMITATION",
+      "details": "Both calls appeared in the live SIM call history with duration, outcome, owner, notes, and explicit recording-unavailable error. Playback/speed controls were not passable because the emulator had no connected audio endpoint and no real recording was uploaded."
+    },
+    "nativeIncomingUi": {
+      "status": "NOT_VERIFIED",
+      "reason": "The emulator GSM trigger did not produce a visible native incoming-call card in this run."
+    },
+    "deleteAndCleanup": {
+      "status": "NOT_RUN",
+      "reason": "QA records were retained for review; admin cleanup and closer deletion require an explicit cleanup pass after live deployment and seat setup."
+    }
+  },
+  "commits": {
+    "signupFix": "0002346",
+    "mobileSetupFix": "90194b8"
+  },
+  "secrets": "No passwords, access tokens, or session tokens are included."
+}
