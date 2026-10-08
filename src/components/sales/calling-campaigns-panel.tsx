@@ -276,6 +276,8 @@ export function CallingCampaignsPanel() {
                   <button
                     type="button"
                     onClick={() => handleDeleteCampaign(camp.id)}
+                    aria-label={`Delete campaign ${camp.name}`}
+                    title={`Delete campaign ${camp.name}`}
                     style={{
                       padding: "0.6rem",
                       borderRadius: "8px",
