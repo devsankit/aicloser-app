@@ -49,6 +49,10 @@
       "status": "PASS_LOCAL_WITH_RETRY",
       "details": "The local Contacts directory first showed its explicit temporary-unavailable state during the slow initial response, then the visible Retry contacts action loaded all 718 contacts. No silent empty directory was shown; the initial response latency remains a performance follow-up."
     },
+    "disabledLeadActionGuidance": {
+      "status": "PASS_LOCAL",
+      "details": "Disabled Add note, Save follow-up, and timeline Add controls now expose clear accessible labels and titles explaining the required note text or follow-up date."
+    },
     "effectivePermissionRefresh": {
       "status": "PASS_CODE_VERIFIED",
       "details": "Open dashboards now refresh role permissions on focus and every 30 seconds, and the refresh API resolves the configured workspace role before selecting the permission matrix. Manager team visibility follows that same effective role."
@@ -133,10 +137,11 @@
     "seatCapacityCreationUxFix": "5ee950c",
     "recordingStatusLabelFix": "2ab6d34",
     "mobileRecordingStatusLabelFix": "7c39fde",
-    "bulkCampaignSelectionGuardFix": "04ceaa3"
+    "bulkCampaignSelectionGuardFix": "04ceaa3",
+    "disabledLeadActionGuidanceFix": "e240f7f"
   },
   "automatedRegression": {
-    "webTests": "75 passed, 0 failed",
+    "webTests": "76 passed, 0 failed",
     "webTypecheck": "passed",
     "androidUnitTests": "passed",
     "androidDebugBuild": "passed"
