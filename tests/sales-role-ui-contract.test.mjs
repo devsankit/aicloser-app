@@ -5,6 +5,7 @@ import test from "node:test";
 const dashboard = fs.readFileSync(new URL("../src/components/sales/sales-dashboard.tsx", import.meta.url), "utf8");
 const dashboardRoute = fs.readFileSync(new URL("../src/app/dashboard/page.tsx", import.meta.url), "utf8");
 const permissionsRoute = fs.readFileSync(new URL("../src/app/api/sales/roles/features/route.ts", import.meta.url), "utf8");
+const rolePanel = fs.readFileSync(new URL("../src/components/sales/role-permissions-panel.tsx", import.meta.url), "utf8");
 
 test("lead form builder receives the authenticated workspace admin role", () => {
   assert.match(dashboard, /<LeadFormBuilder\s+isAdmin=\{isWorkspaceAdmin\}/);
@@ -35,4 +36,11 @@ test("permission refresh resolves the configured workspace role", () => {
 
 test("manager visibility follows the effective workspace role", () => {
   assert.match(dashboard, /const canViewTeamData = isWorkspaceAdmin \|\| effectiveWorkspaceRole === "MANAGER"/);
+});
+
+test("full seat plans explain and prevent blocked user creation", () => {
+  assert.match(rolePanel, /const seatsExhausted = Boolean\(/);
+  assert.match(rolePanel, /All \{workspacePlan\?\.plan\.seatLimit \?\? 0\} active seats are in use/);
+  assert.match(rolePanel, /disabled=\{creatingUser \|\| seatsExhausted\}/);
+  assert.match(rolePanel, /role=\{userNotice\.type === "error" \? "alert" : "status"\}/);
 });

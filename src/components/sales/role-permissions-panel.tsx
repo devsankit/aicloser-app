@@ -350,6 +350,11 @@ export function RolePermissionsPanel({
   }
 
   const categories = ["Core CRM", "Telephony & Audio", "Automation & AI", "Administration"] as const;
+  const seatsExhausted = Boolean(
+    workspacePlan &&
+      !workspacePlan.plan.isUnlimited &&
+      workspacePlan.usage.activeUsers >= (workspacePlan.plan.seatLimit ?? 0),
+  );
 
   if (loading) {
     return (
@@ -550,6 +555,8 @@ export function RolePermissionsPanel({
 
         {userNotice ? (
           <div
+            role={userNotice.type === "error" ? "alert" : "status"}
+            aria-live={userNotice.type === "error" ? "assertive" : "polite"}
             style={{
               padding: "12px 16px",
               borderRadius: "10px",
@@ -561,6 +568,24 @@ export function RolePermissionsPanel({
             }}
           >
             {userNotice.text}
+          </div>
+        ) : null}
+
+        {canManageUsers && seatsExhausted && !userNotice ? (
+          <div
+            role="status"
+            aria-live="polite"
+            style={{
+              padding: "12px 16px",
+              borderRadius: "10px",
+              fontSize: "0.85rem",
+              fontWeight: 600,
+              background: "rgba(245, 158, 11, 0.12)",
+              border: "1px solid rgba(245, 158, 11, 0.35)",
+              color: "var(--closer-ink)",
+            }}
+          >
+            All {workspacePlan?.plan.seatLimit ?? 0} active seats are in use. Upgrade the workspace plan to create another user.
           </div>
         ) : null}
 
@@ -698,7 +723,8 @@ export function RolePermissionsPanel({
 
           <button
             type="submit"
-            disabled={creatingUser}
+            disabled={creatingUser || seatsExhausted}
+            title={seatsExhausted ? "Upgrade the workspace plan to add another user" : undefined}
             className="sales-primary-button"
             style={{
               minHeight: "40px",
@@ -713,7 +739,7 @@ export function RolePermissionsPanel({
             }}
           >
             {creatingUser ? <RefreshCw className="animate-spin" size={15} /> : <Plus size={16} />}
-            {creatingUser ? "Creating…" : "Create User Account"}
+            {creatingUser ? "Creating…" : seatsExhausted ? "Upgrade plan to add users" : "Create User Account"}
           </button>
         </form>
         ) : (
