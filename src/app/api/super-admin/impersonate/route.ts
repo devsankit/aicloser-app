@@ -83,7 +83,7 @@ export async function POST(request: Request) {
       tenantId: targetUser.tenantId || `tenant-${targetUser.id.slice(-6)}`,
       displayName: targetUser.displayName,
       email: targetUser.email,
-      phone: targetUser.phone,
+      phone: targetUser.phone ?? "",
       packageId: targetUser.packageId,
       packageName: targetUser.packageName || "Pro Workspace",
       packageAudience: targetUser.packageAudience,

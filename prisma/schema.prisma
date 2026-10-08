@@ -2339,7 +2339,7 @@ model AppAuthUser {
   tenantId                   String?
   displayName                String
   email                      String?                        @unique
-  phone                      String                         @unique
+  phone                      String?                        @unique
   loginPhoneAliases          String[]
   packageId                  String?
   packageName                String?

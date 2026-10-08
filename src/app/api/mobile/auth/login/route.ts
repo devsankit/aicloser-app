@@ -16,6 +16,9 @@ type MobileLoginBody = {
   installationId?: unknown;
   deviceName?: unknown;
   appVersion?: unknown;
+  replaceExisting?: unknown;
+  forceReplace?: unknown;
+  force?: unknown;
 };
 
 function readBodyString(value: unknown) {
@@ -58,6 +61,7 @@ export async function POST(request: Request) {
 
   let clientSession;
   try {
+    const replaceExisting = body.replaceExisting === true || body.forceReplace === true || body.force === true;
     clientSession = await acquireAppClientSession({
       userId: user.id,
       tenantId: user.tenantId,
@@ -67,11 +71,17 @@ export async function POST(request: Request) {
       deviceName: readBodyString(body.deviceName).trim() || "Mobile App",
       platform: "ANDROID",
       appVersion: readBodyString(body.appVersion).trim() || null,
-      replaceExisting: true,
+      replaceExisting,
     });
   } catch (error) {
     if (error instanceof ClientSlotOccupiedError) {
-      return NextResponse.json({ ok: false, error: error.code, message: "Your mobile account is already active on another device." }, { status: 409 });
+      return NextResponse.json({
+        ok: false,
+        error: error.code,
+        message: "Your mobile account is already active on another device.",
+        deviceName: error.deviceName,
+        lastActiveAt: error.lastActiveAt?.toISOString() ?? null,
+      }, { status: 409 });
     }
     throw error;
   }

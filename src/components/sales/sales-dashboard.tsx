@@ -704,7 +704,7 @@ function CallRecordingPlayer({ callId, expectedDurationSeconds = 0, labelText = 
   );
 }
 
-export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, canManageContacts = false, sessionRole = "SALES_AGENT" }: { salesOperations: SalesOperationsPayload; snapshot: SalesDashboardSnapshot; canManageContacts?: boolean; sessionRole?: string }) {
+export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, canManageContacts = false, sessionRole = "SALES_AGENT", rolePermissions }: { salesOperations: SalesOperationsPayload; snapshot: SalesDashboardSnapshot; canManageContacts?: boolean; sessionRole?: string; rolePermissions?: Record<string, boolean> }) {
   const router = useRouter();
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [operating, setOperating] = useState<SalesOperatingSnapshot | null>(null);
@@ -748,12 +748,25 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     sessionRole === "SUPER_ADMIN" ||
     currentAgentPermissions?.workspaceAdmin === true ||
     String(currentAgentPermissions?.workspaceRole ?? "").toUpperCase() === "ADMIN";
-  const isCloser = !isWorkspaceAdmin && (sessionRole === "SALES_AGENT" || String(currentAgentPermissions?.workspaceRole ?? "").toUpperCase() === "SALES_AGENT");
-  const navigationTabs = isWorkspaceAdmin
+  const effectiveWorkspaceRole = String(currentAgentPermissions?.workspaceRole ?? sessionRole).toUpperCase();
+  const isCloser = !isWorkspaceAdmin && effectiveWorkspaceRole === "SALES_AGENT";
+  const tabFeatureMap: Partial<Record<SalesTab, string>> = {
+    dashboard: "dashboard",
+    crm: "crm",
+    calls: "calls",
+    conversations: "conversations",
+    "whatsapp-marketing": "whatsapp_marketing",
+    automations: "ai_bot_beta",
+    reports: "referrals",
+    roles: "role_management",
+  };
+  const hasFeature = (featureId: string) => isWorkspaceAdmin || rolePermissions?.[featureId] !== false;
+  const navigationTabs = (isWorkspaceAdmin
     ? tabs
     : isCloser
       ? tabs.filter((tab) => ["dashboard", "crm", "grab-leads", "conversations"].includes(tab.id))
-      : tabs.filter((tab) => !["roles", "profile", "developer", "grab-leads"].includes(tab.id));
+      : tabs.filter((tab) => !["roles", "profile", "developer", "grab-leads"].includes(tab.id)))
+    .filter((tab) => !tabFeatureMap[tab.id] || hasFeature(tabFeatureMap[tab.id] as string));
   const canImportLeads = isWorkspaceAdmin || roundRobinAccess.allowNonAdminImportData;
   const canExportLeads = isWorkspaceAdmin || roundRobinAccess.allowNonAdminExportData;
   const canModifyLeads = isWorkspaceAdmin || roundRobinAccess.allowNonAdminModifyLeads;
@@ -1106,9 +1119,9 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
         setSettingsHubView("custom-fields");
       } else if (savedTab === "leads" || savedTab === "queue" || savedTab === "deals") {
         setActiveTab("crm");
-      } else if (tabs.some((tab) => tab.id === savedTab) && (!isCloser || navigationTabs.some((tab) => tab.id === savedTab))) {
+      } else if (tabs.some((tab) => tab.id === savedTab) && navigationTabs.some((tab) => tab.id === savedTab)) {
         setActiveTab(savedTab as SalesTab);
-      } else if (isCloser) {
+      } else if (!navigationTabs.some((tab) => tab.id === activeTab)) {
         setActiveTab("dashboard");
       }
       if (savedView === "kanban" || savedView === "list") setCrmView(savedView);

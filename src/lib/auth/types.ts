@@ -60,7 +60,7 @@ export type CreateInternalUserInput = {
   role: AppRole;
   displayName: string;
   email: string;
-  phone: string;
+  phone?: string;
   password: string;
   packageId?: string | null;
   packageStatus?: Exclude<PackageStatus, null>;

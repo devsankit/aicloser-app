@@ -35,7 +35,7 @@ export async function captureWhatsAppAdLeads() {
     });
     if (candidates.length !== 1 || (candidates[0].payload as { sourceChannel?: string }).sourceChannel !== "whatsapp") continue;
     const conversation = candidates[0];
-    await createSalesLeadPoolItem({ customerName: conversation.customerName, customerPhone: conversation.customerPhone,
+    await createSalesLeadPoolItem({ tenantId: tenant, customerName: conversation.customerName, customerPhone: conversation.customerPhone,
       source: "meta_click_to_whatsapp", serviceInterest: "WhatsApp ad enquiry", segment: "whatsapp_ad", priority: "normal", notes: "Ad enquiry received; qualify in Sales before reporting a conversion." });
     await enqueueMetaConversion({ eventName: "LeadSubmitted", source: "WHATSAPP", eventId: `wa_lead_${createHash("sha256").update(row.messageId).digest("hex")}`,
       eventTime: receivedAt, tenantId: tenant, conversationId: conversation.id, externalMessageId: row.messageId, userData: { ctwaClid: clickId, wabaId: payload.entryId } }, "ATTRIBUTED");

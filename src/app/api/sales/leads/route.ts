@@ -121,6 +121,7 @@ export async function POST(request: Request) {
         : (snapshot.currentAgent?.id || null));
 
     const lead = await createSalesLeadPoolItem({
+      tenantId: resolveSessionTenantId(authorization.session),
       assignedAgentId,
       customerName: String(body.customerName ?? ""),
       customerPhone: String(body.customerPhone ?? ""),

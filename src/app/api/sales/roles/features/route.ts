@@ -7,6 +7,7 @@ import {
   type RolePermissionsMatrix,
 } from "@/lib/gigxomi/role-permissions-store";
 import { getSalesAgentAccess } from "@/lib/gigxomi/sales-store";
+import { prisma } from "@/lib/prisma";
 
 async function requireWorkspaceAdmin() {
   const auth = await requireSessionRole(["ADMIN", "SUPER_ADMIN", "MANAGER", "SALES_AGENT"]);
@@ -19,6 +20,22 @@ async function requireWorkspaceAdmin() {
     permissions?.workspaceAdmin === true ||
     String(permissions?.workspaceRole ?? "").toUpperCase() === "ADMIN";
   if (access.ok && isProfileWorkspaceAdmin) return auth;
+
+  // The session role can lag behind an owner/admin profile after a role change.
+  // Resolve the current profile directly before denying a permissions update.
+  if (auth.session.userId) {
+    const profile = await prisma.salesAgentProfile.findUnique({
+      where: { userId: auth.session.userId },
+      select: { status: true, permissions: true },
+    });
+    const profilePermissions = profile?.permissions as Record<string, unknown> | null | undefined;
+    if (profile?.status === "ACTIVE" && (
+      profilePermissions?.workspaceAdmin === true ||
+      String(profilePermissions?.workspaceRole ?? "").toUpperCase() === "ADMIN"
+    )) {
+      return auth;
+    }
+  }
 
   return {
     ok: false as const,

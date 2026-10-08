@@ -180,6 +180,7 @@ export async function POST(request: Request) {
 
   if (body.action === "lead-pool") {
     const lead = await createSalesLeadPoolItem({
+      tenantId: authorization.session.tenantId,
       assignedAgentId: typeof body.assignedAgentId === "string" ? body.assignedAgentId : null,
       customerName: String(body.customerName ?? ""),
       customerPhone: String(body.customerPhone ?? ""),

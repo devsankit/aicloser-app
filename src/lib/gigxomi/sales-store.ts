@@ -549,7 +549,7 @@ function mapAgent(agent: Prisma.SalesAgentProfileGetPayload<{ include: { user: t
     tenantId: agent.user.tenantId ?? null,
     displayName: agent.user.displayName,
     email: agent.user.email ?? "",
-    phone: agent.user.phone,
+    phone: agent.user.phone ?? "",
     packageName: agent.user.packageName ?? null,
     packageStatus: agent.user.packageStatus ?? null,
     packageExpiresAt: agent.user.packageExpiresAt?.toISOString() ?? null,
@@ -1252,6 +1252,7 @@ export async function getSalesSnapshotForRole(
         ? undefined
         : {
             OR: [
+              { tenantId: effectiveTenantId },
               { assignedAgent: { user: { tenantId: effectiveTenantId } } },
               { claimedByAgent: { user: { tenantId: effectiveTenantId } } },
               { convertedAssignment: { assignedAgent: { user: { tenantId: effectiveTenantId } } } },
@@ -1542,6 +1543,7 @@ async function upsertSalesAgentWithDatabase(input: UpsertSalesAgentInput, databa
     const updated = await database.salesAgentProfile.update({
       where: { id: existing.id },
       data: {
+        tenantId: user.tenantId ?? "tenant-gigxomi",
         status: input.status ?? existing.status,
         groupId: input.groupId === undefined ? existing.groupId : input.groupId?.trim() || null,
         parentAgentId: input.parentAgentId === undefined ? existing.parentAgentId : input.parentAgentId?.trim() || null,
@@ -1558,6 +1560,7 @@ async function upsertSalesAgentWithDatabase(input: UpsertSalesAgentInput, databa
   const created = await database.salesAgentProfile.create({
     data: {
       userId: input.userId,
+      tenantId: user.tenantId ?? "tenant-gigxomi",
       groupId: input.groupId?.trim() || "sales-group-main",
       parentAgentId: input.parentAgentId?.trim() || null,
       agentCode: code,
@@ -1791,6 +1794,7 @@ export async function saveSalesGroup(input: { id?: string; name: string; descrip
 }
 
 export async function createSalesLeadPoolItem(input: {
+  tenantId?: string | null;
   assignedAgentId?: string | null;
   customerName: string;
   customerPhone?: string;
@@ -1803,8 +1807,12 @@ export async function createSalesLeadPoolItem(input: {
   notes?: string;
 }) {
   await ensureSalesDefaults();
+  const assignedAgent = input.assignedAgentId?.trim()
+    ? await prisma.salesAgentProfile.findUnique({ where: { id: input.assignedAgentId.trim() }, select: { user: { select: { tenantId: true } } } })
+    : null;
   const lead = await prisma.salesLeadPoolItem.create({
     data: {
+      tenantId: input.tenantId?.trim() || assignedAgent?.user.tenantId || "tenant-gigxomi",
       assignedAgentId: input.assignedAgentId?.trim() || null,
       customerName: input.customerName.trim(),
       customerPhone: input.customerPhone?.trim() || null,
@@ -1939,6 +1947,7 @@ export async function claimSalesLeadPoolItem(input: { poolItemId: string; agentI
 
     const assignment = await tx.salesLeadAssignment.create({
       data: {
+        tenantId: poolItem.tenantId || agent.user.tenantId || "tenant-gigxomi",
         assignedAgentId: agent.id,
         createdById: input.actorUserId ?? null,
         customerName: poolItem.customerName,
@@ -1977,10 +1986,15 @@ export async function claimSalesLeadPoolItem(input: { poolItemId: string; agentI
   return { ...result, lead: linkedLead ? mapLead(linkedLead) : result.lead };
 }
 
-export async function createSalesLead(input: Partial<SalesLeadView> & { assignedAgentId: string; customerName: string; actorUserId?: string | null }) {
+export async function createSalesLead(input: Partial<SalesLeadView> & { tenantId?: string | null; assignedAgentId: string; customerName: string; actorUserId?: string | null }) {
   await ensureSalesDefaults();
+  const assignedAgent = await prisma.salesAgentProfile.findUnique({
+    where: { id: input.assignedAgentId },
+    select: { user: { select: { tenantId: true } } },
+  });
   const lead = await prisma.salesLeadAssignment.create({
     data: {
+      tenantId: input.tenantId?.trim() || assignedAgent?.user.tenantId || "tenant-gigxomi",
       assignedAgentId: input.assignedAgentId,
       createdById: input.actorUserId ?? null,
       customerName: input.customerName.trim(),

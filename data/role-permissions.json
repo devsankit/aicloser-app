@@ -1,0 +1,54 @@
+{
+  "SUPER_ADMIN": {
+    "dashboard": true,
+    "crm": true,
+    "status_labels_crud": true,
+    "notes_crud": true,
+    "calls": true,
+    "conversations": true,
+    "whatsapp_marketing": true,
+    "ai_bot_beta": true,
+    "deals": true,
+    "referrals": true,
+    "role_management": true
+  },
+  "ADMIN": {
+    "dashboard": true,
+    "crm": true,
+    "status_labels_crud": true,
+    "notes_crud": true,
+    "calls": true,
+    "conversations": true,
+    "whatsapp_marketing": true,
+    "ai_bot_beta": true,
+    "deals": true,
+    "referrals": true,
+    "role_management": true
+  },
+  "MANAGER": {
+    "dashboard": true,
+    "crm": true,
+    "status_labels_crud": true,
+    "notes_crud": true,
+    "calls": true,
+    "conversations": true,
+    "whatsapp_marketing": true,
+    "ai_bot_beta": true,
+    "deals": true,
+    "referrals": true,
+    "role_management": false
+  },
+  "SALES_AGENT": {
+    "dashboard": true,
+    "crm": true,
+    "status_labels_crud": true,
+    "notes_crud": true,
+    "calls": true,
+    "conversations": true,
+    "whatsapp_marketing": false,
+    "ai_bot_beta": false,
+    "deals": false,
+    "referrals": false,
+    "role_management": false
+  }
+}

@@ -280,13 +280,13 @@ function toManagedAuthUser(user: AuthUserRecord): ManagedAuthUser {
 }
 
 function fromDbUser(user: {
-  id: string; role: DbAppRole; assignedRole: DbAppRole; tenantId: string | null; displayName: string; email: string | null; phone: string;
+  id: string; role: DbAppRole; assignedRole: DbAppRole; tenantId: string | null; displayName: string; email: string | null; phone: string | null;
   loginPhoneAliases: string[]; packageId: string | null; packageName: string | null; packageAudience: DbPackageAudience | null; packageStatus: DbPackageStatus | null;
   packageExpiresAt: Date | null; workspaceMode: DbWorkspaceMode | null; passwordSalt: string; passwordHash: string; otpCode: string; permissions: string[];
   isSeeded: boolean; createdAt: Date; createdByUserId: string | null; lastLoginAt: Date | null; lastOtpSentAt: Date | null;
 }) {
   const raw: AuthUserRecord = {
-    id: user.id, role: user.role as AppRole, assignedRole: user.assignedRole as AppRole, tenantId: user.tenantId, displayName: user.displayName, email: user.email, phone: user.phone,
+    id: user.id, role: user.role as AppRole, assignedRole: user.assignedRole as AppRole, tenantId: user.tenantId, displayName: user.displayName, email: user.email, phone: user.phone ?? "",
     loginPhoneAliases: user.loginPhoneAliases, packageId: user.packageId, packageName: user.packageName, packageAudience: user.packageAudience as PackageAudience | null,
     packageStatus: user.packageStatus as PackageStatus, packageExpiresAt: user.packageExpiresAt?.toISOString() ?? null, workspaceMode: user.workspaceMode as WorkspaceMode,
     passwordSalt: user.passwordSalt, passwordHash: user.passwordHash, otpCode: user.otpCode, permissions: user.permissions, isSeeded: user.isSeeded,
@@ -659,7 +659,7 @@ async function upsertSeededAuthUser(user: AuthUserRecord) {
     await ensureAgencyTenantStores({
       tenantId: record.tenantId,
       displayName: record.displayName,
-      phone: record.phone,
+      phone: record.phone ?? "",
       email: record.email,
     });
   }
@@ -669,7 +669,7 @@ async function upsertSeededAuthUser(user: AuthUserRecord) {
       userId: record.id,
       displayName: record.displayName,
       email: record.email,
-      phone: record.phone,
+      phone: record.phone ?? "",
     });
   }
 
@@ -891,7 +891,7 @@ export async function beginPublicOtpSignup(input: {
     await ensureAgencyTenantStores({
       tenantId: record.tenantId,
       displayName: record.displayName,
-      phone: record.phone,
+      phone: record.phone ?? "",
       email: record.email,
     });
   }
@@ -901,7 +901,7 @@ export async function beginPublicOtpSignup(input: {
       userId: record.id,
       displayName: record.displayName,
       email: record.email,
-      phone: record.phone,
+      phone: record.phone ?? "",
     });
   }
 
@@ -1101,7 +1101,7 @@ export async function updateManagedAuthUserAccess(input: UpdateManagedAuthUserAc
     await ensureAgencyTenantStores({
       tenantId: updated.tenantId,
       displayName: updated.displayName,
-      phone: updated.phone,
+      phone: updated.phone ?? "",
       email: updated.email,
     });
   }
@@ -1151,14 +1151,14 @@ export async function createInternalUser(input: CreateInternalUserInput, options
   let role = String(input.role ?? "").trim().toUpperCase() as AppRole;
   const displayName = input.displayName.trim();
   const email = input.email.trim().toLowerCase();
-  const normalizedPhone = normalizePhone(input.phone);
+  const normalizedPhone = input.phone?.trim() ? normalizePhone(input.phone) : "";
   const password = input.password.trim();
   const requestedPackageId = input.packageId?.trim() || null;
   const selectedPackage = requestedPackageId ? await findRegistrationPackage(requestedPackageId) : null;
 
   if (!["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT", "FREELANCER"].includes(role)) return { ok: false as const, error: "Choose a valid internal role." };
   if (role === "SUPER_ADMIN") return { ok: false as const, error: "Super admin is locked to the owner identity and cannot be created from this panel." };
-  if (!displayName || !email || !normalizedPhone || !password) return { ok: false as const, error: "Display name, email, phone, and password are required." };
+  if (!displayName || !email || !password) return { ok: false as const, error: "Display name, email, and password are required." };
   if (!email.includes("@")) return { ok: false as const, error: "Enter a valid email address." };
   if (role === "MANAGER" && !/^\d{6}$/.test(password)) return { ok: false as const, error: "Manager PIN must be exactly 6 digits." };
   if (role !== "MANAGER" && password.length < 8) return { ok: false as const, error: "Password must be at least 8 characters." };
@@ -1169,7 +1169,14 @@ export async function createInternalUser(input: CreateInternalUserInput, options
     role = "FREELANCER";
   }
 
-  const duplicate = await database.appAuthUser.findFirst({ where: { OR: [{ email }, { phone: normalizedPhone }, { loginPhoneAliases: { has: normalizedPhone } }] } });
+  const duplicate = await database.appAuthUser.findFirst({
+    where: {
+      OR: [
+        { email },
+        ...(normalizedPhone ? [{ phone: normalizedPhone }, { loginPhoneAliases: { has: normalizedPhone } }] : []),
+      ],
+    },
+  });
   if (duplicate) return { ok: false as const, error: "An internal user already exists with that email or phone." };
 
   const salt = randomBytes(16).toString("hex");
@@ -1194,8 +1201,8 @@ export async function createInternalUser(input: CreateInternalUserInput, options
       tenantId,
       displayName,
       email,
-      phone: normalizedPhone,
-      loginPhoneAliases: [normalizedPhone],
+      phone: normalizedPhone || null,
+      loginPhoneAliases: normalizedPhone ? [normalizedPhone] : [],
       packageId: selectedPackage?.id ?? null,
       packageName: selectedPackage?.name ?? null,
       packageAudience: selectedPackage ? dbAudienceMap[selectedPackage.audience] : null,
@@ -1215,7 +1222,7 @@ export async function createInternalUser(input: CreateInternalUserInput, options
     await ensureAgencyTenantStores({
       tenantId: user.tenantId,
       displayName: user.displayName,
-      phone: user.phone,
+      phone: user.phone ?? "",
       email: user.email,
     });
   }
@@ -1225,7 +1232,7 @@ export async function createInternalUser(input: CreateInternalUserInput, options
       userId: user.id,
       displayName: user.displayName,
       email: user.email,
-      phone: user.phone,
+      phone: user.phone ?? "",
     });
   }
 
@@ -1251,7 +1258,7 @@ export async function cleanupAuthUsers(input?: { preserveUserIds?: string[] }) {
     id: string;
     email: string | null;
     displayName: string;
-    phone: string;
+    phone: string | null;
     isSeeded: boolean;
     createdByUserId: string | null;
     packageId: string | null;

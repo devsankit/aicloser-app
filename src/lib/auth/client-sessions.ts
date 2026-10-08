@@ -149,5 +149,5 @@ export async function listAppCloserActivity(tenantId: string) {
     const status = current?.status === "ACTIVE" ? (Date.now() - current.lastActiveAt.getTime() <= CLIENT_ACTIVITY_WINDOW_MS ? "ONLINE" : "OFFLINE") : last?.status === "REVOKED" ? "REVOKED" : last ? "OFFLINE" : "NEVER_CONNECTED";
     return { status, lastLoginAt: slot?.lastLoginAt?.toISOString() ?? last?.loginAt.toISOString() ?? null, lastActiveAt: current?.lastActiveAt.toISOString() ?? last?.lastActiveAt.toISOString() ?? null, sessionId: current?.sessionId ?? null, deviceId: current?.deviceId ?? last?.deviceId ?? null, deviceName: current?.deviceName ?? last?.deviceName ?? null, platform: current?.platform ?? last?.platform ?? null, appVersion: current?.appVersion ?? last?.appVersion ?? null };
   };
-  return users.map((user) => ({ userId: user.id, displayName: user.displayName, email: user.email, phone: user.phone, role: user.role, mobile: build(user.id, AppClientChannel.MOBILE), desktop: build(user.id, AppClientChannel.DESKTOP) }));
+  return users.map((user) => ({ userId: user.id, displayName: user.displayName, email: user.email, phone: user.phone ?? "", role: user.role, mobile: build(user.id, AppClientChannel.MOBILE), desktop: build(user.id, AppClientChannel.DESKTOP) }));
 }

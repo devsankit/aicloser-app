@@ -65,7 +65,7 @@ export async function verifySessionToken(token?: string | null) {
 
   try {
     const raw = JSON.parse(base64UrlToString(payload)) as Partial<SessionUser>;
-    if (!raw?.userId || !raw?.role || !raw?.phone) {
+    if (!raw?.userId || !raw?.role) {
       return null;
     }
 
@@ -76,7 +76,7 @@ export async function verifySessionToken(token?: string | null) {
       tenantId: raw.tenantId ?? null,
       displayName: raw.displayName ?? "",
       email: raw.email ?? null,
-      phone: raw.phone,
+      phone: raw.phone ?? "",
       packageId: raw.packageId ?? null,
       packageName: raw.packageName ?? null,
       packageAudience: raw.packageAudience ?? null,

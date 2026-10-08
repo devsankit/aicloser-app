@@ -179,7 +179,7 @@ export function RolePermissionsPanel({
         body: JSON.stringify({
           displayName: newName.trim(),
           email: newEmail.trim(),
-          phone: newPhone.trim() || "+919000000000",
+          phone: newPhone.trim(),
           password: newPassword.trim(),
         }),
       });
@@ -662,12 +662,12 @@ export function RolePermissionsPanel({
           </label>
 
           <label style={{ display: "grid", gap: "6px", fontSize: "0.78rem", fontWeight: 600, color: "var(--closer-muted)" }}>
-            <span>Phone / WhatsApp</span>
+            <span>Phone / WhatsApp (optional)</span>
             <input
               type="text"
               value={newPhone}
               onChange={(e) => setNewPhone(e.target.value)}
-              placeholder="+91 98765 43210"
+              placeholder="Optional — +91 98765 43210"
               style={{
                 minHeight: "40px",
                 padding: "0 12px",

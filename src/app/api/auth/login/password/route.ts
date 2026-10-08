@@ -85,7 +85,7 @@ export async function POST(request: Request) {
     }
 
     if (loginScope === "sales") {
-      if (effectiveRole !== "SALES_AGENT" && effectiveRole !== "ADMIN") {
+      if (effectiveRole !== "SALES_AGENT" && effectiveRole !== "MANAGER" && effectiveRole !== "ADMIN") {
         return createPublicRedirect("/login", { error: "Only approved sales accounts can sign in here." });
       }
       if (!salesAccess?.ok) {

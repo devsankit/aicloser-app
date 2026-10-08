@@ -251,6 +251,7 @@ export async function POST(request: Request) {
     }
 
     const payload = {
+      tenantId: resolveSessionTenantId(authorization.session),
       assignedAgentId: mode === "add_to_round_robin_queue" ? selectedAgent?.id ?? null : selectedAgent?.id ?? fallbackAgent?.id ?? null,
       customerName: parsed.customerName,
       customerPhone: parsed.customerPhone,

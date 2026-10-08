@@ -172,6 +172,7 @@ export async function POST(request: Request) {
       const agent = pool[nextIdx];
       const newLead = await prisma.salesLeadAssignment.create({
         data: {
+          tenantId,
           assignedAgentId: agent.id,
           customerName: (c.name || "Lead").trim(),
           customerPhone: c.phone?.trim() || null,

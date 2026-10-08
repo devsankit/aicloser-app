@@ -89,7 +89,7 @@ export async function POST(request: Request) {
 
   const displayName = String(body.displayName ?? "").trim();
   const email = String(body.email ?? "").trim().toLowerCase();
-  const phone = String(body.phone ?? "").trim() || "+919000000000";
+  const phone = String(body.phone ?? "").trim();
   const password = String(body.password ?? "").trim();
 
   if (!displayName || !email) {

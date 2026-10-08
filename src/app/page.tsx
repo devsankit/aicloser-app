@@ -5,6 +5,7 @@ import { SalesDashboard } from "@/components/sales/sales-dashboard";
 import { requirePageRole } from "@/lib/auth/page-guard";
 import { getSessionContext } from "@/lib/auth/session";
 import { compactSalesSnapshotForInitialRender, getSalesAgentAccess, getSalesSnapshotForRole, trackSalesReferralEvent } from "@/lib/gigxomi/sales-store";
+import { getRolePermissionsMatrix } from "@/lib/gigxomi/role-permissions-store";
 import { listSalesWhatsAppFlowRuns, listSalesWhatsAppFlows } from "@/lib/gigxomi/sales-whatsapp-flow-store";
 import { buildInstagramMetaSetupUrls } from "@/lib/meta/instagram-routes";
 import { getSalesWhatsAppChannelView } from "@/lib/whatsapp-marketing/sales-channel-view";
@@ -43,6 +44,13 @@ export default async function SalesPage({ searchParams }: { searchParams?: Promi
     "tenant-gigxomi";
   const operationsTenantId = effectiveTenantId;
   const salesFlowScopeId = access.agent.id;
+  const roleMatrix = await getRolePermissionsMatrix();
+  const configuredWorkspaceRole = String((access.agent.permissions as Record<string, unknown> | null | undefined)?.workspaceRole ?? "").toUpperCase();
+  const permissionsRole = session.role === "ADMIN" || session.role === "SUPER_ADMIN"
+    ? session.role
+    : configuredWorkspaceRole === "MANAGER" || configuredWorkspaceRole === "SALES_AGENT"
+      ? configuredWorkspaceRole
+      : "SALES_AGENT";
   const [snapshot, whatsAppConnection, chatbotFlows, chatbotRuns] = await Promise.all([
     getSalesSnapshotForRole({ userId: session.userId ?? "", role: session.role, tenantId: effectiveTenantId }),
     getSalesWhatsAppChannelView(operationsTenantId),
@@ -67,6 +75,7 @@ export default async function SalesPage({ searchParams }: { searchParams?: Promi
       snapshot={JSON.parse(JSON.stringify(compactSalesSnapshotForInitialRender(snapshot)))}
       canManageContacts={session.role === "ADMIN" || session.role === "SUPER_ADMIN"}
       sessionRole={session.role}
+      rolePermissions={roleMatrix[permissionsRole]}
     />
   );
 }
