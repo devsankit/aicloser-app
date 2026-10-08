@@ -1831,6 +1831,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                         {lead.conversationId ? (
                           <button
                             type="button"
+                            aria-label="Open WhatsApp Chat"
                             onClick={() => openSalesConversation(lead.conversationId)}
                             title="Open WhatsApp Chat"
                             style={{
