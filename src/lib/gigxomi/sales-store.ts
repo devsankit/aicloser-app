@@ -3157,6 +3157,12 @@ export async function provisionSaaSCloserWorkspace(input: {
   email: string;
   phone: string;
   password: string;
+  googleIdentity?: {
+    googleSubject: string;
+    email: string;
+    displayName?: string | null;
+    avatarUrl?: string | null;
+  };
 }) {
   await ensureAuthStoreReady();
   await ensureSalesDefaults();
@@ -3237,6 +3243,18 @@ export async function provisionSaaSCloserWorkspace(input: {
 
       if (!createdUser.ok) {
         throw new Error(createdUser.error);
+      }
+
+      if (input.googleIdentity) {
+        await transaction.appGoogleIdentity.create({
+          data: {
+            userId: createdUser.user.id,
+            googleSubject: input.googleIdentity.googleSubject,
+            email: input.googleIdentity.email,
+            displayName: input.googleIdentity.displayName || displayName,
+            avatarUrl: input.googleIdentity.avatarUrl || null,
+          },
+        });
       }
 
       await transaction.$executeRaw`

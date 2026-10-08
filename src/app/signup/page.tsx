@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { cookies } from "next/headers";
 
 import { SalesSignupForm } from "@/components/sales/sales-auth";
 import { BrandWordmark } from "@/components/ui/brand-wordmark";
+import { GOOGLE_ONBOARDING_COOKIE, readGoogleOnboardingCookie } from "@/lib/auth/google-oauth";
 
 export const metadata: Metadata = {
   title: "Create Sales Workspace | AI Closer CRM",
@@ -10,7 +12,9 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function SalesSignupPage() {
+export default async function SalesSignupPage() {
+  const requestCookies = await cookies();
+  const googleClaims = readGoogleOnboardingCookie(requestCookies.get(GOOGLE_ONBOARDING_COOKIE)?.value);
   return (
     <main
       className="sales-auth-shell sales-auth-light"
@@ -52,7 +56,11 @@ export default function SalesSignupPage() {
             </h1>
           </div>
 
-          <SalesSignupForm />
+          <SalesSignupForm
+            googleOnboarding={Boolean(googleClaims)}
+            googleEmail={googleClaims?.email ?? ""}
+            googleDisplayName={googleClaims?.displayName ?? ""}
+          />
 
           <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: "16px", textAlign: "center" }}>
             <p style={{ margin: 0, fontSize: "13px", color: "#64748b" }}>

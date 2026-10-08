@@ -186,7 +186,24 @@ const primaryButtonStyle = {
   marginTop: "4px",
 } as const;
 
-export function SalesSignupForm() {
+function friendlyLoginError(value: string) {
+  switch (value) {
+    case "GoogleLoginNotConfigured":
+      return "Google Sign-In is not configured yet. Add the dedicated Google login credentials on the server, then try again.";
+    case "GoogleLoginCancelled":
+      return "Google sign-in was cancelled. You can try again or use your workspace password.";
+    case "GoogleEmailAlreadyRegistered":
+      return "This Google email already has a workspace. Sign in with your workspace password once before connecting Google.";
+    case "GoogleLoginStateInvalid":
+      return "Google sign-in expired. Start again from the Continue with Google button.";
+    case "GoogleLoginFailed":
+      return "Google could not sign you in. Please try again or use your workspace password.";
+    default:
+      return value;
+  }
+}
+
+export function SalesSignupForm({ googleOnboarding = false, googleEmail = "", googleDisplayName = "" }: { googleOnboarding?: boolean; googleEmail?: string; googleDisplayName?: string }) {
   const [status, setStatus] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -198,21 +215,20 @@ export function SalesSignupForm() {
     const form = new FormData(event.currentTarget);
     const password = String(form.get("password") ?? "");
     const confirmPassword = String(form.get("confirmPassword") ?? "");
-    if (password !== confirmPassword) {
+    if (!googleOnboarding && password !== confirmPassword) {
       setIsSubmitting(false);
       setStatus("Passwords do not match.");
       return;
     }
-    const response = await fetch("/api/sales/auth/signup", {
+    const response = await fetch(googleOnboarding ? "/api/sales/auth/google/signup" : "/api/sales/auth/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         companyName: String(form.get("companyName") ?? ""),
         displayName: String(form.get("displayName") ?? ""),
-        email: String(form.get("email") ?? ""),
+        email: googleEmail || String(form.get("email") ?? ""),
         phone: `${String(form.get("countryCode") ?? "+91").trim()}${String(form.get("phone") ?? "").replace(/[^0-9]/g, "")}`,
-        password,
-        confirmPassword,
+        ...(googleOnboarding ? {} : { password, confirmPassword }),
       }),
     });
     const payload = await response.json().catch(() => null);
@@ -223,23 +239,33 @@ export function SalesSignupForm() {
       return;
     }
 
-    setStatus("Workspace created! Redirecting you to login...");
+    setStatus(googleOnboarding ? "Google workspace created! Opening your dashboard..." : "Workspace created! Redirecting you to login...");
     window.location.href = payload.redirectTo || "/login";
   }
 
   return (
     <form action="/api/sales/auth/signup" method="post" className="sales-auth-form" onSubmit={handleSubmit} style={{ display: "grid", gap: "14px" }}>
+      {googleOnboarding ? (
+        <div role="status" style={{ border: "1px solid #bbf7d0", background: "#f0fdf4", color: "#166534", borderRadius: "10px", padding: "11px 12px", fontSize: "0.82rem", lineHeight: 1.45 }}>
+          Google account verified. Complete these workspace details once; future sign-ins can use Google directly.
+        </div>
+      ) : (
+        <a href={`/api/auth/google/start?mode=signup&redirectTo=${encodeURIComponent("/")}`} style={{ minHeight: "44px", borderRadius: "10px", border: "1px solid #cbd5e1", background: "#ffffff", color: "#0f172a", fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "9px", textDecoration: "none" }}>
+          <span aria-hidden="true" style={{ fontWeight: 900, color: "#4285f4", fontSize: "1rem" }}>G</span> Continue with Google
+        </a>
+      )}
+      {!googleOnboarding ? <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "#94a3b8", fontSize: "0.72rem" }}><span style={{ height: "1px", flex: 1, background: "#e2e8f0" }} /> OR <span style={{ height: "1px", flex: 1, background: "#e2e8f0" }} /></div> : null}
       <label style={lightLabelStyle}>
         <span>Company / Workspace name</span>
         <input name="companyName" placeholder="e.g. Apex Sales or Growth Media" required style={lightInputStyle} />
       </label>
       <label style={lightLabelStyle}>
         <span>Full name</span>
-        <input name="displayName" placeholder="Your full name" required style={lightInputStyle} />
+        <input defaultValue={googleDisplayName} name="displayName" placeholder="Your full name" required style={lightInputStyle} />
       </label>
       <label style={lightLabelStyle}>
         <span>Work Email ID</span>
-        <input name="email" placeholder="you@company.com" required type="email" style={lightInputStyle} />
+        <input defaultValue={googleEmail} name="email" placeholder="you@company.com" readOnly={googleOnboarding} required type="email" style={{ ...lightInputStyle, ...(googleOnboarding ? { background: "#f1f5f9", color: "#475569" } : {}) }} />
       </label>
       <label style={lightLabelStyle}>
         <span>Calling phone / WhatsApp</span>
@@ -248,11 +274,13 @@ export function SalesSignupForm() {
           <input className="sales-phone-number" inputMode="tel" name="phone" placeholder="98765 43210" required style={lightInputStyle} />
         </div>
       </label>
-      <SalesPasswordField autoComplete="new-password" label="Password" name="password" placeholder="Create at least 8 characters" />
-      <SalesPasswordField autoComplete="new-password" label="Confirm password" name="confirmPassword" placeholder="Enter the same password again" />
+      {!googleOnboarding ? <>
+        <SalesPasswordField autoComplete="new-password" label="Password" name="password" placeholder="Create at least 8 characters" />
+        <SalesPasswordField autoComplete="new-password" label="Confirm password" name="confirmPassword" placeholder="Enter the same password again" />
+      </> : null}
       <button className="sales-primary-button" disabled={isSubmitting} type="submit" style={primaryButtonStyle}>
         <Send size={16} />
-        {isSubmitting ? "Provisioning workspace..." : "Create Sales Workspace"}
+        {isSubmitting ? "Provisioning workspace..." : googleOnboarding ? "Create Workspace with Google" : "Create Sales Workspace"}
       </button>
       {status ? (
         <p className="sales-form-status" style={{ margin: 0, fontSize: "0.84rem", color: status.includes("created") ? "#10b981" : "#ef4444", fontWeight: 600 }}>
@@ -266,7 +294,7 @@ export function SalesSignupForm() {
 export function SalesPasswordLoginForm({ redirectTo = "/", error = "", message = "", identifier = "", clientType = "DESKTOP" }: { redirectTo?: string; error?: string; message?: string; identifier?: string; clientType?: string }) {
   const [loginIdentifier, setLoginIdentifier] = useState(identifier);
   const [loginPassword, setLoginPassword] = useState("");
-  const [loginNotice, setLoginNotice] = useState(error);
+  const [loginNotice, setLoginNotice] = useState(friendlyLoginError(error));
   const [loginMessage, setLoginMessage] = useState(message);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showLoginPassword, setShowLoginPassword] = useState(false);
@@ -275,7 +303,7 @@ export function SalesPasswordLoginForm({ redirectTo = "/", error = "", message =
 
   useEffect(() => {
     setLoginIdentifier(identifier);
-    setLoginNotice(error);
+    setLoginNotice(friendlyLoginError(error));
     setLoginMessage(message);
   }, [identifier, error, message]);
 
@@ -308,7 +336,7 @@ export function SalesPasswordLoginForm({ redirectTo = "/", error = "", message =
       if (data?.error === "ClientSlotOccupied") {
         setLoginNotice("ClientSlotOccupied: " + (data.message || `This user already has an active ${clientLabel} session.`));
       } else {
-        setLoginNotice(data?.message || data?.error || "We could not sign you in right now. Please try again in a moment.");
+        setLoginNotice(friendlyLoginError(data?.message || data?.error || "We could not sign you in right now. Please try again in a moment."));
       }
     } catch {
       setLoginNotice("We could not sign you in right now. Please try again in a moment.");
@@ -344,6 +372,10 @@ export function SalesPasswordLoginForm({ redirectTo = "/", error = "", message =
         <LogIn size={16} />
         {isSubmitting ? "Signing in…" : "Sign In to AI Closer"}
       </button>
+      <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "#94a3b8", fontSize: "0.72rem" }}><span style={{ height: "1px", flex: 1, background: "#e2e8f0" }} /> OR <span style={{ height: "1px", flex: 1, background: "#e2e8f0" }} /></div>
+      <a href={`/api/auth/google/start?redirectTo=${encodeURIComponent(redirectTo)}`} style={{ minHeight: "44px", borderRadius: "10px", border: "1px solid #cbd5e1", background: "#ffffff", color: "#0f172a", fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "9px", textDecoration: "none" }}>
+        <span aria-hidden="true" style={{ fontWeight: 900, color: "#4285f4", fontSize: "1rem" }}>G</span> Continue with Google
+      </a>
       {loginMessage ? <p className="sales-form-status success" style={{ margin: 0, fontSize: "0.84rem", color: "#059669", fontWeight: 600 }}>{loginMessage}</p> : null}
       {isClientSlotOccupied ? (
         <div className="sales-auth-session-conflict" role="alert">

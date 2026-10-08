@@ -2376,6 +2376,7 @@ model AppAuthUser {
   salesReferralEvents        SalesReferralEvent[]
   connectedOnboarding        ConnectedOnboardingState?
   socialConnections          AppSocialConnection[]
+  googleIdentities           AppGoogleIdentity[]
   couponRedemptions          CouponRedemption[]
   connectedSignupIntents     ConnectedSignupIntent[]
   channelSetupIntents        AppChannelSetupIntent[]
@@ -2386,6 +2387,21 @@ model AppAuthUser {
   @@index([tenantId])
   @@index([role])
   @@index([assignedRole])
+}
+
+model AppGoogleIdentity {
+  id            String      @id @default(cuid())
+  userId        String
+  googleSubject String      @unique
+  email         String?
+  displayName   String?
+  avatarUrl     String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  user          AppAuthUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([email])
 }
 
 model AppClientSlot {
