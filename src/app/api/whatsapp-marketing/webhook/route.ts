@@ -6,6 +6,7 @@ import {
   type MetaWebhookPayload,
 } from "@/lib/whatsapp-marketing/webhook-engine";
 import { getMetaAppSecret, getMetaWebhookVerifyToken } from "@/lib/whatsapp-marketing/config";
+import { ingestWhatsAppWebhookPayloadFromFile } from "@/lib/gigxomi/dummy-platform-file-store";
 
 export const dynamic = "force-dynamic";
 
@@ -64,7 +65,8 @@ export async function POST(request: NextRequest) {
 
   const appSecret = getMetaAppSecret();
 
-  // Signature verification (enforced in production if appSecret is present)
+  if (!appSecret) return NextResponse.json({ error: "Webhook signing secret is not configured" }, { status: 503 });
+  if (!signature) return NextResponse.json({ error: "Missing signature" }, { status: 401 });
   if (appSecret && signature) {
     const isValid = verifyMetaWebhookSignature(rawBody, signature, appSecret);
     if (!isValid) {
@@ -80,10 +82,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Malformed JSON" }, { status: 400 });
   }
 
-  // Fast acknowledgement: process events in background without blocking response
-  void processMetaWebhookPayload(payload).catch((error: unknown) => {
-    console.error("[WHATSAPP_MARKETING_WEBHOOK] Processing error:", error);
-  });
+  // Acknowledge only persisted work; failed deliveries must be retried by Meta.
+  try {
+    const result = await processMetaWebhookPayload(payload);
+    if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+    await ingestWhatsAppWebhookPayloadFromFile(payload);
+  } catch {
+    return NextResponse.json({ error: "Unable to persist webhook event" }, { status: 503 });
+  }
 
   return NextResponse.json({ status: "ok" }, { status: 200 });
 }

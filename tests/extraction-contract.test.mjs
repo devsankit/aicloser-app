@@ -49,14 +49,17 @@ test("Sales APIs stay authenticated and tenant-scoped", async () => {
   assert.doesNotMatch(tenantResolver, /DEFAULT_TENANT/);
 });
 
-test("the extracted service does not expose public Meta webhooks", async () => {
+test("Meta integration exposes signed Instagram ingress and only the canonical WhatsApp webhook", async () => {
   await access(new URL("../src/app/api/conversations/route.ts", import.meta.url));
   await access(new URL("../src/app/api/conversations/[id]/messages/route.ts", import.meta.url));
   await access(new URL("../src/app/api/meta/instagram/oauth/connect/route.ts", import.meta.url));
   await access(new URL("../src/app/api/meta/instagram/oauth/callback/route.ts", import.meta.url));
   await access(new URL("../src/app/api/meta/whatsapp/messages/route.ts", import.meta.url));
   await assert.rejects(access(new URL("../src/app/api/meta/whatsapp/webhook/route.ts", import.meta.url)));
-  await assert.rejects(access(new URL("../src/app/api/meta/instagram/webhook/route.ts", import.meta.url)));
+  await access(new URL("../src/app/api/meta/instagram/webhook/route.ts", import.meta.url));
+  const instagramWebhook = await source("src/app/api/meta/instagram/webhook/route.ts");
+  assert.match(instagramWebhook, /verifyMetaWebhookSignature/);
+  assert.match(instagramWebhook, /knownAccounts/);
 });
 
 test("Closer inbound attachments stay human-safe", async () => {

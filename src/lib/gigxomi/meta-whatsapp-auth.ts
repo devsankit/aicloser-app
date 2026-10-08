@@ -1,4 +1,5 @@
 import "server-only";
+import { redactMetaDiagnostics } from "@/lib/meta/redact";
 
 import type { DummyWhatsAppManualOverrideKey, DummyWhatsAppManualOverrides } from "@/lib/gigxomi/dummy-platform-store";
 
@@ -75,7 +76,7 @@ const META_WHATSAPP_MANUAL_OVERRIDE_KEYS: DummyWhatsAppManualOverrideKey[] = [
 ];
 
 function logWhatsAppOnboardingStep(step: string, payload?: unknown) {
-  console.info(`[WHATSAPP_ONBOARDING] ${step}`, payload ?? {});
+  console.info(`[WHATSAPP_ONBOARDING] ${step}`, redactMetaDiagnostics(payload ?? {}));
 }
 
 function buildMetaRegistrationResponse(response: Response, payload: Record<string, unknown>) {

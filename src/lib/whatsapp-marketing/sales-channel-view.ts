@@ -70,6 +70,7 @@ export async function getSalesWhatsAppChannelView(tenantId: string): Promise<Dum
     systemUserId: "",
     authorizationCode: "",
     accessToken: "",
+    hasAccessToken: Boolean(channel.encryptedAccessToken),
     lastLaunchAt: channel.lastSyncedAt?.toISOString(),
     lastInboundAt: undefined,
     lastOutboundAt: undefined,

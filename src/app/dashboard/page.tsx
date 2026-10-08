@@ -9,6 +9,7 @@ import { getRolePermissionsMatrix } from "@/lib/gigxomi/role-permissions-store";
 import { listSalesWhatsAppFlowRuns, listSalesWhatsAppFlows } from "@/lib/gigxomi/sales-whatsapp-flow-store";
 import { buildInstagramMetaSetupUrls } from "@/lib/meta/instagram-routes";
 import { getSalesWhatsAppChannelView } from "@/lib/whatsapp-marketing/sales-channel-view";
+import { getInstagramConnectionView } from "@/lib/meta/instagram-connection-view";
 
 export const metadata: Metadata = {
   title: "Sales CRM Dashboard | AIcloser",
@@ -68,8 +69,8 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
           tenantId: operationsTenantId,
           whatsAppConnection,
           whatsAppTenantOptions: [],
-          instagramConnection: null,
-          instagramSetupUrls: buildInstagramMetaSetupUrls(operationsTenantId),
+          instagramConnection: await getInstagramConnectionView(operationsTenantId),
+          instagramSetupUrls: buildInstagramMetaSetupUrls(),
           chatbotFlows,
           chatbotRuns,
           chatbotAgencies: [],

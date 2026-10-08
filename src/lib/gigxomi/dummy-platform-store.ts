@@ -35,7 +35,8 @@ const PROJECT_OFFER_WINDOW_MS = 10 * 60 * 1000;
 
 function replaceLegacyMetaId(value: string, legacyValue: string, productionValue: string) {
   const normalized = value.trim();
-  return !normalized || normalized === legacyValue ? productionValue : normalized;
+  // Explicit app IDs must survive reads: AiCloser and Gigxomi are separate apps.
+  return normalized || (legacyValue === LEGACY_META_WHATSAPP_APP_ID ? LEGACY_META_WHATSAPP_APP_ID : "");
 }
 
 const DEFAULT_META_WHATSAPP_APP_ID = replaceLegacyMetaId(
@@ -610,6 +611,8 @@ export type DummyConversationListResponse = {
 };
 
 export type DummyWhatsAppConnectionState = {
+  hasAccessToken?: boolean;
+  hasAuthorizationCode?: boolean;
   tenantId: string;
   businessName: string;
   displayName: string;
@@ -1168,7 +1171,7 @@ function normalizePublicBaseUrl(value?: string) {
 
 export function getWhatsAppWebhookUrl(connection?: Pick<DummyWhatsAppConnectionState, "publicBaseUrl"> | null) {
   const baseUrl = normalizePublicBaseUrl(connection?.publicBaseUrl);
-  return `${baseUrl.replace(/\/$/, "")}/api/meta/whatsapp/webhook`;
+  return `${baseUrl.replace(/\/$/, "")}/api/whatsapp-marketing/webhook`;
 }
 
 export function getInstagramWebhookUrl() {

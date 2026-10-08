@@ -4,7 +4,7 @@ export const INSTAGRAM_DATA_DELETION_CALLBACK_PATH = "/api/meta/instagram/data-d
 export const INSTAGRAM_WEBHOOK_PATH = "/api/meta/instagram/webhook";
 
 export function normalizePublicOrigin(value?: string | null) {
-  const rawValue = (value?.trim() || "https://gigxomi.com").replace(/\/+$/, "");
+  const rawValue = (value?.trim() || "https://app.aicloser.in").replace(/\/+$/, "");
   const urlValue = rawValue.includes("://") ? rawValue : `https://${rawValue}`;
 
   try {

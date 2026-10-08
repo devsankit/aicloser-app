@@ -27,7 +27,7 @@ export async function GET(request: Request) {
   const connection = await getInstagramConnectionStateFromFile(tenantId);
   if (!connection?.pluginEnabled) {
     return NextResponse.redirect(
-      getPublicRequestUrl(request, `/admin/integrations?instagramError=${encodeURIComponent("Enable the Instagram Inbox plugin before connecting permissions.")}`),
+      getPublicRequestUrl(request, `/?tab=instagram-inbox&instagramError=${encodeURIComponent("Enable the Instagram Inbox plugin before connecting permissions.")}`),
     );
   }
 
@@ -39,7 +39,7 @@ export async function GET(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Instagram OAuth is not configured correctly.";
     return NextResponse.redirect(
-      getPublicRequestUrl(request, `/admin/integrations/instagram?instagramError=${encodeURIComponent(message)}`),
+      getPublicRequestUrl(request, `/?tab=instagram-inbox&instagramError=${encodeURIComponent(message)}`),
     );
   }
 

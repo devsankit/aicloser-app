@@ -25,8 +25,8 @@ function clearStateCookie(response: NextResponse) {
 }
 
 function buildSetupRedirect(request: Request, params: Record<string, string>) {
-  const query = new URLSearchParams(params);
-  return getPublicRequestUrl(request, `/admin/integrations/instagram?${query.toString()}`);
+  const query = new URLSearchParams({ tab: "instagram-inbox", ...params });
+  return getPublicRequestUrl(request, `/?${query.toString()}`);
 }
 
 export async function GET(request: Request) {

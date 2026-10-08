@@ -5,6 +5,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { persistMetaConnection } from "@/lib/meta/connection-store";
+import { transformSnapshotSecrets } from "@/lib/meta/snapshot-secrets";
 
 import {
   appendConversationMessage,
@@ -120,15 +122,16 @@ function hasDatabaseSnapshotStore() {
 async function readSnapshotFromDisk() {
   try {
     const contents = await readFile(STORE_PATH, "utf8");
-    return JSON.parse(contents) as DummyPlatformSnapshot;
-  } catch {
+    return transformSnapshotSecrets(JSON.parse(contents) as DummyPlatformSnapshot, "decrypt");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     return getDummyPlatformSnapshot();
   }
 }
 
 async function writeSnapshotToDisk(snapshot: DummyPlatformSnapshot) {
   await mkdir(STORE_DIRECTORY, { recursive: true });
-  await writeFile(STORE_PATH, JSON.stringify(snapshot, null, 2), "utf8");
+  await writeFile(STORE_PATH, JSON.stringify(transformSnapshotSecrets(snapshot, "encrypt"), null, 2), "utf8");
 }
 
 function resolveMetaCallbackUrl(publicBaseUrl: string) {
@@ -1113,7 +1116,11 @@ export function updateInstagramConnectionStateFromFile(
   tenantId = "tenant-gigxomi",
   updates: Partial<DummyInstagramConnectionState>,
 ) {
-  return withSnapshot(() => updateInstagramConnectionState(tenantId, updates));
+  return withSnapshot(async () => {
+    const connection = updateInstagramConnectionState(tenantId, updates);
+    if (connection) await persistMetaConnection("INSTAGRAM", connection);
+    return connection;
+  });
 }
 
 export function findWhatsAppConnectionStateByVerifyTokenFromFile(verifyToken?: string | null) {
@@ -1165,7 +1172,11 @@ export function updateWhatsAppConnectionStateFromFile(
     >
   >,
 ) {
-  return withSnapshot(() => updateWhatsAppConnectionState(tenantId, updates));
+  return withSnapshot(async () => {
+    const connection = updateWhatsAppConnectionState(tenantId, updates);
+    if (connection) await persistMetaConnection("WHATSAPP", connection);
+    return connection;
+  });
 }
 
 export function getYouTubeConnectionStateFromFile(tenantId = "tenant-gigxomi") {
@@ -1449,10 +1460,6 @@ function getInstagramOAuthClientId(tenantId = "tenant-gigxomi") {
   return (
     process.env.INSTAGRAM_OAUTH_CLIENT_ID?.trim() ||
     process.env.NEXT_PUBLIC_INSTAGRAM_OAUTH_CLIENT_ID?.trim() ||
-    getWhatsAppConnectionState(tenantId)?.metaAppId?.trim() ||
-    process.env.META_WHATSAPP_APP_ID?.trim() ||
-    process.env.META_APP_ID?.trim() ||
-    process.env.FACEBOOK_APP_ID?.trim() ||
     ""
   );
 }
@@ -1473,11 +1480,7 @@ function getInstagramOAuthClientSecret(tenantId = "tenant-gigxomi") {
     return dedicatedSecret;
   }
 
-  if (getInstagramOAuthClientId(tenantId) !== getWhatsAppMetaAppId(tenantId)) {
-    return "";
-  }
-
-  return process.env.META_APP_SECRET?.trim() || process.env.FACEBOOK_APP_SECRET?.trim() || process.env.GIGXOMI_META_APP_SECRET?.trim() || "";
+  return "";
 }
 
 export function getInstagramOAuthAuthorizeUrlFromFile(input: { redirectUri: string; state: string; tenantId?: string }) {
@@ -1495,7 +1498,7 @@ export function getInstagramOAuthAuthorizeUrlFromFile(input: { redirectUri: stri
   url.searchParams.set("state", input.state);
   url.searchParams.set(
     "scope",
-    "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments,instagram_business_content_publish,instagram_business_manage_insights",
+    "instagram_business_basic,instagram_business_manage_messages",
   );
   url.searchParams.set("response_type", "code");
   return url.toString();
@@ -1567,9 +1570,6 @@ export async function exchangeInstagramOAuthCodeFromFile(input: {
     scopes: [
       "instagram_business_basic",
       "instagram_business_manage_messages",
-      "instagram_business_manage_comments",
-      "instagram_business_content_publish",
-      "instagram_business_manage_insights",
     ],
     tokenType: String(payload.token_type ?? "Bearer"),
     username: String(profile.username ?? "").trim(),

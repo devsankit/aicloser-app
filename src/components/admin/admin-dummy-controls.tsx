@@ -17,6 +17,7 @@ import {
   type DummyYouTubeUploadRecord,
 } from "@/lib/gigxomi/dummy-platform-store";
 import { extractMetaEmbeddedSignupData, pickMetaText } from "@/lib/gigxomi/meta-whatsapp-signup";
+import { redactMetaDiagnostics } from "@/lib/meta/redact";
 
 type WhatsAppTenantOption = {
   id: string;
@@ -196,8 +197,8 @@ type FacebookSdk = {
 };
 
 const META_SIGNUP_STORAGE_KEY = "gigxomi-meta-whatsapp-signup-result";
-const META_EMBEDDED_SIGNUP_APP_ID = "948301758190635";
-const META_EMBEDDED_SIGNUP_CONFIG_ID = "1982640385723187";
+const META_EMBEDDED_SIGNUP_APP_ID = "1385995129001581";
+const META_EMBEDDED_SIGNUP_CONFIG_ID = "";
 const META_EMBEDDED_SIGNUP_VERSION = "v4";
 const META_SESSION_INFO_VERSION = "3";
 const META_SIGNUP_CODE_FALLBACK_MS = 1000 * 60 * 2;
@@ -213,7 +214,7 @@ declare global {
 let facebookSdkPromise: Promise<FacebookSdk> | null = null;
 
 function logWhatsAppOnboardingStep(step: string, payload?: unknown) {
-  console.info(`[WHATSAPP_ONBOARDING] ${step}`, payload ?? {});
+  console.info(`[WHATSAPP_ONBOARDING] ${step}`, redactMetaDiagnostics(payload ?? {}));
 }
 
 function isMetaSignupOrigin(origin: string) {
@@ -337,6 +338,10 @@ function getPreferredConnectionPhoneNumber(
   return savedPhoneNumber;
 }
 
+function hasWhatsAppToken(connection: DummyWhatsAppConnectionState | null) {
+  return Boolean(connection?.hasAccessToken || connection?.accessToken?.trim());
+}
+
 function hasCapturedWhatsAppLine(connection: DummyWhatsAppConnectionState | null) {
   if (!connection) {
     return false;
@@ -351,7 +356,7 @@ function hasSubmittedWhatsAppBusiness(connection: DummyWhatsAppConnectionState |
   }
 
   return Boolean(
-    connection.accessToken?.trim() ||
+    hasWhatsAppToken(connection) ||
       connection.wabaId?.trim() ||
       connection.businessId?.trim() ||
       connection.businessPortfolioId?.trim() ||
@@ -379,7 +384,7 @@ function hasReadyWhatsAppLine(connection: DummyWhatsAppConnectionState | null) {
 }
 
 function hasUsableWhatsAppLine(connection: DummyWhatsAppConnectionState | null) {
-  return Boolean(connection?.accessToken?.trim() && connection.phoneNumberId?.trim());
+  return Boolean(hasWhatsAppToken(connection) && connection?.phoneNumberId?.trim());
 }
 
 function isDisconnectedWhatsAppLine(connection: DummyWhatsAppConnectionState | null) {
@@ -401,11 +406,11 @@ function getWhatsAppSetupProgressLabel(progress: WhatsAppSetupProgress, connecti
   }
 
   if (progress === "pending") {
-    if (!connection?.accessToken?.trim()) {
+    if (!hasWhatsAppToken(connection)) {
       return "Waiting for Meta auth code";
     }
 
-    if (!connection.phoneNumberId?.trim()) {
+    if (!connection?.phoneNumberId?.trim()) {
       return "Waiting for Meta phone ID";
     }
 
@@ -1292,7 +1297,7 @@ export function AdminWhatsAppSetupPanel({
         return latestConnection;
       }
 
-      if (!latestConnection?.accessToken.trim() && !latestConnection?.authorizationCode.trim()) {
+      if (!hasWhatsAppToken(latestConnection) && !latestConnection?.authorizationCode.trim()) {
         return latestConnection;
       }
 
@@ -1786,7 +1791,7 @@ export function AdminWhatsAppSetupPanel({
       connectionRef.current = nextConnection;
       setConnection(nextConnection);
 
-      if (nextConnection?.accessToken.trim() && nextConnection.phoneNumberId.trim()) {
+      if (nextConnection && hasWhatsAppToken(nextConnection) && nextConnection.phoneNumberId.trim()) {
         const activated = await registerPhoneNumberForCloudApi({ silent: true });
         if (activated) {
           return connectionRef.current;
@@ -1800,7 +1805,7 @@ export function AdminWhatsAppSetupPanel({
           setStatus(
             "Gigxomi refreshed the live Meta status. The number is connected, but Meta still has not fully registered it for Cloud API sending yet. Finish the number registration step in Meta, then retry or reconnect.",
           );
-        } else if (nextConnection.phoneNumberId.trim() && nextConnection.accessToken.trim()) {
+        } else if (nextConnection.phoneNumberId.trim() && hasWhatsAppToken(nextConnection)) {
           setStatus("Gigxomi refreshed the live Meta line details for this tenant.");
         } else {
           setStatus(nextConnection.note || "Gigxomi refreshed the live Meta line details.");
@@ -1917,7 +1922,7 @@ export function AdminWhatsAppSetupPanel({
     logWhatsAppOnboardingStep("REGISTER_PHONE_REQUEST", {
       source: "button_click",
       tenantId: activeTenantId || undefined,
-      hasAccessToken: Boolean(connectionRef.current?.accessToken?.trim()),
+      hasAccessToken: hasWhatsAppToken(connectionRef.current),
       hasPhoneNumberId: Boolean(connectionRef.current?.phoneNumberId?.trim()),
       phoneNumberId: connectionRef.current?.phoneNumberId,
       hasPin: Boolean(normalizedPin),
@@ -2099,7 +2104,7 @@ export function AdminWhatsAppSetupPanel({
                 <span>Phone registration</span>
                 <button
                   className="freelancer-secondary-button"
-                  disabled={isSaving || isLaunching || isRegisteringPhone || !connection.accessToken.trim() || !connection.phoneNumberId.trim()}
+                  disabled={isSaving || isLaunching || isRegisteringPhone || !hasWhatsAppToken(connection) || !connection.phoneNumberId.trim()}
                   onClick={() => registerPhoneNumberForCloudApi()}
                   type="button"
                 >
@@ -2197,7 +2202,7 @@ export function AdminWhatsAppSetupPanel({
           <span>Phone registration</span>
           <button
             className="freelancer-secondary-button"
-            disabled={isSaving || isLaunching || isRegisteringPhone || !connection.accessToken.trim() || !connection.phoneNumberId.trim()}
+            disabled={isSaving || isLaunching || isRegisteringPhone || !hasWhatsAppToken(connection) || !connection.phoneNumberId.trim()}
             onClick={() => registerPhoneNumberForCloudApi()}
             type="button"
           >
@@ -2264,7 +2269,7 @@ export function AdminWhatsAppSetupPanel({
             </button>
             <button
               className="freelancer-secondary-button"
-              disabled={isSaving || isLaunching || isSubscribingWebhook || !connection.accessToken.trim() || !connection.wabaId.trim()}
+              disabled={isSaving || isLaunching || isSubscribingWebhook || !hasWhatsAppToken(connection) || !connection.wabaId.trim()}
               onClick={() => subscribeWebhookApp()}
               type="button"
             >

@@ -117,6 +117,10 @@
       "status": "PASS_LOCAL",
       "details": "A valid 1-second WAV was uploaded through the authenticated mobile recording endpoint for QA call cmuzp8it40004ygf4d0oivzqj on lead cmuz6k9it0009ksf4j8qlptyp. The call reached UPLOADED, the full recording returned 200/audio-wav with 16044 bytes, and a bytes=0-63 request returned 206 with Content-Range bytes 0-63/16044. The local web dashboard player verified play/pause, 1x/1.5x/2x/3x selection, and forward/backward seeking. This validates the server and web playback path; it does not replace native emulator microphone capture."
     },
+    "instagramCallbacks": {
+      "status": "PASS_LOCAL",
+      "details": "Instagram deauthorize and data-deletion callback routes now verify Meta signed_request HMAC-SHA256 signatures, require a matching configured app ID when supplied, resolve only the matching Instagram business account, clear the token and disable the tenant connection, and reject unknown accounts without mutating state. Data deletion returns a confirmation URL and code."
+    },
     "nativeIncomingUi": {
       "status": "PASS_NATIVE_CARD_ONLY",
       "details": "The emulator GSM trigger produced the Android native incoming-call card for the test number 9800001702. The separate AI Closer Truecaller-style detail overlay was not verified in this run."
@@ -146,7 +150,7 @@
     ,"recordingPipelineVerification": "local synthetic WAV upload + web playback verification"
   },
   "automatedRegression": {
-    "webTests": "76 passed, 0 failed",
+    "webTests": "77 passed, 0 failed",
     "webTypecheck": "passed",
     "webProductionBuild": "passed",
     "androidUnitTests": "passed",

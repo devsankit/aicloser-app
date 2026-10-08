@@ -8,6 +8,7 @@ import type { Prisma } from "@prisma/client";
 import { buildSalesWhatsAppTenantId } from "@/lib/api/resolve-session-tenant";
 import { decryptConnectedSecret } from "@/lib/connected-platform/secret-box";
 import { prisma } from "@/lib/prisma";
+import { transformSnapshotSecrets } from "@/lib/meta/snapshot-secrets";
 import { getDummyPlatformSnapshot, type DummyConversation, type DummyPlatformSnapshot, type DummyService, type DummyWhatsAppConnectionState } from "@/lib/gigxomi/dummy-platform-store";
 
 const LEGACY_STORE_PATH = path.join(process.cwd(), ".gigxomi", "local-platform-store.json");
@@ -113,6 +114,10 @@ function recoverWhatsAppStateFromSocialConnection(
 ): DummyWhatsAppConnectionState | null {
   const tenantId = text(connection.user.tenantId);
   const metadata = jsonRecord(connection.metadata);
+  const setupState = jsonRecord(metadata.setupState);
+  if (setupState.tenantId === tenantId) {
+    return { ...fallback, ...setupState, tenantId, accessToken: decryptStoredToken(connection.accessTokenCiphertext), authorizationCode: "" } as DummyWhatsAppConnectionState;
+  }
   const phoneNumberId = text(metadata.phoneNumberId) || text(connection.externalAccountId);
   if (!tenantId || !phoneNumberId) return null;
 
@@ -153,8 +158,9 @@ function stripDbBackedCollections(snapshot: DummyPlatformSnapshot) {
 async function readLegacySnapshotFile() {
   try {
     const contents = await readFile(LEGACY_STORE_PATH, "utf8");
-    return JSON.parse(contents) as DummyPlatformSnapshot;
-  } catch {
+    return transformSnapshotSecrets(JSON.parse(contents) as DummyPlatformSnapshot, "decrypt");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     return getDummyPlatformSnapshot();
   }
 }
@@ -238,7 +244,7 @@ async function ensureBootstrapped() {
 export async function readPlatformSnapshotFromDb() {
   await ensureBootstrapped();
   const legacy = await readLegacySnapshot();
-  const [services, conversations, agencyUsers, whatsappSocialConnections] = await Promise.all([
+  const [services, conversations, agencyUsers, whatsappSocialConnections, instagramSocialConnections] = await Promise.all([
     prisma.appFreelancerService.findMany({ orderBy: { updatedAt: "desc" } }),
     prisma.appConversation.findMany({ orderBy: { updatedAt: "desc" } }),
     prisma.appAuthUser.findMany({
@@ -276,6 +282,7 @@ export async function readPlatformSnapshotFromDb() {
         user: { select: { tenantId: true } },
       },
     }),
+    prisma.appSocialConnection.findMany({ where: { provider: "INSTAGRAM", user: { tenantId: { not: null } } }, orderBy: { updatedAt: "desc" }, include: { user: { select: { tenantId: true } } } }),
   ]);
 
   const activeTenantIds = new Set([
@@ -338,6 +345,14 @@ export async function readPlatformSnapshotFromDb() {
   return {
     ...legacy,
     whatsappStates,
+    instagramStates: [
+      ...instagramSocialConnections.flatMap((connection) => {
+        const setupState = jsonRecord(jsonRecord(connection.metadata).setupState);
+        if (setupState.tenantId !== connection.user.tenantId) return [];
+        return [{ ...setupState, accessToken: decryptStoredToken(connection.accessTokenCiphertext) } as DummyPlatformSnapshot["instagramStates"][number]];
+      }),
+      ...legacy.instagramStates.filter((state) => !instagramSocialConnections.some((connection) => connection.user.tenantId === state.tenantId)),
+    ],
     services: (services as StoredServiceRow[]).map((record: StoredServiceRow) => record.payload as DummyService),
     conversations: (conversations as StoredConversationRow[]).map((record: StoredConversationRow) => record.payload as DummyConversation),
   } satisfies DummyPlatformSnapshot;

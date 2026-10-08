@@ -103,14 +103,12 @@ export async function processMetaWebhookPayload(payload: MetaWebhookPayload): Pr
       const phoneNumberId = value.metadata?.phone_number_id;
       const channel = await prisma.whatsAppChannel.findFirst({
         where: {
-          OR: [
-            ...(phoneNumberId ? [{ phoneNumberId }] : []),
-            ...(wabaId ? [{ wabaId }] : []),
-          ],
+          ...(phoneNumberId ? { phoneNumberId } : { wabaId }),
         },
       });
 
-      const tenantId = channel?.tenantId || "default";
+      if (!channel) continue;
+      const tenantId = channel.tenantId;
 
       // 1. Template Status Updates (e.g. message_template_status_update)
       if (field === "message_template_status_update") {
