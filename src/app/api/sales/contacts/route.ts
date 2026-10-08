@@ -344,7 +344,49 @@ export async function POST(request: Request) {
     }
   }
 
+  const getImportKeys = (item: { phone?: unknown; email?: unknown }) => {
+    const phone = phoneKey(String(item.phone || ""));
+    const email = String(item.email || "").trim().toLowerCase();
+    return [phone ? `phone:${phone}` : "", email ? `email:${email}` : ""].filter(Boolean);
+  };
+  let existingImportKeys: Set<string> | null = null;
+  const loadExistingImportKeys = async () => {
+    if (existingImportKeys) return existingImportKeys;
+    const [existingMarketingContacts, existingSalesLeads] = await Promise.all([
+      prisma.marketingContact.findMany({
+        where: { tenantId },
+        select: { e164Phone: true, email: true },
+      }),
+      prisma.salesLeadAssignment.findMany({
+        where: { assignedAgent: { user: { tenantId } } },
+        select: { customerPhone: true, customerEmail: true },
+      }),
+    ]);
+    existingImportKeys = new Set<string>();
+    for (const contact of existingMarketingContacts) {
+      getImportKeys({ phone: contact.e164Phone, email: contact.email }).forEach((key) => existingImportKeys?.add(key));
+    }
+    for (const lead of existingSalesLeads) {
+      getImportKeys({ phone: lead.customerPhone, email: lead.customerEmail }).forEach((key) => existingImportKeys?.add(key));
+    }
+    return existingImportKeys;
+  };
+
   if (body.preview) {
+    const existingKeys = await loadExistingImportKeys();
+    const seenKeys = new Set<string>();
+    let duplicate = 0;
+    let valid = 0;
+    for (const item of itemsToImport) {
+      const keys = getImportKeys(item);
+      if (!keys.length) continue;
+      if (keys.some((key) => existingKeys.has(key) || seenKeys.has(key))) {
+        duplicate += 1;
+        continue;
+      }
+      keys.forEach((key) => seenKeys.add(key));
+      valid += 1;
+    }
     return NextResponse.json({
       ok: true,
       preview: true,
@@ -359,8 +401,8 @@ export async function POST(request: Request) {
         notes: String(item.notes || ""),
       })),
       totalRows: itemsToImport.length,
-      valid: itemsToImport.filter((item) => String(item.phone || "").trim() || String(item.email || "").trim()).length,
-      duplicate: 0,
+      valid,
+      duplicate,
       skipped: itemsToImport.filter((item) => !String(item.phone || "").trim() && !String(item.email || "").trim()).length,
       invalid: 0,
     });
@@ -368,6 +410,9 @@ export async function POST(request: Request) {
 
   let imported = 0;
   let skipped = 0;
+  let duplicate = 0;
+  const existingKeys = await loadExistingImportKeys();
+  const seenKeys = new Set<string>();
 
   for (const entry of itemsToImport) {
     const rawPhone = (entry.phone || "").trim();
@@ -378,6 +423,13 @@ export async function POST(request: Request) {
       skipped += 1;
       continue;
     }
+
+    const keys = getImportKeys(entry);
+    if (keys.some((key) => existingKeys.has(key) || seenKeys.has(key))) {
+      duplicate += 1;
+      continue;
+    }
+    keys.forEach((key) => seenKeys.add(key));
 
     if (rawPhone) {
       await upsertMarketingContact({
@@ -418,6 +470,7 @@ export async function POST(request: Request) {
   return NextResponse.json({
     ok: true,
     imported,
+    duplicate,
     skipped,
     message: `Successfully imported ${imported} contact${imported === 1 ? "" : "s"} into Unified Contacts & Pipeline!`,
   });

@@ -26,3 +26,11 @@ test("Contacts hub preserves an exact import batch and never defaults to all con
   assert.match(ui, /contacts: targetContacts\.filter\(\(c\) => !c\.poolItemId\)/);
   assert.match(ui, /contacts\.filter\(\(c\) => selectedIds\.has\(c\.id\)\)\s*: \[\]/);
 });
+
+test("CSV preview counts tenant phone and email duplicates before save", async () => {
+  const route = await source("src/app/api/sales/contacts/route.ts");
+  assert.match(route, /const getImportKeys =/);
+  assert.match(route, /loadExistingImportKeys/);
+  assert.match(route, /existingImportKeys = new Set<string>\(\)/);
+  assert.match(route, /duplicate \+= 1/);
+});

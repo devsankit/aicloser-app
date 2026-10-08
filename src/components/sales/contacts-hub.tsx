@@ -366,6 +366,11 @@ export function ContactsHub({
     "Customer Name: Nikhil Singhania\nEmail: nikhil@singhaniagroup.in\nMobile: +91 98207 44190\nRequirement: Looking to connect our WhatsApp Business QR and Zoho Mail enquiries into one shared closer inbox. Call me today.",
   );
 
+  const discardImportPreview = () => {
+    setImportPreview(null);
+    setBanner(null);
+  };
+
   // 4. Manual Contact Add State
   const [manualName, setManualName] = useState("");
   const [manualPhone, setManualPhone] = useState("");
@@ -1452,7 +1457,7 @@ export function ContactsHub({
             </div>
             {importPreview ? (
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <button type="button" className="secondary-button" onClick={() => setImportPreview(null)}>Discard preview</button>
+                <button type="button" className="secondary-button" onClick={discardImportPreview}>Discard preview</button>
                 <button type="button" className="primary-button" disabled={busyAction === "commit_import"} onClick={() => void handleCommitImport()}>
                   {busyAction === "commit_import" ? "Saving..." : "Save approved contacts"}
                 </button>
