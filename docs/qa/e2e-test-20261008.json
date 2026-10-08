@@ -21,6 +21,10 @@
       "status": "PASS",
       "workspaceCode": "GX-QA-DBF3D0"
     },
+    "dashboardRoleAudit": {
+      "status": "PASS_READ_ONLY",
+      "details": "Admin Team & Users page exposed seat usage, optional phone input, role assignment, permission matrix, lock/reset/remove actions, and the mobile/desktop device table. No destructive action or plan change was performed."
+    },
     "createCloser": {
       "status": "BLOCKED",
       "reason": "Fresh workspace is Free 1/1 seats; no additional seat was available. No billing or plan mutation was performed."
@@ -36,8 +40,8 @@
       "reason": "Requires multiple active sales users; blocked by the 1/1 seat limit."
     },
     "mobileLogin": {
-      "status": "PASS_WITH_SETUP_ISSUE",
-      "details": "Credentials accepted. Existing mobile-session conflict was shown with Login here. Required permissions and backend device registration were verified. The setup screen did not transition after the already-granted-permissions callback; a mobile UX fix was committed in 90194b8."
+      "status": "PASS_WITH_EXPECTED_DEVICE_BLOCK",
+      "details": "Credentials accepted and the existing mobile-session conflict showed Login here. Required permissions, call-screening role, and overlay access were verified. Setup now surfaces the persistent device-ownership error when the emulator ID is already registered to another sales agent; it does not silently reassign the company phone. A stale-session recovery fix was committed in 4ee160d. A successful registration on a previously unregistered closer device was not completed because the workspace had no spare closer seat/device assignment."
     },
     "outgoingCallApiLifecycle": {
       "status": "PASS",
@@ -74,8 +78,8 @@
       "details": "Both calls appeared in the live SIM call history with duration, outcome, owner, notes, and explicit recording-unavailable error. Playback/speed controls were not passable because the emulator had no connected audio endpoint and no real recording was uploaded."
     },
     "nativeIncomingUi": {
-      "status": "NOT_VERIFIED",
-      "reason": "The emulator GSM trigger did not produce a visible native incoming-call card in this run."
+      "status": "PASS_NATIVE_CARD_ONLY",
+      "details": "The emulator GSM trigger produced the Android native incoming-call card for the test number 9800001702. The separate AI Closer Truecaller-style detail overlay was not verified in this run."
     },
     "deleteAndCleanup": {
       "status": "NOT_RUN",
@@ -84,7 +88,14 @@
   },
   "commits": {
     "signupFix": "0002346",
-    "mobileSetupFix": "90194b8"
+    "mobileSetupFix": "90194b8",
+    "mobileSessionRecoveryFix": "4ee160d"
+  },
+  "automatedRegression": {
+    "webTests": "64 passed, 0 failed",
+    "webTypecheck": "passed",
+    "androidUnitTests": "passed",
+    "androidDebugBuild": "passed"
   },
   "secrets": "No passwords, access tokens, or session tokens are included."
 }
