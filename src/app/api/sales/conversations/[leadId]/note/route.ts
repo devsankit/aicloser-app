@@ -5,7 +5,7 @@ import { addSalesLeadTimelineNote } from "@/lib/gigxomi/sales-operating-system-s
 import { getSalesSnapshotForRole } from "@/lib/gigxomi/sales-store";
 
 export async function POST(request: Request, { params }: { params: Promise<{ leadId: string }> }) {
-  const authorization = await requireSessionRole(["SUPER_ADMIN", "SALES_AGENT"]);
+  const authorization = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"]);
   if (!authorization.ok) return authorization.response;
   const { leadId } = await params;
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;

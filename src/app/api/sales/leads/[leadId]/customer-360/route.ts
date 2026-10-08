@@ -5,7 +5,7 @@ import { getSalesSnapshotForRole } from "@/lib/gigxomi/sales-store";
 import { getGxCustomer360 } from "@/lib/gxclosers/customer-360";
 
 export async function GET(_request: Request, context: { params: Promise<{ leadId: string }> }) {
-  const authorization = await requireSessionRole(["SUPER_ADMIN", "SALES_AGENT"]);
+  const authorization = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"]);
   if (!authorization.ok) return authorization.response;
   const { leadId } = await context.params;
   const snapshot = await getSalesSnapshotForRole(authorization.session);

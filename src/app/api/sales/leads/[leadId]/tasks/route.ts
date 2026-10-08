@@ -5,7 +5,7 @@ import { getSalesSnapshotForRole } from "@/lib/gigxomi/sales-store";
 import { createGxLeadTask, getGxCustomer360, updateGxLeadTask } from "@/lib/gxclosers/customer-360";
 
 async function authorizeLead(leadId: string) {
-  const authorization = await requireSessionRole(["SUPER_ADMIN", "SALES_AGENT"]);
+  const authorization = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"]);
   if (!authorization.ok) return authorization;
   const snapshot = await getSalesSnapshotForRole(authorization.session);
   return snapshot.visibleLeads.some((lead) => lead.id === leadId)

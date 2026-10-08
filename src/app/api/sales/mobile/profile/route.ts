@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 
-import { requireSessionRole } from "@/lib/api/require-session-role";
+import { requireSalesMobileSession } from "@/lib/api/require-sales-mobile-session";
 import { prisma } from "@/lib/prisma";
 
 export async function POST(request: Request) {
-  const authorization = await requireSessionRole(["SUPER_ADMIN", "SALES_AGENT"]);
+  const authorization = await requireSalesMobileSession();
   if (!authorization.ok) return authorization.response;
 
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;

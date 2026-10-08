@@ -5,7 +5,7 @@ import { getSalesOperatingSnapshot } from "@/lib/gigxomi/sales-operating-system-
 import { getSalesSnapshotForRole } from "@/lib/gigxomi/sales-store";
 
 export async function GET() {
-  const authorization = await requireSessionRole(["SUPER_ADMIN", "SALES_AGENT"]);
+  const authorization = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"]);
   if (!authorization.ok) return authorization.response;
 
   const [sales, operating] = await Promise.all([getSalesSnapshotForRole(authorization.session), getSalesOperatingSnapshot(authorization.session)]);

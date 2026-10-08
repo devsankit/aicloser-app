@@ -4,7 +4,7 @@ import { requireSessionRole } from "@/lib/api/require-session-role";
 import { createSalesMessage, getSalesSnapshotForRole, replySalesMessage } from "@/lib/gigxomi/sales-store";
 
 export async function GET() {
-  const authorization = await requireSessionRole(["SUPER_ADMIN", "SALES_AGENT"]);
+  const authorization = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"]);
   if (!authorization.ok) return authorization.response;
 
   const snapshot = await getSalesSnapshotForRole(authorization.session);
@@ -17,7 +17,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const authorization = await requireSessionRole(["SUPER_ADMIN", "SALES_AGENT"]);
+  const authorization = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"]);
   if (!authorization.ok) return authorization.response;
 
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;

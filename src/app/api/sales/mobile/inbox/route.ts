@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { requireSessionRole } from "@/lib/api/require-session-role";
+import { requireSalesMobileSession } from "@/lib/api/require-sales-mobile-session";
 import { prisma } from "@/lib/prisma";
 
 function getLatestMessagePreview(payload: unknown) {
@@ -14,19 +14,20 @@ function getLatestMessagePreview(payload: unknown) {
 }
 
 export async function GET(request: Request) {
-  const authorization = await requireSessionRole(["SALES_AGENT", "SUPER_ADMIN"]);
+  const authorization = await requireSalesMobileSession();
   if (!authorization.ok) return authorization.response;
   const url = new URL(request.url);
   const cursor = url.searchParams.get("cursor")?.trim() || "";
-  const agent = authorization.session.role === "SALES_AGENT"
-    ? await prisma.salesAgentProfile.findUnique({ where: { userId: authorization.session.userId }, select: { id: true } })
-    : null;
-  if (authorization.session.role === "SALES_AGENT" && !agent) return NextResponse.json({ ok: false, error: "Sales profile was not found." }, { status: 403 });
+  const profile = await prisma.salesAgentProfile.findUnique({
+    where: { userId: authorization.session.userId },
+    select: { id: true, tenantId: true },
+  });
+  if (!profile) return NextResponse.json({ ok: false, error: "Sales profile was not found." }, { status: 403 });
   // Mobile bootstrap performs the idempotent legacy-link reconciliation once.
   // Inbox reads stay fast and query only the agent-scoped projection.
   const leads = await prisma.salesLeadAssignment.findMany({
     where: {
-      ...(agent ? { assignedAgentId: agent.id } : {}),
+      ...(authorization.actor.role === "SALES_AGENT" ? { assignedAgentId: profile.id } : { tenantId: profile.tenantId }),
       conversationId: { not: null },
       ...(cursor ? { id: { gt: cursor } } : {}),
     },

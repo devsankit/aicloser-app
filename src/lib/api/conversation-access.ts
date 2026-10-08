@@ -214,7 +214,17 @@ export async function getConversationAccessForSession(session: SessionLike, conv
 
   if (session.role === "ADMIN" || session.role === "MANAGER") {
     const hasTenantAccess = !session.tenantId || !conversation.tenantId || session.tenantId === conversation.tenantId;
-    return hasTenantAccess
+    if (hasTenantAccess) return { ok: true as const, reason: "allowed" as const, conversation };
+
+    // Legacy sales conversations can retain the original Gigxomi tenant ID
+    // while their current sales assignment belongs to the workspace tenant.
+    // The assignment is the authoritative workspace link for manager/admin
+    // access, so do not strand those threads behind the old conversation ID.
+    const linkedAssignment = await prisma.salesLeadAssignment.findFirst({
+      where: { conversationId, tenantId: session.tenantId },
+      select: { id: true },
+    });
+    return linkedAssignment
       ? { ok: true as const, reason: "allowed" as const, conversation }
       : { ok: false as const, reason: "forbidden" as const };
   }

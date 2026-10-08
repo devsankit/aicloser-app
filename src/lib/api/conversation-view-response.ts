@@ -1,6 +1,7 @@
 import type { AppRole } from "@/lib/auth/types";
 import { projectConversation, type DummyConversationView } from "@/lib/gigxomi/dummy-platform-store";
 import { getConversationByIdFromFile, listConversationsForAudienceFromFile } from "@/lib/gigxomi/dummy-platform-file-store";
+import { prisma } from "@/lib/prisma";
 
 import { resolveConversationAudienceForSession, salesAgentCanAccessConversation } from "@/lib/api/conversation-access";
 
@@ -49,5 +50,23 @@ export async function getConversationViewForSession(
     tenantId,
   });
 
-  return payload.conversations.find((conversation) => conversation.id === conversationId) ?? null;
+  const listedConversation = payload.conversations.find((conversation) => conversation.id === conversationId);
+  if (listedConversation) return listedConversation;
+
+  // Some legacy threads keep the original conversation audience/tenant in
+  // the file projection while the current sales assignment carries the
+  // workspace tenant. Keep the manager/admin mobile inbox and chat view
+  // consistent by accepting that assignment link as the authoritative scope.
+  if ((session.role === "ADMIN" || session.role === "MANAGER") && tenantId) {
+    const linkedAssignment = await prisma.salesLeadAssignment.findFirst({
+      where: { conversationId, tenantId },
+      select: { id: true },
+    });
+    if (linkedAssignment) {
+      const conversation = await getConversationByIdFromFile(conversationId);
+      return conversation ? projectConversation(conversation, scope.audience) : null;
+    }
+  }
+
+  return null;
 }

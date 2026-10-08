@@ -128,52 +128,63 @@ export async function POST(request: Request) {
       { status: 409 },
     );
   }
-  const created = await createSalesAgentAccount({
-    displayName,
-    email,
-    phone,
-    password,
-    createdByUserId: authorization.session.userId ?? undefined,
-    tenantId: authorization.session.tenantId,
-    status: "PENDING",
-    groupId: snapshot.groups[0]?.id ?? "sales-group-main",
-    parentAgentId: null,
-    canCreateSubAgents: false,
-    canClaimLeads: true,
-    maxActiveLeads: 25,
-  });
+  let createdAgentId: string | null = null;
+  try {
+    const created = await createSalesAgentAccount({
+      displayName,
+      email,
+      phone,
+      password,
+      createdByUserId: authorization.session.userId ?? undefined,
+      tenantId: authorization.session.tenantId,
+      status: "PENDING",
+      groupId: snapshot.groups[0]?.id ?? "sales-group-main",
+      parentAgentId: null,
+      canCreateSubAgents: false,
+      canClaimLeads: true,
+      maxActiveLeads: 25,
+    });
 
-  if (!created.ok) {
-    return NextResponse.json(created, { status: 400 });
+    if (!created.ok) {
+      return NextResponse.json(created, { status: 400 });
+    }
+    createdAgentId = created.agent.id;
+
+    const updatedAgent = await updateSalesAgentProfile({
+      agentId: created.agent.id,
+      status: "PENDING",
+      canCreateSubAgents: false,
+      permissions: {
+        ...(created.agent.permissions ?? {}),
+        workspaceRole: "UNASSIGNED",
+        workspaceAdmin: false,
+      },
+    });
+
+    return NextResponse.json({
+      ok: true,
+      user: {
+        id: updatedAgent.id,
+        userId: updatedAgent.userId,
+        displayName: updatedAgent.displayName,
+        email: updatedAgent.email,
+        phone: updatedAgent.phone,
+        agentCode: updatedAgent.agentCode,
+        status: updatedAgent.status,
+        role: resolveAgentRole(updatedAgent.permissions),
+        packageName: updatedAgent.packageName || "Free plan",
+        packageStatus: updatedAgent.packageStatus || "ACTIVE",
+        packageExpiresAt: updatedAgent.packageExpiresAt,
+      },
+    });
+  } catch (error) {
+    if (createdAgentId) {
+      await deleteSalesAgentFromAdmin({ agentId: createdAgentId }).catch(() => undefined);
+    }
+    const message = error instanceof Error ? error.message : "Unable to create user account.";
+    console.error("[roles/users] create failed", error);
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
-
-  const updatedAgent = await updateSalesAgentProfile({
-    agentId: created.agent.id,
-    status: "PENDING",
-    canCreateSubAgents: false,
-    permissions: {
-      ...(created.agent.permissions ?? {}),
-      workspaceRole: "UNASSIGNED",
-      workspaceAdmin: false,
-    },
-  });
-
-  return NextResponse.json({
-    ok: true,
-    user: {
-      id: updatedAgent.id,
-      userId: updatedAgent.userId,
-      displayName: updatedAgent.displayName,
-      email: updatedAgent.email,
-      phone: updatedAgent.phone,
-      agentCode: updatedAgent.agentCode,
-      status: updatedAgent.status,
-      role: resolveAgentRole(updatedAgent.permissions),
-      packageName: updatedAgent.packageName || "Free plan",
-      packageStatus: updatedAgent.packageStatus || "ACTIVE",
-      packageExpiresAt: updatedAgent.packageExpiresAt,
-    },
-  });
 }
 
 export async function PATCH(request: Request) {
