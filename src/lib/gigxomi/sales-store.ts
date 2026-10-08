@@ -3191,10 +3191,26 @@ export async function provisionSaaSCloserWorkspace(input: {
 
   try {
     return await prisma.$transaction(async (transaction) => {
+      // The client-session tables enforce AppAuthUser.tenantId against the
+      // live AicloserWorkspace table. This table predates the Prisma model in
+      // this repository, so provision the workspace through the transaction
+      // before inserting the signup owner.
+      await transaction.$executeRaw`
+        INSERT INTO "AicloserWorkspace" (
+          "id", "name", "slug", "ownerEmail", "ownerPhone", "status",
+          "planTier", "maxSeats", "settings", "createdAt", "updatedAt"
+        ) VALUES (
+          ${tenantId}, ${`${companyName} Workspace`}, ${tenantId}, ${email}, ${rawPhone},
+          'ACTIVE', 'PRO', 5, '{}'::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+        ON CONFLICT ("id") DO NOTHING
+      `;
+
       // 1. Create dedicated SalesAgentGroup for this workspace
       const group = await transaction.salesAgentGroup.create({
         data: {
           id: groupId,
+          tenantId,
           name: `${companyName} Sales Team`,
           description: `Dedicated sales workspace for ${companyName}`,
           defaultCommissionPercent: 10,
@@ -3223,10 +3239,17 @@ export async function provisionSaaSCloserWorkspace(input: {
         throw new Error(createdUser.error);
       }
 
+      await transaction.$executeRaw`
+        UPDATE "AicloserWorkspace"
+        SET "ownerUserId" = ${createdUser.user.id}, "updatedAt" = CURRENT_TIMESTAMP
+        WHERE "id" = ${tenantId}
+      `;
+
       // 3. Create SalesAgentProfile as workspace owner/admin
       const code = await generateAgentCode(displayName, transaction);
       const agent = await transaction.salesAgentProfile.create({
         data: {
+          tenantId,
           userId: createdUser.user.id,
           groupId: group.id,
           agentCode: code,
