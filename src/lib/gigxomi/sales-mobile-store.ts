@@ -214,7 +214,7 @@ export async function startSalesMobileCall(actor: SalesMobileActor, input: Recor
     // caller under the current tenant and mobile agent so the call, recording,
     // notes, and future enrichment all have a stable CRM parent.
     const contactName = clean(input.contactName) || `Unknown caller · ${clean(input.phoneNumber) || phone}`;
-    resolvedAssignment = await createSalesLead({
+    const createdLead = await createSalesLead({
       tenantId: agent.tenantId,
       assignedAgentId: agent.id,
       actorUserId: actor.userId,
@@ -227,6 +227,7 @@ export async function startSalesMobileCall(actor: SalesMobileActor, input: Recor
       stage: "NEW",
       notes: clean(input.notes) || "Auto-created from a company phone call. Enrich this contact from CRM.",
     });
+    resolvedAssignment = await prisma.salesLeadAssignment.findUnique({ where: { id: createdLead.id } });
   }
   if (!resolvedAssignment) throw new Error("This lead is not assigned to you.");
   let device = null;
@@ -305,6 +306,7 @@ export async function submitSalesMobileDisposition(actor: SalesMobileActor, inpu
   const callId = clean(input.callSessionId || input.callId);
   const call = await prisma.salesMobileCall.findFirst({ where: { id: callId, agentId: agent.id }, include: { assignment: true } });
   if (!call) throw new Error("Call session not found.");
+  const customerName = clean(input.customerName);
   const note = clean(input.note);
   const outcome = clean(input.outcome).toUpperCase();
   if (!note) throw new Error("Call notes are required.");
@@ -312,7 +314,15 @@ export async function submitSalesMobileDisposition(actor: SalesMobileActor, inpu
   const nextFollowUpAt = parseDate(input.nextFollowUpAt);
   const updated = await prisma.$transaction(async (tx) => {
     const savedCall = await tx.salesMobileCall.update({ where: { id: call.id }, data: { outcome, note, nextFollowUpAt, noteSubmitted: true } });
-    await tx.salesLeadAssignment.update({ where: { id: call.assignmentId }, data: { notes: note, followUpAt: nextFollowUpAt, lastContactedAt: call.connectedAt ?? call.endedAt ?? new Date() } });
+    await tx.salesLeadAssignment.update({
+      where: { id: call.assignmentId },
+      data: {
+        ...(customerName ? { customerName } : {}),
+        notes: note,
+        followUpAt: nextFollowUpAt,
+        lastContactedAt: call.connectedAt ?? call.endedAt ?? new Date(),
+      },
+    });
     await tx.salesActivityLog.create({
       data: {
         tenantId: agent.tenantId,
@@ -320,7 +330,7 @@ export async function submitSalesMobileDisposition(actor: SalesMobileActor, inpu
         actorUserId: actor.userId,
         action: "MOBILE_CALL_DISPOSITION",
         note,
-        metadata: { callId: call.id, outcome, nextFollowUpAt }
+        metadata: { callId: call.id, outcome, nextFollowUpAt, customerName: customerName || null }
       }
     });
     return savedCall;

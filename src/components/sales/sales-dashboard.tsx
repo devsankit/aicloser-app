@@ -3240,6 +3240,15 @@ function LeadCrmCard({
           <FileText size={13} aria-hidden="true" />
           <p>{lead.notes || call?.note || "No activity note yet."}</p>
         </div>
+        {lead.lastTouch ? (
+          <div
+            className="sales-crm-card-team-touch"
+            title={`${lead.lastTouch.by}: ${lead.lastTouch.summary}`}
+          >
+            <Users2 size={12} aria-hidden="true" />
+            <span>Previously handled by <strong>{lead.lastTouch.by}</strong></span>
+          </div>
+        ) : null}
         <div className="sales-crm-card-signal-grid">
           <div className={`sales-crm-card-signal ${followUpState}`}>
             <span><CalendarClock size={13} /> Next follow-up</span>

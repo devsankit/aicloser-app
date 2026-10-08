@@ -1,10 +1,12 @@
 package com.gigxomi.gxclosers.call
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import android.net.Uri
 import android.provider.Settings
 import android.text.TextUtils
 import android.view.Gravity
@@ -56,8 +58,8 @@ object CallOverlayWindow {
             root.addView(header)
             addText(context, root, phone, 14f, Color.rgb(190, 196, 206), 2)
             if (lead == null) {
-                addText(context, root, "No matching CRM lead", 13f, Color.rgb(160, 166, 176), 14)
-                addText(context, root, "Save this number as a contact to track the call.", 12f, Color.rgb(160, 166, 176), 4)
+                addText(context, root, "New company caller", 13f, Color.rgb(255, 166, 115), 14)
+                addText(context, root, "This number will appear in New Leads after the call.", 12f, Color.rgb(190, 196, 206), 4)
             } else {
                 listOfNotNull(
                     lead.stage.takeIf(String::isNotBlank)?.let { "Stage  ·  ${it.replace('_', ' ')}" },
@@ -70,7 +72,31 @@ object CallOverlayWindow {
                 lead.notes.takeIf(String::isNotBlank)?.let { note ->
                     addText(context, root, note, 12f, Color.rgb(177, 183, 194), 10, 2)
                 }
+                lead.lastTouchBy.takeIf(String::isNotBlank)?.let { handledBy ->
+                    addText(context, root, "Previously handled by  ·  $handledBy", 12f, Color.rgb(255, 166, 115), 10)
+                    lead.lastTouchSummary.takeIf(String::isNotBlank)?.let { summary ->
+                        addText(context, root, summary, 11f, Color.rgb(177, 183, 194), 3, 2)
+                    }
+                }
             }
+
+            val openCrm = TextView(context).apply {
+                text = if (lead == null) "Add details after call" else "Open CRM details"
+                textSize = 12f
+                gravity = Gravity.CENTER
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                setTextColor(Color.WHITE)
+                setPadding(dp(context, 12), dp(context, 11), dp(context, 12), dp(context, 11))
+                background = GradientDrawable().apply {
+                    setColor(Color.rgb(255, 105, 45))
+                    cornerRadius = dp(context, 11).toFloat()
+                }
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(context, 14)
+                }
+                setOnClickListener { openDisposition(context) }
+            }
+            root.addView(openCrm)
 
             val params = WindowManager.LayoutParams(
                 dp(context, 344),
@@ -110,6 +136,19 @@ object CallOverlayWindow {
     }
 
     private fun dp(context: Context, value: Int) = (value * context.resources.displayMetrics.density).toInt()
+
+    private fun openDisposition(context: Context) {
+        val prefs = context.getSharedPreferences(CallAudioRecorder.PREFS, Context.MODE_PRIVATE)
+        val callId = prefs.getString("activeCallId", null).orEmpty()
+        val intent = if (callId.isNotBlank()) {
+            Intent(Intent.ACTION_VIEW, Uri.parse("gxclosers://disposition/$callId"))
+        } else {
+            context.packageManager.getLaunchIntentForPackage(context.packageName)
+        } ?: return
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        runCatching { context.startActivity(intent) }
+        remove()
+    }
 
     private const val TAG = "GXCallOverlay"
 }

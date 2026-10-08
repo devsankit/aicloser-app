@@ -122,17 +122,18 @@ class CrmRepository(context: Context) {
         return response.getJSONObject("call").getString("id")
     }
 
-    fun submitDisposition(callId: String, outcome: String, note: String, followUp: String?) {
+    fun submitDisposition(callId: String, customerName: String, outcome: String, note: String, followUp: String?, stageUpdate: String?) {
         val payload = JSONObject()
             .put("callSessionId", callId)
             .put("outcome", outcome)
             .put("note", note)
-            .put("stageUpdate", when {
+            .put("stageUpdate", stageUpdate?.takeIf(String::isNotBlank) ?: when {
                 outcome == "CLOSED_WON" -> "CLOSED_WON"
                 outcome == "LOST" -> "CLOSED_LOST"
                 outcome.startsWith("CONNECTED") -> "CONTACTED"
                 else -> JSONObject.NULL
             })
+        customerName.takeIf(String::isNotBlank)?.let { payload.put("customerName", it.trim()) }
         followUp?.takeIf(String::isNotBlank)?.let { payload.put("nextFollowUpAt", it) }
 
         try {

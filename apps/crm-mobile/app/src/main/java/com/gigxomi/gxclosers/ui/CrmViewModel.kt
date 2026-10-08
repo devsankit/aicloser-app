@@ -341,10 +341,10 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
         status = "Tracked call started. Complete the disposition when the call ends."
     }
 
-    fun saveDisposition(callId: String, outcome: String, note: String, followUp: String?, done: () -> Unit) = launchWork {
+    fun saveDisposition(callId: String, customerName: String, outcome: String, note: String, followUp: String?, stageUpdate: String, done: () -> Unit) = launchWork {
         if (outcome.isBlank() || note.isBlank()) throw IllegalArgumentException("Outcome and notes are required.")
         try {
-            withContext(Dispatchers.IO) { repository.submitDisposition(callId, outcome, note.trim(), followUp) }
+            withContext(Dispatchers.IO) { repository.submitDisposition(callId, customerName.trim(), outcome, note.trim(), followUp, stageUpdate) }
         } catch (_: SavedOfflineException) {
             status = "Saved offline. GXClosers will sync it when connection returns."
         }

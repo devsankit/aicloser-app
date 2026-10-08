@@ -15,6 +15,8 @@ data class CachedLead(
     val source: String,
     val serviceInterest: String,
     val email: String,
+    val lastTouchBy: String = "",
+    val lastTouchSummary: String = "",
 )
 
 object CallManager {
@@ -31,6 +33,8 @@ object CallManager {
                     .put("source", lead.source)
                     .put("serviceInterest", lead.serviceInterest)
                     .put("email", lead.customerEmail)
+                    .put("lastTouchBy", lead.lastTouchBy)
+                    .put("lastTouchSummary", lead.lastTouchSummary)
                     .toString())
             }
         }
@@ -52,6 +56,8 @@ object CallManager {
                 source = json.optString("source"),
                 serviceInterest = json.optString("serviceInterest"),
                 email = json.optString("email"),
+                lastTouchBy = json.optString("lastTouchBy"),
+                lastTouchSummary = json.optString("lastTouchSummary"),
             )
         }.getOrElse {
             val legacy = raw.split("\u001F")
@@ -64,6 +70,8 @@ object CallManager {
                 source = "",
                 serviceInterest = "",
                 email = "",
+                lastTouchBy = "",
+                lastTouchSummary = "",
             )
         }.takeIf { it.id.isNotBlank() }
     }

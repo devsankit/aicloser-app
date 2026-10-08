@@ -16,6 +16,9 @@ data class SalesLead(
     val notes: String,
     val followUpAt: String?,
     val priority: String,
+    val lastTouchBy: String = "",
+    val lastTouchSummary: String = "",
+    val lastTouchedAt: String? = null,
 )
 
 data class AvailableLead(
@@ -141,6 +144,9 @@ fun parseLead(json: JSONObject) = SalesLead(
     notes = json.text("notes"),
     followUpAt = json.nullableText("followUpAt"),
     priority = json.text("priority").ifBlank { "NORMAL" },
+    lastTouchBy = json.optJSONObject("lastTouch")?.text("by").orEmpty(),
+    lastTouchSummary = json.optJSONObject("lastTouch")?.text("summary").orEmpty(),
+    lastTouchedAt = json.optJSONObject("lastTouch")?.nullableText("at"),
 )
 
 fun parseAvailableLead(json: JSONObject) = AvailableLead(

@@ -3329,6 +3329,34 @@ select option:focus {
   -webkit-line-clamp: 3;
 }
 
+.sales-theme-scope .sales-crm-card-team-touch {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  margin: 7px 1px 0;
+  color: var(--crm-text-muted);
+  font-size: 0.66rem;
+  line-height: 1.25;
+}
+
+.sales-theme-scope .sales-crm-card-team-touch svg {
+  flex: 0 0 auto;
+  color: var(--crm-primary);
+}
+
+.sales-theme-scope .sales-crm-card-team-touch span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sales-theme-scope .sales-crm-card-team-touch strong {
+  color: var(--crm-text-secondary);
+  font-weight: 800;
+}
+
 .sales-theme-scope .sales-crm-card-signal-grid {
   gap: 8px;
 }

@@ -143,6 +143,11 @@ type SalesLeadView = {
   createdAt: string;
   updatedAt: string;
   metaSync?: unknown;
+  lastTouch: {
+    by: string;
+    summary: string;
+    at: string;
+  } | null;
 };
 
 type SalesDealView = {
@@ -611,7 +616,10 @@ function maskOpenPoolItem(item: SalesLeadPoolView) {
   };
 }
 
-function mapLead(lead: Prisma.SalesLeadAssignmentGetPayload<object>): SalesLeadView {
+function mapLead(
+  lead: Prisma.SalesLeadAssignmentGetPayload<object>,
+  lastTouch: SalesLeadView["lastTouch"] = null,
+): SalesLeadView {
   return {
     id: lead.id,
     leadId: lead.leadId,
@@ -633,6 +641,7 @@ function mapLead(lead: Prisma.SalesLeadAssignmentGetPayload<object>): SalesLeadV
     notes: lead.notes ?? "",
     createdAt: lead.createdAt.toISOString(),
     updatedAt: lead.updatedAt.toISOString(),
+    lastTouch,
   };
 }
 
@@ -1339,7 +1348,83 @@ export async function getSalesSnapshotForRole(
   const isAgentView = Boolean(observingAgent);
   const visibleAgentIds = new Set(visibleAgents.map((agent) => agent.id));
   const leadPool = leadPoolRaw.map(mapLeadPoolItem);
-  const leads = leadsRaw.map(mapLead);
+  const leadIds = leadsRaw.map((lead) => lead.id);
+  const phoneKeysByLeadId = new Map(
+    leadsRaw.map((lead) => [lead.id, normalizeSalesConversationPhone(lead.customerPhone)]),
+  );
+  const historicalAssignments = await prisma.salesLeadAssignment.findMany({
+    where: isSuperAdminAll
+      ? { customerPhone: { not: null } }
+      : { tenantId: effectiveTenantId, customerPhone: { not: null } },
+    select: { id: true, customerPhone: true },
+  });
+  const relatedAssignmentIds = new Set(leadIds);
+  const assignmentIdsByPhone = new Map<string, string[]>();
+  for (const assignment of historicalAssignments) {
+    const phoneKey = normalizeSalesConversationPhone(assignment.customerPhone);
+    if (!phoneKey) continue;
+    const assignmentIds = assignmentIdsByPhone.get(phoneKey) ?? [];
+    assignmentIds.push(assignment.id);
+    assignmentIdsByPhone.set(phoneKey, assignmentIds);
+  }
+  for (const assignmentIds of assignmentIdsByPhone.values()) {
+    for (const assignmentId of assignmentIds) relatedAssignmentIds.add(assignmentId);
+  }
+
+  const relatedIds = [...relatedAssignmentIds];
+  const [recentActivities, recentTimeline] = relatedIds.length
+    ? await Promise.all([
+        prisma.salesActivityLog.findMany({
+          where: { assignmentId: { in: relatedIds }, action: { not: "LEAD_CREATED" } },
+          include: { actor: { select: { displayName: true, email: true } } },
+          orderBy: { createdAt: "desc" },
+          take: Math.min(relatedIds.length * 12, 400),
+        }),
+        prisma.salesLeadTimelineEntry.findMany({
+          where: { leadId: { in: relatedIds } },
+          orderBy: { createdAt: "desc" },
+          take: Math.min(relatedIds.length * 8, 300),
+        }),
+      ])
+    : [[], []];
+  const latestTouchByAssignmentId = new Map<string, SalesLeadView["lastTouch"]>();
+  const saveTouch = (assignmentId: string | null, touch: SalesLeadView["lastTouch"]) => {
+    if (!assignmentId || !touch) return;
+    const previous = latestTouchByAssignmentId.get(assignmentId);
+    if (!previous || touch.at > previous.at) latestTouchByAssignmentId.set(assignmentId, touch);
+  };
+  for (const activity of recentActivities) {
+    const action = activity.action.replaceAll("_", " ").toLowerCase();
+    const summary = activity.note?.trim() ||
+      (activity.action === "MOBILE_CALL_DISPOSITION" ? "Call notes saved" :
+        activity.action === "MOBILE_CALL_ENDED" ? "Call completed" :
+          activity.action === "MOBILE_CALL_STARTED" ? "Call started" : action);
+    saveTouch(activity.assignmentId, {
+      by: activity.actor?.displayName?.trim() || activity.actor?.email?.trim() || "Team member",
+      summary,
+      at: activity.createdAt.toISOString(),
+    });
+  }
+  for (const timeline of recentTimeline) {
+    const metadata = readJsonObject(timeline.metadata);
+    saveTouch(timeline.leadId, {
+      by: String(metadata?.authorName ?? "Team member").trim() || "Team member",
+      summary: timeline.body.trim() || `${timeline.type.replaceAll("_", " ").toLowerCase()} added`,
+      at: timeline.createdAt.toISOString(),
+    });
+  }
+  const lastTouchByPhone = new Map<string, SalesLeadView["lastTouch"]>();
+  for (const [phoneKey, assignmentIds] of assignmentIdsByPhone) {
+    const touches = assignmentIds
+      .map((assignmentId) => latestTouchByAssignmentId.get(assignmentId))
+      .filter((touch): touch is NonNullable<SalesLeadView["lastTouch"]> => Boolean(touch))
+      .sort((left, right) => right.at.localeCompare(left.at));
+    if (touches[0]) lastTouchByPhone.set(phoneKey, touches[0]);
+  }
+  const leads = leadsRaw.map((lead) => mapLead(
+    lead,
+    latestTouchByAssignmentId.get(lead.id) ?? lastTouchByPhone.get(phoneKeysByLeadId.get(lead.id) ?? "") ?? null,
+  ));
   const deals = dealsRaw.map(mapDeal);
   const earnings = earningsRaw.map(mapEarning);
   const payouts = payoutsRaw.map(mapPayout);

@@ -980,17 +980,54 @@ private fun showFollowUpPicker(context: Context, onPicked: (iso: String, display
 }
 
 private val outcomes = listOf("CONNECTED_INTERESTED", "CONNECTED_NOT_INTERESTED", "NO_ANSWER", "BUSY", "SWITCHED_OFF", "WRONG_NUMBER", "CALLBACK_REQUESTED", "WEBINAR_LINK_SENT", "PAYMENT_LINK_SENT", "CLOSED_WON", "LOST")
+private val dispositionStages = listOf("NEW", "CONTACTED", "INTERESTED", "QUALIFIED", "FOLLOW_UP", "CLOSED_WON", "CLOSED_LOST")
 
 @Composable private fun DispositionScreen(vm: CrmViewModel, callId: String, done: () -> Unit) {
-    var outcome by remember { mutableStateOf("") }; var note by remember { mutableStateOf("") }; var followUp by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val existingCall = vm.bootstrap?.calls?.firstOrNull { it.id == callId }
+    var customerName by remember(callId) { mutableStateOf(existingCall?.assignment?.customerName.orEmpty()) }
+    var stageUpdate by remember(callId) { mutableStateOf(existingCall?.assignment?.stage?.ifBlank { "NEW" } ?: "NEW") }
+    var outcome by remember(callId) { mutableStateOf("") }
+    var note by remember(callId) { mutableStateOf("") }
+    var followUp by remember(callId) { mutableStateOf("") }
+    var followUpLabel by remember(callId) { mutableStateOf("") }
     Page {
-        BrandHeader("Complete call notes", "Required before the next tracked call")
+        BrandHeader("Complete call notes", "Update this contact while the call context is fresh")
         GxCard {
+            OutlinedTextField(
+                customerName,
+                { customerName = it },
+                label = { Text("Contact name (correct if needed)") },
+                placeholder = { Text("Add the customer's name") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text("Lead status", fontWeight = FontWeight.Black)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                dispositionStages.forEach { value ->
+                    FilterChip(stageUpdate == value, { stageUpdate = value }, { Text(value.replace('_', ' '), fontSize = 10.sp) })
+                }
+            }
             Text("Outcome", fontWeight = FontWeight.Black)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) { outcomes.forEach { value -> FilterChip(outcome == value, { outcome = value }, { Text(value.replace('_', ' '), fontSize = 10.sp) }) } }
-            OutlinedTextField(note, { note = it }, label = { Text("Discussion notes") }, minLines = 3, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(followUp, { followUp = it }, label = { Text("Follow-up ISO date/time (optional)") }, placeholder = { Text("2026-09-01T10:30:00+05:30") }, modifier = Modifier.fillMaxWidth())
-            PrimaryButton("Save disposition", vm.busy, outcome.isNotBlank() && note.isNotBlank()) { vm.saveDisposition(callId, outcome, note, followUp.ifBlank { null }, done) }
+            OutlinedTextField(note, { note = it }, label = { Text("Discussion notes") }, placeholder = { Text("What happened, what matters next?") }, minLines = 3, modifier = Modifier.fillMaxWidth())
+            OutlinedButton(
+                onClick = { showFollowUpPicker(context) { iso, display -> followUp = iso; followUpLabel = display } },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(14.dp),
+            ) {
+                Icon(Icons.Default.CalendarMonth, null)
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
+                    Text("Callback / follow-up", fontSize = 11.sp, color = GxMuted)
+                    Text(followUpLabel.ifBlank { "Set a callback (optional)" }, fontWeight = FontWeight.Bold)
+                }
+                Icon(Icons.Default.ChevronRight, null)
+            }
+            if (followUp.isNotBlank()) TextButton(onClick = { followUp = ""; followUpLabel = "" }, modifier = Modifier.align(Alignment.End)) { Text("Clear callback") }
+            PrimaryButton("Save contact & disposition", vm.busy, outcome.isNotBlank() && note.isNotBlank()) {
+                vm.saveDisposition(callId, customerName, outcome, note, followUp.ifBlank { null }, stageUpdate, done)
+            }
         }
     }
 }
