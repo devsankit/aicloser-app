@@ -37,6 +37,10 @@
       "status": "PASS_LOCAL",
       "details": "CRM drawer, CRM list, call history, and Android Calls & Recordings now share user-facing labels: Ready to play, Processing, Recording unavailable, and No recording. Raw FAILED/RECORDING_UNAVAILABLE states are no longer shown as the primary label."
     },
+    "bulkCampaignSelectionGuard": {
+      "status": "PASS_LOCAL",
+      "details": "Contacts & Import Hub no longer renders a clickable Bulk Campaign action when no contacts are selected. After selecting one contact, the action appears with the exact selected count and passes only those IDs to the campaign flow."
+    },
     "effectivePermissionRefresh": {
       "status": "PASS_CODE_VERIFIED",
       "details": "Open dashboards now refresh role permissions on focus and every 30 seconds, and the refresh API resolves the configured workspace role before selecting the permission matrix. Manager team visibility follows that same effective role."
@@ -120,10 +124,11 @@
     "contactImportDuplicateFix": "b475d05",
     "seatCapacityCreationUxFix": "5ee950c",
     "recordingStatusLabelFix": "2ab6d34",
-    "mobileRecordingStatusLabelFix": "7c39fde"
+    "mobileRecordingStatusLabelFix": "7c39fde",
+    "bulkCampaignSelectionGuardFix": "04ceaa3"
   },
   "automatedRegression": {
-    "webTests": "74 passed, 0 failed",
+    "webTests": "75 passed, 0 failed",
     "webTypecheck": "passed",
     "androidUnitTests": "passed",
     "androidDebugBuild": "passed"
