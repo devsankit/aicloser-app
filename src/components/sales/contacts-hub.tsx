@@ -2756,7 +2756,7 @@ export function ContactsHub({
             </button>
 
             {/* Send to WhatsApp Bulk Campaign */}
-            {onOpenBulkMarketing ? (
+            {onOpenBulkMarketing && filteredContacts.length > 0 ? (
               <button
                 type="button"
                 className="primary-button"
