@@ -203,6 +203,19 @@ function friendlyLoginError(value: string) {
   }
 }
 
+function friendlySignupError(value: string) {
+  const normalized = value.toLowerCase();
+  if (
+    normalized.includes("prisma.") ||
+    normalized.includes("transaction api error") ||
+    normalized.includes("expired transaction") ||
+    normalized.includes("invocation")
+  ) {
+    return "Workspace creation is temporarily unavailable. Please try again in a moment.";
+  }
+  return value;
+}
+
 export function SalesSignupForm({ googleOnboarding = false, googleEmail = "", googleDisplayName = "" }: { googleOnboarding?: boolean; googleEmail?: string; googleDisplayName?: string }) {
   const [status, setStatus] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -235,7 +248,7 @@ export function SalesSignupForm({ googleOnboarding = false, googleEmail = "", go
     setIsSubmitting(false);
 
     if (!response.ok || !payload?.ok) {
-      setStatus(payload?.error ?? "Unable to create sales workspace.");
+      setStatus(friendlySignupError(payload?.error ?? "Unable to create sales workspace."));
       return;
     }
 
