@@ -346,7 +346,9 @@ export async function saveSalesMobileRecording(actor: SalesMobileActor, callId: 
   if (!tenantId) throw new Error("Your sales profile is not assigned to a workspace.");
   let call = await prisma.salesMobileCall.findFirst({ where: { id: callId, agentId: agent.id } });
   if (!call) {
-    const assignment = await prisma.salesLeadAssignment.findUnique({ where: { id: callId } });
+    const assignment = await prisma.salesLeadAssignment.findFirst({
+      where: { id: callId, tenantId, assignedAgentId: agent.id },
+    });
     if (assignment) {
       call = await prisma.salesMobileCall.create({
         data: {

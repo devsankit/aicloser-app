@@ -9,4 +9,5 @@ test("recording reads remain tenant-scoped for privileged and closer sessions", 
   assert.match(source, /if \(!tenantId\) throw new Error/);
   assert.match(source, /\? \{ id: callId, tenantId \}/);
   assert.match(source, /\{ id: callId, tenantId, OR:/);
+  assert.match(source, /where: \{ id: callId, tenantId, assignedAgentId: agent\.id \}/);
 });
