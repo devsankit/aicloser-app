@@ -24,6 +24,17 @@ test("admin navigation does not expose the closer-only grab leads queue", () => 
   assert.match(dashboard, /const canUseGrabLeads = roundRobinAccess\.enabled && Boolean\(currentAgent\?\.canClaimLeads\)/);
 });
 
+test("admin dashboard is a team reporting view and excludes admin-owned work", () => {
+  assert.match(dashboard, /function isAdminSalesAgent\(agent/);
+  assert.match(dashboard, /const reportingAgents = useMemo\(\(\) =>/);
+  assert.match(dashboard, /snapshot\.visibleAgents\.filter\(\(agent\) => agent\.status === "ACTIVE"[\s\S]*?isAdminSalesAgent\(agent\)/);
+  assert.match(dashboard, /const dashboardLeads = useMemo\(/);
+  assert.match(dashboard, /reportingAgentIds\.has\(lead\.assignedAgentId\)/);
+  assert.match(dashboard, /Team performance &amp; ownership/);
+  assert.match(dashboard, /Admin accounts are excluded/);
+  assert.match(dashboard, /Review Team Calls &amp; Audio/);
+});
+
 test("internal sidebar reserves space for its footer instead of covering the last menu item", () => {
   assert.match(globalStyles, /\.internal-theme-root \.internal-sidebar\s*\{[\s\S]*?grid-template-rows:\s*auto minmax\(0, 1fr\) auto;/);
 });

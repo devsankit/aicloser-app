@@ -37,6 +37,10 @@
       "status": "PASS_READ_ONLY_WITH_RECORDING_FOLLOW_UP",
       "details": "Admin Calls & Power Dialer opened successfully and exposed the single-page hub for outbound campaigns, sequential dialing, missed-call/IVR recovery, SIM call history, and recording playback. New Calling Campaign opens a clear setup form (name, objective, daily target, cooldown); the form was opened and cancelled without creating a campaign. Existing QA call history rendered owner, duration, disposition, notes, playback speed controls, and seek controls. Several QA recordings correctly surfaced Recording unavailable because native emulator audio was not captured; the synthetic WAV path remains separately verified."
     },
+    "adminReportingView": {
+      "status": "PASS_LOCAL_ADMIN_RUNTIME",
+      "details": "Admin dashboard now acts as a management/reporting view: the admin profile and all admin-owned leads/calls are excluded from summary metrics, the user selector contains only active sales/manager users, and a Team performance & ownership table shows per-user active leads, calls, connected calls, callbacks, and ready recordings. The personal closer target tracker is not shown to Admin. Local runtime evidence: 4 sales users, 343 team leads, 10 team calls, and 4 user rows; Admin profiles were not counted."
+    },
     "seatCapacityCreationUx": {
       "status": "PASS_LOCAL",
       "details": "When all plan seats are active, the Team & Users screen explains the limit on first render, keeps the optional phone field available, and disables account creation with an accessible upgrade action instead of allowing a confusing no-op click."

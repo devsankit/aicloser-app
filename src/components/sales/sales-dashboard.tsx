@@ -554,6 +554,11 @@ function agentName(snapshot: SalesDashboardSnapshot, agentId: string | null | un
   return snapshot.agents.find((agent) => agent.id === agentId)?.displayName ?? "Unassigned";
 }
 
+function isAdminSalesAgent(agent: SalesDashboardSnapshot["visibleAgents"][number]) {
+  const permissions = agent.permissions ?? {};
+  return permissions.workspaceAdmin === true || String(permissions.workspaceRole ?? "").toUpperCase() === "ADMIN";
+}
+
 function stageTone(stage: SalesLeadStage) {
   if (["PAID", "HANDOFF", "CLOSED", "CLOSED_WON", "WEBINAR_ATTENDED"].includes(stage)) return "success";
   if (["LOST", "CLOSED_LOST", "NOT_REACHABLE"].includes(stage)) return "danger";
@@ -751,6 +756,32 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     String(currentAgentPermissions?.workspaceRole ?? "").toUpperCase() === "ADMIN";
   const effectiveWorkspaceRole = String(currentAgentPermissions?.workspaceRole ?? sessionRole).toUpperCase();
   const isCloser = !isWorkspaceAdmin && effectiveWorkspaceRole === "SALES_AGENT";
+  const reportingAgents = useMemo(() => {
+    if (!isWorkspaceAdmin) return snapshot.visibleAgents;
+    return snapshot.visibleAgents.filter((agent) => agent.status === "ACTIVE" && agent.id !== currentAgent?.id && !isAdminSalesAgent(agent));
+  }, [currentAgent?.id, isWorkspaceAdmin, snapshot.visibleAgents]);
+  const reportingAgentIds = useMemo(() => new Set(reportingAgents.map((agent) => agent.id)), [reportingAgents]);
+  const dashboardLeads = useMemo(
+    () => isWorkspaceAdmin
+      ? snapshot.visibleLeads.filter((lead) => reportingAgentIds.has(lead.assignedAgentId))
+      : snapshot.visibleLeads,
+    [isWorkspaceAdmin, reportingAgentIds, snapshot.visibleLeads],
+  );
+  const dashboardCalls = useMemo(
+    () => isWorkspaceAdmin
+      ? snapshot.mobileCalls.filter((call) => reportingAgentIds.has(call.agentId))
+      : snapshot.mobileCalls,
+    [isWorkspaceAdmin, reportingAgentIds, snapshot.mobileCalls],
+  );
+  const dashboardDeals = useMemo(
+    () => isWorkspaceAdmin
+      ? snapshot.visibleDeals.filter((deal) => reportingAgentIds.has(deal.agentId))
+      : snapshot.visibleDeals,
+    [isWorkspaceAdmin, reportingAgentIds, snapshot.visibleDeals],
+  );
+  const dashboardConversionRate = dashboardLeads.length
+    ? Math.round((dashboardDeals.filter((deal) => ["PAID", "HANDOFF", "CLOSED"].includes(deal.status)).length / dashboardLeads.length) * 100)
+    : 0;
   const tabFeatureMap: Partial<Record<SalesTab, string>> = {
     dashboard: "dashboard",
     crm: "crm",
@@ -775,11 +806,11 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   const canViewTeamData = isWorkspaceAdmin || effectiveWorkspaceRole === "MANAGER";
   const viewingAgent = viewingAgentId === "all"
     ? null
-    : snapshot.visibleAgents.find((agent) => agent.id === viewingAgentId) ?? null;
+    : reportingAgents.find((agent) => agent.id === viewingAgentId) ?? null;
 
   // SIM Calling Telemetry & Filtering
   const filteredCalls = useMemo(() => {
-    return (snapshot.mobileCalls || []).filter((call) => {
+    return (dashboardCalls || []).filter((call) => {
       const callDate = call.startedAt;
       if (dateRangeFilter === "today") return isDateToday(callDate);
       if (dateRangeFilter === "yesterday") return isDateYesterday(callDate);
@@ -787,7 +818,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       if (dateRangeFilter === "month") return isDateThisMonth(callDate);
       return true;
     });
-  }, [snapshot.mobileCalls, dateRangeFilter]);
+  }, [dashboardCalls, dateRangeFilter]);
 
   const simMetrics = useMemo(() => {
     const totalCalls = filteredCalls.length;
@@ -809,7 +840,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
 
   // Scheduled Callbacks & Follow-up Leads Due
   const callbackLeads = useMemo(() => {
-    return (snapshot.visibleLeads || []).filter((lead) => {
+    return (dashboardLeads || []).filter((lead) => {
       if (!lead.followUpAt) return false;
       if (dateRangeFilter === "today") return isFollowUpDueTodayOrPast(lead.followUpAt);
       if (dateRangeFilter === "yesterday") return isDateYesterday(lead.followUpAt);
@@ -817,15 +848,15 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       if (dateRangeFilter === "month") return isDateThisMonth(lead.followUpAt);
       return true;
     }).sort((a, b) => new Date(a.followUpAt || 0).getTime() - new Date(b.followUpAt || 0).getTime());
-  }, [snapshot.visibleLeads, dateRangeFilter]);
+  }, [dashboardLeads, dateRangeFilter]);
 
   // Stream of recent SIM calls (newest first)
   const recentCalls = useMemo(() => {
-    const base = filteredCalls.length > 0 ? filteredCalls : snapshot.mobileCalls || [];
+    const base = filteredCalls.length > 0 ? filteredCalls : dashboardCalls || [];
     return [...base]
       .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
       .slice(0, 10);
-  }, [filteredCalls, snapshot.mobileCalls]);
+  }, [filteredCalls, dashboardCalls]);
 
   type RepGoal = {
     callsTarget: number;
@@ -861,7 +892,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
 
   // Today's Actionable Priority Leads
   const todayActionLeads = useMemo(() => {
-    return snapshot.visibleLeads.filter((lead) => {
+    return dashboardLeads.filter((lead) => {
       if (dateRangeFilter === "today") {
         return isDateToday(lead.createdAt) || isFollowUpDueTodayOrPast(lead.followUpAt);
       }
@@ -876,13 +907,13 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       }
       return true;
     }).slice(0, 6);
-  }, [snapshot.visibleLeads, dateRangeFilter]);
+  }, [dashboardLeads, dateRangeFilter]);
 
   // Rep Achievements vs Goals (SIM Calling Velocity)
   const repAchievements = useMemo(() => {
     const callsDone = simMetrics.totalCalls;
     const talkTimeDoneMinutes = Math.round(simMetrics.totalTalkTimeSeconds / 60);
-    const dealsWon = snapshot.visibleLeads.filter((l) => l.stage === "CLOSED_WON" || l.stage === "PAID").length;
+    const dealsWon = dashboardLeads.filter((l) => l.stage === "CLOSED_WON" || l.stage === "PAID").length;
 
     return {
       calls: callsDone,
@@ -892,15 +923,14 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       talkTimePercent: Math.min(100, Math.round((talkTimeDoneMinutes / Math.max(1, repGoals.talkTimeMinutesTarget)) * 100)),
       dealsPercent: Math.min(100, Math.round((dealsWon / Math.max(1, repGoals.dealsTarget)) * 100)),
     };
-  }, [simMetrics, snapshot.visibleLeads, repGoals]);
+  }, [dashboardLeads, simMetrics, repGoals]);
 
   const [leadOwnershipScope, setLeadOwnershipScope] = useState<"all" | "mine">("all");
 
   const baseLeads = useMemo(() => {
-    if (isCloser) return snapshot.visibleLeads;
-    if (leadOwnershipScope === "mine") return snapshot.visibleLeads;
-    return snapshot.leads && snapshot.leads.length > 0 ? snapshot.leads : snapshot.visibleLeads;
-  }, [isCloser, leadOwnershipScope, snapshot.leads, snapshot.visibleLeads]);
+    if (isCloser || leadOwnershipScope === "mine" || isWorkspaceAdmin) return dashboardLeads;
+    return dashboardLeads;
+  }, [dashboardLeads, isCloser, isWorkspaceAdmin, leadOwnershipScope]);
 
   const todayLeadsCount = useMemo(
     () => baseLeads.filter((lead) => isDateToday(lead.createdAt)).length,
@@ -1016,19 +1046,19 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   }, [baseLeads, crmSearch, statusFilter, groupFilter, sourceFilter, snapshot.agents, segmentFilter, quickPillFilter, dateRangeFilter, customStartDate, customEndDate]);
   const listLeads = useMemo(
     () => [...filteredLeads].sort((left, right) => {
-      const leftCall = snapshot.mobileCalls.find((call) => call.assignmentId === left.id)?.startedAt;
-      const rightCall = snapshot.mobileCalls.find((call) => call.assignmentId === right.id)?.startedAt;
+      const leftCall = dashboardCalls.find((call) => call.assignmentId === left.id)?.startedAt;
+      const rightCall = dashboardCalls.find((call) => call.assignmentId === right.id)?.startedAt;
       return new Date(rightCall ?? right.updatedAt).getTime() - new Date(leftCall ?? left.updatedAt).getTime();
     }),
-    [filteredLeads, snapshot.mobileCalls],
+    [dashboardCalls, filteredLeads],
   );
   const latestCallByLead = useMemo(() => {
     const calls = new Map<string, SalesDashboardSnapshot["mobileCalls"][number]>();
-    for (const call of snapshot.mobileCalls) {
+    for (const call of dashboardCalls) {
       if (!calls.has(call.assignmentId)) calls.set(call.assignmentId, call);
     }
     return calls;
-  }, [snapshot.mobileCalls]);
+  }, [dashboardCalls]);
   const openLeadPool = useMemo(
     () => snapshot.visibleLeadPool.filter((item) => item.status === "OPEN"),
     [snapshot.visibleLeadPool],
@@ -1142,10 +1172,10 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   }, []);
 
   useEffect(() => {
-    if (viewingAgentId !== "all" && !snapshot.visibleAgents.some((agent) => agent.id === viewingAgentId)) {
+    if (viewingAgentId !== "all" && !reportingAgents.some((agent) => agent.id === viewingAgentId)) {
       setViewingAgentId("all");
     }
-  }, [snapshot.visibleAgents, viewingAgentId]);
+  }, [reportingAgents, viewingAgentId]);
 
   useEffect(() => {
     if (!restoredNavigation.current) return;
@@ -1538,9 +1568,10 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   }
 
   const headerPills = [
-    `${snapshot.visibleLeads.length} Active Leads`,
-    `${simMetrics.totalCalls} Calls Logged`,
-    `${snapshot.reports.conversionRate}% Conversion`,
+    ...(isWorkspaceAdmin
+      ? [`${reportingAgents.length} Sales Users`, `${dashboardLeads.length} Team Leads`, `${simMetrics.totalCalls} Team Calls Logged`]
+      : [`${dashboardLeads.length} Active Leads`, `${simMetrics.totalCalls} Calls Logged`]),
+    `${dashboardConversionRate}% Conversion`,
     isWhatsAppConnected ? "WhatsApp: Ready" : "WhatsApp: Needs setup",
   ];
 
@@ -1558,7 +1589,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     "--gx-primary": "var(--closer-orange)",
   } as CSSProperties;
   const isConversationTab = activeTab === "conversations";
-  const activeWorkspaceUsers = snapshot.visibleAgents.filter((agent) => agent.status === "ACTIVE").length;
+  const activeWorkspaceUsers = reportingAgents.filter((agent) => agent.status === "ACTIVE").length;
   const profilePlanName = currentAgent?.packageStatus === "ACTIVE" && currentAgent.packageName
     ? currentAgent.packageName
     : currentAgent?.packageName ?? "Free plan";
@@ -1581,7 +1612,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       showTopbar
       showTopbarLabel
       title={pageTitle}
-      topbarAccessory={canViewTeamData ? <AdminViewingContext agents={snapshot.visibleAgents} selectedAgentId={viewingAgentId} onChange={updateViewingAgent} /> : null}
+      topbarAccessory={canViewTeamData ? <AdminViewingContext agents={reportingAgents} selectedAgentId={viewingAgentId} onChange={updateViewingAgent} /> : null}
       topbarCenter={<GlobalAiToggleButton />}
     >
       <div className={isConversationTab ? "sales-theme-scope sales-theme-scope-chat" : "sales-theme-scope"} style={salesThemeStyle}>
@@ -1598,7 +1629,9 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                 </div>
                 <h2>Welcome back, {currentAgent?.displayName || "Closer"}</h2>
                 <p>
-                  Today&apos;s workspace focus: <strong>{simMetrics.totalCalls} calls logged</strong> (<strong>{formatTalkTime(simMetrics.totalTalkTimeSeconds)} talk time</strong>), <strong>{callbackLeads.length} callbacks scheduled</strong>, and <strong>{todayActionLeads.length} hot leads</strong> in active desk.
+                  {isWorkspaceAdmin
+                    ? <>Today&apos;s team report: <strong>{reportingAgents.length} sales users</strong>, <strong>{simMetrics.totalCalls} calls logged</strong> (<strong>{formatTalkTime(simMetrics.totalTalkTimeSeconds)} talk time</strong>), and <strong>{callbackLeads.length} callbacks due</strong>.</>
+                    : <>Today&apos;s workspace focus: <strong>{simMetrics.totalCalls} calls logged</strong> (<strong>{formatTalkTime(simMetrics.totalTalkTimeSeconds)} talk time</strong>), <strong>{callbackLeads.length} callbacks scheduled</strong>, and <strong>{todayActionLeads.length} hot leads</strong> in active desk.</>}
                 </p>
               </div>
 
@@ -1655,7 +1688,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                   onClick={() => navigateSales("calls")}
                   type="button"
                 >
-                  <PhoneCall size={16} /> SIM Call History &amp; Audio
+                  <PhoneCall size={16} /> {isWorkspaceAdmin ? "Review Team Calls &amp; Audio" : "SIM Call History &amp; Audio"}
                 </button>
               )}
               <button
@@ -1741,7 +1774,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                 {todayActionLeads.length}
               </div>
               <div className="sales-kpi-meta">
-                {snapshot.visibleLeads.length} total in pipeline
+                {dashboardLeads.length} total in pipeline
               </div>
             </div>
           </section>
@@ -1997,7 +2030,10 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
             </div>
           </div>
 
-          {/* 3. Rep's Personal Goal & Performance Tracker */}
+          {/* 3. Admin reporting replaces rep-only targets; closers keep their personal tracker. */}
+          {isWorkspaceAdmin ? (
+            <AdminTeamReportingPanel agents={reportingAgents} leads={dashboardLeads} calls={dashboardCalls} />
+          ) : (
           <div
             className="sales-goal-card"
             style={{
@@ -2131,6 +2167,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
               </div>
             </div>
           </div>
+          )}
 
         </section>
       ) : null}
@@ -2225,7 +2262,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                       transition: "all 0.15s ease",
                     }}
                   >
-                    <Building2 size={13} style={{ flexShrink: 0 }} /> All Company Leads ({snapshot.leads?.length || snapshot.visibleLeads.length})
+                    <Building2 size={13} style={{ flexShrink: 0 }} /> All Team Leads ({dashboardLeads.length})
                   </button> : null}
                   <button
                     type="button"
@@ -2245,7 +2282,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                       transition: "all 0.15s ease",
                     }}
                   >
-                    <User size={13} style={{ flexShrink: 0 }} /> {isCloser ? "My Leads" : "My Assigned"} ({snapshot.visibleLeads.length})
+                    <User size={13} style={{ flexShrink: 0 }} /> {isCloser ? "My Leads" : "Assigned Leads"} ({dashboardLeads.length})
                   </button>
                 </div>
 
@@ -2666,7 +2703,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
           {callsHubView === "all" || callsHubView === "history" ? (
             <Panel title="CRM call history & SIM Recordings" icon={PhoneCall} full>
               <div className="sales-table">
-                {snapshot.mobileCalls.map((call) => (
+                {dashboardCalls.map((call) => (
                   <div className="sales-table-row sales-table-row-rich" key={call.id}>
                     <div>
                       <strong>{call.customerName}</strong>
@@ -2682,7 +2719,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                     {call.recordingStatus === "UPLOADED" ? <CallRecordingPlayer callId={call.id} expectedDurationSeconds={call.durationSeconds} labelText={`${call.customerName} recording`} /> : <span />}
                   </div>
                 ))}
-                {!snapshot.mobileCalls.length ? <p className="muted-copy">Your synced call activity will appear here.</p> : null}
+                {!dashboardCalls.length ? <p className="muted-copy">Team call activity will appear here.</p> : null}
               </div>
             </Panel>
           ) : null}
@@ -2940,6 +2977,8 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
             onWhatsApp={sendLeadWhatsApp}
             operating={operating}
             snapshot={snapshot}
+            calls={dashboardCalls}
+            assignableAgents={reportingAgents}
           />
         </SalesSideDrawer>
       ) : null}
@@ -3402,6 +3441,8 @@ function LeadSourceBadge({ iconOnly = false, source }: { iconOnly?: boolean; sou
 }
 
 function LeadDetailForm({
+  assignableAgents,
+  calls,
   lead,
   onNote,
   onQuickFollowUp,
@@ -3415,6 +3456,8 @@ function LeadDetailForm({
   operating,
   snapshot,
 }: {
+  assignableAgents: SalesDashboardSnapshot["visibleAgents"];
+  calls: SalesDashboardSnapshot["mobileCalls"];
   lead: SalesDashboardSnapshot["visibleLeads"][number];
   onNote: (event: FormEvent<HTMLFormElement>, leadId: string) => void;
   onQuickFollowUp: (leadId: string, followUpAt: string) => Promise<boolean>;
@@ -3429,7 +3472,7 @@ function LeadDetailForm({
   snapshot: SalesDashboardSnapshot;
 }) {
   const leadTimeline = (operating?.timeline ?? []).filter((entry) => entry.leadId === lead.id);
-  const leadCalls = (snapshot.mobileCalls ?? []).filter(
+  const leadCalls = calls.filter(
     (c) => c.assignmentId === lead.id || (lead.customerPhone && cleanPhone(c.phoneNumber) === cleanPhone(lead.customerPhone))
   );
   const [meetDateTime, setMeetDateTime] = useState(() => {
@@ -3906,7 +3949,7 @@ function LeadDetailForm({
             defaultValue={lead.assignedAgentId}
             onChange={(event) => void onAssign(lead.id, event.target.value)}
           >
-            {snapshot.visibleAgents.filter((agent) => agent.status === "ACTIVE").map((agent) => (
+            {assignableAgents.filter((agent) => agent.status === "ACTIVE").map((agent) => (
               <option key={agent.id} value={agent.id}>{agent.displayName}</option>
             ))}
           </select>
@@ -3961,6 +4004,70 @@ function InfoRow({ meta, right, title }: { title: string; meta: string; right?: 
       </div>
       {right ? <span>{right}</span> : null}
     </div>
+  );
+}
+
+function AdminTeamReportingPanel({
+  agents,
+  calls,
+  leads,
+}: {
+  agents: SalesDashboardSnapshot["visibleAgents"];
+  calls: SalesDashboardSnapshot["mobileCalls"];
+  leads: SalesDashboardSnapshot["visibleLeads"];
+}) {
+  const rows = agents.map((agent) => {
+    const assignedLeads = leads.filter((lead) => lead.assignedAgentId === agent.id);
+    const agentCalls = calls.filter((call) => call.agentId === agent.id);
+    const connectedCalls = agentCalls.filter((call) => call.durationSeconds > 0 || call.status === "COMPLETED" || call.status === "CONNECTED");
+    return {
+      agent,
+      activeLeads: assignedLeads.filter((lead) => !["CLOSED_WON", "CLOSED_LOST", "CLOSED", "PAID"].includes(lead.stage)).length,
+      callbacks: assignedLeads.filter((lead) => Boolean(lead.followUpAt)).length,
+      calls: agentCalls.length,
+      connected: connectedCalls.length,
+      recordings: agentCalls.filter((call) => call.recordingStatus === "UPLOADED").length,
+    };
+  });
+
+  return (
+    <section aria-label="Team performance reporting" className="sales-goal-card" style={{ background: "var(--closer-surface, #ffffff)", border: "1px solid var(--closer-line, #cbd5e1)", borderRadius: "18px", padding: "20px 24px", boxShadow: "var(--shadow-card, 0 8px 24px rgba(15, 23, 42, 0.05))" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px", flexWrap: "wrap", marginBottom: "14px" }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "var(--closer-ink, #0f172a)" }}>Team performance &amp; ownership</h3>
+          <p style={{ margin: "4px 0 0", fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>Admin reporting view. Admin accounts are excluded; each row belongs to a sales or manager user.</p>
+        </div>
+        <span className="sales-chip neutral">{rows.length} reporting users</span>
+      </div>
+      {rows.length ? (
+        <div style={{ overflowX: "auto", border: "1px solid var(--closer-line, #cbd5e1)", borderRadius: "12px" }}>
+          <table className="crm-data-table" style={{ width: "100%", minWidth: "760px", borderCollapse: "collapse", textAlign: "left" }}>
+            <thead>
+              <tr>
+                <th style={{ padding: "11px 14px" }}>Sales user</th>
+                <th style={{ padding: "11px 14px" }}>Active leads</th>
+                <th style={{ padding: "11px 14px" }}>Calls</th>
+                <th style={{ padding: "11px 14px" }}>Connected</th>
+                <th style={{ padding: "11px 14px" }}>Callbacks</th>
+                <th style={{ padding: "11px 14px" }}>Recordings ready</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.agent.id} style={{ borderTop: "1px solid var(--closer-line, #cbd5e1)" }}>
+                  <td style={{ padding: "11px 14px" }}><strong>{row.agent.displayName}</strong><br /><small>{row.agent.email}</small></td>
+                  <td style={{ padding: "11px 14px" }}>{row.activeLeads}</td>
+                  <td style={{ padding: "11px 14px" }}>{row.calls}</td>
+                  <td style={{ padding: "11px 14px" }}>{row.connected}</td>
+                  <td style={{ padding: "11px 14px" }}>{row.callbacks}</td>
+                  <td style={{ padding: "11px 14px" }}>{row.recordings}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : <p className="muted-copy">No active sales users are available for reporting.</p>}
+    </section>
   );
 }
 
