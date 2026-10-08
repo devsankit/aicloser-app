@@ -35,13 +35,15 @@ test("admin dashboard is a team reporting view and excludes admin-owned work", (
   assert.match(dashboard, /Review Team Calls &amp; Audio/);
 });
 
-test("Plugins & Channels opens WhatsApp and Instagram setup panels in place", () => {
+test("Plugins & Channels routes channel setup to existing settings", () => {
   const pluginsHub = fs.readFileSync(new URL("../src/components/sales/plugins-hub.tsx", import.meta.url), "utf8");
-  assert.match(dashboard, /whatsAppCloudPanel=\{/);
-  assert.match(dashboard, /instagramPluginPanel=\{/);
-  assert.match(pluginsHub, /scrollIntoView\(\{ behavior: "smooth", block: "start" \}\)/);
-  assert.match(pluginsHub, /WhatsApp bulk marketing onboarding/);
-  assert.match(pluginsHub, /Connect WABA → register the phone → subscribe the webhook/);
+  assert.doesNotMatch(dashboard, /whatsAppCloudPanel=\{/);
+  assert.doesNotMatch(dashboard, /instagramPluginPanel=\{/);
+  assert.match(pluginsHub, /onOpenPluginSettings\?\.\(\)/);
+  assert.match(dashboard, /setSettingsHubView\("channels"\)/);
+  assert.match(dashboard, /navigateSales\("profile"\)/);
+  assert.match(dashboard, /<AdminWhatsAppSetupPanel/);
+  assert.match(dashboard, /<SuperAdminInstagramPluginCard/);
 });
 
 test("internal sidebar reserves space for its footer instead of covering the last menu item", () => {

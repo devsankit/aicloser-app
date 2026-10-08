@@ -2923,31 +2923,10 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
             instagramStatus={salesOperations.instagramConnection?.pluginEnabled ? "Plugin enabled" : "Needs setup"}
             onOpenMultiChannelChat={openSalesConversation}
             onNavigateTab={(tab: string) => navigateSales(tab)}
-            whatsAppCloudPanel={
-              isWorkspaceAdmin ? (
-                <AdminWhatsAppSetupPanel
-                  fallbackPhoneNumber={salesOperations.whatsAppConnection?.phoneNumber}
-                  initialConnection={salesOperations.whatsAppConnection}
-                  settingsHref={null}
-                  tenantId={salesOperations.tenantId}
-                  tenantOptions={salesOperations.whatsAppTenantOptions}
-                  variant="compact"
-                />
-              ) : (
-                <div className="brief-card"><strong>Workspace admin access required</strong><p className="muted-copy">Ask your workspace admin to connect WhatsApp Cloud API and enable bulk marketing.</p></div>
-              )
-            }
-            instagramPluginPanel={
-              isWorkspaceAdmin ? (
-                <SuperAdminInstagramPluginCard
-                  initialConnection={salesOperations.instagramConnection}
-                  setupUrls={salesOperations.instagramSetupUrls}
-                  variant="default"
-                />
-              ) : (
-                <div className="brief-card"><strong>Workspace admin access required</strong><p className="muted-copy">Ask your workspace admin to connect Instagram Business permissions.</p></div>
-              )
-            }
+            onOpenPluginSettings={() => {
+              setSettingsHubView("channels");
+              navigateSales("profile");
+            }}
           />
         </section>
       ) : null}

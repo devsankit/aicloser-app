@@ -198,7 +198,9 @@ type FacebookSdk = {
 
 const META_SIGNUP_STORAGE_KEY = "gigxomi-meta-whatsapp-signup-result";
 const META_EMBEDDED_SIGNUP_APP_ID = "1385995129001581";
-const META_EMBEDDED_SIGNUP_CONFIG_ID = "";
+// Embedded Signup configuration IDs are public launch parameters; keep the
+// app secret and authorization-code exchange on the server.
+const META_EMBEDDED_SIGNUP_CONFIG_ID = "899249879744989";
 const META_EMBEDDED_SIGNUP_VERSION = "v4";
 const META_SESSION_INFO_VERSION = "3";
 const META_SIGNUP_CODE_FALLBACK_MS = 1000 * 60 * 2;

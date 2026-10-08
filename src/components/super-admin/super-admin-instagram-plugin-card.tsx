@@ -34,6 +34,18 @@ type ApiPayload = {
   connection?: InstagramPluginConnectionView;
 };
 
+function getDisplaySetupUrl(value: string) {
+  try {
+    const url = new URL(value);
+    if (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "gigxomi.com" || url.hostname.endsWith(".gigxomi.com")) {
+      return `https://app.aicloser.in${url.pathname}${url.search}${url.hash}`;
+    }
+  } catch {
+    // Keep malformed setup values visible so the admin can correct them.
+  }
+  return value;
+}
+
 function getAccountLabel(connection: InstagramPluginConnectionView) {
   if (!connection) {
     return "No account connected yet";
@@ -75,23 +87,27 @@ export function SuperAdminInstagramPluginCard({
 
     setIsSaving(true);
     setStatusMessage(null);
-    const response = await fetch("/api/super-admin/plugins/instagram-inbox", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pluginEnabled: nextEnabled }),
-    });
-    const payload = (await response.json().catch(() => ({}))) as ApiPayload;
+    try {
+      const response = await fetch("/api/super-admin/plugins/instagram-inbox", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pluginEnabled: nextEnabled }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as ApiPayload;
 
-    if (!response.ok || payload.ok === false) {
-      setStatusMessage(payload.error ?? "Unable to update Instagram Inbox plugin.");
+      if (!response.ok || payload.ok === false) {
+        setStatusMessage(payload.error ?? "Unable to update Instagram Inbox plugin. Check your admin access and try again.");
+        return;
+      }
+
+      setConnection(payload.connection ?? null);
+      setStatusMessage(nextEnabled ? "Instagram Inbox plugin enabled. You can connect permissions now." : "Instagram Inbox plugin disabled.");
+    } catch {
+      setStatusMessage("Instagram Inbox could not be updated. Check your connection and try again.");
+    } finally {
       setIsSaving(false);
-      return;
     }
-
-    setConnection(payload.connection ?? null);
-    setStatusMessage(nextEnabled ? "Instagram Inbox plugin enabled. You can connect permissions now." : "Instagram Inbox plugin disabled.");
-    setIsSaving(false);
   }
 
   async function copySetupUrl(label: string, value: string) {
@@ -133,7 +149,7 @@ export function SuperAdminInstagramPluginCard({
         <div className="brief-card">
           <span className="meta-pill">Webhook remains</span>
           <strong>Existing inbox feed</strong>
-          <p className="muted-copy">This does not change the webhook URL; it only refreshes the token used to reply from Gigxomi.</p>
+          <p className="muted-copy">This does not change the webhook URL; it only refreshes the token used to reply from AI Closer.</p>
         </div>
       </div>
 
@@ -148,10 +164,10 @@ export function SuperAdminInstagramPluginCard({
       ) : (
         <div className="brief-grid two-up">
           {[
-            ["OAuth redirect URI", setupUrls.oauthRedirectUri],
-            ["Deauthorize callback URL", setupUrls.deauthorizeCallbackUrl],
-            ["Data deletion request URL", setupUrls.dataDeletionRequestUrl],
-            ["Webhook callback URL", setupUrls.webhookCallbackUrl],
+            ["OAuth redirect URI", getDisplaySetupUrl(setupUrls.oauthRedirectUri)],
+            ["Deauthorize callback URL", getDisplaySetupUrl(setupUrls.deauthorizeCallbackUrl)],
+            ["Data deletion request URL", getDisplaySetupUrl(setupUrls.dataDeletionRequestUrl)],
+            ["Webhook callback URL", getDisplaySetupUrl(setupUrls.webhookCallbackUrl)],
           ].map(([label, value]) => (
             <div className="brief-card" key={label}>
               <span className="meta-pill">{label}</span>
