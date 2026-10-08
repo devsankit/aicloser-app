@@ -5,6 +5,7 @@ import android.Manifest
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
+import android.content.pm.PackageManager
 import android.app.role.RoleManager
 import android.content.Intent
 import android.net.Uri
@@ -51,6 +52,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -225,6 +227,17 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
         add(Manifest.permission.RECORD_AUDIO); add(Manifest.permission.READ_CONTACTS)
         if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
     }.toTypedArray()
+    fun continueSetup() {
+        if (permissions.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }) {
+            if (Build.VERSION.SDK_INT >= 29 && roleManager?.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING) == true && !roleManager.isRoleHeld(RoleManager.ROLE_CALL_SCREENING)) {
+                roleLauncher.launch(roleManager.createRequestRoleIntent(RoleManager.ROLE_CALL_SCREENING))
+            } else {
+                finishSetupWithOverlay()
+            }
+        } else {
+            permissionLauncher.launch(permissions)
+        }
+    }
     Page(vertical = true) {
         BrandHeader("Set up company phone", "Native Android call context and CRM sync")
         GxCard {
@@ -233,7 +246,7 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
             FeatureRow(Icons.Default.Sync, "Offline continuity", "Queue call-end events and mandatory notes until the connection returns.")
             FeatureRow(Icons.Default.Notifications, "Lead context", "Show the assigned lead and post-call action without display-over-app access.")
             Text("Android and device manufacturers can restrict call audio. GXClosers reports recording failures instead of pretending audio was captured.", color = GxWarning, fontSize = 12.sp)
-            PrimaryButton("Grant permissions and register", vm.busy) { permissionLauncher.launch(permissions) }
+            PrimaryButton("Grant permissions and register", vm.busy) { continueSetup() }
         }
     }
 }
