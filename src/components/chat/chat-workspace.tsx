@@ -20,7 +20,6 @@ import {
   Check,
   CheckCheck,
   CheckCircle2,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleOff,
@@ -1155,6 +1154,49 @@ function getConversationSourceChannel(
   return "whatsapp";
 }
 
+const WHATSAPP_CUSTOMER_CARE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+function getWhatsAppReplyWindow(
+  conversation: DummyConversationView | null | undefined,
+  nowMs: number,
+) {
+  if (!conversation || getConversationSourceChannel(conversation) !== "whatsapp") {
+    return null;
+  }
+
+  let latestInboundMs = Number(new Date(conversation.lastCustomerActivityAt).getTime());
+  for (const message of conversation.messages ?? []) {
+    if (message.lane !== "customer" || message.senderRole !== "customer") {
+      continue;
+    }
+    const messageMs = Number(new Date(message.createdAt).getTime());
+    if (Number.isFinite(messageMs) && messageMs > latestInboundMs) {
+      latestInboundMs = messageMs;
+    }
+  }
+
+  if (!Number.isFinite(latestInboundMs) || latestInboundMs <= 0) {
+    return null;
+  }
+
+  const expiresAt = latestInboundMs + WHATSAPP_CUSTOMER_CARE_WINDOW_MS;
+  return {
+    expiresAt,
+    remainingMs: expiresAt - nowMs,
+    isOpen: expiresAt > nowMs,
+  };
+}
+
+function formatReplyWindowRemaining(remainingMs: number) {
+  const totalMinutes = Math.max(1, Math.ceil(Math.max(0, remainingMs) / 60_000));
+  if (totalMinutes < 60) {
+    return `${totalMinutes}m`;
+  }
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+}
+
 function parseChannelFilter(value: string | null): ChannelFilter {
   return value === "instagram" || value === "whatsapp" ? value : "all";
 }
@@ -2042,25 +2084,17 @@ export function ChatWorkspace({
     };
   }, [isDetailsOpen, activeConversation?.id]);
 
-  const activeLeadStatus =
-    CLOSER_CANONICAL_LEAD_STATUSES.find(
-      (status) =>
-        status.id === activeConversation?.leadStatusId ||
-        (activeConversation?.leadStatusId === "new-leads" && status.id === "new") ||
-        (activeConversation?.leadStatusId === "closed-won" && status.id === "closed") ||
-        (activeConversation?.leadStatusId === "interested" && status.id === "qualified")
-    ) ??
-    leadStatuses.find((status) => status.id === activeConversation?.leadStatusId) ??
-    CLOSER_CANONICAL_LEAD_STATUSES[0];
   const activeAssignedEditor = assignableEditors.find((editor) => editor.id === activeAssignment?.assignedFreelancerId) ?? null;
   const activeFreelancerLanePermission = activeConversation?.freelancerCustomerLanePermission ?? null;
   const activePendingOffer = activeConversation?.myAssignmentOffer ?? activeAssignment?.myOffer ?? null;
   const activeLaneCapabilities = activeConversation?.laneCapabilities ?? null;
-  const activeLeadStatusLabel = activeLeadStatus?.label || activeConversation?.leadStatusLabel?.trim() || "New Leads";
-  const activeLeadStatusTone = activeLeadStatus?.tone ?? activeConversation?.leadStatusTone ?? "accent";
   const activeCustomerName = activeConversation?.customerDisplayName?.trim() || "Unknown customer";
   const activeServiceTitle = activeConversation?.serviceTitle?.trim() || "";
   const activeCustomerPhone = activeConversation?.customerPhoneDisplay?.trim() || "Customer contact hidden";
+  const whatsappReplyWindow = useMemo(
+    () => getWhatsAppReplyWindow(activeConversation, presenceNowMs),
+    [activeConversation, presenceNowMs],
+  );
 
   useEffect(() => {
     if (!activeConversation?.id) { setRegistrationStatus(null); return; }
@@ -5721,39 +5755,6 @@ export function ChatWorkspace({
               <div className="chat-thread-head-copy">
                 <div className="chat-thread-head-title">
                   <strong title={activeCustomerName}>{activeCustomerName}</strong>
-                  {(() => {
-                    const badgeCfg = getLeadBadgeConfig(
-                      activeConversation.leadStatusId,
-                      activeConversation.leadStatusLabel || activeLeadStatusLabel,
-                      activeConversation.leadStatusTone || activeLeadStatusTone
-                    );
-                    return (
-                      <button
-                        type="button"
-                        onClick={() => setIsLeadStatusMenuOpen((prev) => !prev)}
-                        className="chat-thread-top-label-badge"
-                        style={{
-                          background: badgeCfg.bg,
-                          borderColor: badgeCfg.border,
-                          color: badgeCfg.text,
-                          boxShadow: badgeCfg.glow,
-                          cursor: "pointer",
-                          marginLeft: "6px",
-                        }}
-                        title={`Click to change status (current: ${badgeCfg.label})`}
-                      >
-                        <span
-                          className="chat-thread-top-label-dot"
-                          style={{
-                            backgroundColor: badgeCfg.dot,
-                            boxShadow: badgeCfg.dot ? `0 0 6px ${badgeCfg.dot}` : undefined,
-                          }}
-                        />
-                        <span>{badgeCfg.label}</span>
-                        <ChevronDown size={11} style={{ opacity: 0.7 }} />
-                      </button>
-                    );
-                  })()}
                   {activeConversation.sourceChannel === "whatsapp" ? (
                     <span className="chat-source-chip whatsapp">WhatsApp</span>
                   ) : activeConversation.sourceChannel === "instagram" ? (
@@ -5766,6 +5767,30 @@ export function ChatWorkspace({
                   </span>
                   {typingMessage ? <span className="chat-thread-presence is-typing">{typingMessage.label} is typing...</span> : null}
                   {!typingMessage && customerPresenceLabel ? <span className="chat-thread-presence">{customerPresenceLabel}</span> : null}
+                  {whatsappReplyWindow ? (
+                    <span
+                      className={cx(
+                        "chat-reply-window",
+                        whatsappReplyWindow.isOpen
+                          ? whatsappReplyWindow.remainingMs <= 2 * 60 * 60 * 1000
+                            ? "warning"
+                            : "open"
+                          : "closed",
+                      )}
+                      title={
+                        whatsappReplyWindow.isOpen
+                          ? `Meta 24-hour WhatsApp customer-care window closes ${new Date(whatsappReplyWindow.expiresAt).toLocaleString("en-IN")}`
+                          : "Meta 24-hour WhatsApp customer-care window is closed"
+                      }
+                    >
+                      <Clock size={11} strokeWidth={2} />
+                      <span>
+                        {whatsappReplyWindow.isOpen
+                          ? `Reply window: ${formatReplyWindowRemaining(whatsappReplyWindow.remainingMs)} left`
+                          : "Reply window closed"}
+                      </span>
+                    </span>
+                  ) : null}
                 </div>
                 {false && registrationStatus ? (
                   <div className="crm-status-icon-bar" style={{ display: "flex", alignItems: "center", gap: "7px", marginTop: "6px", flexWrap: "wrap" }}>
@@ -6135,25 +6160,6 @@ export function ChatWorkspace({
               {(audience === "admin" || audience === "manager" || audience === "sales") ? (
                 <>
                   <div className="chat-thread-head-action-group chat-status-notes-actions">
-                    <div style={{ position: "relative", display: "inline-block" }}>
-                      <button
-                        type="button"
-                        className={cx("chat-status-pill", `tone-${activeLeadStatusTone}`, isLeadStatusMenuOpen && "active")}
-                        onClick={() => {
-                          setIsLeadStatusMenuOpen((current) => !current);
-                          setIsNotesMenuOpen(false);
-                          setIsAssignMenuOpen(false);
-                          setIsDetailsOpen(false);
-                        }}
-                        title={`Lead stage: ${activeLeadStatusLabel} (click to update)`}
-                      >
-                        <span className={cx("chat-head-icon-dot", `tone-${activeLeadStatusTone}`)} style={{ display: "inline-block", width: "7px", height: "7px", borderRadius: "50%" }} />
-                        <span>{activeLeadStatusLabel}</span>
-                        <span style={{ fontSize: "9px", opacity: 0.6 }}>▼</span>
-                      </button>
-                      {renderLeadStatusPopover()}
-                    </div>
-
                     <div style={{ position: "relative", display: "inline-block" }}>
                       <button
                         type="button"
