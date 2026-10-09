@@ -248,6 +248,15 @@ function isMetaSignupOrigin(origin: string) {
   }
 }
 
+function isMetaJsSdkAllowedForCurrentOrigin() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const hostname = window.location.hostname.toLowerCase();
+  return hostname !== "localhost" && hostname !== "127.0.0.1" && hostname !== "::1";
+}
+
 function ensureFacebookSdkLoaded() {
   if (typeof window === "undefined") {
     return Promise.reject(new Error("Facebook SDK is only available in the browser."));
@@ -1636,7 +1645,7 @@ export function AdminWhatsAppSetupPanel({
 
       let resultPromise: Promise<MetaEmbeddedSignupSignal>;
       if (mode === "popup") {
-        if (isFacebookSdkReady) {
+        if (isFacebookSdkReady && isMetaJsSdkAllowedForCurrentOrigin()) {
           resultPromise = launchEmbeddedSignupPopup(connection);
         } else {
           const fallbackPopup = window.open(buildEmbeddedSignupUrl(connection), "_blank", "popup,width=1040,height=760");
@@ -2079,7 +2088,7 @@ export function AdminWhatsAppSetupPanel({
         : isFacebookSdkReady
           ? ""
           : "Loading Meta popup";
-  const setupButtonDisabled = isSaving || isLaunching || !isFacebookSdkReady;
+  const setupButtonDisabled = isSaving || isLaunching;
   const manualOverrides = normalizeManualOverrides(connection.manualOverrides);
   const activeManualOverrideLabels = DUMMY_WHATSAPP_MANUAL_OVERRIDE_KEYS.filter((key) => manualOverrides[key]).map(
     (key) => WHATSAPP_MANUAL_OVERRIDE_LABELS[key],
