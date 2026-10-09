@@ -26,15 +26,11 @@ export function classifyInboundAttachmentIntent(name?: string | null, mimeType?:
 }
 
 export function buildInboundAttachmentAcknowledgement(intent: InboundAttachmentIntent) {
-  if (intent === "portfolio") {
-    return "Got it, maine aapka portfolio/work link receive kar liya. Aap kis type ke video editing projects par focus karte ho?";
-  }
-  if (intent === "document") {
-    return "Got it, file receive ho gayi. Main is context ke saath aage help karti hoon. Aap abhi kitne projects handle kar rahe ho?";
-  }
-  if (intent === "media") {
-    return "Got it, media receive ho gaya. Main aapke work context ke saath aage badhti hoon. Aapka current editing setup kya hai?";
-  }
-  return "Got it, aapka message receive ho gaya. Main aapki requirement samajhne ke liye kuch quick questions poochti hoon.";
+  // This is only a local attachment label. It must never look like a reply
+  // written by the customer or replace the exact body received from Meta.
+  if (intent === "portfolio") return "Portfolio link received.";
+  if (intent === "document") return "Document received from WhatsApp.";
+  if (intent === "media") return "Media received from WhatsApp.";
+  return "Attachment received from WhatsApp.";
 }
 

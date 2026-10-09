@@ -820,6 +820,12 @@ function visibleBody(message: DummyConversationView["messages"][number]) {
   return normalizeAutomatedChatMessageBody(message.body);
 }
 
+function isSyntheticInboundAttachmentNote(value: string | null | undefined) {
+  return /^(got it|attachment received|document received|media received|portfolio link received|.*receive ho (gaya|gayi|ho gayi))/i.test(
+    String(value ?? "").trim(),
+  );
+}
+
 function getInternalDeliveryStatus(
   message: DummyConversationView["messages"][number],
   audience: DummyConversationRole,
@@ -4399,15 +4405,8 @@ export function ChatWorkspace({
       setComposerStatus(payload?.error ?? "Lead status could not be updated.");
       return;
     }
-    const metaInfo = payload?.meta;
     const statusLabel = targetStatus?.label ?? leadStatusId;
-    let feedback = `Lead stage updated to "${statusLabel}".`;
-    if (metaInfo?.sent) {
-      feedback = `Stage: ${statusLabel} • Meta CAPI confirmed (${metaInfo.eventName ?? "Lead"}: Delivered to Ads Manager)`;
-    } else if (metaInfo?.enqueued) {
-      feedback = `Stage: ${statusLabel} • Meta CAPI conversion queued for sync (${metaInfo.eventName ?? "Lead"})`;
-    }
-    setComposerStatus(feedback);
+    setComposerStatus(`Lead stage updated to "${statusLabel}".`);
     if (payload?.conversation) {
       syncConversationLocally(payload.conversation, "lead-status");
     }
@@ -4777,9 +4776,6 @@ export function ChatWorkspace({
             <span style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "rgba(255, 255, 255, 0.7)" }}>
               Select Lead Stage
             </span>
-            <span style={{ fontSize: "10px", color: "#34d399", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: "3px" }}>
-              <Zap size={10} /> Meta CAPI Synced
-            </span>
           </div>
           <div className="chat-status-list" style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
             {statusesToRender.map((status) => {
@@ -4790,32 +4786,6 @@ export function ChatWorkspace({
                 (currentStatusId === "closed-won" && status.id === "closed") ||
                 (currentStatusId === "interested" && status.id === "qualified") ||
                 (currentStatusId === "webinar-invited" && status.id === "training-booked");
-
-              let capiBadge: string | null = null;
-              let badgeColor = "#34d399";
-              let badgeBg = "rgba(16, 185, 129, 0.18)";
-
-              if (status.id === "closed") {
-                capiBadge = "Purchase (₹2k)";
-                badgeColor = "#4ade80";
-                badgeBg = "rgba(34, 197, 94, 0.22)";
-              } else if (status.id === "training-booked") {
-                capiBadge = "Schedule";
-                badgeColor = "#fb923c";
-                badgeBg = "rgba(249, 115, 22, 0.22)";
-              } else if (status.id === "qualified") {
-                capiBadge = "Qualified";
-                badgeColor = "#38bdf8";
-                badgeBg = "rgba(56, 189, 248, 0.2)";
-              } else if (status.id === "contacted") {
-                capiBadge = "Contact";
-                badgeColor = "#a78bfa";
-                badgeBg = "rgba(167, 139, 250, 0.2)";
-              } else if (status.id === "new") {
-                capiBadge = "Lead";
-                badgeColor = "#34d399";
-                badgeBg = "rgba(16, 185, 129, 0.2)";
-              }
 
               return (
                 <button
@@ -4847,14 +4817,7 @@ export function ChatWorkspace({
                     />
                     <span>{status.label}</span>
                   </span>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                    {capiBadge ? (
-                      <span style={{ fontSize: "9px", padding: "2px 6px", borderRadius: "4px", background: badgeBg, color: badgeColor, fontWeight: 700 }}>
-                        {capiBadge}
-                      </span>
-                    ) : null}
-                    {isCurrent ? <Check size={14} strokeWidth={2.5} /> : null}
-                  </span>
+                  {isCurrent ? <Check size={14} strokeWidth={2.5} /> : null}
                 </button>
               );
             })}
@@ -5203,179 +5166,63 @@ export function ChatWorkspace({
     const hasPrimaryEditor = Boolean(activeAssignment?.assignedFreelancerId);
 
     return (
-      <div className="chat-control-popover chat-assign-popover">
-        {hasPrimaryEditor ? (
-          <div className="chat-assignment-decision">
-            <p className="section-label">Primary editor</p>
-            <strong>{activeAssignment?.assignedFreelancerName}</strong>
-            <p>Choose what the selected editor should do. Viewers can read the project lane but cannot reply.</p>
-            <div className="chat-assignment-decision-grid">
-              <button
-                className={assignmentMode === "replace" ? "chat-assignment-decision-option active" : "chat-assignment-decision-option"}
-                onClick={() => {
-                  setAssignmentMode("replace");
-                  setSelectedAssignEditorIds((current) => current.slice(0, 1));
-                }}
-                type="button"
-              >
-                <strong>Replace primary</strong>
-                <span>Send one editor an offer. If accepted, the current primary becomes read-only.</span>
-              </button>
-              <button
-                className={assignmentMode === "viewer" ? "chat-assignment-decision-option active" : "chat-assignment-decision-option"}
-                onClick={() => setAssignmentMode("viewer")}
-                type="button"
-              >
-                <strong>Add lane viewers</strong>
-                <span>Add multiple editors immediately with read-only access.</span>
-              </button>
-            </div>
-            <button
-              className="chat-assignment-unassign"
-              disabled={isRemovingAssignment || isSendingAssignmentOffer || isAssigningDirectly}
-              onClick={() => handleRemoveEditorAssignment().catch(() => undefined)}
-              type="button"
-            >
-              <CircleOff size={18} strokeWidth={1.8} />
-              <span>
-                <strong>{isRemovingAssignment ? "Removing editor..." : "Set to No editor"}</strong>
-                <small>Remove the primary editor, lane viewers, and pending offers.</small>
-              </span>
-            </button>
+      <div className="chat-control-popover chat-assign-popover" role="dialog" aria-label="Assign chat agent">
+        <div className="chat-assign-heading">
+          <div>
+            <strong>Assign agent</strong>
+            <p>Choose an active team member from this workspace.</p>
           </div>
-        ) : null}
+          {hasPrimaryEditor ? <span className="chat-assign-current">Assigned: {activeAssignment?.assignedFreelancerName}</span> : null}
+        </div>
         <label className="chat-picker-search">
           <Search size={13} strokeWidth={1.8} />
-          <input onChange={(event) => setAssignSearchValue(event.target.value)} placeholder="Search editor, skill, workload, karma" value={assignSearchValue} />
+          <input onChange={(event) => setAssignSearchValue(event.target.value)} placeholder="Search team member" value={assignSearchValue} />
         </label>
-        {assignCategoryOptions.length ? (
-          <div className="chat-assign-filter-block">
-            <div className="chat-assign-chip-row">
-              <button className={assignCategoryFilter === "all" ? "chat-assign-chip active" : "chat-assign-chip"} onClick={() => setAssignCategoryFilter("all")} type="button">
-                All
-              </button>
-              {assignCategoryOptions.map((category) => (
-                <button
-                  className={assignCategoryFilter === category.value ? "chat-assign-chip active" : "chat-assign-chip"}
-                  key={category.value}
-                  onClick={() => setAssignCategoryFilter(category.value)}
-                  type="button"
-                >
-                  {category.label}
-                </button>
-              ))}
-            </div>
-            <div className="chat-assign-bulk-row">
-              <button
-                className="ui-button-secondary"
-                disabled={!filteredAssignableEditorIds.length || (hasPrimaryEditor && assignmentMode === "replace")}
-                onClick={() =>
-                  setSelectedAssignEditorIds((current) =>
-                    allFilteredAssignableEditorsSelected
-                      ? current.filter((id) => !filteredAssignableEditorIds.includes(id))
-                      : Array.from(new Set([...current, ...filteredAssignableEditorIds])),
-                  )
-                }
-                type="button"
-              >
-                {hasPrimaryEditor && assignmentMode === "replace"
-                  ? "Choose one editor"
-                  : allFilteredAssignableEditorsSelected
-                    ? "Clear filtered"
-                    : "Select all filtered"}
-              </button>
-              <span>{selectedAssignEditorIds.length} selected</span>
-            </div>
-          </div>
-        ) : null}
         <div className="chat-assign-list">
           {hasLoadedSupportData ? filteredAssignableEditors.map((editor) => (
             <button
-              className="chat-assign-item"
+              className={cx("chat-assign-item", selectedAssignEditorIds.includes(editor.id) && "selected", editor.id === activeAssignment?.assignedFreelancerId && "current")}
               disabled={editor.id === activeAssignment?.assignedFreelancerId}
               key={editor.id}
-              onClick={() =>
-                setSelectedAssignEditorIds((current) =>
-                  current.includes(editor.id)
-                    ? current.filter((id) => id !== editor.id)
-                    : hasPrimaryEditor && assignmentMode === "replace"
-                      ? [editor.id]
-                      : [...current, editor.id],
-                )
-              }
+              onClick={() => setSelectedAssignEditorIds([editor.id])}
               type="button"
             >
-              <div>
-                <strong>
-                  {editor.id === activeAssignment?.assignedFreelancerId
-                    ? "Current primary: "
-                    : selectedAssignEditorIds.includes(editor.id)
-                      ? "Selected: "
-                      : ""}
-                  {editor.name}
-                </strong>
-                <p>{editor.specialties.join(" • ")}</p>
+              <span className="chat-assign-avatar"><UserRound size={16} strokeWidth={1.8} /></span>
+              <div className="chat-assign-item-copy">
+                <strong>{editor.name}</strong>
+                <p>{editor.onlineStatus === "online" ? "Online" : "Offline"}</p>
               </div>
-              <span>
-                {editor.onlineStatus === "offline"
-                  ? "Offline"
-                  : editor.acceptingProjects === false
-                    ? "Offers paused"
-                    : editor.onlineStatus === "online"
-                      ? "Online"
-                      : "Availability unknown"} • {editor.workloadBand} • Karma {editor.karmaScore}
-              </span>
+              {selectedAssignEditorIds.includes(editor.id) ? <Check size={16} strokeWidth={2.2} /> : null}
             </button>
           )) : null}
-          {isSupportDataLoading || !hasLoadedSupportData ? <p className="chat-picker-empty">Loading freelancers...</p> : null}
+          {isSupportDataLoading || !hasLoadedSupportData ? <p className="chat-picker-empty">Loading team members...</p> : null}
           {hasLoadedSupportData && !filteredAssignableEditors.length ? (
             <p className="chat-picker-empty">
               {assignableEditors.length
-                ? "No confirmed editors matched that search."
-                : "No confirmed editors are active in this agency team yet. Invite an editor and complete acceptance first."}
+                ? "No team member matched that search."
+                : "No active team members are available in this workspace."}
             </p>
           ) : null}
         </div>
         <div className="chat-assign-footer">
-          {!hasPrimaryEditor || assignmentMode === "replace" ? (
-            <textarea
-              className="chat-picker-textarea"
-              onChange={(event) => setAssignmentDetailsDraft(event.target.value)}
-              placeholder="Project details included with the offer or direct assignment"
-              rows={3}
-              value={assignmentDetailsDraft}
-            />
-          ) : null}
-          <div className="chat-assign-action-grid">
-            {!hasPrimaryEditor || assignmentMode === "replace" ? (
-              <button
-                className="chat-assign-direct-button"
-                disabled={selectedAssignEditorIds.length !== 1 || isSendingAssignmentOffer || isAssigningDirectly || isRemovingAssignment}
-                onClick={() => handleAssign("", "direct").catch(() => undefined)}
-                type="button"
-              >
-                {isAssigningDirectly ? "Assigning directly..." : hasPrimaryEditor ? "Replace directly" : "Assign directly"}
-              </button>
-            ) : null}
+          <button
+            className="chat-assign-direct-button"
+            disabled={selectedAssignEditorIds.length !== 1 || isSendingAssignmentOffer || isAssigningDirectly || isRemovingAssignment}
+            onClick={() => handleAssign("", "direct").catch(() => undefined)}
+            type="button"
+          >
+            {isAssigningDirectly ? "Assigning..." : "Assign agent"}
+          </button>
+          {hasPrimaryEditor ? (
             <button
-              className="ui-button-primary"
-              disabled={!selectedAssignEditorIds.length || isSendingAssignmentOffer || isAssigningDirectly || isRemovingAssignment}
-              onClick={() => handleAssign("", "offer").catch(() => undefined)}
+              className="chat-assignment-unassign chat-assignment-unassign-compact"
+              disabled={isRemovingAssignment || isAssigningDirectly}
+              onClick={() => handleRemoveEditorAssignment().catch(() => undefined)}
               type="button"
             >
-              {isSendingAssignmentOffer
-                ? assignmentMode === "viewer" && hasPrimaryEditor
-                  ? "Adding viewers..."
-                  : "Sending offer..."
-                : hasPrimaryEditor && assignmentMode === "viewer"
-                  ? `Add ${selectedAssignEditorIds.length || 0} read-only viewer${selectedAssignEditorIds.length === 1 ? "" : "s"}`
-                  : hasPrimaryEditor
-                    ? "Send replacement offer"
-                    : `Send offer to ${selectedAssignEditorIds.length || 0} editor${selectedAssignEditorIds.length === 1 ? "" : "s"}`}
+              <CircleOff size={15} strokeWidth={1.8} />
+              <span>{isRemovingAssignment ? "Removing..." : "Remove assignment"}</span>
             </button>
-          </div>
-          {!hasPrimaryEditor || assignmentMode === "replace" ? (
-            <small className="chat-assign-direct-help">Direct assignment skips the 10-minute offer and grants primary reply access immediately.</small>
           ) : null}
         </div>
       </div>
@@ -6750,7 +6597,7 @@ export function ChatWorkspace({
                                   <div className="chat-attachment-body">
                                     <strong>{displayAttachmentName(attachment)}</strong>
                                     <span>{attachmentSubtitle}</span>
-                                    {attachment.note && !linkedPayment ? <p>{normalizeDisplayText(attachment.note)}</p> : null}
+                                    {attachment.note && !linkedPayment && !isSyntheticInboundAttachmentNote(attachment.note) ? <p>{normalizeDisplayText(attachment.note)}</p> : null}
                                   </div>
                                 )}
                                 <AttachmentPreview attachment={attachment} />
@@ -6950,99 +6797,20 @@ export function ChatWorkspace({
                   <span>Hide this customer-lane message from freelancer</span>
                 </label>
               ) : null}
-              {(audience === "admin" || audience === "manager" || audience === "sales") ? (
-                <div className="chat-sales-macro-bar" style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  padding: "6px 12px",
-                  background: "rgba(255, 255, 255, 0.03)",
-                  borderTop: "1px solid rgba(255, 255, 255, 0.08)",
-                  borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
-                  overflowX: "auto",
-                  fontSize: "11px"
-                }}>
-                  <span style={{ color: "rgba(255, 255, 255, 0.4)", fontWeight: 600, fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                    Macros:
-                  </span>
-                  
-                  {/* 1. Send Free CRM Access Link */}
-                  <button
-                    type="button"
-                    className="ui-button-secondary"
-                    style={{ padding: "3px 8px", fontSize: "11px", height: "auto", display: "inline-flex", alignItems: "center", gap: "4px" }}
-                    onClick={() => {
-                      setMessageDraft("Here is your direct access link to explore AIcloser SIM Telecalling CRM: https://closer.gigxomi.com/signup \n\nNo credit card required to start tracking SIM calls and team leads.");
-                    }}
-                  >
-                    <ExternalLink size={12} /> Free CRM Trial Link
-                  </button>
-
-                  {/* 2. Schedule Follow-up Callback */}
-                  <button
-                    type="button"
-                    className="ui-button-secondary"
-                    style={{ padding: "3px 8px", fontSize: "11px", height: "auto", display: "inline-flex", alignItems: "center", gap: "4px", color: "#f59e0b" }}
-                    onClick={async () => {
-                      setMessageDraft("I've scheduled a quick follow-up call with our senior product specialist. Let us know if you prefer morning (10 AM - 1 PM) or evening (3 PM - 6 PM).");
-                      if (activeConversation?.id) {
-                        await handleLeadStatusChange("callback-requested").catch(() => undefined);
-                      }
-                    }}
-                  >
-                    <PhoneForwarded size={12} /> Schedule Callback
-                  </button>
-
-                  {/* 3. Send Plan Link */}
-                  <button
-                    type="button"
-                    className="ui-button-secondary"
-                    style={{ padding: "3px 8px", fontSize: "11px", height: "auto", display: "inline-flex", alignItems: "center", gap: "4px" }}
-                    onClick={() => {
-                      setMessageDraft("Here is the activation link for your AIcloser Sales CRM plan with unlimited SIM call tracking and team lead routing: https://closer.gigxomi.com/signup");
-                    }}
-                  >
-                    <CreditCard size={12} /> CRM Plan Subscription
-                  </button>
-
-                  {/* 4. Book 5-Min Walkthrough & Training */}
-                  <button
-                    type="button"
-                    className="ui-button-secondary"
-                    style={{ padding: "3px 8px", fontSize: "11px", height: "auto", display: "inline-flex", alignItems: "center", gap: "4px" }}
-                    onClick={() => {
-                      setMessageDraft("Would you like a quick 5-minute live screen share walkthrough on Google Meet to set up your SIM call tracking, audio sync, and team lead pipeline? Let me know a convenient time between 10 AM and 7 PM!");
-                    }}
-                  >
-                    <Calendar size={12} /> Book Demo
-                  </button>
-
-                  <button
-                    type="button"
-                    className="ui-button-secondary"
-                    style={{ padding: "3px 8px", fontSize: "11px", height: "auto", display: "inline-flex", alignItems: "center", gap: "4px", color: "#38bdf8", borderColor: "rgba(56, 189, 248, 0.4)" }}
-                    onClick={async () => {
-                      await handleLeadStatusChange("training-booked").catch(() => undefined);
-                    }}
-                    title="Mark lead as Training Booked for Anshita/team to call"
-                  >
-                    <CheckCircle2 size={12} /> Mark Training Booked
-                  </button>
-
-                  {/* 5. Fire Meta CAPI Purchase */}
-                  <button
-                    type="button"
-                    className="ui-button-primary"
-                    style={{ padding: "3px 10px", fontSize: "11px", height: "auto", display: "inline-flex", alignItems: "center", gap: "4px", background: "#10b981", borderColor: "#059669" }}
-                    onClick={async () => {
-                      if (!confirm("Confirm ₹2,000 payment received? This will update lead to Closed Won and dispatch a conversion to Meta Ads Manager.")) return;
-                      await handleLeadStatusChange("closed").catch(() => undefined);
-                    }}
-                  >
-                    <BadgeCheck size={12} /> Closed Won (Fire CAPI)
-                  </button>
-                </div>
-              ) : null}
+              <div className="chat-instant-reply-bar">
+                <button
+                  className="chat-instant-reply-button"
+                  disabled={isFreelancerCustomerLaneReadOnly}
+                  onClick={() => {
+                    setMessageDraft("Thanks for your message. We’ve received it and will get back to you shortly.");
+                    composerTextareaRef.current?.focus();
+                  }}
+                  type="button"
+                >
+                  <Zap size={13} strokeWidth={1.9} /> Instant Reply
+                </button>
+                <span>Fills the composer; review before sending.</span>
+              </div>
               <div className={hasDraft ? "chat-composer-bar has-draft" : "chat-composer-bar"}>
               <button
                 aria-label="Open attachment options"
@@ -7126,7 +6894,7 @@ export function ChatWorkspace({
           {isDetailsOpen ? (
             <ChatDetailsSheet eyebrow="CRM Lead 360" onClose={() => setIsDetailsOpen(false)} title={activeCustomerName}>
               <div className={styles.detailsGrid}>
-                {/* 1. Prominent Lead Stage & Meta CAPI Card */}
+                {/* 1. Lead stage */}
                 <div
                   className="chat-context-card"
                   style={{
@@ -7139,10 +6907,10 @@ export function ChatWorkspace({
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
                     <span style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--color-primary)", display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                      <Sparkles size={11} /> Lead Stage &amp; Meta CAPI
+                      <Sparkles size={11} /> Lead Stage
                     </span>
                     <span style={{ fontSize: "10px", padding: "2px 8px", borderRadius: "12px", background: "rgba(16, 185, 129, 0.2)", color: "#34d399", fontWeight: 700 }}>
-                      ● Kanban Synced
+                      ● Synced
                     </span>
                   </div>
                   <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>

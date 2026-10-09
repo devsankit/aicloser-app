@@ -4,7 +4,6 @@ import type { SalesLeadStage } from "@prisma/client";
 import { getConversationViewForSession } from "@/lib/api/conversation-view-response";
 import { requireSessionRole } from "@/lib/api/require-session-role";
 import { updateConversationLeadStatusFromFile } from "@/lib/gigxomi/dummy-platform-file-store";
-import { syncLeadStatusToMetaAndOutbox } from "@/lib/gigxomi/lead-status-meta-sync";
 import { prisma } from "@/lib/prisma";
 import { persistRealtimeEvent } from "@/lib/realtime/event-outbox";
 
@@ -119,14 +118,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     }
   }
 
-  // Synchronize conversion to Meta CAPI & Realtime SSE
-  const syncResult = await syncLeadStatusToMetaAndOutbox({
-    conversationId: id,
-    leadStatusId,
-    notes: typeof body.notes === "string" ? body.notes : undefined,
-    actorUserId: authorization.session.userId,
-  });
-
   const conversationView = await getConversationViewForSession(authorization.session, id);
   await persistRealtimeEvent({
     topic: `tenant:${authorization.session.tenantId ?? "tenant-gigxomi"}`,
@@ -141,6 +132,5 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     ok: true,
     persisted: true,
     conversation: conversationView,
-    meta: syncResult.meta,
   });
 }

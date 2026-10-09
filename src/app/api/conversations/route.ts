@@ -137,10 +137,10 @@ export async function GET(request: Request) {
 
     assignableEditors = managedUsers
       .map((user: ManagedAuthUser) => ({ user, editor: findConfirmedAgencyEditorForManagedUser(user, confirmedEditors) }))
-      .filter(
-        ({ user, editor }) =>
-          Boolean(editor) || (user.packageStatus !== "PAUSED" && user.packageStatus !== "EXPIRED"),
-      )
+      // Assignment must stay inside the current tenant's active team. Do not
+      // fall back to every active/seeded freelancer account; that was the
+      // source of unrelated dummy people appearing in the chat picker.
+      .filter(({ editor }) => Boolean(editor))
       .filter((entry, index, entries) => entries.findIndex((candidate) => candidate.user.id === entry.user.id) === index)
       .map(({ user, editor }) => {
         const profileRecord = profilesByUserId.get(user.id);

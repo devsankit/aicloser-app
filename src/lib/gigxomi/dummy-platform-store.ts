@@ -21,10 +21,13 @@ import { crmContacts, crmStatuses, crmTemplates } from "@/lib/gigxomi/crm-data";
 import { normalizeInstagramGraphApiVersion, sendInstagramTextMessage } from "@/lib/gigxomi/meta-instagram";
 import { whatsappMessageIdsMatch } from "@/lib/gigxomi/whatsapp-message-id";
 
-const LEGACY_META_WHATSAPP_APP_ID = "1385995129001581";
-const LEGACY_META_WHATSAPP_CONFIG_ID = "899249879744989";
-const PRODUCTION_META_WHATSAPP_APP_ID = "948301758190635";
-const PRODUCTION_META_WHATSAPP_CONFIG_ID = "1982640385723187";
+// AIcloser has its own Meta app. Keep these defaults local to the AIcloser
+// deployment so a saved Gigxomi connection can never silently become the
+// onboarding target for an AIcloser workspace.
+const AICLOSER_META_WHATSAPP_APP_ID = "1385995129001581";
+const AICLOSER_META_WHATSAPP_CONFIG_ID = "899249879744989";
+const GIGXOMI_META_WHATSAPP_APP_ID = "948301758190635";
+const GIGXOMI_META_WHATSAPP_CONFIG_ID = "1982640385723187";
 // The public Gigxomi authentication line must retain an intake route even if
 // Meta rotates its phone-number ID before the saved connection metadata is
 // refreshed. This is deliberately an exact, normalized number match.
@@ -33,21 +36,21 @@ export const GIGXOMI_REVIEW_FLOW_ID = "2443042916182000";
 export const GIGXOMI_PROJECT_INTAKE_FLOW_ID = "4530865463862015";
 const PROJECT_OFFER_WINDOW_MS = 10 * 60 * 1000;
 
-function replaceLegacyMetaId(value: string, legacyValue: string, productionValue: string) {
+function normalizeAiCloserMetaId(value: string, aiCloserValue: string, foreignValue: string) {
   const normalized = value.trim();
-  // Explicit app IDs must survive reads: AiCloser and Gigxomi are separate apps.
-  return normalized || (legacyValue === LEGACY_META_WHATSAPP_APP_ID ? LEGACY_META_WHATSAPP_APP_ID : "");
+  if (!normalized || normalized === foreignValue) return aiCloserValue;
+  return normalized;
 }
 
-const DEFAULT_META_WHATSAPP_APP_ID = replaceLegacyMetaId(
+const DEFAULT_META_WHATSAPP_APP_ID = normalizeAiCloserMetaId(
   process.env.META_WHATSAPP_APP_ID?.trim() || process.env.FACEBOOK_APP_ID?.trim() || process.env.META_APP_ID?.trim() || "",
-  LEGACY_META_WHATSAPP_APP_ID,
-  PRODUCTION_META_WHATSAPP_APP_ID,
+  AICLOSER_META_WHATSAPP_APP_ID,
+  GIGXOMI_META_WHATSAPP_APP_ID,
 );
-const DEFAULT_META_WHATSAPP_CONFIG_ID = replaceLegacyMetaId(
+const DEFAULT_META_WHATSAPP_CONFIG_ID = normalizeAiCloserMetaId(
   process.env.META_WHATSAPP_CONFIG_ID?.trim() || process.env.FACEBOOK_CONFIG_ID?.trim() || process.env.META_CONFIG_ID?.trim() || "",
-  LEGACY_META_WHATSAPP_CONFIG_ID,
-  PRODUCTION_META_WHATSAPP_CONFIG_ID,
+  AICLOSER_META_WHATSAPP_CONFIG_ID,
+  GIGXOMI_META_WHATSAPP_CONFIG_ID,
 );
 const DEFAULT_META_WHATSAPP_SESSION_INFO_VERSION = process.env.META_WHATSAPP_SESSION_INFO_VERSION?.trim() || "3";
 const DEFAULT_META_WHATSAPP_EMBEDDED_SIGNUP_VERSION = process.env.META_WHATSAPP_EMBEDDED_SIGNUP_VERSION?.trim() || "v4";
@@ -1260,7 +1263,7 @@ function createDefaultCustomerPrivacySettings(tenantId = "tenant-gigxomi"): Dumm
 
 function formatBytes(sizeBytes?: number) {
   if (!sizeBytes || Number.isNaN(sizeBytes) || sizeBytes <= 0) {
-    return "Local file";
+    return "File attachment";
   }
 
   const units = ["B", "KB", "MB", "GB"];
@@ -2524,10 +2527,9 @@ export function projectConversation(
     audience === "customer" ? ["customer"] : audience === "freelancer" && !customerLaneVisible ? ["internal"] : ["customer", "internal"];
   const sourceChannel = normalizeConversationSourceChannel(conversation);
   const rawBusinessPhone = getWhatsAppConnectionState(conversation.tenantId)?.phoneNumber?.trim() || "";
-  const closerConnectedPhone = process.env.CLOSER_WHATSAPP_PHONE_NUMBER?.trim() || "+91 99933 28124";
   const businessPhoneDisplay =
     sourceChannel === "whatsapp" && audience !== "freelancer"
-      ? (rawBusinessPhone && !rawBusinessPhone.includes("99818") ? rawBusinessPhone : closerConnectedPhone)
+      ? rawBusinessPhone
       : "";
 
   return {
@@ -4312,11 +4314,10 @@ export function listConversationsForAudience(
 
       if (audience === "sales") {
         const targetTenant = options?.tenantId?.trim();
-        const matchesTenant =
-          !targetTenant ||
-          conversation.tenantId === targetTenant ||
-          (targetTenant.startsWith("tenant-gigxomi-sales-agent-") &&
-            (conversation.tenantId === "tenant-gigxomi" || conversation.tenantId === targetTenant));
+        // A conversation belongs to exactly one workspace. The old
+        // tenant-gigxomi fallback leaked legacy/demo threads into other
+        // sales accounts after login; keep the inbox strictly tenant-scoped.
+        const matchesTenant = !targetTenant || conversation.tenantId === targetTenant;
         if (!matchesTenant) {
           return false;
         }
@@ -4584,7 +4585,7 @@ function getConversationMessageSenderLabel(
     return conversation.assignedFreelancerName || "Freelancer";
   }
   if (role === "admin") {
-    return "Gigxomi Studio";
+    return "Admin";
   }
   if (role === "manager") {
     return conversation.ownerName || "Manager";
@@ -4971,7 +4972,7 @@ export function assignConversation(
       ? conversation.freelancerCustomerLaneAccessGrantedByName
       : undefined,
     ownerRole: assignedBy,
-    ownerName: assignedBy === "admin" ? "Gigxomi Studio" : conversation.ownerName || "Rahul Manager",
+    ownerName: assignedBy === "admin" ? "Admin" : conversation.ownerName || "Rahul Manager",
     messages: [...conversation.messages, assignmentNote],
     updatedAt,
   };
@@ -5071,7 +5072,7 @@ export function assignConversationDirectly(
       ? conversation.freelancerCustomerLaneAccessGrantedByName
       : undefined,
     ownerRole: assignedBy,
-    ownerName: assignedBy === "admin" ? "Gigxomi Studio" : conversation.ownerName || "Rahul Manager",
+    ownerName: assignedBy === "admin" ? "Admin" : conversation.ownerName || "Rahul Manager",
     messages: [...conversation.messages, assignmentNote],
     readStateByAudience: markReadState(conversation.readStateByAudience, assignedBy, updatedAt, "internal"),
     updatedAt,
@@ -5309,7 +5310,7 @@ export function respondToConversationAssignment(
       freelancerName: conversation.assignedFreelancerName || conversation.assignedFreelancerId,
       addedAt: updatedAt,
       addedByRole: offer?.offeredByRole ?? "admin",
-      addedByName: offer?.offeredByName || "Gigxomi Studio",
+      addedByName: offer?.offeredByName || "Admin",
     });
   }
   const responseNote: DummyConversationMessage = {
@@ -5674,7 +5675,7 @@ export async function createManualConversation(input: {
     summary: template?.content?.trim() || `Conversation created for ${input.customerName.trim() || "new contact"}`,
     internalNotes: "",
     ownerRole: input.role,
-    ownerName: input.role === "admin" ? "Gigxomi Studio" : input.role === "sales" ? "GXclosers" : "Rahul Manager",
+    ownerName: input.role === "admin" ? "Admin" : input.role === "sales" ? "Sales" : "Rahul Manager",
     readStateByAudience: {
       [input.role]: createdAt,
     },
@@ -5689,7 +5690,7 @@ export async function createManualConversation(input: {
               id: makeId("msg"),
               lane: "customer",
               senderRole: input.role,
-              senderLabel: input.role === "admin" ? "Gigxomi Studio" : input.role === "sales" ? "GXclosers" : "Rahul Manager",
+              senderLabel: input.role === "admin" ? "Admin" : input.role === "sales" ? "Sales" : "Rahul Manager",
               body: template.content.trim(),
               createdAt,
             },
@@ -6288,15 +6289,15 @@ export function getWhatsAppConnectionState(tenantId = "tenant-gigxomi") {
     return null;
   }
 
-  const metaAppId = replaceLegacyMetaId(
+  const metaAppId = normalizeAiCloserMetaId(
     state.metaAppId ?? "",
-    LEGACY_META_WHATSAPP_APP_ID,
-    PRODUCTION_META_WHATSAPP_APP_ID,
+    AICLOSER_META_WHATSAPP_APP_ID,
+    GIGXOMI_META_WHATSAPP_APP_ID,
   );
-  const metaConfigId = replaceLegacyMetaId(
+  const metaConfigId = normalizeAiCloserMetaId(
     state.metaConfigId ?? "",
-    LEGACY_META_WHATSAPP_CONFIG_ID,
-    PRODUCTION_META_WHATSAPP_CONFIG_ID,
+    AICLOSER_META_WHATSAPP_CONFIG_ID,
+    GIGXOMI_META_WHATSAPP_CONFIG_ID,
   );
   const sessionInfoVersion = state.sessionInfoVersion?.trim() || metaSeed.sessionInfoVersion || "3";
   const embeddedSignupVersion = normalizeEmbeddedSignupVersion(state.embeddedSignupVersion || metaSeed.embeddedSignupVersion);

@@ -231,11 +231,9 @@ export async function getConversationAccessForSession(session: SessionLike, conv
 
   if (session.role === "SALES_AGENT") {
     const effectiveSessionTenant = session.tenantId?.trim() || "tenant-gigxomi";
-    const isLegacyGigxomi = effectiveSessionTenant === "tenant-gigxomi";
-
-    const isAuthorizedTenant = isLegacyGigxomi
-      ? conversation.tenantId === "tenant-gigxomi" || Boolean(conversation.tenantId?.startsWith("tenant-gigxomi-sales-agent-"))
-      : conversation.tenantId === effectiveSessionTenant;
+    // Keep each sales inbox isolated to the tenant that owns the login. Never
+    // use the legacy shared Gigxomi tenant as a cross-account fallback.
+    const isAuthorizedTenant = conversation.tenantId === effectiveSessionTenant;
 
     if (!isAuthorizedTenant) {
       return { ok: false as const, reason: "forbidden" as const };

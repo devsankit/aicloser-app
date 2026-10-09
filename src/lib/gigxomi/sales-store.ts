@@ -11,7 +11,6 @@ import type { AppRole } from "@/lib/auth/types";
 import { listMobilePushTokens, sendMobilePushNotifications } from "@/lib/mobile-push-store";
 import { prisma } from "@/lib/prisma";
 import { buildSiteUrl } from "@/lib/seo/company-knowledge-base";
-import { syncLeadStatusToMetaAndOutbox } from "@/lib/gigxomi/lead-status-meta-sync";
 
 export type SalesAgentStatus = "PENDING" | "ACTIVE" | "SUSPENDED";
 export type SalesLeadStage =
@@ -1027,6 +1026,10 @@ export async function ensureAffiliateProfile(userId: string, parentAgentId?: str
     profile = await prisma.salesAgentProfile.create({
       data: {
         userId: user.id,
+        // Production enforces tenant ownership on every sales profile. Keep
+        // the legacy bootstrap path tenant-scoped as well so an account can
+        // never be provisioned with a null tenantId.
+        tenantId: user.tenantId ?? "tenant-gigxomi",
         agentCode,
         groupId,
         parentAgentId: parentAgentId ?? null,
@@ -1252,7 +1255,12 @@ export async function getSalesSnapshotForRole(
       orderBy: [{ isActive: "desc" }, { name: "asc" }],
     }),
     prisma.salesAgentProfile.findMany({
-      where: isSuperAdminAll ? undefined : { user: { tenantId: effectiveTenantId } },
+      where: {
+        user: {
+          isSeeded: false,
+          ...(isSuperAdminAll ? {} : { tenantId: effectiveTenantId }),
+        },
+      },
       include: { user: true },
       orderBy: { createdAt: "desc" },
     }),
@@ -2316,16 +2324,6 @@ export async function updateSalesLeadStage(input: { leadId: string; stage: Sales
         }
       } catch {}
     }
-  }
-
-  // Synchronize to Meta CAPI & Realtime SSE on Kanban drag/drop
-  if (targetConvId) {
-    syncLeadStatusToMetaAndOutbox({
-      conversationId: targetConvId,
-      leadStatusId,
-      notes: input.note,
-      actorUserId: input.actorUserId ?? undefined,
-    }).catch((err) => console.error("[sales-store] Meta CAPI sync error on stage change:", err));
   }
 
   return mapLead(lead);
