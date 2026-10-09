@@ -7,6 +7,7 @@
 - Live browser smoke-tested the Dashboard, CRM Pipeline & Kanban, Call Recordings & Missed Call History, Reports & Lead-IQ, and Live Multi-Channel Chat screens.
 - Live chat shows one combined `Notes & Callback` action, with no duplicate note/callback controls.
 - Mobile disposition now writes notes and callback time to the tenant-scoped linked `AppConversation` payload and emits a tenant realtime `lead.updated` event.
+- WhatsApp mock/setup flow no longer fabricates a phone number; without a real Meta phone response the channel remains `PENDING_VERIFICATION`.
 - Android release package is `com.gigxomi.crm`, version `1.0.15` (versionCode `15`).
 - Both QA emulators are running the package and reach the login screen.
 - Android unit tests, debug lint, release APK, and release AAB builds completed successfully.
@@ -16,6 +17,7 @@
 - `e451feb` — combine chat notes and callback action.
 - `9db827d` — set Android release package to `com.gigxomi.crm`.
 - `dbb02c7` — sync mobile call dispositions with chat leads.
+- `f6aec3d` — remove fake WhatsApp connection identity and align contracts with dashboard/package behavior.
 
 ## Release artifacts
 
@@ -28,4 +30,4 @@
 
 The live workspace still needs two UI-created QA users before the emulator call journey can run. The form is prepared, but the final `Create User Account` action requires explicit confirmation because it creates real live workspace accounts. Until that action is confirmed, the following remain unverified: separate mobile logins, connected and missed calls, call duration and recording playback, and cross-surface sync through chat, Kanban, call history, dashboard, mobile, and role-wise reports.
 
-The full legacy contract suite currently reports 104 passing and 5 failures. Those failures are stale expectations for the dashboard redirect default, the old Android package ID, the removed hardcoded WhatsApp test number, and the intentionally removed CAPI status hook; they do not override the live smoke-test results above.
+The targeted extraction and WhatsApp contract suite now passes 22/22 after updating expectations to the current dashboard redirect, `com.gigxomi.crm` package, no hardcoded WhatsApp phone, and realtime-only lead status behavior. A complete suite rerun is still separate from the pending live two-user call journey.
