@@ -4,6 +4,9 @@ import test from "node:test";
 
 const dashboard = fs.readFileSync(new URL("../src/components/sales/sales-dashboard.tsx", import.meta.url), "utf8");
 const dashboardRoute = fs.readFileSync(new URL("../src/app/dashboard/page.tsx", import.meta.url), "utf8");
+const salesRoute = fs.readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+const impersonateRoute = fs.readFileSync(new URL("../src/app/api/super-admin/impersonate/route.ts", import.meta.url), "utf8");
+const impersonateReturnRoute = fs.readFileSync(new URL("../src/app/api/super-admin/impersonate/return/route.ts", import.meta.url), "utf8");
 const permissionsRoute = fs.readFileSync(new URL("../src/app/api/sales/roles/features/route.ts", import.meta.url), "utf8");
 const rolePanel = fs.readFileSync(new URL("../src/components/sales/role-permissions-panel.tsx", import.meta.url), "utf8");
 const leadNotes = fs.readFileSync(new URL("../src/components/sales/lead-notes-manager.tsx", import.meta.url), "utf8");
@@ -17,9 +20,10 @@ test("lead form builder receives the authenticated workspace admin role", () => 
   assert.doesNotMatch(dashboard, /<LeadFormBuilder\s+isAdmin=\{true\}/);
 });
 
-test("closer navigation stays limited to the closer workspace surface", () => {
-  assert.match(dashboard, /tabs\.filter\(\(tab\) => \["dashboard", "crm", "grab-leads", "conversations", "payments"\]\.includes\(tab\.id\)\)/);
+test("closer navigation includes private contacts and lead import tools", () => {
+  assert.match(dashboard, /tabs\.filter\(\(tab\) => \["dashboard", "crm", "grab-leads", "contacts", "lead-import", "conversations", "payments"\]\.includes\(tab\.id\)\)/);
   assert.match(dashboard, /const isCloser = !isWorkspaceAdmin && effectiveWorkspaceRole === "SALES_AGENT"/);
+  assert.match(dashboard, /personalWhatsAppOnly=\{isCloser\}/);
 });
 
 test("admin navigation does not expose the closer-only grab leads queue", () => {
@@ -28,13 +32,21 @@ test("admin navigation does not expose the closer-only grab leads queue", () => 
 });
 
 test("call recordings stay on their own live call-history page", () => {
-  assert.match(dashboard, /const nextTab = \(isWorkspaceAdmin && section === "calls" \? "reports" : section\) as SalesTab/);
-  assert.doesNotMatch(dashboard, /const nextTab = section as SalesTab/);
+  assert.match(dashboard, /const nextTab = section as SalesTab/);
+  assert.doesNotMatch(dashboard, /isWorkspaceAdmin && section === "calls"/);
+  assert.match(dashboard, /activeTab === "calls" \|\| activeTab === "campaigns"/);
+  assert.match(dashboard, /activeTab === "reports"/);
   assert.match(dashboard, /<BarChart3 size=\{16\} \/> Open Team Report/);
   assert.match(dashboard, /isCloser \? \([\s\S]*?Grab next lead[\s\S]*?\) : isWorkspaceAdmin \? \([\s\S]*?Open Team Report[\s\S]*?\) : \(/);
   assert.match(dashboard, /Call Recordings & Missed Call History/);
   assert.match(dashboard, /Missed call history/);
   assert.doesNotMatch(dashboard, /ReferralCommissionPanel/);
+});
+
+test("payment workspace inherits the active light theme", () => {
+  assert.match(globalStyles, /\.light \.sales-theme-scope \.upi-create-form/);
+  assert.match(globalStyles, /\.light \.sales-theme-scope \.upi-main-grid > section/);
+  assert.match(globalStyles, /\.light \.sales-theme-scope \.upi-total-card/);
 });
 
 test("admin dashboard is a team reporting view and excludes admin-owned work", () => {
@@ -74,6 +86,16 @@ test("internal sidebar reserves space for its footer instead of covering the las
 
 test("the direct dashboard route accepts the manager workspace role", () => {
   assert.match(dashboardRoute, /requirePageRole\(\["SALES_AGENT", "ADMIN", "MANAGER"\]/);
+});
+
+test("impersonated workspace admins can deep-link to calls and reports", () => {
+  assert.match(salesRoute, /agentPermissions\.workspaceAdmin === true/);
+  assert.match(salesRoute, /if \(!isWorkspaceAdmin && session\.role === "SALES_AGENT"/);
+  assert.match(impersonateRoute, /const impersonatedRole = targetPermissions\.workspaceAdmin === true/);
+  assert.match(impersonateRoute, /role: impersonatedRole/);
+  assert.match(impersonateRoute, /assignedRole: impersonatedRole/);
+  assert.match(impersonateReturnRoute, /Location: path/);
+  assert.doesNotMatch(impersonateReturnRoute, /new URL\("\/super-admin", url\.origin\)/);
 });
 
 test("open dashboards refresh role permissions without blocking CRM refresh", () => {

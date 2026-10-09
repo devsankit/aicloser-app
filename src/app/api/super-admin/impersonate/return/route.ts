@@ -5,25 +5,29 @@ import { clearImpersonationCookies, SUPER_ADMIN_RETURN_COOKIE_NAME } from "@/lib
 import { SESSION_COOKIE_NAME } from "@/lib/auth/session";
 import { verifySessionToken } from "@/lib/auth/token";
 
+function redirectPath(path: string) {
+  // Keep the Location header relative. Behind the production proxy,
+  // request.url can expose the internal localhost:3050 origin; an absolute
+  // redirect would leak that internal host and strand the restored session.
+  return new NextResponse(null, { status: 303, headers: { Location: path } });
+}
+
 async function handleReturn(request: Request) {
   const cookieStore = await cookies();
   const superAdminToken = cookieStore.get(SUPER_ADMIN_RETURN_COOKIE_NAME)?.value;
 
-  const url = new URL(request.url);
-  const targetDestination = new URL("/super-admin", url.origin);
-
   if (!superAdminToken) {
-    return NextResponse.redirect(new URL("/super-admin/login", url.origin), 303);
+    return redirectPath("/super-admin/login");
   }
 
   const verified = await verifySessionToken(superAdminToken);
   if (!verified || verified.role !== "SUPER_ADMIN") {
-    const errorResponse = NextResponse.redirect(new URL("/super-admin/login?error=Invalid+session", url.origin), 303);
+    const errorResponse = redirectPath("/super-admin/login?error=Invalid+session");
     clearImpersonationCookies(errorResponse);
     return errorResponse;
   }
 
-  const response = NextResponse.redirect(targetDestination, 303);
+  const response = redirectPath("/super-admin");
 
   // Restore Super Admin session cookie
   const expires = new Date(verified.expiresAt);

@@ -2523,6 +2523,220 @@ select option:focus {
   text-align: left;
 }
 
+/* Sales dialogs inherit the active Light/Dark theme instead of shipping a
+   separate hard-coded dark surface. Keep the backdrop dim, but make every
+   modal card and form control use the shared design tokens. */
+.sales-theme-scope .sales-modal-card,
+.sales-theme-scope [role="dialog"][aria-label="Review payment screenshot"] > section {
+  background: var(--color-surface) !important;
+  color: var(--color-text-primary) !important;
+  border-color: var(--color-border) !important;
+  box-shadow: var(--shadow-card) !important;
+}
+
+.sales-theme-scope .sales-modal-card h1,
+.sales-theme-scope .sales-modal-card h2,
+.sales-theme-scope .sales-modal-card h3,
+.sales-theme-scope .sales-modal-card h4,
+.sales-theme-scope .sales-modal-card label {
+  color: var(--color-text-primary) !important;
+}
+
+.sales-theme-scope .sales-modal-card input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),
+.sales-theme-scope .sales-modal-card select,
+.sales-theme-scope .sales-modal-card textarea,
+.sales-theme-scope [role="dialog"][aria-label="Review payment screenshot"] input,
+.sales-theme-scope [role="dialog"][aria-label="Review payment screenshot"] select,
+.sales-theme-scope [role="dialog"][aria-label="Review payment screenshot"] textarea {
+  background: var(--color-surface-soft) !important;
+  color: var(--color-text-primary) !important;
+  border-color: var(--color-border-strong) !important;
+}
+
+.sales-theme-scope .sales-modal-card input::placeholder,
+.sales-theme-scope .sales-modal-card textarea::placeholder {
+  color: var(--color-text-muted) !important;
+}
+
+.sales-theme-scope .sales-modal-card .sales-modal-backdrop,
+.sales-theme-scope .sales-modal-backdrop {
+  color-scheme: inherit;
+}
+
+/* Payment workspace panels were historically authored with dark-only inline
+   colors. Keep the existing dark presentation, but make Light mode use the
+   same app surfaces, controls, borders, and readable text as the rest of the
+   dashboard. */
+[data-theme="light"] .sales-theme-scope .upi-create-form,
+[data-theme="light"] .sales-theme-scope .upi-main-grid > section,
+[data-theme="light"] .sales-theme-scope .upi-main-grid + section {
+  background: var(--color-surface) !important;
+  color: var(--color-text-primary) !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme="light"] .sales-theme-scope .upi-kpis > div {
+  background: var(--color-surface) !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme="light"] .sales-theme-scope .upi-create-form label,
+[data-theme="light"] .sales-theme-scope .upi-create-form .upi-section-heading,
+[data-theme="light"] .sales-theme-scope .upi-main-grid > section,
+[data-theme="light"] .sales-theme-scope .upi-main-grid + section {
+  color: var(--color-text-primary) !important;
+}
+
+[data-theme="light"] .sales-theme-scope .upi-create-form input,
+[data-theme="light"] .sales-theme-scope .upi-create-form select,
+[data-theme="light"] .sales-theme-scope .upi-create-form textarea,
+[data-theme="light"] .sales-theme-scope .upi-main-grid input,
+[data-theme="light"] .sales-theme-scope .upi-main-grid select,
+[data-theme="light"] .sales-theme-scope .upi-main-grid textarea {
+  background: var(--color-surface-soft) !important;
+  color: var(--color-text-primary) !important;
+  border-color: var(--color-border-strong) !important;
+}
+
+[data-theme="light"] .sales-theme-scope .upi-rule-summary,
+[data-theme="light"] .sales-theme-scope .upi-preview-validity,
+[data-theme="light"] .sales-theme-scope .upi-settings-divider {
+  background: var(--color-surface-soft) !important;
+  color: var(--color-text-primary) !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme="light"] .sales-theme-scope .upi-helper,
+[data-theme="light"] .sales-theme-scope .upi-rule-summary span,
+[data-theme="light"] .sales-theme-scope .upi-rule-summary small,
+[data-theme="light"] .sales-theme-scope .upi-settings-divider p,
+[data-theme="light"] .sales-theme-scope .upi-settings-divider small {
+  color: var(--color-text-secondary) !important;
+}
+
+[data-theme="light"] .sales-theme-scope .upi-main-grid + section table {
+  color: var(--color-text-primary) !important;
+}
+
+[data-theme="light"] .sales-theme-scope .upi-main-grid + section th,
+[data-theme="light"] .sales-theme-scope .upi-main-grid + section small {
+  color: var(--color-text-secondary) !important;
+}
+
+[data-theme="light"] .sales-theme-scope .upi-create-form > .upi-primary-fields,
+[data-theme="light"] .sales-theme-scope .upi-create-form > .upi-customer-fields,
+[data-theme="light"] .sales-theme-scope .upi-create-form > .upi-section-heading {
+  background: var(--color-surface-soft) !important;
+  color: var(--color-text-primary) !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme="light"] .sales-theme-scope .upi-main-grid > section h2,
+[data-theme="light"] .sales-theme-scope .upi-main-grid > section p {
+  color: var(--color-text-primary) !important;
+}
+
+[data-theme="light"] .sales-theme-scope .upi-main-grid > section p {
+  color: var(--color-text-secondary) !important;
+}
+
+[data-theme="light"] .sales-theme-scope .upi-main-grid > section:has(.upi-preview-validity) > div:nth-of-type(3) {
+  color: var(--color-text-primary) !important;
+}
+
+[data-theme="light"] .sales-theme-scope .upi-main-grid > section:has(.upi-preview-validity) > div:last-child {
+  background: var(--color-primary-soft) !important;
+  border-color: var(--color-primary-border) !important;
+  color: var(--color-text-secondary) !important;
+}
+
+[data-theme="light"] .sales-theme-scope > div > header h1,
+[data-theme="light"] .sales-theme-scope > div > header p,
+[data-theme="light"] .sales-theme-scope .upi-kpis > div > div,
+[data-theme="light"] .sales-theme-scope .upi-kpis > div > strong {
+  color: var(--color-text-primary) !important;
+}
+
+[data-theme="light"] .sales-theme-scope > div > header p {
+  color: var(--color-text-secondary) !important;
+}
+
+[data-theme="light"] .sales-theme-scope .sales-modal-card p,
+[data-theme="light"] .sales-theme-scope .sales-modal-card span,
+[data-theme="light"] .sales-theme-scope .sales-modal-card small,
+[data-theme="light"] .sales-theme-scope [role="dialog"][aria-label="Review payment screenshot"] p {
+  color: var(--color-text-secondary) !important;
+}
+
+[data-theme="light"] .sales-theme-scope .sales-modal-card strong,
+[data-theme="light"] .sales-theme-scope [role="dialog"][aria-label="Review payment screenshot"] strong {
+  color: var(--color-text-primary) !important;
+}
+
+/* The sales shell currently exposes its light preference through the
+   `.light` class in some routes and through `data-theme` in others. Keep the
+   payment workspace readable in both cases; otherwise its dark-only inline
+   styles override the rest of the light dashboard. */
+.light .sales-theme-scope .upi-create-form,
+.light .sales-theme-scope .upi-main-grid > section,
+.light .sales-theme-scope .upi-main-grid + section,
+.light .sales-theme-scope .upi-kpis > div {
+  background: var(--color-surface) !important;
+  color: var(--color-text-primary) !important;
+  border-color: var(--color-border) !important;
+}
+
+.light .sales-theme-scope .upi-create-form label,
+.light .sales-theme-scope .upi-create-form .upi-section-heading,
+.light .sales-theme-scope .upi-main-grid > section,
+.light .sales-theme-scope .upi-main-grid + section,
+.light .sales-theme-scope .upi-main-grid > section h2,
+.light .sales-theme-scope .upi-main-grid > section strong,
+.light .sales-theme-scope .upi-main-grid > section span {
+  color: var(--color-text-primary) !important;
+}
+
+.light .sales-theme-scope .upi-helper,
+.light .sales-theme-scope .upi-rule-summary span,
+.light .sales-theme-scope .upi-rule-summary small,
+.light .sales-theme-scope .upi-main-grid > section p,
+.light .sales-theme-scope .upi-main-grid > section small,
+.light .sales-theme-scope .upi-main-grid + section th,
+.light .sales-theme-scope .upi-main-grid + section small {
+  color: var(--color-text-secondary) !important;
+}
+
+.light .sales-theme-scope .upi-create-form input,
+.light .sales-theme-scope .upi-create-form select,
+.light .sales-theme-scope .upi-create-form textarea,
+.light .sales-theme-scope .upi-main-grid input,
+.light .sales-theme-scope .upi-main-grid select,
+.light .sales-theme-scope .upi-main-grid textarea,
+.light .sales-theme-scope .upi-rule-summary,
+.light .sales-theme-scope .upi-preview-validity,
+.light .sales-theme-scope .upi-settings-divider {
+  background: var(--color-surface-soft) !important;
+  color: var(--color-text-primary) !important;
+  border-color: var(--color-border-strong) !important;
+}
+
+.light .sales-theme-scope .upi-total-card {
+  background: var(--color-primary-soft) !important;
+  border-color: var(--color-primary-border) !important;
+  color: var(--color-text-secondary) !important;
+}
+
+.light .sales-theme-scope .upi-total-card strong,
+.light .sales-theme-scope .upi-eyebrow {
+  color: var(--color-primary) !important;
+}
+
+.light .sales-theme-scope .upi-main-grid > section:has(.upi-preview-validity) > div:last-child {
+  background: var(--color-primary-soft) !important;
+  border-color: var(--color-primary-border) !important;
+  color: var(--color-text-secondary) !important;
+}
+
 /* UPI payment settings use the same compact, stacked field rhythm as the rest
    of the AI Closer dark workspace. The panel is embedded in the dashboard, so
    keep this scoped to the second card in the payment grid. */
@@ -3708,6 +3922,56 @@ select option:focus {
   background: var(--color-border);
 }
 
+.sales-import-template-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--closer-soft, rgba(148, 163, 184, 0.08));
+  padding: 12px;
+}
+
+.sales-import-template-row > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.sales-import-template-row strong {
+  color: var(--color-text-primary);
+  font-size: 0.82rem;
+}
+
+.sales-import-template-row span {
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.sales-crm-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 2px 2px;
+  color: var(--color-text-muted);
+  font-size: var(--type-caption-size);
+}
+
+.sales-crm-pagination-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sales-crm-pagination-actions strong {
+  color: var(--color-text-primary);
+  white-space: nowrap;
+}
+
 .sales-import-manual-callout {
   display: flex;
   align-items: center;
@@ -3738,6 +4002,24 @@ select option:focus {
 }
 
 @media (max-width: 480px) {
+  .sales-crm-pagination {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sales-crm-pagination-actions {
+    justify-content: space-between;
+  }
+
+  .sales-import-template-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sales-import-template-row .sales-secondary-button {
+    justify-content: center;
+  }
+
   .sales-import-manual-callout {
     align-items: stretch;
     flex-direction: column;
@@ -39916,4 +40198,78 @@ body,
   .sales-crm-list-row {
     grid-template-columns: minmax(0, 1fr) auto;
   }
+}
+
+/* Final Light-mode pass for the payment workspace. The payment form still
+   contains legacy inline dark values, so these scoped declarations must win
+   over those values without changing the dark theme. */
+[data-theme="light"] .sales-theme-scope .upi-create-form,
+[data-theme="light"] .sales-theme-scope .upi-main-grid > section,
+[data-theme="light"] .sales-theme-scope .upi-main-grid + section,
+[data-theme="light"] .sales-theme-scope .upi-kpis > div {
+  background: var(--color-surface) !important;
+  color: var(--color-text-primary) !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme="light"] .sales-theme-scope .upi-create-form > .upi-primary-fields,
+[data-theme="light"] .sales-theme-scope .upi-create-form > .upi-customer-fields,
+[data-theme="light"] .sales-theme-scope .upi-create-form > .upi-section-heading,
+[data-theme="light"] .sales-theme-scope .upi-rule-summary,
+[data-theme="light"] .sales-theme-scope .upi-preview-validity {
+  background: var(--color-surface-soft) !important;
+  color: var(--color-text-primary) !important;
+  border-color: var(--color-border) !important;
+}
+
+[data-theme="light"] .sales-theme-scope .upi-create-form h2,
+[data-theme="light"] .sales-theme-scope .upi-create-form label,
+[data-theme="light"] .sales-theme-scope .upi-section-heading,
+[data-theme="light"] .sales-theme-scope .upi-rule-summary strong,
+[data-theme="light"] .sales-theme-scope .upi-preview-validity strong,
+[data-theme="light"] .sales-theme-scope .upi-main-grid > section h2,
+[data-theme="light"] .sales-theme-scope .upi-main-grid > section > div:nth-of-type(3),
+[data-theme="light"] .sales-theme-scope .upi-main-grid > section > div:nth-of-type(3) strong {
+  color: var(--color-text-primary) !important;
+}
+
+[data-theme="light"] .sales-theme-scope .upi-create-form .upi-helper,
+[data-theme="light"] .sales-theme-scope .upi-rule-summary span,
+[data-theme="light"] .sales-theme-scope .upi-rule-summary small,
+[data-theme="light"] .sales-theme-scope .upi-preview-validity span,
+[data-theme="light"] .sales-theme-scope .upi-main-grid > section > p,
+[data-theme="light"] .sales-theme-scope .upi-total-card small {
+  color: var(--color-text-secondary) !important;
+}
+
+[data-theme="light"] .sales-theme-scope .upi-create-form input,
+[data-theme="light"] .sales-theme-scope .upi-create-form select,
+[data-theme="light"] .sales-theme-scope .upi-create-form textarea,
+[data-theme="light"] .sales-theme-scope .upi-main-grid input,
+[data-theme="light"] .sales-theme-scope .upi-main-grid select,
+[data-theme="light"] .sales-theme-scope .upi-main-grid textarea {
+  background: var(--color-surface) !important;
+  color: var(--color-text-primary) !important;
+  border-color: var(--color-border-strong) !important;
+}
+
+[data-theme="light"] .sales-theme-scope .upi-rule-summary strong,
+[data-theme="light"] .sales-theme-scope .upi-total-card strong {
+  color: var(--color-text-primary) !important;
+}
+
+[data-theme="light"] .sales-theme-scope .upi-total-card {
+  background: var(--color-primary-soft) !important;
+  border-color: var(--color-primary-border) !important;
+  color: var(--color-text-secondary) !important;
+}
+
+[data-theme="light"] .sales-theme-scope .upi-total-card strong {
+  color: var(--color-primary) !important;
+}
+
+[data-theme="light"] .sales-theme-scope .upi-main-grid > section:has(.upi-preview-validity) > div:last-child {
+  background: var(--color-primary-soft) !important;
+  border-color: var(--color-primary-border) !important;
+  color: var(--color-text-secondary) !important;
 }

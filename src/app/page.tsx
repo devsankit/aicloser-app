@@ -40,8 +40,20 @@ export default async function SalesPage({ searchParams }: { searchParams?: Promi
     redirect(`/login?error=${encodeURIComponent(access.reason === "PENDING" ? "Your sales account is waiting for approval." : access.reason === "SUSPENDED" ? "Your sales account is suspended. Contact support." : "Create or login with an approved sales account.")}`);
   }
   const requestedTab = Array.isArray(params?.tab) ? params?.tab[0] : params?.tab;
+  // Super Admin impersonation restores the target workspace profile while the
+  // signed session remains a SALES_AGENT token. Resolve the workspace role
+  // before applying the closer-only deep-link guard so an impersonated admin
+  // can refresh Calls, Reports, and other admin pages without being bounced
+  // back to the dashboard.
+  const agentPermissions = (access.agent.permissions as Record<string, unknown> | null | undefined) ?? {};
+  const configuredWorkspaceRole = String(agentPermissions.workspaceRole ?? "").toUpperCase();
+  const isWorkspaceAdmin =
+    session.role === "ADMIN" ||
+    session.role === "SUPER_ADMIN" ||
+    agentPermissions.workspaceAdmin === true ||
+    configuredWorkspaceRole === "ADMIN";
   const closerAllowedTabs = new Set(["dashboard", "crm", "grab-leads", "conversations", "payments"]);
-  if (session.role === "SALES_AGENT" && requestedTab && !closerAllowedTabs.has(requestedTab)) {
+  if (!isWorkspaceAdmin && session.role === "SALES_AGENT" && requestedTab && !closerAllowedTabs.has(requestedTab)) {
     redirect("/?tab=dashboard");
   }
   const effectiveTenantId =
@@ -51,7 +63,6 @@ export default async function SalesPage({ searchParams }: { searchParams?: Promi
   const operationsTenantId = effectiveTenantId;
   const salesFlowScopeId = access.agent.id;
   const roleMatrix = await getRolePermissionsMatrix();
-  const configuredWorkspaceRole = String((access.agent.permissions as Record<string, unknown> | null | undefined)?.workspaceRole ?? "").toUpperCase();
   const permissionsRole = session.role === "ADMIN" || session.role === "SUPER_ADMIN"
     ? session.role
     : configuredWorkspaceRole === "MANAGER" || configuredWorkspaceRole === "SALES_AGENT"

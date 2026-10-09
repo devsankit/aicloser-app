@@ -52,6 +52,14 @@ export async function POST(request: Request) {
       });
     }
 
+    const targetPermissions = (agentProfile.permissions as Record<string, unknown> | null | undefined) ?? {};
+    const targetWorkspaceRole = String(targetPermissions.workspaceRole ?? "").toUpperCase();
+    const impersonatedRole = targetPermissions.workspaceAdmin === true || targetWorkspaceRole === "ADMIN"
+      ? "ADMIN"
+      : targetWorkspaceRole === "MANAGER"
+        ? "MANAGER"
+        : "SALES_AGENT";
+
     const cookieStore = await cookies();
     const superAdminToken = cookieStore.get(SESSION_COOKIE_NAME)?.value;
     if (!superAdminToken) {
@@ -78,8 +86,8 @@ export async function POST(request: Request) {
     // Apply target user session
     await applySessionCookie(response, {
       userId: targetUser.id,
-      role: "SALES_AGENT",
-      assignedRole: "SALES_AGENT",
+      role: impersonatedRole,
+      assignedRole: impersonatedRole,
       tenantId: targetUser.tenantId || `tenant-${targetUser.id.slice(-6)}`,
       displayName: targetUser.displayName,
       email: targetUser.email,
