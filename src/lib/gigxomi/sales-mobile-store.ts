@@ -303,6 +303,7 @@ export async function endSalesMobileCall(actor: SalesMobileActor, input: Record<
 
 export async function submitSalesMobileDisposition(actor: SalesMobileActor, input: Record<string, unknown>) {
   const agent = await getSalesMobileAgent(actor);
+  if (!agent.tenantId) throw new Error("Your sales profile is not assigned to a workspace.");
   const callId = clean(input.callSessionId || input.callId);
   const call = await prisma.salesMobileCall.findFirst({ where: { id: callId, agentId: agent.id }, include: { assignment: true } });
   if (!call) throw new Error("Call session not found.");
@@ -312,6 +313,21 @@ export async function submitSalesMobileDisposition(actor: SalesMobileActor, inpu
   if (!note) throw new Error("Call notes are required.");
   if (!outcome) throw new Error("Choose a call outcome.");
   const nextFollowUpAt = parseDate(input.nextFollowUpAt);
+  let conversationId = call.assignment.conversationId?.trim() || "";
+  if (!conversationId && call.assignment.customerPhone) {
+    const phoneDigits = call.assignment.customerPhone.replace(/\D/g, "");
+    if (phoneDigits.length >= 10) {
+      const linkedConversation = await prisma.appConversation.findFirst({
+        where: {
+          tenantId: agent.tenantId,
+          customerPhone: { endsWith: phoneDigits.slice(-10) },
+        },
+        orderBy: { updatedAt: "desc" },
+        select: { id: true },
+      });
+      conversationId = linkedConversation?.id ?? "";
+    }
+  }
   const updated = await prisma.$transaction(async (tx) => {
     const savedCall = await tx.salesMobileCall.update({ where: { id: call.id }, data: { outcome, note, nextFollowUpAt, noteSubmitted: true } });
     await tx.salesLeadAssignment.update({
@@ -333,10 +349,43 @@ export async function submitSalesMobileDisposition(actor: SalesMobileActor, inpu
         metadata: { callId: call.id, outcome, nextFollowUpAt, customerName: customerName || null }
       }
     });
+
+    if (conversationId) {
+      const linkedConversation = await tx.appConversation.findFirst({
+        where: { id: conversationId, tenantId: agent.tenantId },
+        select: { payload: true },
+      });
+      if (linkedConversation) {
+        const currentPayload =
+          linkedConversation.payload && typeof linkedConversation.payload === "object" && !Array.isArray(linkedConversation.payload)
+            ? (linkedConversation.payload as Record<string, unknown>)
+            : {};
+        await tx.appConversation.update({
+          where: { id: conversationId },
+          data: {
+            payload: {
+              ...currentPayload,
+              internalNotes: note,
+              nextFollowUpAt: nextFollowUpAt?.toISOString() ?? null,
+              updatedAt: new Date().toISOString(),
+            },
+            updatedAt: new Date(),
+          },
+        });
+      }
+    }
     return savedCall;
   });
   const stage = clean(input.stageUpdate).toUpperCase();
   if (stage) await updateSalesLeadStage({ leadId: call.assignmentId, stage: stage as never, note, actorUserId: actor.userId });
+  await persistRealtimeEvent({
+    topic: `tenant:${agent.tenantId}`,
+    tenantId: agent.tenantId,
+    actorUserId: actor.userId,
+    audienceRoles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"],
+    eventType: "lead.updated",
+    payload: { leadId: call.assignmentId, conversationId: conversationId || null, notes: note, nextFollowUpAt: nextFollowUpAt?.toISOString() ?? null, outcome, stage: stage || null },
+  }).catch(() => undefined);
   return updated;
 }
 
