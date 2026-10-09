@@ -1460,6 +1460,7 @@ function getInstagramOAuthClientId(tenantId = "tenant-gigxomi") {
   return (
     process.env.INSTAGRAM_OAUTH_CLIENT_ID?.trim() ||
     process.env.NEXT_PUBLIC_INSTAGRAM_OAUTH_CLIENT_ID?.trim() ||
+    process.env.META_INSTAGRAM_APP_ID?.trim() ||
     ""
   );
 }
@@ -1487,9 +1488,6 @@ export function getInstagramOAuthAuthorizeUrlFromFile(input: { redirectUri: stri
   const clientId = getInstagramOAuthClientId(input.tenantId);
   if (!clientId) {
     throw new Error("Instagram OAuth client id is missing.");
-  }
-  if (!getInstagramOAuthClientSecret(input.tenantId)) {
-    throw new Error("Instagram OAuth app secret is missing. Configure the secret for this Instagram Business Login app on the server.");
   }
   const url = new URL("https://www.instagram.com/oauth/authorize");
   url.searchParams.set("force_reauth", "true");
@@ -1593,6 +1591,7 @@ export function syncExternalThreadToInboxFromFile(input: {
     const cleanTargetDigits = input.customerPhone.replace(/\D/g, "").slice(-10);
     const snapshot = getDummyPlatformSnapshot();
     let existing = snapshot.conversations.find((conv) => {
+      if (conv.tenantId !== tenantId) return false;
       const digits = (conv.customerPhone || "").replace(/\D/g, "").slice(-10);
       return cleanTargetDigits && digits === cleanTargetDigits;
     });

@@ -6,6 +6,7 @@ const callback = await readFile(new URL("../src/lib/meta/instagram-callback.ts",
 const deauthorize = await readFile(new URL("../src/app/api/meta/instagram/deauthorize/route.ts", import.meta.url), "utf8");
 const deletion = await readFile(new URL("../src/app/api/meta/instagram/data-deletion/route.ts", import.meta.url), "utf8");
 const routes = await readFile(new URL("../src/lib/meta/instagram-routes.ts", import.meta.url), "utf8");
+const fileStore = await readFile(new URL("../src/lib/gigxomi/dummy-platform-file-store.ts", import.meta.url), "utf8");
 
 test("Instagram callbacks verify signed requests and isolate by external account", () => {
   assert.match(callback, /createHmac\("sha256"/);
@@ -18,4 +19,10 @@ test("Instagram callbacks verify signed requests and isolate by external account
   assert.match(deletion, /getPublicRequestUrl/);
   assert.match(routes, /INSTAGRAM_DEAUTHORIZE_CALLBACK_PATH/);
   assert.match(routes, /INSTAGRAM_DATA_DELETION_CALLBACK_PATH/);
+});
+
+test("Instagram OAuth uses the dedicated Instagram app configuration", () => {
+  assert.match(fileStore, /process\.env\.INSTAGRAM_OAUTH_CLIENT_ID/);
+  assert.match(fileStore, /process\.env\.META_INSTAGRAM_APP_ID/);
+  assert.doesNotMatch(fileStore, /getInstagramOAuthClientId[\s\S]{0,500}1385995129001581/);
 });

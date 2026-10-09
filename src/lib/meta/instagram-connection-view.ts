@@ -4,12 +4,17 @@ import type { DummyInstagramConnectionState } from "@/lib/gigxomi/dummy-platform
 
 export function publicInstagramConnection(connection: DummyInstagramConnectionState | null) {
   if (!connection) return null;
+  const configuredAppId =
+    process.env.INSTAGRAM_OAUTH_CLIENT_ID?.trim() ||
+    process.env.NEXT_PUBLIC_INSTAGRAM_OAUTH_CLIENT_ID?.trim() ||
+    process.env.META_INSTAGRAM_APP_ID?.trim() ||
+    "";
   return {
     tenantId: connection.tenantId,
     pluginEnabled: connection.pluginEnabled,
     accountId: connection.accountId || connection.instagramBusinessAccountId,
     accountType: connection.accountType || "",
-    appId: process.env.INSTAGRAM_OAUTH_CLIENT_ID || "",
+    appId: configuredAppId,
     username: connection.username,
     status: connection.lastError ? "Needs attention" as const : connection.accessToken && connection.instagramBusinessAccountId ? "Connected" as const : "Not connected" as const,
     connectedAt: connection.connectedAt,
