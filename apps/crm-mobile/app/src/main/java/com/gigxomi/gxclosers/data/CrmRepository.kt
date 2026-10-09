@@ -38,9 +38,20 @@ class CrmRepository(context: Context) {
         return session
     }
 
-    fun heartbeat(): Boolean {
+    fun heartbeat(deviceId: String? = null): Boolean {
         if (sessionStore.token.isNullOrBlank()) return false
         val response = api.post("/auth/heartbeat", JSONObject())
+        if (sessionStore.setupComplete && !deviceId.isNullOrBlank()) {
+            runCatching {
+                api.post(
+                    "/sales/mobile/heartbeat",
+                    JSONObject()
+                        .put("deviceId", deviceId)
+                        .put("appVersion", BuildConfig.VERSION_NAME)
+                        .put("recordingCapability", "MIC_RECORDING"),
+                )
+            }
+        }
         return response.optBoolean("ok", true)
     }
 
@@ -49,7 +60,16 @@ class CrmRepository(context: Context) {
         sessionStore.clear()
     }
 
-    fun bootstrap(): Bootstrap = parseBootstrap(api.get("/sales/mobile/bootstrap"))
+    fun bootstrap(): Bootstrap {
+        val payload = api.get("/sales/mobile/bootstrap")
+        val nextCallback = payload.optJSONArray("leads")?.objects()
+            ?.mapNotNull { it.nullableText("followUpAt") }
+            ?.mapNotNull { runCatching { java.time.Instant.parse(it) }.getOrNull() }
+            ?.filter { it.isAfter(java.time.Instant.now().plusSeconds(4 * 60)) }
+            ?.minOrNull()
+        CallbackReminderWorker.scheduleNext(appContext, nextCallback)
+        return parseBootstrap(payload)
+    }
     fun inbox(): List<InboxItem> = parseInbox(api.get("/sales/mobile/inbox"))
     fun courses(): List<Course> = parseCourses(api.get("/sales/lms/courses"))
 
@@ -85,6 +105,7 @@ class CrmRepository(context: Context) {
             .put("recordingCapability", "MIC_RECORDING")
             .put("recordingEnabled", true))
         sessionStore.setupComplete = true
+        CallbackReminderWorker.enqueue(appContext)
     }
 
     fun requestLeadPack(size: Int) = parseLeadPack(api.post("/sales/mobile/lead-packs/request", JSONObject().put("size", size)))

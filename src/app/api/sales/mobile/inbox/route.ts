@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireSalesMobileSession } from "@/lib/api/require-sales-mobile-session";
+import { dispatchDueCallbackReminders } from "@/lib/gigxomi/callback-reminders";
 import { prisma } from "@/lib/prisma";
 
 function getLatestMessagePreview(payload: unknown) {
@@ -23,6 +24,7 @@ export async function GET(request: Request) {
     select: { id: true, tenantId: true },
   });
   if (!profile) return NextResponse.json({ ok: false, error: "Sales profile was not found." }, { status: 403 });
+  await dispatchDueCallbackReminders(authorization.actor);
   // Mobile bootstrap performs the idempotent legacy-link reconciliation once.
   // Inbox reads stay fast and query only the agent-scoped projection.
   const leads = await prisma.salesLeadAssignment.findMany({
@@ -48,7 +50,16 @@ export async function GET(request: Request) {
         stage: lead.stage,
         priority: lead.priority,
         serviceInterest: lead.serviceInterest,
+        notes: lead.notes ?? "",
+        followUpAt: lead.followUpAt?.toISOString() ?? null,
+        conversationId: lead.conversationId,
         updatedAt: lead.updatedAt,
+      },
+      callback: {
+        scheduledAt: lead.followUpAt?.toISOString() ?? null,
+        state: lead.followUpAt
+          ? lead.followUpAt.getTime() <= Date.now() ? "due" : "scheduled"
+          : "none",
       },
       conversation: lead.conversationId
         ? (() => {

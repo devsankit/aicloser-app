@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSalesMobileSession } from "@/lib/api/require-sales-mobile-session";
+import { dispatchDueCallbackReminders } from "@/lib/gigxomi/callback-reminders";
 import { heartbeatSalesMobileDevice } from "@/lib/gigxomi/sales-mobile-store";
 import { touchAppClientSession } from "@/lib/auth/client-sessions";
 
@@ -9,8 +10,9 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const device = await heartbeatSalesMobileDevice(auth.actor, String(body.deviceId ?? ""), body);
+    const callbackReminders = await dispatchDueCallbackReminders(auth.actor);
     await touchAppClientSession(auth.session.sessionId);
-    return NextResponse.json({ ok: true, device });
+    return NextResponse.json({ ok: true, device, callbackReminders });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Heartbeat failed." }, { status: 400 });
   }

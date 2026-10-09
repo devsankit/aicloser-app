@@ -485,3 +485,51 @@
   transform: translateY(-1px);
   filter: brightness(1.1);
 }
+
+/* Focused inbox mode: keep the conversation header about the three actions
+   an operator needs while chatting — assignment, status, and private notes. */
+.shell :global(.chat-focused-actions .chat-automation-actions),
+.shell :global(.chat-focused-actions .chat-lane-actions),
+.shell :global(.chat-focused-actions .chat-legacy-actions) {
+  display: none;
+}
+
+.shell :global(.chat-focused-actions .chat-assignment-actions .chat-head-icon) {
+  width: auto;
+  min-width: 88px;
+  height: 34px;
+  padding: 0 11px;
+  gap: 7px;
+  border-radius: 10px;
+}
+
+.shell :global(.chat-assignment-label) {
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.shell :global(.chat-focused-actions .chat-status-pill) {
+  min-height: 34px;
+  border-radius: 10px;
+}
+
+.shell :global(.chat-focused-actions .chat-callback-action) {
+  color: #fed7aa;
+  border-color: rgba(251, 146, 60, 0.42);
+  background: rgba(124, 45, 18, 0.2);
+}
+
+.shell :global(.chat-focused-actions .chat-callback-action:hover),
+.shell :global(.chat-focused-actions .chat-callback-action.active) {
+  color: #fff7ed;
+  border-color: rgba(251, 146, 60, 0.75);
+  background: rgba(194, 65, 12, 0.35);
+}
+
+.shell :global(.chat-sales-macro-bar) {
+  display: none !important;
+}

@@ -67,6 +67,8 @@ data class InboxItem(
     val latestMessage: String,
     val latestMessageAt: String?,
     val status: String,
+    val callbackAt: String? = null,
+    val callbackState: String = "none",
 )
 
 data class Lesson(
@@ -185,12 +187,15 @@ fun parseInbox(json: JSONObject): List<InboxItem> = json.optJSONArray("conversat
     val leadJson = item.optJSONObject("lead") ?: return@mapNotNull null
     val conversation = item.optJSONObject("conversation")
     val latestMessage = conversation?.optJSONObject("latestMessage")
+    val parsedLead = parseLead(leadJson)
     InboxItem(
-        lead = parseLead(leadJson),
+        lead = parsedLead,
         conversationId = conversation?.text("id")?.ifBlank { null },
         latestMessage = latestMessage?.text("body").orEmpty(),
         latestMessageAt = latestMessage?.nullableText("createdAt") ?: conversation?.nullableText("updatedAt"),
         status = conversation?.text("status").orEmpty(),
+        callbackAt = item.optJSONObject("callback")?.nullableText("scheduledAt") ?: parsedLead.followUpAt,
+        callbackState = item.optJSONObject("callback")?.text("state").orEmpty().ifBlank { if (parsedLead.followUpAt.isNullOrBlank()) "none" else "scheduled" },
     )
 }.orEmpty()
 

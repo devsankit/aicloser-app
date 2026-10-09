@@ -15,6 +15,7 @@ import com.gigxomi.gxclosers.R
 
 object LeadCallNotification {
     private const val CHANNEL = "gxclosers_call_context"
+    private const val CALLBACK_CHANNEL = "gxclosers_callback_reminders"
     fun show(context: Context, phone: String, ended: Boolean = false, callId: String? = null) {
         if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         if (Build.VERSION.SDK_INT >= 26) context.getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel(CHANNEL, "Sales call context", NotificationManager.IMPORTANCE_HIGH))
@@ -39,4 +40,37 @@ object LeadCallNotification {
         context.getSystemService(NotificationManager::class.java).notify(if (ended) 2402 else 2401, notification)
     }
     fun cancelIncoming(context: Context) = context.getSystemService(NotificationManager::class.java).cancel(2401)
+
+    fun showCallback(context: Context, leadId: String, leadName: String, phone: String, callbackAt: String) {
+        if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        if (Build.VERSION.SDK_INT >= 26) {
+            context.getSystemService(NotificationManager::class.java).createNotificationChannel(
+                NotificationChannel(CALLBACK_CHANNEL, "Callback reminders", NotificationManager.IMPORTANCE_HIGH),
+            )
+        }
+        val callbackLabel = runCatching {
+            java.time.Instant.parse(callbackAt)
+                .atZone(java.time.ZoneId.systemDefault())
+                .format(java.time.format.DateTimeFormatter.ofPattern("dd MMM, hh:mm a"))
+        }.getOrElse { callbackAt }
+        val text = "$leadName · $phone · scheduled for $callbackLabel"
+        val launch = Intent(context, MainActivity::class.java).apply {
+            action = Intent.ACTION_VIEW
+            data = Uri.parse("gxclosers://lead/${Uri.encode(leadId)}")
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+        val notificationId = 3000 + ("$leadId|$callbackAt".hashCode() and 0x7fff)
+        val pending = PendingIntent.getActivity(context, notificationId, launch, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(context, CALLBACK_CHANNEL) else @Suppress("DEPRECATION") Notification.Builder(context)
+        val notification = builder
+            .setSmallIcon(R.drawable.ic_launcher)
+            .setColor(0xFFFF6B2F.toInt())
+            .setContentTitle("Callback in 5 minutes")
+            .setContentText(text)
+            .setStyle(Notification.BigTextStyle().bigText(text))
+            .setContentIntent(pending)
+            .setAutoCancel(true)
+            .build()
+        context.getSystemService(NotificationManager::class.java).notify(notificationId, notification)
+    }
 }

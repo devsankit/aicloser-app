@@ -14,9 +14,9 @@ import {
   BadgeCheck,
   BadgeIndianRupee,
   BellRing,
-  Briefcase,
   Building2,
   Calendar,
+  CalendarClock,
   Check,
   CheckCheck,
   CheckCircle2,
@@ -50,7 +50,6 @@ import {
   Star,
   StickyNote,
   Tag,
-  Target,
   Trash2,
   User,
   UserRound,
@@ -761,7 +760,10 @@ function rolePrefix(role: DummyConversationRole) {
 }
 
 function messageLabel(message: DummyConversationView["messages"][number], audience: DummyConversationRole) {
-  const senderLabel = message.senderLabel?.trim() || rolePrefix(message.senderRole);
+  const rawSenderLabel = message.senderLabel?.trim() || "";
+  const senderLabel = /gigxomi|gxclosers|agency\s*(studio|workspace|team)?/i.test(rawSenderLabel)
+    ? rolePrefix(message.senderRole)
+    : rawSenderLabel || rolePrefix(message.senderRole);
   if (audience !== "customer" && message.senderRole === "freelancer") {
     return /^(freelancer|editor)\b/i.test(senderLabel) ? senderLabel : `Freelancer ${senderLabel}`;
   }
@@ -770,7 +772,12 @@ function messageLabel(message: DummyConversationView["messages"][number], audien
 
 function messageSenderIdentity(message: DummyConversationView["messages"][number], audience: DummyConversationRole) {
   const roleLabel = rolePrefix(message.senderRole);
-  const senderName = audience === "freelancer" && message.senderRole === "customer" ? "Client" : message.senderLabel?.trim() || roleLabel;
+  const rawSenderName = message.senderLabel?.trim() || "";
+  const senderName = audience === "freelancer" && message.senderRole === "customer"
+    ? "Client"
+    : /gigxomi|gxclosers|agency\s*(studio|workspace|team)?/i.test(rawSenderName)
+      ? roleLabel
+      : rawSenderName || roleLabel;
   const isCurrentViewer = message.senderRole === audience && !isAutomatedAssignmentOutcomeMessageBody(message.body);
 
   if (isCurrentViewer) {
@@ -804,8 +811,8 @@ function visibleBody(message: DummyConversationView["messages"][number]) {
   if (message.body.trim().toLowerCase() === WHATSAPP_UNSUPPORTED_MESSAGE_PLACEHOLDER) {
     return WHATSAPP_UNSUPPORTED_MESSAGE_NOTICE;
   }
-  if (/unsupported message type|ask the sender to resend|did not receive readable text/i.test(message.body)) {
-    return WHATSAPP_UNSUPPORTED_MESSAGE_NOTICE;
+  if (/unsupported message type|unsupported received|local file|ask the sender to resend|did not receive readable text/i.test(message.body)) {
+    return "Attachment received";
   }
   if (/^\[instagram attachment received\]$/i.test(message.body.trim())) {
     return buildInboundAttachmentAcknowledgement("media");
@@ -865,7 +872,7 @@ function summarizeMessagePreview(
   const body = visibleBody(message).trim();
   const senderPrefix =
     audience !== "customer" && message.senderRole !== "customer"
-      ? `${messageLabel(message, audience)}: `
+      ? `${message.senderRole === audience ? "You" : messageLabel(message, audience)}: `
       : "";
   const lanePrefix = options?.includeLanePrefix === false || message.lane !== "internal" ? "" : "Internal: ";
 
@@ -989,6 +996,12 @@ function summarizeAttachmentForStatus(attachment: PendingAttachment) {
 }
 
 function describeAttachment(attachment: DummyConversationAttachment) {
+  if (/unsupported received|local file/i.test(`${attachment.name} ${attachment.sizeLabel}`)) {
+    if (attachment.kind === "image") return "Image attachment";
+    if (attachment.kind === "video") return "Video attachment";
+    if (attachment.mimeType === "application/pdf") return "PDF attachment";
+    return "File attachment";
+  }
   if (attachment.kind === "voice-note") {
     return attachment.durationLabel ? `Voice note - ${attachment.durationLabel}` : "Voice note";
   }
@@ -999,6 +1012,17 @@ function describeAttachment(attachment: DummyConversationAttachment) {
     return attachment.note ?? "Payment request";
   }
   return `${attachment.name} - ${attachment.sizeLabel}`;
+}
+
+function displayAttachmentName(attachment: DummyConversationAttachment) {
+  if (/unsupported received|local file/i.test(`${attachment.name} ${attachment.sizeLabel}`)) {
+    if (attachment.kind === "voice-note") return "Voice note";
+    if (attachment.kind === "image") return "Image attachment";
+    if (attachment.kind === "video") return "Video attachment";
+    if (attachment.mimeType === "application/pdf") return "PDF attachment";
+    return "File attachment";
+  }
+  return attachment.kind === "voice-note" ? "Voice note" : attachment.name;
 }
 
 function attachmentHasInlinePreview(attachment: DummyConversationAttachment) {
@@ -1395,11 +1419,6 @@ const ChatThreadRow = memo(function ChatThreadRow({
     conversation.leadStatusTone
   );
 
-  const accountType = (conversation as any).customerAccountType as "AGENCY" | "FREELANCER" | "LEAD" | undefined;
-  const packageName = (conversation as any).customerPackageName as string | undefined;
-  const planDaysRemaining = (conversation as any).customerPlanDaysRemaining as number | undefined;
-  const appInstalled = Boolean((conversation as any).customerAppInstalled);
-
   return (
     <button
       className={cx("chat-thread-row", selected && "active")}
@@ -1439,30 +1458,8 @@ const ChatThreadRow = memo(function ChatThreadRow({
           {threadTime ? <span className="chat-thread-time">{threadTime}</span> : null}
         </div>
 
-        {/* Line 2: Identity & Status Pills (Outside visibility for Closer) */}
+        {/* Line 2: CRM status only. Account/package labels are not customer-facing chat data. */}
         <div className="chat-thread-badge-row">
-          <span
-            className={cx(
-              "chat-thread-acc-tag",
-              accountType === "AGENCY" ? "agency" : accountType === "FREELANCER" ? "freelancer" : "lead"
-            )}
-            title={`Account: ${accountType || "Lead"}${packageName ? ` · Plan: ${packageName}` : ""}${planDaysRemaining !== null && planDaysRemaining !== undefined ? ` · ${planDaysRemaining}d remaining` : ""}`}
-          >
-            {accountType === "AGENCY" ? (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: "3px" }}>
-                <Building2 size={11} /> Agency{packageName ? ` · ${packageName}` : ""}{planDaysRemaining !== null && planDaysRemaining !== undefined ? ` (${planDaysRemaining}d)` : ""}
-              </span>
-            ) : accountType === "FREELANCER" ? (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: "3px" }}>
-                <Briefcase size={11} /> Freelancer{packageName ? ` · ${packageName}` : ""}
-              </span>
-            ) : (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: "3px" }}>
-                <User size={11} /> Lead
-              </span>
-            )}
-          </span>
-
           <span
             className="chat-thread-stage-pill"
             style={{
@@ -1483,11 +1480,6 @@ const ChatThreadRow = memo(function ChatThreadRow({
             <span className="chat-thread-stage-label">{badgeCfg.label}</span>
           </span>
 
-          {appInstalled ? (
-            <span className="chat-thread-app-tag" title="Gigxomi Mobile App Installed">
-              <Smartphone size={10} />
-            </span>
-          ) : null}
         </div>
 
         {/* Line 3: Last Message Snippet + Unread Counter */}
@@ -2055,7 +2047,6 @@ export function ChatWorkspace({
     leadStatuses.find((status) => status.id === activeConversation?.leadStatusId) ??
     CLOSER_CANONICAL_LEAD_STATUSES[0];
   const activeAssignedEditor = assignableEditors.find((editor) => editor.id === activeAssignment?.assignedFreelancerId) ?? null;
-  const activeAgencyContext = activeConversation?.agencyContext ?? null;
   const activeFreelancerLanePermission = activeConversation?.freelancerCustomerLanePermission ?? null;
   const activePendingOffer = activeConversation?.myAssignmentOffer ?? activeAssignment?.myOffer ?? null;
   const activeLaneCapabilities = activeConversation?.laneCapabilities ?? null;
@@ -2090,8 +2081,6 @@ export function ChatWorkspace({
     return () => { cancelled = true; };
   }, [activeConversation?.id]);
   const activeCustomerHeaderContact = audience === "freelancer" ? "Customer contact hidden" : activeCustomerPhone;
-  const rawBusinessPhone = activeConversation?.businessPhoneDisplay?.trim() || "";
-  const activeBusinessPhone = rawBusinessPhone.includes("99818") ? "+91 99933 28124" : (rawBusinessPhone || "+91 99933 28124");
   const registeredInAgency = registrationStatus?.registered;
   const appInstalledRaw = registrationStatus?.appInstalled;
   // The live registration endpoint explicitly answers `registered: false`
@@ -2894,8 +2883,8 @@ export function ChatWorkspace({
         : audience === "manager"
           ? conversation.ownerName || "Rahul Manager"
           : audience === "sales"
-            ? "GXclosers"
-          : "Gigxomi Studio";
+            ? "Sales"
+          : "You";
 
     return {
       id: `temp-${conversation.id}-${createdAt}`,
@@ -5049,7 +5038,7 @@ export function ChatWorkspace({
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "7px" }}>
             <StickyNote size={15} style={{ color: "#38bdf8" }} />
-            <strong style={{ fontSize: "13px" }}>Lead Notes & Follow-Up</strong>
+            <strong style={{ fontSize: "13px" }}>Notes & Callback</strong>
           </div>
           <button
             type="button"
@@ -5061,7 +5050,7 @@ export function ChatWorkspace({
           </button>
         </div>
         <p style={{ fontSize: "11px", opacity: 0.7, margin: "0 0 8px", lineHeight: "1.4" }}>
-          Private notes & next follow-up schedule for this lead.
+          Save private notes and a callback time. Both stay synced with the mobile app.
         </p>
         <textarea
           aria-label="Internal lead notes"
@@ -5091,7 +5080,7 @@ export function ChatWorkspace({
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
             <label style={{ fontSize: "11px", fontWeight: 600, color: "rgba(255, 255, 255, 0.85)", display: "flex", alignItems: "center", gap: "5px" }}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                <Calendar size={13} /> Next Follow-Up Date & Time
+                <Calendar size={13} /> Callback Date & Time
               </span>
             </label>
             {followUpDraft ? (
@@ -5199,7 +5188,7 @@ export function ChatWorkspace({
               handleSaveNotes().then(() => setIsNotesMenuOpen(false));
             }}
           >
-            {isNotesSaving ? "Saving..." : "Save Note & Follow-up"}
+            {isNotesSaving ? "Saving..." : "Save Note & Callback"}
           </button>
         </div>
       </div>
@@ -5923,33 +5912,15 @@ export function ChatWorkspace({
                   ) : activeConversation.sourceChannel === "instagram" ? (
                     <span className="chat-source-chip instagram strong">Instagram</span>
                   ) : null}
-                  {(() => {
-                    const isMetaAd = Boolean(
-                      (activeConversation as any)?.attribution === "ctwa" ||
-                      (activeConversation as any)?.ctwa_clid ||
-                      (activeConversation as any)?.referralSource?.includes("ad") ||
-                      /ad|ctwa/i.test(activeConversation.summary || "")
-                    );
-                    return isMetaAd ? (
-                      <span className="chat-source-chip meta-ad" title="Attributed to Click-to-WhatsApp Meta Ad" style={{ display: "inline-flex", alignItems: "center", gap: "3px" }}>
-                        <Target size={11} /> Meta Ad
-                      </span>
-                    ) : null;
-                  })()}
                 </div>
                 <div className="chat-thread-head-subtitle">
                   <span className="chat-thread-contact-number" title={activeCustomerHeaderContact}>
                     {audience === "freelancer" ? activeCustomerHeaderContact : `Customer ${activeCustomerHeaderContact}`}
                   </span>
-                  {activeConversation.sourceChannel === "whatsapp" && activeBusinessPhone ? (
-                    <span className="chat-thread-presence" title={`WhatsApp business line ${activeBusinessPhone}`}>
-                      From {activeBusinessPhone}
-                    </span>
-                  ) : null}
                   {typingMessage ? <span className="chat-thread-presence is-typing">{typingMessage.label} is typing...</span> : null}
                   {!typingMessage && customerPresenceLabel ? <span className="chat-thread-presence">{customerPresenceLabel}</span> : null}
                 </div>
-                {registrationStatus ? (
+                {false && registrationStatus ? (
                   <div className="crm-status-icon-bar" style={{ display: "flex", alignItems: "center", gap: "7px", marginTop: "6px", flexWrap: "wrap" }}>
                     {/* 1. Agency Registration */}
                     <span
@@ -6313,10 +6284,10 @@ export function ChatWorkspace({
               </div>
             </div>
 
-            <div className="chat-thread-head-toolbar crm-chat-head-actions">
+            <div className="chat-thread-head-toolbar crm-chat-head-actions chat-focused-actions">
               {(audience === "admin" || audience === "manager" || audience === "sales") ? (
                 <>
-                  <div className="chat-thread-head-action-group">
+                  <div className="chat-thread-head-action-group chat-status-notes-actions">
                     <div style={{ position: "relative", display: "inline-block" }}>
                       <button
                         type="button"
@@ -6357,6 +6328,22 @@ export function ChatWorkspace({
                         ) : null}
                       </button>
                       {renderNotesPopover()}
+                    </div>
+
+                    <button
+                      type="button"
+                      className="chat-status-pill chat-callback-action"
+                      onClick={() => {
+                        setIsNotesMenuOpen(true);
+                        setIsLeadStatusMenuOpen(false);
+                        setIsAssignMenuOpen(false);
+                        setIsDetailsOpen(false);
+                      }}
+                      title="Schedule a callback and sync it to the mobile app"
+                    >
+                      <CalendarClock size={12} strokeWidth={2} />
+                      <span>Callback</span>
+                    </button>
 
       {/* WhatsApp-Style Create Custom Label Modal */}
       {isCreateLabelModalOpen ? (
@@ -6509,9 +6496,8 @@ export function ChatWorkspace({
       ) : null}
 
                     </div>
-                  </div>
 
-                  <div className="chat-thread-head-action-group">
+                  <div className="chat-thread-head-action-group chat-automation-actions">
                     <button
                       type="button"
                       className={activeConversation.aiAutoReplyDisabled ? "chat-ai-toggle chat-ai-toggle-paused" : "chat-ai-toggle chat-ai-toggle-active"}
@@ -6579,7 +6565,7 @@ export function ChatWorkspace({
                 </>
               ) : null}
 
-              <div className="chat-thread-head-action-group">
+              <div className="chat-thread-head-action-group chat-lane-actions">
                 {normalizedVisibleLanes.map((lane) => {
                   const laneLabel = lane === "customer" ? "Client lane" : (audience as string) === "sales" ? "Sales team" : audience === "freelancer" ? "Agency lane" : "Freelancer lane";
                   return (
@@ -6598,11 +6584,11 @@ export function ChatWorkspace({
                 })}
               </div>
 
-              {audience !== "sales" && (audience === "admin" || audience === "manager" || canManageFreelancerCustomerAccess) ? (
-                <div className="chat-thread-head-action-group">
+              {(audience === "admin" || audience === "manager" || audience === "sales") ? (
+                <div className="chat-thread-head-action-group chat-assignment-actions">
                   <div className="chat-control-inline">
                     <button
-                      aria-label={`Assign editor: ${activeAssignment?.assignedFreelancerName ?? "Search editor"}`}
+                      aria-label={`Assign conversation: ${activeAssignment?.assignedFreelancerName ?? "Unassigned"}`}
                       className={isAssignMenuOpen ? "chat-head-icon active" : "chat-head-icon"}
                       onClick={() => {
                         setIsAssignMenuOpen((current) => !current);
@@ -6610,10 +6596,11 @@ export function ChatWorkspace({
                         setIsNotesMenuOpen(false);
                         setIsDetailsOpen(false);
                       }}
-                      title={`Assign editor: ${activeAssignment?.assignedFreelancerName ?? "Search editor"}`}
+                      title={`Assign conversation: ${activeAssignment?.assignedFreelancerName ?? "Unassigned"}`}
                       type="button"
                     >
                       <UserRound size={16} strokeWidth={1.8} />
+                      <span className="chat-assignment-label">{activeAssignment?.assignedFreelancerName ?? "Assign"}</span>
                     </button>
                     {renderAssignPopover()}
                   </div>
@@ -6633,7 +6620,7 @@ export function ChatWorkspace({
                 </div>
               ) : null}
 
-              <div className="chat-thread-head-action-group">
+              <div className="chat-thread-head-action-group chat-legacy-actions">
                 <button
                   aria-label="CRM details"
                   className={isDetailsOpen ? "chat-head-icon active" : "chat-head-icon"}
@@ -6761,7 +6748,7 @@ export function ChatWorkspace({
                                   </div>
                                 ) : isMinimalAttachment ? null : (
                                   <div className="chat-attachment-body">
-                                    <strong>{isVoiceNote ? "Voice note" : attachment.name}</strong>
+                                    <strong>{displayAttachmentName(attachment)}</strong>
                                     <span>{attachmentSubtitle}</span>
                                     {attachment.note && !linkedPayment ? <p>{normalizeDisplayText(attachment.note)}</p> : null}
                                   </div>
@@ -7100,7 +7087,7 @@ export function ChatWorkspace({
                   isFreelancerCustomerLaneReadOnly
                     ? activeLaneReadOnlyReason
                     : isFreelancerCustomerLane
-                      ? `Reply as ${activeAgencyContext?.agencyName ?? "the agency"} in the routed shared customer lane`
+                      ? "Reply to the customer in the routed shared customer lane"
                     : resolvedLane === "internal"
                         ? audience === "sales"
                           ? "Share this chat internally with the sales team"

@@ -445,7 +445,7 @@ export function InternalAppShell({
                 <a
                   aria-label="Download AIcloser mobile app"
                   className="internal-sidebar-download"
-                  href="https://aicloser.in/download/AICloser.apk"
+                  href="https://aicloser.in/download/aicloser-latest.apk"
                   rel="noreferrer"
                   target="_blank"
                   title="Download AIcloser mobile app"

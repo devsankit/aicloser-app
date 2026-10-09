@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getConversationViewForSession } from "@/lib/api/conversation-view-response";
 import { requireSessionRole } from "@/lib/api/require-session-role";
 import { updateConversationInternalNotesFromFile } from "@/lib/gigxomi/dummy-platform-file-store";
+import { persistRealtimeEvent } from "@/lib/realtime/event-outbox";
 import { prisma } from "@/lib/prisma";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -85,6 +86,14 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
 
   const conversationView = await getConversationViewForSession(authorization.session, id);
+  await persistRealtimeEvent({
+    topic: `tenant:${authorization.session.tenantId ?? "tenant-gigxomi"}`,
+    tenantId: authorization.session.tenantId,
+    actorUserId: authorization.session.userId,
+    audienceRoles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"],
+    eventType: "lead.updated",
+    payload: { conversationId: id, nextFollowUpAt: nextFollowUpAt ?? null, notes },
+  }).catch(() => undefined);
 
   return NextResponse.json({
     ok: true,

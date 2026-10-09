@@ -121,7 +121,7 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
             while (isActive) {
                 if (authenticated) {
                     try {
-                        repository.heartbeat()
+                        repository.heartbeat(deviceId())
                     } catch (_: SessionRevokedException) {
                         withContext(Dispatchers.Main) { handleSessionRevoked() }
                         break
@@ -173,8 +173,10 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
         when (eventType) {
             "lead.updated" -> {
                 val leadId = payload.optString("leadId", payload.optString("id"))
-                if (leadId.isNotBlank()) refreshAll()
+                val conversationId = payload.optString("conversationId")
+                if (leadId.isNotBlank() || conversationId.isNotBlank()) refreshAll()
             }
+            "conversation-updated" -> refreshAll()
             "message.created" -> {
                 val convId = payload.optString("conversationId", payload.optString("id"))
                 if (convId.isNotBlank() && convId == activeConversationId) {
