@@ -11,11 +11,11 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.gigxomi.gxclosers"
+        applicationId = "com.gigxomi.crm"
         minSdk = 26
         targetSdk = 36
-        versionCode = 14
-        versionName = "1.0.14"
+        versionCode = 15
+        versionName = "1.0.15"
         buildConfigField("String", "GXCLOSERS_API_BASE", "\"https://app.aicloser.in/api\"")
         // Login/session tokens are issued by app.aicloser.in. Keep recording uploads
         // on the same API until the dedicated service accepts the same issuer.
