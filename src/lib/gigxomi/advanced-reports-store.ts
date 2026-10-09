@@ -29,7 +29,7 @@ export type SourcePerformanceRow = {
   conversionPercent: number;
 };
 
-export async function getHourlyCallDistribution(agentId?: string | null): Promise<HourlyCallBucket[]> {
+export async function getHourlyCallDistribution(tenantId?: string | null, agentId?: string | null): Promise<HourlyCallBucket[]> {
   const buckets: HourlyCallBucket[] = [];
   for (let h = 9; h <= 20; h++) {
     const period = h < 12 ? `${h} AM` : h === 12 ? `12 PM` : `${h - 12} PM`;
@@ -45,8 +45,9 @@ export async function getHourlyCallDistribution(agentId?: string | null): Promis
   }
 
   try {
+    if (!tenantId) return buckets;
     const calls = await prisma.salesMobileCall.findMany({
-      where: agentId ? { agentId } : undefined,
+      where: agentId ? { tenantId, agentId } : { tenantId },
       select: {
         startedAt: true,
         durationSeconds: true,
@@ -70,10 +71,11 @@ export async function getHourlyCallDistribution(agentId?: string | null): Promis
   return buckets;
 }
 
-export async function getAgentProductivityLeaderboard(agentId?: string | null): Promise<AgentProductivityRow[]> {
+export async function getAgentProductivityLeaderboard(tenantId?: string | null, agentId?: string | null): Promise<AgentProductivityRow[]> {
   try {
+    if (!tenantId) return [];
     const agents = await prisma.salesAgentProfile.findMany({
-      where: agentId ? { id: agentId } : undefined,
+      where: agentId ? { tenantId, id: agentId } : { tenantId },
       include: {
         user: { select: { displayName: true, email: true } },
         leadAssignments: { select: { id: true, stage: true } },
@@ -106,10 +108,11 @@ export async function getAgentProductivityLeaderboard(agentId?: string | null): 
   }
 }
 
-export async function getSourcePerformance(agentId?: string | null): Promise<SourcePerformanceRow[]> {
+export async function getSourcePerformance(tenantId?: string | null, agentId?: string | null): Promise<SourcePerformanceRow[]> {
   try {
+    if (!tenantId) return [];
     const leads = await prisma.salesLeadAssignment.findMany({
-      where: agentId ? { assignedAgentId: agentId } : undefined,
+      where: agentId ? { tenantId, assignedAgentId: agentId } : { tenantId },
       select: { source: true, stage: true },
     });
     const map = new Map<string, { total: number; won: number }>();
@@ -134,17 +137,18 @@ export async function getSourcePerformance(agentId?: string | null): Promise<Sou
 }
 
 // Generate CSV export for leads
-export async function generateLeadsCsv(agentId?: string | null): Promise<string> {
+export async function generateLeadsCsv(tenantId?: string | null, agentId?: string | null): Promise<string> {
   try {
+    if (!tenantId) return "\uFEFFID, Customer Name,Phone,Email,Source,Stage / Status,Budget (INR),Created At,Notes\n";
     const [assignedLeads, poolLeads] = await Promise.all([
       prisma.salesLeadAssignment.findMany({
-        where: agentId ? { assignedAgentId: agentId } : undefined,
+        where: agentId ? { tenantId, assignedAgentId: agentId } : { tenantId },
         orderBy: { createdAt: "desc" },
       }),
       prisma.salesLeadPoolItem.findMany({
         where: agentId
-          ? { convertedAssignmentId: null, OR: [{ assignedAgentId: agentId }, { claimedByAgentId: agentId }] }
-          : { convertedAssignmentId: null },
+          ? { tenantId, convertedAssignmentId: null, OR: [{ assignedAgentId: agentId }, { claimedByAgentId: agentId }] }
+          : { tenantId, convertedAssignmentId: null },
         orderBy: { createdAt: "desc" },
       }),
     ]);
@@ -202,10 +206,11 @@ export async function generateLeadsCsv(agentId?: string | null): Promise<string>
 }
 
 // Generate CSV export for calls
-export async function generateCallsCsv(agentId?: string | null): Promise<string> {
+export async function generateCallsCsv(tenantId?: string | null, agentId?: string | null): Promise<string> {
   try {
+    if (!tenantId) return "\uFEFFID, Customer Name,Phone,Status,Duration Seconds,Outcome,Started At,Note\n";
     const calls = await prisma.salesMobileCall.findMany({
-      where: agentId ? { agentId } : undefined,
+      where: agentId ? { tenantId, agentId } : { tenantId },
       orderBy: { startedAt: "desc" },
       include: { assignment: { select: { customerName: true } } },
     });
@@ -231,9 +236,11 @@ export async function generateCallsCsv(agentId?: string | null): Promise<string>
 }
 
 // Generate CSV export for contacts
-export async function generateContactsCsv(): Promise<string> {
+export async function generateContactsCsv(tenantId?: string | null): Promise<string> {
   try {
+    if (!tenantId) return "\uFEFFID, Customer Name,Phone,Email,Opt-In Status,Source Channel,Tags,Created At\n";
     const contacts = await prisma.marketingContact.findMany({
+      where: { tenantId },
       orderBy: { updatedAt: "desc" },
     });
     const headers = ["ID", "Customer Name", "Phone", "Email", "Opt-In Status", "Source Channel", "Tags", "Created At"];

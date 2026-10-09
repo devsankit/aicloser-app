@@ -33,6 +33,7 @@ export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const type = url.searchParams.get("type") || "leads";
+    const tenantId = auth.ok ? resolveSessionTenantId(auth.session, url.searchParams.get("tenantId")) : null;
     const requestedAgentId = url.searchParams.get("agentId")?.trim() || null;
     const snapshot = auth.ok ? await getSalesSnapshotForRole(auth.session) : null;
     const selectedAgentId = requestedAgentId && snapshot?.visibleAgents.some((agent) => agent.id === requestedAgentId)
@@ -42,13 +43,13 @@ export async function GET(request: Request) {
     let csv = "";
     let filename = "";
     if (type === "calls") {
-      csv = await generateCallsCsv(selectedAgentId);
+      csv = await generateCallsCsv(tenantId, selectedAgentId);
       filename = `aicloser-calls-export-${new Date().toISOString().slice(0, 10)}.csv`;
     } else if (type === "contacts") {
-      csv = await generateContactsCsv();
+      csv = await generateContactsCsv(tenantId);
       filename = `aicloser-contacts-export-${new Date().toISOString().slice(0, 10)}.csv`;
     } else {
-      csv = await generateLeadsCsv(selectedAgentId);
+      csv = await generateLeadsCsv(tenantId, selectedAgentId);
       filename = `aicloser-leads-export-${new Date().toISOString().slice(0, 10)}.csv`;
     }
 

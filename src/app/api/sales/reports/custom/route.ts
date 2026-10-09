@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireSessionRole } from "@/lib/api/require-session-role";
 import { getHourlyCallDistribution, getAgentProductivityLeaderboard, getSourcePerformance } from "@/lib/gigxomi/advanced-reports-store";
 import { getSalesSnapshotForRole } from "@/lib/gigxomi/sales-store";
+import { resolveSessionTenantId } from "@/lib/api/resolve-session-tenant";
 
 export async function GET(request: Request) {
   const auth = await requireSessionRole(["SALES_AGENT", "ADMIN", "SUPER_ADMIN", "MANAGER"]);
@@ -9,6 +10,7 @@ export async function GET(request: Request) {
 
   try {
     const url = new URL(request.url);
+    const tenantId = resolveSessionTenantId(auth.session, url.searchParams.get("tenantId"));
     const requestedAgentId = url.searchParams.get("agentId")?.trim() || null;
     const snapshot = await getSalesSnapshotForRole(auth.session);
     const selectedAgent = requestedAgentId
@@ -16,9 +18,9 @@ export async function GET(request: Request) {
       : null;
     const agentId = selectedAgent?.id ?? null;
     const [hourly, leaderboard, sources] = await Promise.all([
-      getHourlyCallDistribution(agentId),
-      getAgentProductivityLeaderboard(agentId),
-      getSourcePerformance(agentId),
+      getHourlyCallDistribution(tenantId, agentId),
+      getAgentProductivityLeaderboard(tenantId, agentId),
+      getSourcePerformance(tenantId, agentId),
     ]);
     return NextResponse.json({
       ok: true,
