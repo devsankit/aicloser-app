@@ -6163,17 +6163,18 @@ export function ChatWorkspace({
                     <div style={{ position: "relative", display: "inline-block" }}>
                       <button
                         type="button"
-                        className={isNotesMenuOpen ? "chat-status-pill active" : "chat-status-pill"}
+                        className={isNotesMenuOpen ? "chat-status-pill chat-callback-action active" : "chat-status-pill chat-callback-action"}
                         onClick={() => {
                           setIsNotesMenuOpen((current) => !current);
                           setIsLeadStatusMenuOpen(false);
                           setIsAssignMenuOpen(false);
                           setIsDetailsOpen(false);
                         }}
-                        title="Private lead notes & follow-up scheduler"
+                        title="Open private notes and callback scheduler"
                       >
                         <StickyNote size={12} strokeWidth={2} />
-                        <span>{activeConversation?.internalNotes ? "Notes" : "+ Note"}</span>
+                        <CalendarClock size={12} strokeWidth={2} />
+                        <span>Notes &amp; Callback</span>
                         {activeConversation?.nextFollowUpAt ? (
                           <span style={{ fontSize: "10px", padding: "1px 5px", borderRadius: "4px", background: "rgba(56, 189, 248, 0.25)", color: "#e0f2fe", display: "inline-flex", alignItems: "center", gap: "3px" }}>
                             <Clock size={10} /> {new Date(activeConversation.nextFollowUpAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
@@ -6182,21 +6183,6 @@ export function ChatWorkspace({
                       </button>
                       {renderNotesPopover()}
                     </div>
-
-                    <button
-                      type="button"
-                      className="chat-status-pill chat-callback-action"
-                      onClick={() => {
-                        setIsNotesMenuOpen(true);
-                        setIsLeadStatusMenuOpen(false);
-                        setIsAssignMenuOpen(false);
-                        setIsDetailsOpen(false);
-                      }}
-                      title="Schedule a callback and sync it to the mobile app"
-                    >
-                      <CalendarClock size={12} strokeWidth={2} />
-                      <span>Callback</span>
-                    </button>
 
       {/* WhatsApp-Style Create Custom Label Modal */}
       {isCreateLabelModalOpen ? (
