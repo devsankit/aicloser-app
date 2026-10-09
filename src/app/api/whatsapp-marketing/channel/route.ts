@@ -31,6 +31,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       ok: true,
       connected: false,
+      tenantId,
       requestedPhone: REQUESTED_BUSINESS_PHONE,
       mockMode: mockActive,
       bootstrapAvailable: Boolean(bootstrap.phoneNumberId && bootstrap.wabaId),
@@ -43,13 +44,14 @@ export async function GET(request: Request) {
     });
   }
 
-  const cleanRequested = REQUESTED_BUSINESS_PHONE.replace(/\D/g, "");
   const cleanDisplay = (channel.displayPhoneNumber || "").replace(/\D/g, "");
-  const matchesRequested = cleanDisplay.endsWith(cleanRequested) || cleanRequested.endsWith(cleanDisplay);
+  const cleanRequested = REQUESTED_BUSINESS_PHONE.replace(/\D/g, "");
+  const matchesRequested = !cleanRequested || cleanDisplay.endsWith(cleanRequested) || cleanRequested.endsWith(cleanDisplay);
 
   return NextResponse.json({
     ok: true,
     connected: channel.status === "ACTIVE",
+    tenantId,
     requestedPhone: REQUESTED_BUSINESS_PHONE,
     matchesRequestedPhone: matchesRequested,
     mockMode: mockActive,
@@ -90,11 +92,11 @@ export async function POST(request: Request) {
   const graphApiVersion = String(body.graphApiVersion || META_GRAPH_API_VERSION).trim();
 
   // Validate raw phone vs Meta phone ID
-  if (phoneNumberId.replace(/\D/g, "") === REQUESTED_BUSINESS_PHONE.replace(/\D/g, "")) {
+  if (REQUESTED_BUSINESS_PHONE && phoneNumberId.replace(/\D/g, "") === REQUESTED_BUSINESS_PHONE.replace(/\D/g, "")) {
     return NextResponse.json(
       {
         ok: false,
-        error: "The Phone Number ID must be the Meta numeric API identifier (e.g. 962346373625331), not the raw phone number digits.",
+        error: "The Phone Number ID must be Meta's numeric API identifier, not the raw phone number digits.",
       },
       { status: 400 },
     );
@@ -103,6 +105,13 @@ export async function POST(request: Request) {
   if (!phoneNumberId || !wabaId) {
     return NextResponse.json(
       { ok: false, error: "Both Phone Number ID and WhatsApp Business Account ID (WABA ID) are required." },
+      { status: 400 },
+    );
+  }
+
+  if (!/^\d+$/.test(phoneNumberId) || !/^\d+$/.test(wabaId) || (businessPortfolioId && !/^\d+$/.test(businessPortfolioId))) {
+    return NextResponse.json(
+      { ok: false, error: "Meta Phone Number ID, WABA ID, and Business Portfolio ID must be numeric IDs returned by Meta." },
       { status: 400 },
     );
   }
@@ -141,10 +150,11 @@ export async function POST(request: Request) {
   }
 
   const verifiedData = metaVerification.data;
-  const displayPhoneNumber = verifiedData.phoneNumber.display_phone_number || "+91 99933 28124";
-  const verifiedName = verifiedData.phoneNumber.verified_name || (body.verifiedName as string) || "Gigxomi Support";
+  const displayPhoneNumber = verifiedData.phoneNumber.display_phone_number || "";
+  const verifiedName = verifiedData.phoneNumber.verified_name || (body.verifiedName as string) || "AI Closer";
   const qualityRating = verifiedData.phoneNumber.quality_rating || "GREEN";
   const messagingLimitTier = verifiedData.phoneNumber.messaging_limit_tier || "TIER_1K";
+  const channelStatus = displayPhoneNumber.trim() ? "ACTIVE" : "PENDING_VERIFICATION";
 
   const encryptedToken = finalAccessToken ? encryptSecureToken(finalAccessToken) : null;
 
@@ -161,7 +171,7 @@ export async function POST(request: Request) {
       graphApiVersion,
       webhookVerifyToken: webhookVerifyToken || undefined,
       encryptedAccessToken: encryptedToken || undefined,
-      status: "ACTIVE",
+      status: channelStatus,
       lastSyncedAt: new Date(),
       updatedAt: new Date(),
     },
@@ -177,7 +187,7 @@ export async function POST(request: Request) {
       graphApiVersion,
       webhookVerifyToken,
       encryptedAccessToken: encryptedToken,
-      status: "ACTIVE",
+      status: channelStatus,
       lastSyncedAt: new Date(),
     },
   });

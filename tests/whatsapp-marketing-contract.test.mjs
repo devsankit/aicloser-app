@@ -208,7 +208,7 @@ test("WhatsApp Marketing API routes enforce tenant-scoping and authorization rol
   assert.match(channelRoute, /REQUESTED_BUSINESS_PHONE/);
 
   const { REQUESTED_BUSINESS_PHONE } = await loadTsModule("src/lib/whatsapp-marketing/config.ts");
-  assert.equal(REQUESTED_BUSINESS_PHONE, "9993328124");
+  assert.equal(REQUESTED_BUSINESS_PHONE, "");
 
   assert.match(templatesRoute, /createAndSubmitTemplate/);
   assert.match(templatesRoute, /resolveSessionTenantId/);
@@ -316,23 +316,57 @@ test("Template structure validation enforces button limits, button types, and le
   assert.match(oversizedBody.errors[0], /1024 characters/);
 });
 
+test("Template builder supports dynamic samples, media headers, and carousel cards", async () => {
+  const { buildMetaTemplatePayload, validateTemplateStructure } = await loadTsModule("src/lib/whatsapp-marketing/template-service.ts");
+
+  const carousel = validateTemplateStructure({
+    name: "carousel_offer",
+    category: "MARKETING",
+    headerType: "NONE",
+    bodyText: "Choose an offer, {{1}}.",
+    exampleValues: { "1": "Ankit" },
+    carouselCards: [
+      { bodyText: "Offer {{1}}", exampleValues: { "1": "A" }, headerHandle: "image_handle_a" },
+      { bodyText: "Offer {{1}}", exampleValues: { "1": "B" }, headerHandle: "image_handle_b" },
+    ],
+  });
+  assert.equal(carousel.valid, true);
+
+  const payload = buildMetaTemplatePayload({
+    name: "video_offer",
+    language: "en_US",
+    category: "MARKETING",
+    headerType: "VIDEO",
+    headerHandle: "video_handle",
+    bodyText: "Hi {{1}}",
+    exampleValues: { "1": "Ankit" },
+    carouselCards: [
+      { bodyText: "Card one", headerHandle: "image_one" },
+      { bodyText: "Card two", headerHandle: "image_two" },
+    ],
+  });
+  assert.equal(payload.components.some((component) => component.type === "HEADER" && component.format === "VIDEO"), true);
+  const carouselComponent = payload.components.find((component) => component.type === "CAROUSEL");
+  assert.equal(carouselComponent?.cards?.length, 2);
+});
+
 test("Mock mode and client safeguards isolate all Meta Cloud API operations locally", async () => {
   const { REQUESTED_BUSINESS_PHONE, isMockMode } = await loadTsModule("src/lib/whatsapp-marketing/config.ts");
   const { verifyChannelConnection, createMetaTemplate, sendTemplateMessage, listWabaPhoneNumbers } = await loadTsModule("src/lib/whatsapp-marketing/meta-client.ts");
 
-  assert.equal(REQUESTED_BUSINESS_PHONE, "9993328124");
+  assert.equal(REQUESTED_BUSINESS_PHONE, "");
   assert.equal(isMockMode(), true);
 
   // verifyChannelConnection in mock mode returns target phone without network requests
   const phoneRes = await verifyChannelConnection({ phoneNumberId: "962346373625331", accessToken: "mock_token" });
   assert.equal(phoneRes.ok, true);
-  assert.equal(phoneRes.data.phoneNumber.display_phone_number, "+91 99933 28124");
-  assert.equal(phoneRes.data.matchesRequestedNumber, true);
+  assert.equal(phoneRes.data.phoneNumber.display_phone_number, "");
+  assert.equal(phoneRes.data.matchesRequestedNumber, false);
 
   // listWabaPhoneNumbers in mock mode
   const listRes = await listWabaPhoneNumbers("2744233995921639", "mock_token");
   assert.equal(listRes.ok, true);
-  assert.equal(listRes.data[0].id, "962346373625331");
+  assert.equal(listRes.data.length, 0);
 
   // createMetaTemplate in mock mode returns approved template id
   const tmplRes = await createMetaTemplate({
@@ -388,5 +422,17 @@ test("XLSX buffer parser and expanded column detector support spreadsheet import
   assert.equal(mapping.email, "Business Email");
   assert.equal(mapping.group, "Client Segment");
   assert.equal(mapping.tags, "Labels");
+});
+
+test("Sales authentication returns to dashboard instead of a stale marketing tab", async () => {
+  const session = await read("src/lib/auth/session.ts");
+  const passwordRoute = await read("src/app/api/auth/login/password/route.ts");
+  const googleCallback = await read("src/app/api/auth/google/callback/route.ts");
+
+  assert.match(session, /getSafeSalesRedirectPath/);
+  assert.match(session, /tab=whatsapp-marketing/);
+  assert.equal(session.includes('return "/?tab=dashboard"'), true);
+  assert.match(passwordRoute, /getSafeSalesRedirectPath\(redirectTo, effectiveRole\)/);
+  assert.match(googleCallback, /getSafeSalesRedirectPath\(savedState\.redirectTo/);
 });
 

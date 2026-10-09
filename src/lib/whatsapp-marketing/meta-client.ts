@@ -17,7 +17,7 @@ export type MetaPhoneDetails = {
 };
 
 export type MetaTemplateComponent = {
-  type: "HEADER" | "BODY" | "FOOTER" | "BUTTONS";
+  type: "HEADER" | "BODY" | "FOOTER" | "BUTTONS" | "CAROUSEL";
   format?: "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT";
   text?: string;
   example?: {
@@ -33,6 +33,9 @@ export type MetaTemplateComponent = {
     example?: string[];
     flow_id?: string;
     flow_action?: string;
+  }>;
+  cards?: Array<{
+    components: MetaTemplateComponent[];
   }>;
 };
 
@@ -142,7 +145,7 @@ async function metaFetch<T>(
 
 /**
  * Validates channel details against Meta Graph API and checks if the retrieved phone number
- * matches the requested business phone (9993328124).
+ * matches an explicitly configured compatibility phone, when one exists.
  * In mock mode: returns verified test data without making network calls.
  */
 export async function verifyChannelConnection(input: {
@@ -160,24 +163,23 @@ export async function verifyChannelConnection(input: {
   const cleanRequestedDigits = REQUESTED_BUSINESS_PHONE.replace(/\D/g, "");
 
   if (isMockMode()) {
-    const isTargetId = input.phoneNumberId === "962346373625331" || !input.phoneNumberId.startsWith("invalid");
     return {
       ok: true,
       data: {
         phoneNumber: {
-          id: input.phoneNumberId || "962346373625331",
-          display_phone_number: isTargetId ? "+91 99933 28124" : "+91 98765 43210",
-          verified_name: "Gigxomi Support",
+          id: input.phoneNumberId || "",
+          display_phone_number: "",
+          verified_name: "",
           quality_rating: "GREEN",
           code_verification_status: "VERIFIED",
           messaging_limit_tier: "TIER_1K",
           name_status: "APPROVED",
         },
-        matchesRequestedNumber: isTargetId,
+        matchesRequestedNumber: false,
         requestedNumber: REQUESTED_BUSINESS_PHONE,
         wabaInfo: {
-          id: input.wabaId || "2744233995921639",
-          name: "Gigxomi Agency Support",
+          id: input.wabaId || "",
+          name: "",
           currency: "INR",
           timezone_id: "Asia/Kolkata",
         },
@@ -196,7 +198,7 @@ export async function verifyChannelConnection(input: {
 
   const phone = phoneRes.data;
   const digitsFromMeta = (phone.display_phone_number || "").replace(/\D/g, "");
-  const matchesRequested = digitsFromMeta.endsWith(cleanRequestedDigits) || cleanRequestedDigits.endsWith(digitsFromMeta);
+  const matchesRequested = !cleanRequestedDigits || digitsFromMeta.endsWith(cleanRequestedDigits) || cleanRequestedDigits.endsWith(digitsFromMeta);
 
   let wabaInfo: Record<string, unknown> | undefined;
   if (input.wabaId) {
@@ -230,17 +232,7 @@ export async function listWabaPhoneNumbers(
   if (isMockMode()) {
     return {
       ok: true,
-      data: [
-        {
-          id: "962346373625331",
-          display_phone_number: "+91 99933 28124",
-          verified_name: "Gigxomi Support",
-          quality_rating: "GREEN",
-          code_verification_status: "VERIFIED",
-          messaging_limit_tier: "TIER_1K",
-          name_status: "APPROVED",
-        },
-      ],
+      data: [],
     };
   }
 

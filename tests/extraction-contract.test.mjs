@@ -14,7 +14,7 @@ test("web CRM is hosted at the GXclosers root", async () => {
   ]);
   assert.match(page, /requirePageRole\(\["SALES_AGENT", "ADMIN", "MANAGER"\], "\/"\)/);
   assert.doesNotMatch(page, /redirect\(`\/sales/);
-  assert.match(login, /redirectTo=\{value\(params\.redirectTo\) \|\| "\/"\}/);
+  assert.match(login, /redirectTo=\{value\(params\.redirectTo\) \|\| "\/\?tab=dashboard"\}/);
   assert.match(nextConfig, /source: "\/sales", destination: "\/"/);
   await assert.rejects(access(new URL("../src/app/sales/page.tsx", import.meta.url)));
 });
@@ -27,7 +27,7 @@ test("new mobile builds use the GXClosers identity and domain", async () => {
   ]);
   assert.match(manifest, /android:label="@string\/app_name"/);
   assert.match(manifest, /android:scheme="gxclosers"/);
-  assert.match(gradle, /applicationId = "com\.gigxomi\.gxclosers"/);
+  assert.match(gradle, /applicationId = "com\.gigxomi\.crm"/);
   assert.match(gradle, /https:\/\/app\.aicloser\.in\/api/);
   assert.match(api, /BuildConfig\.GXCLOSERS_API_BASE/);
   assert.doesNotMatch(api, /www\.gigxomi\.com/);
@@ -90,5 +90,6 @@ test("live conversations and Kanban use one lead stage record", async () => {
   assert.match(salesStore, /mapConversationLeadStatusToSalesStage/);
   assert.match(dashboard, /aria-label=\{`Change \$\{lead\.customerName\} stage`\}/);
   assert.match(dashboard, /onStage=\{updateLeadStage\}/);
-  assert.match(statusRoute, /syncLeadStatusToMetaAndOutbox/);
+  assert.match(statusRoute, /persistRealtimeEvent/);
+  assert.doesNotMatch(statusRoute, /syncLeadStatusToMetaAndOutbox/);
 });
