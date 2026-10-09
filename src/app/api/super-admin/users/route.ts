@@ -60,6 +60,18 @@ export async function GET() {
       }),
     ]);
 
+    const subscriptions = rawUsers.length
+      ? await prisma.userSubscription.findMany({
+          where: { userId: { in: rawUsers.map((user) => user.id) } },
+          orderBy: [{ createdAt: "desc" }, { updatedAt: "desc" }],
+          include: { package: { select: { name: true, paymentRequired: true } } },
+        })
+      : [];
+    const subscriptionMap = new Map<string, (typeof subscriptions)[number]>();
+    for (const subscription of subscriptions) {
+      if (!subscriptionMap.has(subscription.userId)) subscriptionMap.set(subscription.userId, subscription);
+    }
+
     const agentMap = new Map<string, (typeof agentProfiles)[number]>();
     for (const agent of agentProfiles) {
       agentMap.set(agent.userId, agent);
@@ -97,6 +109,10 @@ export async function GET() {
           : user.assignedRole || user.role;
 
       const effectiveStatus = agent?.status ?? "ACTIVE";
+      const subscription = subscriptionMap.get(user.id);
+      const paymentStatus = subscription?.paymentStatus ?? (user.packageStatus === "ACTIVE" ? "PAID" : "NOT_CONFIGURED");
+      const paymentPendingSince = subscription?.paymentStatus === "PENDING" ? subscription.createdAt.toISOString() : null;
+      const activationLocked = subscription?.paymentStatus === "PENDING" && subscription.package.paymentRequired && subscription.createdAt.getTime() + 24 * 60 * 60 * 1000 <= Date.now();
 
       return {
         id: user.id,
@@ -111,6 +127,9 @@ export async function GET() {
         agentProfileId: agent?.id ?? null,
         tenantId: user.tenantId,
         packageName: user.packageName || "Pro Workspace",
+        paymentStatus,
+        paymentPendingSince,
+        activationLocked,
         createdAt: user.createdAt.toISOString(),
         lastLoginAt: user.lastLoginAt ? user.lastLoginAt.toISOString() : null,
         isSeeded: user.isSeeded,
@@ -140,12 +159,61 @@ export async function POST(request: Request) {
   if (!authorization.ok) return authorization.response;
 
   try {
-    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    const contentType = request.headers.get("content-type") || "";
+    const wantsJson = contentType.includes("application/json") || (request.headers.get("accept") || "").includes("application/json");
+    const body = (contentType.includes("application/json")
+      ? await request.json().catch(() => null)
+      : Object.fromEntries(await request.formData().catch(() => new FormData()))) as Record<string, unknown> | null;
     if (!body || typeof body.action !== "string") {
       return NextResponse.json({ ok: false, error: "Invalid request payload." }, { status: 400 });
     }
 
     const action = body.action;
+
+    // --- ACTION 0: Payment status and activation state ---
+    if (action === "update-payment-status") {
+      const userId = String(body.userId ?? "").trim();
+      const nextPaymentStatus = String(body.paymentStatus ?? "").toUpperCase();
+      if (!userId || !["PENDING", "PAID"].includes(nextPaymentStatus)) {
+        return NextResponse.json({ ok: false, error: "Valid user ID and payment status (PENDING or PAID) are required." }, { status: 400 });
+      }
+
+      const user = await prisma.appAuthUser.findUnique({ where: { id: userId } });
+      if (!user) return NextResponse.json({ ok: false, error: "User not found." }, { status: 404 });
+      let subscription = await prisma.userSubscription.findFirst({ where: { userId }, orderBy: [{ createdAt: "desc" }, { updatedAt: "desc" }] });
+      if (!subscription) {
+        const registrationPackage = await prisma.package.findFirst({
+          where: { packageType: { in: ["AGENCY", "BOTH"] }, isActive: true, allowRegistration: true, paymentRequired: true },
+          orderBy: [{ isRecommended: "desc" }, { sortOrder: "asc" }],
+        });
+        if (!registrationPackage) return NextResponse.json({ ok: false, error: "No active agency package is configured." }, { status: 409 });
+        subscription = await prisma.userSubscription.create({
+          data: {
+            userId,
+            packageId: registrationPackage.id,
+            packageType: registrationPackage.packageType,
+            billingType: registrationPackage.billingType,
+            billingInterval: registrationPackage.billingInterval,
+            amount: registrationPackage.amount,
+            autoRenew: registrationPackage.autoRenewEnabled,
+          },
+        });
+      }
+
+      const packageRecord = await prisma.package.findUnique({ where: { id: subscription.packageId } });
+      const paid = nextPaymentStatus === "PAID";
+      const now = new Date();
+      const updated = await prisma.userSubscription.update({
+        where: { id: subscription.id },
+        data: {
+          paymentStatus: paid ? "PAID" : "PENDING",
+          status: paid ? "ACTIVE" : "PENDING",
+          ...(paid ? { startsAt: subscription.startsAt ?? now, expiresAt: new Date(now.getTime() + (packageRecord?.durationDays ?? 30) * 86400000) } : {}),
+        },
+      });
+      await prisma.appAuthUser.update({ where: { id: userId }, data: { packageStatus: paid ? "ACTIVE" : "PAUSED", packageId: subscription.packageId, packageName: packageRecord?.name ?? user.packageName } });
+      return NextResponse.json({ ok: true, userId, paymentStatus: updated.paymentStatus, activationLocked: !paid });
+    }
 
     // --- ACTION 1: Quick Seat Scaling (+ / - / custom number) ---
     if (action === "update-seats") {
@@ -169,6 +237,9 @@ export async function POST(request: Request) {
           data: {
             permissions: {
               ...prevPermissions,
+              ...(user.role === "SUPER_ADMIN"
+                ? { companyName: "Personal Workspace", workspaceRole: "SUPER_ADMIN", workspaceAdmin: true, isWorkspaceOwner: true }
+                : {}),
               seatLimit: seats,
               maxUsers: seats,
               seats: seats,
@@ -176,15 +247,38 @@ export async function POST(request: Request) {
           },
         });
       } else {
+        // Seeded platform-owner accounts predate the workspace-backed sales
+        // profile. Give them an AICLOSER workspace before creating the profile
+        // so the live schema's required tenantId is always satisfied.
+        let tenantId = user.tenantId;
+        if (!tenantId) {
+          tenantId = `tenant-super-admin-${randomBytes(4).toString("hex")}`;
+          await prisma.$executeRaw`
+            INSERT INTO "AicloserWorkspace" (
+              "id", "name", "slug", "ownerEmail", "ownerPhone", "status",
+              "planTier", "maxSeats", "settings", "createdAt", "updatedAt"
+            ) VALUES (
+              ${tenantId}, ${`${user.displayName} Workspace`}, ${tenantId}, ${user.email || ""}, ${user.phone || ""},
+              'ACTIVE', 'PRO', ${seats}, '{}'::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            ) ON CONFLICT ("id") DO NOTHING
+          `;
+          await prisma.$executeRaw`
+            UPDATE "AicloserWorkspace"
+            SET "ownerUserId" = ${user.id}, "updatedAt" = CURRENT_TIMESTAMP
+            WHERE "id" = ${tenantId}
+          `;
+          await prisma.appAuthUser.update({ where: { id: user.id }, data: { tenantId } });
+        }
         await prisma.salesAgentProfile.create({
           data: {
+            tenantId,
             userId,
             agentCode: generateAgentCode(user.displayName),
             status: "ACTIVE",
             maxActiveLeads: 50,
             permissions: {
-              companyName: "Workspace",
-              workspaceRole: user.role === "ADMIN" ? "ADMIN" : "SALES_AGENT",
+              companyName: user.role === "SUPER_ADMIN" ? "Personal Workspace" : "Workspace",
+              workspaceRole: user.role === "SUPER_ADMIN" ? "SUPER_ADMIN" : user.role === "ADMIN" ? "ADMIN" : "SALES_AGENT",
               workspaceAdmin: true,
               isWorkspaceOwner: true,
               seatLimit: seats,
@@ -200,9 +294,13 @@ export async function POST(request: Request) {
           where: { id: user.tenantId },
           data: { editorSeatLimit: seats },
         });
+        await prisma.$executeRaw`UPDATE "AicloserWorkspace" SET "maxSeats" = ${seats}, "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = ${user.tenantId}`;
       }
 
-      return NextResponse.json({ ok: true, userId, seatLimit: seats });
+      const response = { ok: true, userId, seatLimit: seats };
+      return wantsJson
+        ? NextResponse.json(response)
+        : NextResponse.redirect(new URL("/super-admin?message=Seats+updated", request.url), 303);
     }
 
     // --- ACTION 2: Quick Status Toggle (ACTIVE / PENDING / SUSPENDED) ---
@@ -268,6 +366,14 @@ export async function POST(request: Request) {
       const passwordHash = hashPassword(password, salt);
       const tenantId = `tenant-${randomBytes(4).toString("hex")}`;
 
+      await prisma.$executeRaw`
+        INSERT INTO "AicloserWorkspace" (
+          "id", "name", "slug", "ownerEmail", "ownerPhone", "status", "planTier", "maxSeats", "settings", "createdAt", "updatedAt"
+        ) VALUES (
+          ${tenantId}, ${`${companyName} Workspace`}, ${tenantId}, ${email}, ${phone}, 'ACTIVE', 'PRO', ${seatLimit}, '{}'::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        ) ON CONFLICT ("id") DO NOTHING
+      `;
+
       const newUser = await prisma.appAuthUser.create({
         data: {
           id: `user-${role.toLowerCase().replace(/_/g, "-")}-${randomBytes(4).toString("hex")}`,
@@ -291,6 +397,7 @@ export async function POST(request: Request) {
 
       const newAgent = await prisma.salesAgentProfile.create({
         data: {
+          tenantId,
           userId: newUser.id,
           agentCode: generateAgentCode(displayName),
           status,

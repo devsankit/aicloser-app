@@ -8,13 +8,14 @@ import {
   getGoogleLoginConfig,
   getSafeGoogleRedirect,
 } from "@/lib/auth/google-oauth";
+import { getPublicRequestUrl } from "@/lib/auth/request-url";
 
 export const runtime = "nodejs";
 
 function notConfigured(request: Request) {
   const acceptsHtml = request.headers.get("accept")?.includes("text/html");
   if (acceptsHtml) {
-    return NextResponse.redirect(new URL("/login?error=GoogleLoginNotConfigured", request.url));
+    return NextResponse.redirect(getPublicRequestUrl(request, "/login?error=GoogleLoginNotConfigured"));
   }
   return NextResponse.json(
     { ok: false, error: "GoogleLoginNotConfigured", message: "Google Sign-In is not configured for this environment." },
@@ -23,7 +24,8 @@ function notConfigured(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const config = getGoogleLoginConfig(request.url);
+  const publicOrigin = getPublicRequestUrl(request, "/").origin;
+  const config = getGoogleLoginConfig(publicOrigin);
   if (!config.configured) return notConfigured(request);
 
   const url = new URL(request.url);

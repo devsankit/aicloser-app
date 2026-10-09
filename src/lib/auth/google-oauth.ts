@@ -79,7 +79,7 @@ export function getGoogleLoginConfig(requestUrl?: string) {
   const clientId = process.env.GOOGLE_LOGIN_CLIENT_ID?.trim() || "";
   const clientSecret = process.env.GOOGLE_LOGIN_CLIENT_SECRET?.trim() || "";
   const configuredRedirect = process.env.GOOGLE_LOGIN_REDIRECT_URI?.trim() || "";
-  const fallbackBase = process.env.NEXT_PUBLIC_APP_URL?.trim() || requestUrl || "http://localhost:3012";
+  const fallbackBase = requestUrl || process.env.NEXT_PUBLIC_APP_URL?.trim() || "http://localhost:3012";
   const redirectUri = configuredRedirect || new URL("/api/auth/google/callback", fallbackBase).toString();
   return {
     clientId,

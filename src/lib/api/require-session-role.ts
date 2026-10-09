@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getSessionContext } from "@/lib/auth/session";
 import type { AppRole, SessionUser } from "@/lib/auth/types";
 import { getSalesAgentAccess } from "@/lib/gigxomi/sales-store";
+import { getWorkspacePaymentState } from "@/lib/billing/workspace-access";
 
 type AuthorizedSession = Omit<SessionUser, "expiresAt" | "sessionId"> & Pick<SessionUser, "expiresAt" | "sessionId">;
 
@@ -35,6 +36,16 @@ export async function requireSessionRole(allowedRoles: AppRole[]): Promise<Autho
       ok: false,
       response: NextResponse.json({ ok: false, error: "You do not have access to this action." }, { status: 403 }),
     };
+  }
+
+  if (session.userId && session.role !== "SUPER_ADMIN") {
+    const paymentState = await getWorkspacePaymentState(session.userId);
+    if (paymentState.locked) {
+      return {
+        ok: false,
+        response: NextResponse.json({ ok: false, error: "PLAN_ACTIVATION_REQUIRED", redirectTo: "/activate-plan" }, { status: 402 }),
+      };
+    }
   }
 
   if (session.role === "SALES_AGENT" || session.role === "ADMIN") {

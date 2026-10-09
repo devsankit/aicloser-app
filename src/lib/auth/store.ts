@@ -368,6 +368,15 @@ async function ensureBootstrapped() {
       if (existingUserCount > 1) {
         return;
       }
+
+      // Production signup must remain usable after a clean workspace purge.
+      // Demo/Meta-review identities use the legacy tenant-gigxomi tenant and
+      // must never be recreated automatically when only the super admin is
+      // left in a live database.
+      if (process.env.NODE_ENV === "production" && !ENABLE_DEMO_AUTH_SEED) {
+        return;
+      }
+
       await upsertMetaReviewTestUsers().catch(() => {});
 
       const legacy = ENABLE_LEGACY_AUTH_IMPORT ? await readLegacySnapshot() : null;

@@ -3158,6 +3158,7 @@ export async function provisionSaaSCloserWorkspace(input: {
   email: string;
   phone: string;
   password: string;
+  seats?: number;
   googleIdentity?: {
     googleSubject: string;
     email: string;
@@ -3173,6 +3174,7 @@ export async function provisionSaaSCloserWorkspace(input: {
   const email = input.email.trim().toLowerCase();
   const rawPhone = input.phone.trim();
   const password = input.password.trim();
+  const seats = Math.floor(Number(input.seats ?? 5));
 
   if (!companyName) {
     return { ok: false as const, error: "Company or workspace name is required." };
@@ -3185,6 +3187,9 @@ export async function provisionSaaSCloserWorkspace(input: {
   }
   if (password.length < 8) {
     return { ok: false as const, error: "Password must be at least 8 characters." };
+  }
+  if (!Number.isInteger(seats) || seats < 1 || seats > 500) {
+    return { ok: false as const, error: "Number of users must be between 1 and 500." };
   }
 
   const baseSlug =
@@ -3208,10 +3213,22 @@ export async function provisionSaaSCloserWorkspace(input: {
           "planTier", "maxSeats", "settings", "createdAt", "updatedAt"
         ) VALUES (
           ${tenantId}, ${`${companyName} Workspace`}, ${tenantId}, ${email}, ${rawPhone},
-          'ACTIVE', 'PRO', 5, '{}'::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+          'ACTIVE', 'PRO', ${seats}, '{}'::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
         )
         ON CONFLICT ("id") DO NOTHING
       `;
+
+      // Keep the foreign-key dependency explicit: the owner user must only
+      // be created after the workspace row is visible in this transaction.
+      const workspaceRows = await transaction.$queryRaw<Array<{ id: string }>>`
+        SELECT "id"
+        FROM "AicloserWorkspace"
+        WHERE "id" = ${tenantId}
+        LIMIT 1
+      `;
+      if (workspaceRows.length === 0) {
+        throw new Error("Workspace provisioning could not create the workspace record.");
+      }
 
       // 1. Create dedicated SalesAgentGroup for this workspace
       const group = await transaction.salesAgentGroup.create({
@@ -3280,6 +3297,9 @@ export async function provisionSaaSCloserWorkspace(input: {
             workspaceAdmin: true,
             isWorkspaceOwner: true,
             companyName,
+            seatLimit: seats,
+            maxUsers: seats,
+            seats,
           },
           referralCodes: {
             create: {
@@ -3291,9 +3311,52 @@ export async function provisionSaaSCloserWorkspace(input: {
         include: { user: true },
       });
 
+      const registrationPackage = await transaction.package.findFirst({
+        where: { packageType: { in: ["AGENCY", "BOTH"] }, isActive: true, allowRegistration: true, paymentRequired: true },
+        orderBy: [{ isRecommended: "desc" }, { sortOrder: "asc" }],
+      });
+      if (registrationPackage) {
+        const paidPlan = registrationPackage.paymentRequired && !registrationPackage.isFree;
+        await transaction.userSubscription.create({
+          data: {
+            userId: createdUser.user.id,
+            packageId: registrationPackage.id,
+            packageType: registrationPackage.packageType,
+            billingType: registrationPackage.billingType,
+            billingInterval: registrationPackage.billingInterval,
+            status: paidPlan ? "PENDING" : "ACTIVE",
+            paymentStatus: paidPlan ? "PENDING" : "NOT_REQUIRED",
+            amount: registrationPackage.amount,
+            autoRenew: registrationPackage.autoRenewEnabled,
+            ...(paidPlan ? {} : { startsAt: new Date(), expiresAt: new Date(Date.now() + registrationPackage.durationDays * 86400000) }),
+          },
+        });
+        if (paidPlan) {
+          await transaction.appAuthUser.update({
+            where: { id: createdUser.user.id },
+            data: {
+              packageId: registrationPackage.id,
+              packageName: registrationPackage.name,
+              packageStatus: "PAUSED",
+              packageExpiresAt: null,
+            },
+          });
+        }
+      }
+
+      const provisionedUser = registrationPackage && registrationPackage.paymentRequired && !registrationPackage.isFree
+        ? {
+            ...createdUser.user,
+            packageId: registrationPackage.id,
+            packageName: registrationPackage.name,
+            packageStatus: "PAUSED" as const,
+            packageExpiresAt: null,
+          }
+        : createdUser.user;
+
       return {
         ok: true as const,
-        user: createdUser.user,
+        user: provisionedUser,
         agent: mapAgent(agent),
         workspace: {
           tenantId,
@@ -3301,7 +3364,7 @@ export async function provisionSaaSCloserWorkspace(input: {
           groupId: group.id,
         },
       };
-    });
+    }, { maxWait: 10000, timeout: 30000 });
   } catch (error: unknown) {
     console.error("[provisionSaaSCloserWorkspace] Error:", error);
     const message = error instanceof Error ? error.message : "Failed to provision workspace.";

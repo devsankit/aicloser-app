@@ -18,6 +18,10 @@ export async function POST(request: Request) {
   const phone = readString(body.phone);
   const password = readString(body.password);
   const confirmPassword = readString(body.confirmPassword);
+  const seats = Number(body.seats ?? 5);
+  if (!Number.isInteger(seats) || seats < 1 || seats > 500) {
+    return NextResponse.json({ ok: false, error: "Number of users must be between 1 and 500." }, { status: 400 });
+  }
   if (password !== confirmPassword) {
     return NextResponse.json({ ok: false, error: "Passwords do not match." }, { status: 400 });
   }
@@ -29,6 +33,7 @@ export async function POST(request: Request) {
     email,
     phone,
     password,
+    seats,
   });
 
   if (!result.ok) {

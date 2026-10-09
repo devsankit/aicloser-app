@@ -28,6 +28,7 @@ type ClientSessionInput = {
 
 async function withClientSlotLock<T>(input: Pick<ClientSessionInput, "userId" | "channel">, fn: (tx: Prisma.TransactionClient) => Promise<T>) {
   return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`aicloser:client-all:${input.userId}`}))`;
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`aicloser:client-slot:${input.userId}:${input.channel}`}))`;
     return fn(tx);
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
@@ -99,6 +100,30 @@ export async function revokeActiveAppClientSession(input: { userId: string; tena
     });
     return session;
   });
+}
+
+export async function revokeAllActiveAppClientSessions(input: { userId: string; tenantId: string | null; reason?: string }) {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`aicloser:client-all:${input.userId}`}))`;
+    const activeSessions = await tx.appClientSession.findMany({
+      where: { userId: input.userId, tenantId: input.tenantId, status: AppClientSessionStatus.ACTIVE },
+      select: { id: true, slotId: true },
+    });
+    if (!activeSessions.length) return 0;
+
+    const now = new Date();
+    const sessionIds = activeSessions.map((session) => session.id);
+    const slotIds = activeSessions.map((session) => session.slotId);
+    await tx.appClientSession.updateMany({
+      where: { id: { in: sessionIds }, status: AppClientSessionStatus.ACTIVE },
+      data: { status: AppClientSessionStatus.REVOKED, revokedAt: now, revokeReason: input.reason ?? "Revoked from the login screen" },
+    });
+    await tx.appClientSlot.updateMany({
+      where: { id: { in: slotIds }, activeSessionId: { in: sessionIds } },
+      data: { status: "AVAILABLE", activeSessionId: null, lastLogoutAt: now },
+    });
+    return activeSessions.length;
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
 export async function isAppClientSessionActive(sessionId: string, userId: string) {

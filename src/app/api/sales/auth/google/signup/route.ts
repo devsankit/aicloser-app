@@ -24,6 +24,10 @@ export async function POST(request: Request) {
   const companyName = readString(body.companyName);
   const displayName = readString(body.displayName) || claims.displayName;
   const phone = readString(body.phone);
+  const seats = Number(body.seats ?? 5);
+  if (!Number.isInteger(seats) || seats < 1 || seats > 500) {
+    return NextResponse.json({ ok: false, error: "Number of users must be between 1 and 500." }, { status: 400 });
+  }
   if (!companyName || !displayName || !phone) {
     return NextResponse.json({ ok: false, error: "MissingSignupDetails", message: "Workspace name, full name, and phone are required." }, { status: 400 });
   }
@@ -33,6 +37,7 @@ export async function POST(request: Request) {
     displayName,
     email: claims.email,
     phone,
+    seats,
     password: randomBytes(32).toString("base64url"),
     googleIdentity: {
       googleSubject: claims.googleSubject,

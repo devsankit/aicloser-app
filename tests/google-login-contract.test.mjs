@@ -5,6 +5,7 @@ import test from "node:test";
 const oauth = fs.readFileSync(new URL("../src/lib/auth/google-oauth.ts", import.meta.url), "utf8");
 const start = fs.readFileSync(new URL("../src/app/api/auth/google/start/route.ts", import.meta.url), "utf8");
 const callback = fs.readFileSync(new URL("../src/app/api/auth/google/callback/route.ts", import.meta.url), "utf8");
+const requestUrl = fs.readFileSync(new URL("../src/lib/auth/request-url.ts", import.meta.url), "utf8");
 const onboarding = fs.readFileSync(new URL("../src/app/api/sales/auth/google/signup/route.ts", import.meta.url), "utf8");
 const login = fs.readFileSync(new URL("../src/components/sales/sales-auth.tsx", import.meta.url), "utf8");
 const schema = fs.readFileSync(new URL("../prisma/schema.prisma", import.meta.url), "utf8");
@@ -37,4 +38,14 @@ test("first Google login collects workspace details and creates a server-linked 
 test("Google login does not reuse the Sheets OAuth environment variables", () => {
   assert.match(oauth, /GOOGLE_LOGIN_REDIRECT_URI/);
   assert.doesNotMatch(oauth, /GOOGLE_OAUTH_REDIRECT_URI/);
+});
+
+test("Google OAuth redirects use the public request origin behind a proxy", () => {
+  assert.match(requestUrl, /x-forwarded-host/);
+  assert.match(requestUrl, /x-forwarded-proto/);
+  assert.match(start, /getPublicRequestUrl/);
+  assert.match(start, /getGoogleLoginConfig\(publicOrigin\)/);
+  assert.match(callback, /getPublicRequestUrl/);
+  assert.match(callback, /getGoogleLoginConfig\(publicOrigin\)/);
+  assert.match(oauth, /const fallbackBase = requestUrl \|\|/);
 });

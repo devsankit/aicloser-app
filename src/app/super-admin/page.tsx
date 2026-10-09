@@ -61,6 +61,17 @@ export default async function SuperAdminPage() {
         },
       }),
     ]);
+    const subscriptions = rawUsers.length
+      ? await prisma.userSubscription.findMany({
+          where: { userId: { in: rawUsers.map((user) => user.id) } },
+          orderBy: [{ createdAt: "desc" }, { updatedAt: "desc" }],
+          include: { package: { select: { paymentRequired: true } } },
+        })
+      : [];
+    const subscriptionMap = new Map<string, (typeof subscriptions)[number]>();
+    for (const subscription of subscriptions) {
+      if (!subscriptionMap.has(subscription.userId)) subscriptionMap.set(subscription.userId, subscription);
+    }
 
     const agentMap = new Map<string, (typeof agentProfiles)[number]>();
     for (const agent of agentProfiles) {
@@ -99,6 +110,9 @@ export default async function SuperAdminPage() {
           : user.assignedRole || user.role;
 
       const effectiveStatus = agent?.status ?? "ACTIVE";
+      const subscription = subscriptionMap.get(user.id);
+      const paymentStatus = subscription?.paymentStatus ?? (user.packageStatus === "ACTIVE" ? "PAID" : "NOT_CONFIGURED");
+      const activationLocked = subscription?.paymentStatus === "PENDING" && subscription.package.paymentRequired && subscription.createdAt.getTime() + 24 * 60 * 60 * 1000 <= Date.now();
 
       return {
         id: user.id,
@@ -113,6 +127,9 @@ export default async function SuperAdminPage() {
         agentProfileId: agent?.id ?? null,
         tenantId: user.tenantId,
         packageName: user.packageName || "Pro Workspace",
+        paymentStatus,
+        paymentPendingSince: subscription?.paymentStatus === "PENDING" ? subscription.createdAt.toISOString() : null,
+        activationLocked,
         createdAt: user.createdAt.toISOString(),
         lastLoginAt: user.lastLoginAt ? user.lastLoginAt.toISOString() : null,
         isSeeded: user.isSeeded,

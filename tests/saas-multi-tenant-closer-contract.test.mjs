@@ -4,6 +4,7 @@ import fs from "node:fs";
 
 const signupRoute = fs.readFileSync(new URL("../src/app/api/sales/auth/signup/route.ts", import.meta.url), "utf8");
 const salesStore = fs.readFileSync(new URL("../src/lib/gigxomi/sales-store.ts", import.meta.url), "utf8");
+const authStore = fs.readFileSync(new URL("../src/lib/auth/store.ts", import.meta.url), "utf8");
 const conversationAccess = fs.readFileSync(new URL("../src/lib/api/conversation-access.ts", import.meta.url), "utf8");
 const conversationViewResponse = fs.readFileSync(new URL("../src/lib/api/conversation-view-response.ts", import.meta.url), "utf8");
 const resolveSessionTenant = fs.readFileSync(new URL("../src/lib/api/resolve-session-tenant.ts", import.meta.url), "utf8");
@@ -13,6 +14,13 @@ const leadsRoute = fs.readFileSync(new URL("../src/app/api/sales/leads/route.ts"
 const signupPage = fs.readFileSync(new URL("../src/app/signup/page.tsx", import.meta.url), "utf8");
 const salesAuthForm = fs.readFileSync(new URL("../src/components/sales/sales-auth.tsx", import.meta.url), "utf8");
 const mainPage = fs.readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+const googleSignupRoute = fs.readFileSync(new URL("../src/app/api/sales/auth/google/signup/route.ts", import.meta.url), "utf8");
+const paymentAccess = fs.readFileSync(new URL("../src/lib/billing/workspace-access.ts", import.meta.url), "utf8");
+const pageGuard = fs.readFileSync(new URL("../src/lib/auth/page-guard.ts", import.meta.url), "utf8");
+const superAdminUsersRoute = fs.readFileSync(new URL("../src/app/api/super-admin/users/route.ts", import.meta.url), "utf8");
+const clientSessions = fs.readFileSync(new URL("../src/lib/auth/client-sessions.ts", import.meta.url), "utf8");
+const revokeAllSessionsRoute = fs.readFileSync(new URL("../src/app/api/auth/client-sessions/revoke-all/route.ts", import.meta.url), "utf8");
+const superAdminUsersUiRoute = fs.readFileSync(new URL("../src/app/api/super-admin/users/route.ts", import.meta.url), "utf8");
 
 test("SaaS signup provisions isolated workspace and sends the user to login", () => {
   assert.match(signupRoute, /provisionSaaSCloserWorkspace/);
@@ -29,10 +37,69 @@ test("provisionSaaSCloserWorkspace creates dedicated tenant, group, and active w
   assert.match(salesStore, /export async function provisionSaaSCloserWorkspace/);
   assert.match(salesStore, /const tenantId = `tenant-\${baseSlug}-\${tenantSuffix}`/);
   assert.match(salesStore, /const groupId = `group-\${tenantId}`/);
+  assert.match(salesStore, /INSERT INTO \"AicloserWorkspace\"/);
+  assert.match(salesStore, /ON CONFLICT \(\"id\"\) DO NOTHING/);
+  assert.match(salesStore, /SELECT \"id\"\s+FROM \"AicloserWorkspace\"/);
+  assert.ok(
+    salesStore.indexOf('INSERT INTO "AicloserWorkspace"') < salesStore.indexOf('transaction.salesAgentGroup.create'),
+    "AicloserWorkspace must be created before tenant-scoped records"
+  );
+  assert.match(salesStore, /maxWait:\s*10000,\s*timeout:\s*30000/);
   assert.match(salesStore, /transaction\.salesAgentGroup\.create/);
   assert.match(salesStore, /status:\s*"ACTIVE"/);
   assert.match(salesStore, /canCreateSubAgents:\s*true/);
   assert.match(salesStore, /workspaceAdmin:\s*true/);
+  assert.match(salesStore, /"maxSeats"/);
+  assert.match(salesStore, /\$\{seats\}, '\{\}'::jsonb/);
+  assert.match(salesStore, /seatLimit:\s*seats/);
+  assert.match(salesStore, /transaction\.userSubscription\.create/);
+});
+
+test("normal and Google signup accept the requested number of users", () => {
+  assert.match(signupRoute, /const seats = Number\(body\.seats \?\? 5\)/);
+  assert.match(googleSignupRoute, /const seats = Number\(body\.seats \?\? 5\)/);
+  assert.match(salesAuthForm, /Number of users \/ team seats/);
+  assert.match(salesAuthForm, /name="seats"/);
+});
+
+test("pending payment locks workspace access after the 24-hour grace period", () => {
+  assert.match(paymentAccess, /WORKSPACE_PAYMENT_GRACE_MS = 24 \* 60 \* 60 \* 1000/);
+  assert.match(paymentAccess, /paymentStatus !== "PENDING"/);
+  assert.match(pageGuard, /getWorkspacePaymentState/);
+  assert.match(pageGuard, /redirect\("\/activate-plan"\)/);
+  assert.match(superAdminUsersRoute, /update-payment-status/);
+});
+
+test("super-admin login exposes safe session recovery actions", () => {
+  assert.match(salesAuthForm, /loginScope: "super-admin"/);
+  assert.match(salesAuthForm, /forceReplace: forceReplace \? "1" : "0"/);
+  assert.match(salesAuthForm, /Login here/);
+  assert.match(salesAuthForm, /Logout all sessions/);
+  assert.match(salesAuthForm, /\/api\/auth\/client-sessions\/revoke-all/);
+  assert.match(clientSessions, /export async function revokeAllActiveAppClientSessions/);
+  assert.match(revokeAllSessionsRoute, /user\.role !== "SUPER_ADMIN"/);
+  assert.match(revokeAllSessionsRoute, /revokeAllActiveAppClientSessions/);
+});
+
+test("super-admin seat scaling has a native form fallback", () => {
+  assert.match(salesAuthForm, /Login here/);
+  const superAdminUsersControl = fs.readFileSync(new URL("../src/components/super-admin/super-admin-closer-control.tsx", import.meta.url), "utf8");
+  assert.match(superAdminUsersControl, /action="\/api\/super-admin\/users" method="post"/);
+  assert.match(superAdminUsersControl, /totalSeats: Math\.max\(0, prev\.totalSeats - delta\)/);
+  assert.match(superAdminUsersControl, /committedSeats/);
+  assert.match(superAdminUsersUiRoute, /Object\.fromEntries\(await request\.formData\(\)/);
+  assert.match(superAdminUsersUiRoute, /NextResponse\.redirect\(new URL\("\/super-admin\?message=Seats\+updated"/);
+  assert.match(superAdminUsersUiRoute, /tenant-super-admin-/);
+  assert.match(superAdminUsersUiRoute, /tenantId,\n\s+userId,/);
+});
+
+test("production bootstrap does not recreate legacy demo users after a clean purge", () => {
+  assert.match(authStore, /Production signup must remain usable after a clean workspace purge/);
+  assert.match(authStore, /process\.env\.NODE_ENV === \"production\" && !ENABLE_DEMO_AUTH_SEED/);
+  assert.ok(
+    authStore.indexOf('process.env.NODE_ENV === "production" && !ENABLE_DEMO_AUTH_SEED') < authStore.indexOf("upsertMetaReviewTestUsers"),
+    "production bootstrap must exit before legacy demo-user seeding"
+  );
 });
 
 test("getSalesSnapshotForRole enforces strict tenant filtering across all entities", () => {

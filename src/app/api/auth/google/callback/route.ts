@@ -16,12 +16,13 @@ import {
 } from "@/lib/auth/google-oauth";
 import { applySessionCookie, getDashboardPathForIdentity, getSafeRedirectPath } from "@/lib/auth/session";
 import { getSalesAgentAccess } from "@/lib/gigxomi/sales-store";
+import { getPublicRequestUrl } from "@/lib/auth/request-url";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 
 function loginRedirect(request: Request, error: string, redirectTo?: string) {
-  const url = new URL("/login", request.url);
+  const url = getPublicRequestUrl(request, "/login");
   url.searchParams.set("error", error);
   if (redirectTo) url.searchParams.set("redirectTo", getSafeGoogleRedirect(redirectTo));
   return NextResponse.redirect(url);
@@ -54,7 +55,8 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const requestCookies = await cookies();
   const savedState = readGoogleOAuthState(requestCookies.get(GOOGLE_STATE_COOKIE)?.value, url.searchParams.get("state"));
-  const config = getGoogleLoginConfig(request.url);
+  const publicOrigin = getPublicRequestUrl(request, "/").origin;
+  const config = getGoogleLoginConfig(publicOrigin);
   if (!savedState) return clearStateCookie(loginRedirect(request, "GoogleLoginStateInvalid"));
   if (!config.configured) return clearStateCookie(loginRedirect(request, "GoogleLoginNotConfigured", savedState.redirectTo));
   if (url.searchParams.get("error")) return clearStateCookie(loginRedirect(request, "GoogleLoginCancelled", savedState.redirectTo));
@@ -80,7 +82,7 @@ export async function GET(request: Request) {
         return clearStateCookie(loginRedirect(request, "GoogleEmailAlreadyRegistered", savedState.redirectTo));
       }
 
-      const response = clearStateCookie(NextResponse.redirect(new URL("/signup?google=onboarding", request.url)));
+      const response = clearStateCookie(NextResponse.redirect(getPublicRequestUrl(request, "/signup?google=onboarding")));
       response.cookies.set(
         GOOGLE_ONBOARDING_COOKIE,
         createGoogleOnboardingCookie({
@@ -120,7 +122,7 @@ export async function GET(request: Request) {
     });
     await prisma.appAuthUser.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
     const destination = getSafeRedirectPath(savedState.redirectTo, effectiveRole as Parameters<typeof getSafeRedirectPath>[1]);
-    const response = clearStateCookie(NextResponse.redirect(new URL(destination || getDashboardPathForIdentity({ role: effectiveRole as Parameters<typeof getDashboardPathForIdentity>[0]["role"], packageAudience: user.packageAudience, workspaceMode: user.workspaceMode }), request.url)));
+    const response = clearStateCookie(NextResponse.redirect(getPublicRequestUrl(request, destination || getDashboardPathForIdentity({ role: effectiveRole as Parameters<typeof getDashboardPathForIdentity>[0]["role"], packageAudience: user.packageAudience, workspaceMode: user.workspaceMode }))));
     await applySessionCookie(response, {
       userId: user.id,
       role: effectiveRole as Parameters<typeof applySessionCookie>[1]["role"],

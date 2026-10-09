@@ -38,6 +38,9 @@ export type SuperAdminUser = {
   companyName: string;
   status: "ACTIVE" | "PENDING" | "SUSPENDED" | string;
   seatLimit: number;
+  paymentStatus?: "NOT_CONFIGURED" | "PENDING" | "PAID" | string;
+  paymentPendingSince?: string | null;
+  activationLocked?: boolean;
   agentCode: string | null;
   agentProfileId?: string | null;
   tenantId?: string | null;
@@ -160,18 +163,23 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
       });
       const data = await res.json();
       if (data.ok) {
-        showToast(`Updated seats to ${nextSeats} for ${user.displayName}`);
+        const committedSeats = Math.max(1, Number(data.seatLimit) || nextSeats);
+        setUsers((prev) => prev.map((u) => (u.id === user.id ? { ...u, seatLimit: committedSeats } : u)));
+        setStats((prev) => ({ ...prev, totalSeats: prev.totalSeats + (committedSeats - nextSeats) }));
+        showToast(`Updated seats to ${committedSeats} for ${user.displayName}`);
       } else {
         // Rollback
         setUsers((prev) =>
           prev.map((u) => (u.id === user.id ? { ...u, seatLimit: user.seatLimit } : u))
         );
+        setStats((prev) => ({ ...prev, totalSeats: Math.max(0, prev.totalSeats - delta) }));
         showToast(data.error || "Failed to update seats", "error");
       }
     } catch {
       setUsers((prev) =>
         prev.map((u) => (u.id === user.id ? { ...u, seatLimit: user.seatLimit } : u))
       );
+      setStats((prev) => ({ ...prev, totalSeats: Math.max(0, prev.totalSeats - delta) }));
       showToast("Network error updating seats", "error");
     }
   };
@@ -180,10 +188,12 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
   const handleSaveCustomSeats = async () => {
     if (!quickSeatModalUser) return;
     const nextSeats = Math.max(1, customSeatsInput);
+    const previousSeats = quickSeatModalUser.seatLimit;
 
     setUsers((prev) =>
       prev.map((u) => (u.id === quickSeatModalUser.id ? { ...u, seatLimit: nextSeats } : u))
     );
+    setStats((prev) => ({ ...prev, totalSeats: prev.totalSeats + (nextSeats - previousSeats) }));
 
     try {
       const res = await fetch("/api/super-admin/users", {
@@ -197,12 +207,19 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
       });
       const data = await res.json();
       if (data.ok) {
-        showToast(`Seats set to ${nextSeats} for ${quickSeatModalUser.displayName}`);
+        const committedSeats = Math.max(1, Number(data.seatLimit) || nextSeats);
+        setUsers((prev) => prev.map((u) => (u.id === quickSeatModalUser.id ? { ...u, seatLimit: committedSeats } : u)));
+        setStats((prev) => ({ ...prev, totalSeats: prev.totalSeats + (committedSeats - nextSeats) }));
+        showToast(`Seats set to ${committedSeats} for ${quickSeatModalUser.displayName}`);
         setQuickSeatModalUser(null);
       } else {
+        setUsers((prev) => prev.map((u) => (u.id === quickSeatModalUser.id ? { ...u, seatLimit: previousSeats } : u)));
+        setStats((prev) => ({ ...prev, totalSeats: Math.max(0, prev.totalSeats - (nextSeats - previousSeats)) }));
         showToast(data.error || "Failed to set seats", "error");
       }
     } catch {
+      setUsers((prev) => prev.map((u) => (u.id === quickSeatModalUser.id ? { ...u, seatLimit: previousSeats } : u)));
+      setStats((prev) => ({ ...prev, totalSeats: Math.max(0, prev.totalSeats - (nextSeats - previousSeats)) }));
       showToast("Network error", "error");
     }
   };
@@ -240,6 +257,25 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
         prev.map((u) => (u.id === user.id ? { ...u, status: user.status } : u))
       );
       showToast("Network error", "error");
+    }
+  };
+
+  const handleTogglePayment = async (user: SuperAdminUser) => {
+    if (user.isSuperAdmin) return;
+    const nextPaymentStatus = user.paymentStatus === "PAID" ? "PENDING" : "PAID";
+    setUsers((prev) => prev.map((u) => (u.id === user.id ? { ...u, paymentStatus: nextPaymentStatus, activationLocked: false } : u)));
+    try {
+      const res = await fetch("/api/super-admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "update-payment-status", userId: user.id, paymentStatus: nextPaymentStatus }),
+      });
+      const data = await res.json();
+      if (data.ok) showToast(`Payment marked ${nextPaymentStatus.toLowerCase()} for ${user.displayName}`);
+      else throw new Error(data.error || "Failed to update payment status");
+    } catch (error) {
+      setUsers((prev) => prev.map((u) => (u.id === user.id ? { ...u, paymentStatus: user.paymentStatus, activationLocked: user.activationLocked } : u)));
+      showToast(error instanceof Error ? error.message : "Network error updating payment", "error");
     }
   };
 
@@ -861,6 +897,9 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
                         Status
                       </th>
                       <th style={{ padding: "0.95rem 1rem", fontWeight: 700, fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                        Payment
+                      </th>
+                      <th style={{ padding: "0.95rem 1rem", fontWeight: 700, fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.04em" }}>
                         Last Login
                       </th>
                       <th
@@ -884,7 +923,7 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
                   <tbody>
                     {filteredUsers.length === 0 ? (
                       <tr>
-                        <td colSpan={7} style={{ padding: "3rem", textAlign: "center", color: "#71717A" }}>
+                        <td colSpan={8} style={{ padding: "3rem", textAlign: "center", color: "#71717A" }}>
                           <Users size={36} style={{ margin: "0 auto 0.75rem", opacity: 0.5 }} />
                           <div style={{ fontSize: "1rem", fontWeight: 600, color: "#D4D4D8" }}>No users found matching your filters</div>
                           <div style={{ fontSize: "0.82rem", marginTop: "4px" }}>Try clearing your search query or filters.</div>
@@ -1046,6 +1085,19 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
                               </button>
                             </td>
 
+                            {/* Payment */}
+                            <td style={{ padding: "1rem" }}>
+                              <button
+                                type="button"
+                                disabled={user.isSuperAdmin}
+                                onClick={() => handleTogglePayment(user)}
+                                title={user.activationLocked ? "Payment pending for more than 24 hours; click to mark paid" : "Click to toggle payment status"}
+                                style={{ border: 0, borderRadius: "9999px", padding: "0.25rem 0.6rem", fontSize: "0.72rem", fontWeight: 700, cursor: user.isSuperAdmin ? "default" : "pointer", color: user.paymentStatus === "PAID" ? "#34D399" : "#FBBF24", background: user.paymentStatus === "PAID" ? "rgba(16,185,129,0.15)" : "rgba(234,179,8,0.15)" }}
+                              >
+                                {user.activationLocked ? "PENDING · LOCKED" : user.paymentStatus || "NOT CONFIGURED"}
+                              </button>
+                            </td>
+
                             {/* Last Login */}
                             <td style={{ padding: "1rem", color: "#A1A1AA", fontSize: "0.82rem" }}>
                               <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
@@ -1111,34 +1163,42 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
                                 </button>
 
                                 {/* Increment Seat Button (+) */}
-                                <button
-                                  type="button"
-                                  onClick={() => handleUpdateSeats(user, 1)}
-                                  title="Increase 1 seat"
-                                  style={{
-                                    width: "28px",
-                                    height: "28px",
-                                    borderRadius: "6px",
-                                    border: "1px solid rgba(249, 115, 22, 0.4)",
-                                    background: "rgba(249, 115, 22, 0.2)",
-                                    color: "#F97316",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    cursor: "pointer",
-                                    transition: "all 0.1s ease",
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.background = "#F97316";
-                                    e.currentTarget.style.color = "#FFF";
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.background = "rgba(249, 115, 22, 0.2)";
-                                    e.currentTarget.style.color = "#F97316";
-                                  }}
-                                >
-                                  <Plus size={13} />
-                                </button>
+                                <form action="/api/super-admin/users" method="post" style={{ display: "inline-flex" }}>
+                                  <input name="action" type="hidden" value="update-seats" />
+                                  <input name="userId" type="hidden" value={user.id} />
+                                  <input name="seats" type="hidden" value={user.seatLimit + 1} />
+                                  <button
+                                    type="submit"
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      void handleUpdateSeats(user, 1);
+                                    }}
+                                    title="Increase 1 seat"
+                                    style={{
+                                      width: "28px",
+                                      height: "28px",
+                                      borderRadius: "6px",
+                                      border: "1px solid rgba(249, 115, 22, 0.4)",
+                                      background: "rgba(249, 115, 22, 0.2)",
+                                      color: "#F97316",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      cursor: "pointer",
+                                      transition: "all 0.1s ease",
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      e.currentTarget.style.background = "#F97316";
+                                      e.currentTarget.style.color = "#FFF";
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      e.currentTarget.style.background = "rgba(249, 115, 22, 0.2)";
+                                      e.currentTarget.style.color = "#F97316";
+                                    }}
+                                  >
+                                    <Plus size={13} />
+                                  </button>
+                                </form>
                               </div>
                             </td>
 

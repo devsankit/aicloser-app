@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { SUPER_ADMIN_LOGIN_ROUTE } from "@/lib/auth/super-admin-config";
 import { getSessionContext } from "@/lib/auth/session";
 import type { AppRole } from "@/lib/auth/types";
+import { getWorkspacePaymentState } from "@/lib/billing/workspace-access";
 
 export async function requirePageRole(allowedRoles: AppRole[], path: string) {
   const session = await getSessionContext();
@@ -21,6 +22,13 @@ export async function requirePageRole(allowedRoles: AppRole[], path: string) {
 
   if (!allowedRoles.includes(session.role)) {
     redirect(`/unauthorized?from=${encodeURIComponent(path)}`);
+  }
+
+  if (session.userId && session.role !== "SUPER_ADMIN") {
+    const paymentState = await getWorkspacePaymentState(session.userId);
+    if (paymentState.locked && path !== "/activate-plan") {
+      redirect("/activate-plan");
+    }
   }
 
   return session;

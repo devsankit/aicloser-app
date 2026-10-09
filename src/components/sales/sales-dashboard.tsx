@@ -1580,9 +1580,11 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   } as CSSProperties;
   const isConversationTab = activeTab === "conversations";
   const activeWorkspaceUsers = reportingAgents.filter((agent) => agent.status === "ACTIVE").length;
-  const profilePlanName = currentAgent?.packageStatus === "ACTIVE" && currentAgent.packageName
-    ? currentAgent.packageName
-    : currentAgent?.packageName ?? "Free plan";
+  const profilePlanName = currentAgent?.packageStatus === "PAUSED"
+    ? `Payment pending · ${currentAgent.packageName ?? "Workspace plan"}`
+    : currentAgent?.packageStatus === "ACTIVE" && currentAgent.packageName
+      ? currentAgent.packageName
+      : currentAgent?.packageName ?? "Free plan";
   const profilePlan = `${profilePlanName} · ${activeWorkspaceUsers} ${activeWorkspaceUsers === 1 ? "user" : "users"}`;
 
   return (
