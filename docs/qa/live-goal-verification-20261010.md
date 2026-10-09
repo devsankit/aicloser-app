@@ -30,4 +30,4 @@
 
 The live workspace still needs two UI-created QA users before the emulator call journey can run. The form is prepared, but the final `Create User Account` action requires explicit confirmation because it creates real live workspace accounts. Until that action is confirmed, the following remain unverified: separate mobile logins, connected and missed calls, call duration and recording playback, and cross-surface sync through chat, Kanban, call history, dashboard, mobile, and role-wise reports.
 
-The targeted extraction and WhatsApp contract suite now passes 22/22 after updating expectations to the current dashboard redirect, `com.gigxomi.crm` package, no hardcoded WhatsApp phone, and realtime-only lead status behavior. A complete suite rerun is still separate from the pending live two-user call journey.
+The complete Node contract suite now passes 109/109 after aligning expectations to the current dashboard redirect, `com.gigxomi.crm` package, no hardcoded WhatsApp phone, and realtime-only lead status behavior. This remains separate from the pending live two-user call journey.
