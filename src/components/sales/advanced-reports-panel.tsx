@@ -67,10 +67,10 @@ export function AdvancedReportsPanel({ selectedAgentId = null, selectedAgentName
       if (data.ok && data.answer) {
         setMcpAnswer(data.answer);
       } else {
-        setMcpAnswer("Lead-IQ Summary: Total connected calls are trending +18% above target with Meta Ads leading conversion ROI.");
+        setMcpAnswer("No live Lead-IQ insight is available for this query right now.");
       }
     } catch {
-      setMcpAnswer("Lead-IQ Summary: Total connected calls are trending +18% above target with Meta Ads leading conversion ROI.");
+      setMcpAnswer("Live Lead-IQ is temporarily unavailable. No fallback report data was shown.");
     } finally {
       setMcpLoading(false);
     }

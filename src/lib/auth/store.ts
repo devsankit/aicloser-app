@@ -746,6 +746,22 @@ export async function authenticatePassword(identifier: string, password: string,
   return fromDbUser(updated).managed;
 }
 
+export async function setAuthenticatedUserPassword(userId: string, nextPassword: string) {
+  await ensureBootstrapped();
+  const password = nextPassword.trim();
+  if (password.length < 8) return { ok: false as const, error: "Password must be at least 8 characters." };
+  const existing = await prisma.appAuthUser.findUnique({ where: { id: userId } });
+  if (!existing) return { ok: false as const, error: "User account was not found." };
+  if (existing.id === SUPER_ADMIN_USER_ID) return { ok: false as const, error: "Super admin password must be managed through the owner recovery flow." };
+  const passwordSalt = randomBytes(16).toString("hex");
+  await prisma.appAuthUser.update({
+    where: { id: existing.id },
+    data: { passwordSalt, passwordHash: hashPassword(password, passwordSalt) },
+  });
+  invalidateManagedUsersCache();
+  return { ok: true as const };
+}
+
 export async function createOtpChallenge(identifier: string) {
   const user = await findUserRecord(identifier);
   if (!user) return null;

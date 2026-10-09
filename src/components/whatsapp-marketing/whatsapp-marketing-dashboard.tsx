@@ -1586,7 +1586,7 @@ export function WhatsAppMarketingDashboard() {
                 In your Meta App Dashboard under WhatsApp &gt; Configuration, point the Callback URL to:
               </p>
               <div className="font-mono p-2 bg-slate-900 rounded border border-slate-800 text-[#ff6b2f] select-all">
-                https://closer.gigxomi.com/api/whatsapp-marketing/webhook
+                https://app.aicloser.in/api/whatsapp-marketing/webhook
               </div>
               <p className="text-slate-500 text-[11px]">
                 Verify token: <code className="text-slate-300">gigxomi_whatsapp_marketing_token</code>

@@ -21,10 +21,10 @@ cp "$source_env" "$target_path/.env"
 chmod 600 "$target_path/.env"
 
 cd "$target_path"
-sed -i 's|^NEXT_PUBLIC_APP_URL=.*|NEXT_PUBLIC_APP_URL=https://closers.gigxomi.com|' .env
-sed -i 's|^APP_BASE_URL=.*|APP_BASE_URL=https://closers.gigxomi.com|' .env
-sed -i 's|^INSTAGRAM_PUBLIC_APP_URL=.*|INSTAGRAM_PUBLIC_APP_URL=https://closers.gigxomi.com|' .env
-sed -i 's|^INSTAGRAM_OAUTH_REDIRECT_URI=.*|INSTAGRAM_OAUTH_REDIRECT_URI=https://closers.gigxomi.com/api/meta/instagram/oauth/callback|' .env
+sed -i 's|^NEXT_PUBLIC_APP_URL=.*|NEXT_PUBLIC_APP_URL=https://app.aicloser.in|' .env
+sed -i 's|^APP_BASE_URL=.*|APP_BASE_URL=https://app.aicloser.in|' .env
+sed -i 's|^INSTAGRAM_PUBLIC_APP_URL=.*|INSTAGRAM_PUBLIC_APP_URL=https://app.aicloser.in|' .env
+sed -i 's|^INSTAGRAM_OAUTH_REDIRECT_URI=.*|INSTAGRAM_OAUTH_REDIRECT_URI=https://app.aicloser.in/api/meta/instagram/oauth/callback|' .env
 
 session_secret="${existing_session_secret:-$(openssl rand -hex 32)}"
 if grep -q '^GIGXOMI_SESSION_SECRET=' .env; then

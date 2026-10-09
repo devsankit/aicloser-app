@@ -455,6 +455,7 @@ export async function POST(request: Request) {
           segment: "CRM Contact",
           priority: "normal",
           budgetAmount: 0,
+          stage: entry.stage || "NEW",
           notes: entry.notes || "",
           tags: entry.tags || ["CRM Contact"],
           actorUserId: auth.session.userId,

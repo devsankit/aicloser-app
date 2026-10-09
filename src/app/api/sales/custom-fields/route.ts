@@ -3,7 +3,7 @@ import { requireSessionRole } from "@/lib/api/require-session-role";
 import { getCustomFields, upsertCustomField } from "@/lib/gigxomi/custom-fields-store";
 
 export async function GET() {
-  const auth = await requireSessionRole(["SALES_AGENT", "ADMIN", "SUPER_ADMIN", "MANAGER"]);
+  const auth = await requireSessionRole(["ADMIN", "SUPER_ADMIN", "MANAGER"]);
   if (!auth.ok) return auth.response;
 
   try {

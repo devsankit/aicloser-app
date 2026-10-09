@@ -18,7 +18,7 @@ test("lead form builder receives the authenticated workspace admin role", () => 
 });
 
 test("closer navigation stays limited to the closer workspace surface", () => {
-  assert.match(dashboard, /tabs\.filter\(\(tab\) => \["dashboard", "crm", "grab-leads", "conversations"\]\.includes\(tab\.id\)\)/);
+  assert.match(dashboard, /tabs\.filter\(\(tab\) => \["dashboard", "crm", "grab-leads", "conversations", "payments"\]\.includes\(tab\.id\)\)/);
   assert.match(dashboard, /const isCloser = !isWorkspaceAdmin && effectiveWorkspaceRole === "SALES_AGENT"/);
 });
 
@@ -27,10 +27,14 @@ test("admin navigation does not expose the closer-only grab leads queue", () => 
   assert.match(dashboard, /const canUseGrabLeads = roundRobinAccess\.enabled && Boolean\(currentAgent\?\.canClaimLeads\)/);
 });
 
-test("admin dashboard keeps calling as reporting, not an admin dialer action", () => {
-  assert.match(dashboard, /isWorkspaceAdmin && section === "calls" \? "reports" : section/);
+test("call recordings stay on their own live call-history page", () => {
+  assert.match(dashboard, /const nextTab = \(isWorkspaceAdmin && section === "calls" \? "reports" : section\) as SalesTab/);
+  assert.doesNotMatch(dashboard, /const nextTab = section as SalesTab/);
   assert.match(dashboard, /<BarChart3 size=\{16\} \/> Open Team Report/);
   assert.match(dashboard, /isCloser \? \([\s\S]*?Grab next lead[\s\S]*?\) : isWorkspaceAdmin \? \([\s\S]*?Open Team Report[\s\S]*?\) : \(/);
+  assert.match(dashboard, /Call Recordings & Missed Call History/);
+  assert.match(dashboard, /Missed call history/);
+  assert.doesNotMatch(dashboard, /ReferralCommissionPanel/);
 });
 
 test("admin dashboard is a team reporting view and excludes admin-owned work", () => {
@@ -121,7 +125,7 @@ test("calling campaigns contain only tenant-scoped live data", () => {
   assert.match(campaignsRoute, /upsertCallingCampaign\(\{ \.\.\.body, tenantId \}\)/);
   assert.match(dashboard, /CallReportsPanel/);
   assert.doesNotMatch(dashboard, /Power Dialer & SIM Recordings Hub|Missed Queue & IVR|CallingCampaignsPanel|MissedCallsQueue/);
-  assert.match(dashboard, /Call Reports & Recordings/);
+  assert.match(dashboard, /Call Recordings & Missed Call History/);
   assert.match(dashboard, /api\/sales\/call-reports/);
   assert.match(dashboard, /Incoming calls/);
   assert.match(dashboard, /Outgoing calls/);

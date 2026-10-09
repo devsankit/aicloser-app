@@ -43,7 +43,9 @@ export async function GET(request: Request) {
     if (selectedAgentId && !visibleAgentIds.includes(selectedAgentId)) {
       return NextResponse.json({ ok: false, error: "That user is outside your reporting scope." }, { status: 403 });
     }
-    const agentFilter = selectedAgentId ? { agentId: selectedAgentId } : { agentId: { in: visibleAgentIds } };
+    const agentFilter = selectedAgentId
+      ? { tenantId, agentId: selectedAgentId }
+      : { tenantId, agentId: { in: visibleAgentIds } };
     const [totalCalls, inboundCalls, outboundCalls, missedCalls, uploadedRecordings, duration, rows] = await Promise.all([
       prisma.salesMobileCall.count({ where: agentFilter }),
       prisma.salesMobileCall.count({ where: { ...agentFilter, direction: "INBOUND" } }),

@@ -41,6 +41,7 @@ export type SuperAdminUser = {
   paymentStatus?: "NOT_CONFIGURED" | "PENDING" | "PAID" | string;
   paymentPendingSince?: string | null;
   activationLocked?: boolean;
+  packageExpiresAt?: string | null;
   agentCode: string | null;
   agentProfileId?: string | null;
   tenantId?: string | null;
@@ -92,6 +93,17 @@ function formatTimeAgo(isoString: string | null) {
   }).format(date);
 }
 
+function formatPackageExpiry(isoString: string | null | undefined) {
+  if (!isoString) return "No expiry set";
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) return "No expiry set";
+  const days = Math.ceil((date.getTime() - Date.now()) / 86_400_000);
+  const label = new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric" }).format(date);
+  if (days < 0) return `${label} · expired`;
+  if (days <= 30) return `${label} · ${days}d left`;
+  return label;
+}
+
 export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats }: Props) {
   const [users, setUsers] = useState<SuperAdminUser[]>(initialUsers);
   const [stats, setStats] = useState<SuperAdminStats>(initialStats);
@@ -99,6 +111,7 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
   const [roleFilter, setRoleFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [activeTab, setActiveTab] = useState<"users" | "logins" | "health">("users");
+  const [showDetailedUsers, setShowDetailedUsers] = useState(false);
 
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -356,6 +369,45 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
       .filter((u) => u.lastLoginAt)
       .sort((a, b) => new Date(b.lastLoginAt!).getTime() - new Date(a.lastLoginAt!).getTime());
   }, [users]);
+
+  const workspaceSummaries = useMemo(() => {
+    const groups = new Map<string, SuperAdminUser[]>();
+    for (const user of users) {
+      const key = user.tenantId || user.companyName || user.id;
+      const group = groups.get(key) || [];
+      group.push(user);
+      groups.set(key, group);
+    }
+
+    const query = searchQuery.toLowerCase().trim();
+    return [...groups.entries()]
+      .map(([key, members]) => {
+        const admin = members.find((member) => member.role.toUpperCase() === "ADMIN") || null;
+        const teamMembers = members.filter((member) => !member.isSuperAdmin && member.role.toUpperCase() !== "ADMIN");
+        const matchesSearch = !query || members.some((member) =>
+          [member.displayName, member.email, member.phone, member.companyName].some((value) => value.toLowerCase().includes(query)),
+        );
+        const matchesRole = roleFilter === "ALL" || members.some((member) => member.role.toUpperCase() === roleFilter.toUpperCase());
+        const matchesStatus = statusFilter === "ALL" || members.some((member) => member.status.toUpperCase() === statusFilter.toUpperCase());
+
+        return {
+          key,
+          admin,
+          companyName: admin?.companyName || members[0]?.companyName || "Workspace",
+          members: teamMembers,
+          total: teamMembers.length,
+          active: teamMembers.filter((member) => member.status === "ACTIVE").length,
+          pending: teamMembers.filter((member) => member.status === "PENDING").length,
+          suspended: teamMembers.filter((member) => member.status === "SUSPENDED").length,
+          seats: admin?.seatLimit || members.reduce((sum, member) => sum + (member.seatLimit || 0), 0),
+          packageName: admin?.packageName || members.find((member) => member.packageName)?.packageName || "No package",
+          packageExpiresAt: admin?.packageExpiresAt || members.find((member) => member.packageExpiresAt)?.packageExpiresAt || null,
+          matches: matchesSearch && matchesRole && matchesStatus,
+        };
+      })
+      .filter((summary) => summary.matches)
+      .sort((a, b) => a.companyName.localeCompare(b.companyName));
+  }, [users, searchQuery, roleFilter, statusFilter]);
 
   const adminName = adminUser?.displayName || "Ankit Rathore";
   const adminEmail = adminUser?.email || "hello.ankitrathore@gmail.com";
@@ -815,6 +867,26 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
                   <option value="SUSPENDED">Suspended</option>
                 </select>
 
+                <button
+                  type="button"
+                  onClick={() => setShowDetailedUsers((current) => !current)}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.45rem",
+                    background: showDetailedUsers ? "rgba(249, 115, 22, 0.16)" : "#121714",
+                    border: showDetailedUsers ? "1px solid rgba(249, 115, 22, 0.45)" : "1px solid rgba(255, 255, 255, 0.12)",
+                    borderRadius: "8px",
+                    color: showDetailedUsers ? "#F97316" : "#D4D4D8",
+                    padding: "0.55rem 0.85rem",
+                    fontSize: "0.85rem",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  <Users size={14} /> {showDetailedUsers ? "Admin summary" : "Individual users"}
+                </button>
+
                 {/* Refresh Button */}
                 <button
                   type="button"
@@ -870,7 +942,79 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
               </div>
             </div>
 
-            {/* USERS TABLE */}
+            {!showDetailedUsers ? (
+              <div
+                style={{
+                  background: "#111714",
+                  border: "1px solid rgba(255, 255, 255, 0.08)",
+                  borderRadius: "14px",
+                  overflow: "hidden",
+                  boxShadow: "0 8px 30px rgba(0, 0, 0, 0.3)",
+                }}
+              >
+                <div style={{ padding: "1.15rem 1.25rem", borderBottom: "1px solid rgba(255, 255, 255, 0.08)" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
+                    <div>
+                      <h2 style={{ margin: 0, color: "#FFFFFF", fontSize: "1.05rem" }}>Business customers</h2>
+                      <p style={{ margin: "0.35rem 0 0", color: "#A1A1AA", fontSize: "0.82rem" }}>
+                        Platform-level view. Team members remain inside each Admin workspace.
+                      </p>
+                    </div>
+                    <span style={{ color: "#F97316", fontWeight: 700, fontSize: "0.82rem" }}>{workspaceSummaries.length} workspaces</span>
+                  </div>
+                </div>
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "0.88rem" }}>
+                    <thead>
+                      <tr style={{ background: "rgba(255, 255, 255, 0.02)", borderBottom: "1px solid rgba(255, 255, 255, 0.08)", color: "#A1A1AA" }}>
+                        <th style={{ padding: "0.85rem 1.25rem" }}>Business / Admin</th>
+                        <th style={{ padding: "0.85rem 1rem" }}>Team users</th>
+                        <th style={{ padding: "0.85rem 1rem" }}>Active</th>
+                        <th style={{ padding: "0.85rem 1rem" }}>Pending / Suspended</th>
+                        <th style={{ padding: "0.85rem 1rem" }}>Package</th>
+                        <th style={{ padding: "0.85rem 1.25rem", textAlign: "right" }}>Control</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {workspaceSummaries.length === 0 ? (
+                        <tr><td colSpan={6} style={{ padding: "2.5rem", textAlign: "center", color: "#A1A1AA" }}>No business workspaces match these filters.</td></tr>
+                      ) : workspaceSummaries.map((summary) => (
+                        <tr key={summary.key} style={{ borderBottom: "1px solid rgba(255, 255, 255, 0.05)" }}>
+                          <td style={{ padding: "1rem 1.25rem" }}>
+                            <div style={{ color: "#FFFFFF", fontWeight: 700 }}>{summary.companyName}</div>
+                            <div style={{ color: "#A1A1AA", fontSize: "0.78rem", marginTop: "0.25rem" }}>{summary.admin?.displayName || "Workspace admin not assigned"}</div>
+                          </td>
+                          <td style={{ padding: "1rem", color: "#D4D4D8", fontWeight: 700 }}>{summary.total}</td>
+                          <td style={{ padding: "1rem", color: "#34D399", fontWeight: 700 }}>{summary.active}</td>
+                          <td style={{ padding: "1rem", color: "#FBBF24" }}>{summary.pending} pending · {summary.suspended} suspended</td>
+                          <td style={{ padding: "1rem" }}>
+                            <div style={{ color: "#D4D4D8", fontWeight: 600 }}>{summary.packageName}</div>
+                            <div style={{ color: "#A1A1AA", fontSize: "0.76rem", marginTop: "0.25rem" }}>{formatPackageExpiry(summary.packageExpiresAt)}</div>
+                          </td>
+                          <td style={{ padding: "1rem 1.25rem", textAlign: "right" }}>
+                            <button
+                              type="button"
+                              onClick={() => { setSearchQuery(summary.companyName); setRoleFilter("ALL"); setStatusFilter("ALL"); setShowDetailedUsers(true); }}
+                              style={{ border: "1px solid rgba(249, 115, 22, 0.35)", background: "rgba(249, 115, 22, 0.12)", color: "#F97316", borderRadius: "7px", padding: "0.4rem 0.7rem", fontWeight: 700, cursor: "pointer" }}
+                            >
+                              View team
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
+
+            {showDetailedUsers ? (
+              <>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", marginBottom: "0.75rem" }}>
+                  <p style={{ margin: 0, color: "#A1A1AA", fontSize: "0.82rem" }}>Individual user controls are available only when explicitly opened for platform support.</p>
+                  <button type="button" onClick={() => { setShowDetailedUsers(false); setSearchQuery(""); }} style={{ border: "1px solid rgba(255, 255, 255, 0.12)", background: "#121714", color: "#D4D4D8", borderRadius: "7px", padding: "0.4rem 0.7rem", fontWeight: 600, cursor: "pointer" }}>Back to summary</button>
+                </div>
+                {/* USERS TABLE */}
             <div
               style={{
                 background: "#111714",
@@ -1304,6 +1448,8 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
                 </table>
               </div>
             </div>
+              </>
+            ) : null}
           </div>
         )}
 

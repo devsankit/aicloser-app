@@ -2523,6 +2523,89 @@ select option:focus {
   text-align: left;
 }
 
+/* UPI payment settings use the same compact, stacked field rhythm as the rest
+   of the AI Closer dark workspace. The panel is embedded in the dashboard, so
+   keep this scoped to the second card in the payment grid. */
+.upi-main-grid > :nth-child(2) > label,
+.upi-main-grid > :nth-child(2) .upi-settings-divider > label {
+  display: grid;
+  gap: 5px;
+  color: #dfe4ee;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.upi-main-grid > :nth-child(2) input:not([type="checkbox"]),
+.upi-main-grid > :nth-child(2) select,
+.upi-main-grid > :nth-child(2) textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 11px;
+  border: 1px solid #353d4c;
+  border-radius: 9px;
+  background: #10131a;
+  color: #f8fafc;
+  font: inherit;
+}
+
+.upi-main-grid > :nth-child(2) input:not([type="checkbox"]):focus,
+.upi-main-grid > :nth-child(2) select:focus,
+.upi-main-grid > :nth-child(2) textarea:focus {
+  border-color: #ff6b2c;
+  outline: 0;
+  box-shadow: 0 0 0 3px rgba(255, 107, 44, 0.18);
+}
+
+.upi-main-grid > :nth-child(2) input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  margin: 2px 0 0;
+  accent-color: #ff6b2c;
+}
+
+.upi-main-grid > :nth-child(2) input[type="color"] {
+  width: 52px;
+  min-height: 34px;
+  padding: 3px;
+}
+
+.upi-main-grid > :nth-child(2) > h2,
+.upi-main-grid > :nth-child(2) > h3 {
+  letter-spacing: -0.01em;
+}
+
+/* Keep the settings card readable even when the dashboard's generic label
+   rules are loaded after this feature. Every control gets its own row. */
+.upi-main-grid > form + section > label,
+.upi-main-grid > form + section .upi-settings-divider > label {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 6px !important;
+  align-items: start !important;
+  white-space: normal !important;
+}
+
+.upi-main-grid > form + section > label > input:not([type="checkbox"]),
+.upi-main-grid > form + section > label > select,
+.upi-main-grid > form + section > label > textarea,
+.upi-main-grid > form + section .upi-settings-divider > label > input:not([type="checkbox"]),
+.upi-main-grid > form + section .upi-settings-divider > label > select,
+.upi-main-grid > form + section .upi-settings-divider > label > textarea {
+  display: block !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+}
+
+.upi-main-grid > form + section > label > input[type="checkbox"],
+.upi-main-grid > form + section .upi-settings-divider > label > input[type="checkbox"] {
+  display: block !important;
+  justify-self: start !important;
+  margin: 0 !important;
+}
+
 .sales-crm-card-quick-actions {
   border-top: 1px solid var(--color-border-soft);
   padding-top: 7px;
@@ -39728,6 +39811,50 @@ body,
 .sales-theme-scope .sales-crm-filter-field select optgroup {
   background: var(--crm-surface, #ffffff);
   color: var(--crm-text, #13233d);
+}
+
+/* Role assignment controls use the dark AI Closer surface rather than the
+   browser's default blue selection chrome. Native menus remain accessible,
+   while their closed state and highlighted option stay on-brand. */
+.sales-theme-scope .role-permissions-select {
+  appearance: none !important;
+  min-height: 36px;
+  padding: 7px 34px 7px 12px !important;
+  border: 1px solid #3a4353 !important;
+  border-radius: 10px !important;
+  background-color: #171b23 !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23ff6b2f' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") !important;
+  background-position: right 10px center !important;
+  background-repeat: no-repeat !important;
+  background-size: 14px !important;
+  color: #f4f6fa !important;
+  color-scheme: dark;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.sales-theme-scope .role-permissions-select:hover {
+  border-color: #ff6b2f !important;
+  background-color: #211c1b !important;
+}
+
+.sales-theme-scope .role-permissions-select:focus-visible {
+  border-color: #ff6b2f !important;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(255, 107, 47, 0.18) !important;
+}
+
+.sales-theme-scope .role-permissions-select option {
+  background: #171b23 !important;
+  color: #f4f6fa !important;
+}
+
+.sales-theme-scope .role-permissions-select option:checked,
+.sales-theme-scope .role-permissions-select option:hover,
+.sales-theme-scope .role-permissions-select option:focus {
+  background: #4a261b !important;
+  color: #ffffff !important;
 }
 
 .sales-saved-view-control {

@@ -44,6 +44,7 @@ import type {
   EmailProviderPresetId,
   ParsedEmailEnquiry,
 } from "@/app/api/sales/email-inbox/route";
+import type { SalesLeadStage } from "@/lib/gigxomi/sales-store";
 
 type ActiveImportDrawer =
   | null
@@ -90,6 +91,16 @@ type JsonFetchResult = {
   response: Response;
   data: any;
 };
+
+const MANUAL_CONTACT_STAGE_OPTIONS: Array<{ value: SalesLeadStage; label: string }> = [
+  { value: "NEW", label: "New lead" },
+  { value: "CONTACTED", label: "Contacted" },
+  { value: "INTERESTED", label: "Interested / qualified" },
+  { value: "WEBINAR_INVITED", label: "Training booked" },
+  { value: "FOLLOW_UP", label: "Follow-up needed" },
+  { value: "CLOSED_WON", label: "Closed won" },
+  { value: "CLOSED_LOST", label: "Lost / recycled" },
+];
 
 async function fetchJsonWithTimeout(url: string, timeoutMs = 10000): Promise<JsonFetchResult> {
   const controller = new AbortController();
@@ -375,6 +386,7 @@ export function ContactsHub({
   const [manualName, setManualName] = useState("");
   const [manualPhone, setManualPhone] = useState("");
   const [manualEmail, setManualEmail] = useState("");
+  const [manualStage, setManualStage] = useState<SalesLeadStage>("NEW");
   const [manualTags, setManualTags] = useState("Direct Lead, High Priority");
   const [manualNotes, setManualNotes] = useState("");
 
@@ -861,6 +873,7 @@ export function ContactsHub({
               phone: manualPhone.trim(),
               email: manualEmail.trim(),
               source: "manual_crm_contact",
+              stage: manualStage,
               tags: manualTags
                 .split(",")
                 .map((t) => t.trim())
@@ -876,6 +889,7 @@ export function ContactsHub({
         setManualName("");
         setManualPhone("");
         setManualEmail("");
+        setManualStage("NEW");
         setManualNotes("");
         setActiveDrawer(null);
         await loadAllContactsAndIntegrations();
@@ -2583,43 +2597,34 @@ export function ContactsHub({
             onSubmit={handleAddManualContact}
             style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}
           >
-            <input
-              type="text"
-              placeholder="Full Name *"
-              value={manualName}
-              onChange={(e) => setManualName(e.target.value)}
-              required
-              style={{ padding: "9px 12px", borderRadius: 8 }}
-            />
-            <input
-              type="tel"
-              placeholder="Phone (+91 98200 00000) *"
-              value={manualPhone}
-              onChange={(e) => setManualPhone(e.target.value)}
-              required
-              style={{ padding: "9px 12px", borderRadius: 8 }}
-            />
-            <input
-              type="email"
-              placeholder="Email Address"
-              value={manualEmail}
-              onChange={(e) => setManualEmail(e.target.value)}
-              style={{ padding: "9px 12px", borderRadius: 8 }}
-            />
-            <input
-              type="text"
-              placeholder="Tags (comma separated)"
-              value={manualTags}
-              onChange={(e) => setManualTags(e.target.value)}
-              style={{ padding: "9px 12px", borderRadius: 8 }}
-            />
-            <input
-              type="text"
-              placeholder="Notes / Enquiry Summary"
-              value={manualNotes}
-              onChange={(e) => setManualNotes(e.target.value)}
-              style={{ padding: "9px 12px", borderRadius: 8 }}
-            />
+            <label className="sales-form-field">
+              <span>Full name</span>
+              <input type="text" placeholder="Full name *" value={manualName} onChange={(e) => setManualName(e.target.value)} required />
+            </label>
+            <label className="sales-form-field">
+              <span>Phone</span>
+              <input type="tel" placeholder="+91 98200 00000 *" value={manualPhone} onChange={(e) => setManualPhone(e.target.value)} required />
+            </label>
+            <label className="sales-form-field">
+              <span>Email</span>
+              <input type="email" placeholder="Email address" value={manualEmail} onChange={(e) => setManualEmail(e.target.value)} />
+            </label>
+            <label className="sales-form-field">
+              <span>Lead status</span>
+              <select value={manualStage} onChange={(e) => setManualStage(e.target.value as SalesLeadStage)}>
+                {MANUAL_CONTACT_STAGE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="sales-form-field">
+              <span>Tags</span>
+              <input type="text" placeholder="Comma separated" value={manualTags} onChange={(e) => setManualTags(e.target.value)} />
+            </label>
+            <label className="sales-form-field">
+              <span>Notes</span>
+              <input type="text" placeholder="Enquiry summary" value={manualNotes} onChange={(e) => setManualNotes(e.target.value)} />
+            </label>
             <button type="submit" className="primary-button" disabled={busyAction === "manual_add"}>
               {busyAction === "manual_add" ? "Saving..." : "Save Contact"}
             </button>

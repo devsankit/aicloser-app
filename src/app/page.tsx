@@ -39,6 +39,11 @@ export default async function SalesPage({ searchParams }: { searchParams?: Promi
   if (!access.ok) {
     redirect(`/login?error=${encodeURIComponent(access.reason === "PENDING" ? "Your sales account is waiting for approval." : access.reason === "SUSPENDED" ? "Your sales account is suspended. Contact support." : "Create or login with an approved sales account.")}`);
   }
+  const requestedTab = Array.isArray(params?.tab) ? params?.tab[0] : params?.tab;
+  const closerAllowedTabs = new Set(["dashboard", "crm", "grab-leads", "conversations", "payments"]);
+  if (session.role === "SALES_AGENT" && requestedTab && !closerAllowedTabs.has(requestedTab)) {
+    redirect("/?tab=dashboard");
+  }
   const effectiveTenantId =
     session.tenantId?.trim() ||
     access.agent.tenantId ||

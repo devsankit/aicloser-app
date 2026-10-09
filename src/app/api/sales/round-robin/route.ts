@@ -12,7 +12,7 @@ import {
 export type { RoundRobinSettings };
 
 export async function GET(request: Request) {
-  const auth = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"]);
+  const auth = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER"]);
   if (!auth.ok) return auth.response;
 
   const url = new URL(request.url);
@@ -65,7 +65,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const auth = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"]);
+  const auth = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER"]);
   if (!auth.ok) return auth.response;
 
   const body = (await request.json().catch(() => ({}))) as {

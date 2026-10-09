@@ -84,27 +84,31 @@ export function InternalAppShell({
   navigationOrderKey,
   children,
 }: InternalAppShellProps) {
-  const [internalSidebarMode, setInternalSidebarMode] = useState<"default" | "collapsed">(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem("gx-sidebar-collapsed");
-        if (saved === "true") return "collapsed";
-      } catch {}
-    }
-    return sidebarMode === "collapsed" ? "collapsed" : "default";
-  });
+  const [internalSidebarMode, setInternalSidebarMode] = useState<"default" | "collapsed">(
+    sidebarMode === "collapsed" ? "collapsed" : "default",
+  );
   const effectiveSidebarMode = internalSidebarMode;
   const navigationStorageKey = `gx-sidebar-order-${navigationOrderKey ?? appLabel}`;
-  const [navigationOrder, setNavigationOrder] = useState<string[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const saved = localStorage.getItem(navigationStorageKey);
-      return saved ? JSON.parse(saved) as string[] : [];
-    } catch {
-      return [];
-    }
-  });
+  const [navigationOrder, setNavigationOrder] = useState<string[]>([]);
   const [draggedNavId, setDraggedNavId] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("gx-sidebar-collapsed") === "true") {
+        setInternalSidebarMode("collapsed");
+      }
+
+      const savedOrder = localStorage.getItem(navigationStorageKey);
+      if (savedOrder) {
+        const parsedOrder = JSON.parse(savedOrder);
+        if (Array.isArray(parsedOrder) && parsedOrder.every((item): item is string => typeof item === "string")) {
+          setNavigationOrder(parsedOrder);
+        }
+      }
+    } catch {
+      // Browser preferences are optional and should never affect the initial render.
+    }
+  }, [navigationStorageKey]);
 
   useEffect(() => {
     setNavigationOrder((current) => {

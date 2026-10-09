@@ -42,14 +42,14 @@ test("lead stage API enforces follow-up, loss reason, and payment evidence", () 
   assert.match(leadsRoute, /meta: lead\.metaSync/);
 });
 
-test("global AI emergency switch is durable, role-protected, and visible in chat", () => {
+test("AI pause is scoped to the active conversation", () => {
   assert.match(globalAiRoute, /GET/);
   assert.match(globalAiRoute, /POST/);
   assert.match(globalAiRoute, /SUPER_ADMIN.*ADMIN.*MANAGER/);
   assert.match(globalAiRoute, /setGlobalAiAutoReplyEnabled/);
-  assert.match(chatWorkspace, /AI all on/);
-  assert.match(chatWorkspace, /Emergency pause active/);
-  assert.match(chatWorkspace, /Global AI is paused/);
+  assert.match(chatWorkspace, /handleToggleAiAutoReply/);
+  assert.match(chatWorkspace, /activeConversation\.aiAutoReplyDisabled/);
+  assert.doesNotMatch(chatWorkspace, /globalAiEnabled|AI all on|Emergency pause active|Global AI is paused/);
 });
 
 test("sales inbox can load the complete live conversation set", () => {

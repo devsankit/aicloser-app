@@ -166,6 +166,9 @@ export async function POST(request: Request) {
   const assignedAgentId = String(body.assignedAgentId ?? snapshot.currentAgent?.id ?? "");
   if (!assignedAgentId) return NextResponse.json({ ok: false, error: "Choose a sales agent for this lead." }, { status: 400 });
 
+  const stage = String(body.stage ?? "NEW") as SalesLeadStage;
+  if (!salesLeadStages.has(stage)) return NextResponse.json({ ok: false, error: "Choose a valid lead stage." }, { status: 400 });
+
   if (authorization.session.role !== "SUPER_ADMIN" && !snapshot.visibleAgents.some((a) => a.id === assignedAgentId)) {
     return NextResponse.json({ ok: false, error: "The selected agent does not belong to your workspace." }, { status: 403 });
   }
@@ -179,6 +182,7 @@ export async function POST(request: Request) {
     serviceInterest: String(body.serviceInterest ?? "Editor deal"),
     segment: String(body.segment ?? ""),
     priority: String(body.priority ?? "normal"),
+    stage,
     tags: typeof body.tags === "string" ? body.tags.split(",").map((item) => item.trim()).filter(Boolean) : [],
     budgetAmount: Number(body.budgetAmount ?? 0),
     notes: String(body.notes ?? ""),

@@ -13,7 +13,6 @@ import {
   ArrowUp,
   BadgeCheck,
   BadgeIndianRupee,
-  Bot,
   BellRing,
   Briefcase,
   Building2,
@@ -1744,37 +1743,6 @@ export function ChatWorkspace({
     setTitleActionHost(document.querySelector<HTMLElement>("[data-chat-title-actions]"));
   }, []);
 
-  useEffect(() => {
-    if (audience === "customer" || audience === "freelancer") {
-      setGlobalAiLoaded(true);
-      return;
-    }
-    let isActive = true;
-    setGlobalAiLoaded(false);
-    fetch("/api/conversations/ai-auto-reply/global", { cache: "no-store" })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((payload) => {
-        if (!isActive || !payload?.settings) return;
-        setGlobalAiEnabled(Boolean(payload.settings.enabled));
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        if (isActive) setGlobalAiLoaded(true);
-      });
-
-    const handleSync = (e: Event) => {
-      const customEvent = e as CustomEvent<{ enabled: boolean }>;
-      if (typeof customEvent.detail?.enabled === "boolean") {
-        setGlobalAiEnabled(customEvent.detail.enabled);
-      }
-    };
-    window.addEventListener("gx-global-ai-update", handleSync);
-
-    return () => {
-      isActive = false;
-      window.removeEventListener("gx-global-ai-update", handleSync);
-    };
-  }, [audience]);
   const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
   const [assignedFilter, setAssignedFilter] = useState<AssignedFilter>("all");
   const [paymentPendingOnly, setPaymentPendingOnly] = useState(false);
@@ -1837,9 +1805,6 @@ export function ChatWorkspace({
   const [freelancerPayeeName, setFreelancerPayeeName] = useState("");
   const [isFreelancerAccessSaving, setIsFreelancerAccessSaving] = useState(false);
   const [isAiToggleSaving, setIsAiToggleSaving] = useState(false);
-  const [globalAiEnabled, setGlobalAiEnabled] = useState(true);
-  const [globalAiLoaded, setGlobalAiLoaded] = useState(false);
-  const [isGlobalAiSaving, setIsGlobalAiSaving] = useState(false);
   const [dripState, setDripState] = useState<{
     audienceCategory: string;
     currentStage: number;
@@ -4331,10 +4296,6 @@ export function ChatWorkspace({
     if (!activeConversation) {
       return;
     }
-    if (!disabled && !globalAiEnabled) {
-      setComposerStatus("Global AI is paused. Turn on AI for all before resuming this thread.");
-      return;
-    }
     setIsAiToggleSaving(true);
     patchConversationLocally(activeConversation.id, {
       aiAutoReplyDisabled: disabled,
@@ -4370,43 +4331,6 @@ export function ChatWorkspace({
       });
     } finally {
       setIsAiToggleSaving(false);
-    }
-  }
-
-  async function handleToggleGlobalAi() {
-    if (audience !== "admin" && audience !== "manager" && audience !== "sales") {
-      setComposerStatus("Only admins, managers, and sales agents can change the global AI switch.");
-      return;
-    }
-    const nextEnabled = !globalAiEnabled;
-    setGlobalAiEnabled(nextEnabled);
-    setIsGlobalAiSaving(true);
-    try {
-      const response = await fetch("/api/conversations/ai-auto-reply/global", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: nextEnabled }),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.ok || typeof payload.settings?.enabled !== "boolean") {
-        setGlobalAiEnabled(!nextEnabled);
-        setComposerStatus(payload?.error ?? "Global AI switch could not be updated.");
-        return;
-      }
-      setGlobalAiEnabled(Boolean(payload.settings.enabled));
-      window.dispatchEvent(
-        new CustomEvent("gx-global-ai-update", { detail: { enabled: payload.settings.enabled } }),
-      );
-      setComposerStatus(
-        payload.settings.enabled
-          ? "AI Auto-Reply is active for all eligible chats."
-          : "Emergency pause active. All chats are now human handled.",
-      );
-    } catch {
-      setGlobalAiEnabled(!nextEnabled);
-      setComposerStatus("Global AI switch could not be updated.");
-    } finally {
-      setIsGlobalAiSaving(false);
     }
   }
 
@@ -4831,42 +4755,8 @@ export function ChatWorkspace({
     );
   }
 
-  function renderGlobalAiToggle() {
-    if (audience === "customer" || audience === "freelancer") return null;
-    const canManage = audience === "admin" || audience === "manager" || audience === "sales";
-    const label = !globalAiLoaded ? "AI all …" : isGlobalAiSaving ? "AI all …" : globalAiEnabled ? "AI all on" : "AI all off";
-    const title = !canManage
-      ? `Global AI is ${globalAiEnabled ? "enabled" : "paused"}. Ask an admin or manager to change it.`
-      : globalAiEnabled
-        ? "AI Auto-Reply is enabled for all eligible chats. Click for the emergency pause."
-        : "Emergency pause is active. Click to allow AI Auto-Reply for eligible chats again.";
-
-    return (
-      <button
-        aria-label={title}
-        aria-pressed={globalAiEnabled}
-        className={globalAiEnabled ? "chat-global-ai-control active" : "chat-global-ai-control paused"}
-        disabled={!globalAiLoaded || isGlobalAiSaving || !canManage}
-        onClick={() => {
-          void handleToggleGlobalAi();
-        }}
-        title={title}
-        type="button"
-      >
-        <Bot size={14} strokeWidth={1.9} />
-        <span>{label}</span>
-      </button>
-    );
-  }
-
   const titleNotificationAction = titleActionHost
-    ? createPortal(
-        <>
-          {renderGlobalAiToggle()}
-          {renderNotificationButton()}
-        </>,
-        titleActionHost,
-      )
+    ? createPortal(renderNotificationButton(), titleActionHost)
     : null;
 
   function renderLeadStatusPopover() {
@@ -6624,30 +6514,24 @@ export function ChatWorkspace({
                   <div className="chat-thread-head-action-group">
                     <button
                       type="button"
-                      className={activeConversation.aiAutoReplyDisabled || !globalAiEnabled ? "chat-ai-toggle chat-ai-toggle-paused" : "chat-ai-toggle chat-ai-toggle-active"}
+                      className={activeConversation.aiAutoReplyDisabled ? "chat-ai-toggle chat-ai-toggle-paused" : "chat-ai-toggle chat-ai-toggle-active"}
                       onClick={() => handleToggleAiAutoReply(!activeConversation.aiAutoReplyDisabled)}
-                      disabled={isAiToggleSaving || (!globalAiEnabled && activeConversation.aiAutoReplyDisabled)}
+                      disabled={isAiToggleSaving}
                       title={
-                        !globalAiEnabled
-                          ? "Global AI is paused. This chat is in Human Mode until an admin or manager resumes AI for all."
-                          : activeConversation.aiAutoReplyDisabled
+                        activeConversation.aiAutoReplyDisabled
                           ? "Human Mode (AI Paused). Click to turn AI Auto-Reply ON."
                           : "AI Auto-Reply is ON. Click to pause AI and switch to Human Mode."
                       }
                       aria-label={
-                        !globalAiEnabled
-                          ? "Global AI is paused. This chat is in Human Mode."
-                          : activeConversation.aiAutoReplyDisabled
+                        activeConversation.aiAutoReplyDisabled
                           ? "Human Mode (AI Paused). Click to turn AI Auto-Reply ON."
                           : "AI Auto-Reply is ON. Click to pause AI and switch to Human Mode."
                       }
                     >
-                      <span className={activeConversation.aiAutoReplyDisabled || !globalAiEnabled ? "chat-ai-toggle-dot paused" : "chat-ai-toggle-dot active"} />
+                      <span className={activeConversation.aiAutoReplyDisabled ? "chat-ai-toggle-dot paused" : "chat-ai-toggle-dot active"} />
                       <span className="chat-ai-toggle-text">
                         {isAiToggleSaving
                           ? "Saving..."
-                          : !globalAiEnabled
-                          ? "Human Mode · Global pause"
                           : activeConversation.aiAutoReplyDisabled
                           ? "Human Mode"
                           : "AI Active"}

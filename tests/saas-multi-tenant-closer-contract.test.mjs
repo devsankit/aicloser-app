@@ -67,7 +67,8 @@ test("pending payment locks workspace access after the 24-hour grace period", ()
   assert.match(paymentAccess, /paymentStatus !== "PENDING"/);
   assert.match(pageGuard, /getWorkspacePaymentState/);
   assert.match(pageGuard, /redirect\("\/activate-plan"\)/);
-  assert.match(superAdminUsersRoute, /update-payment-status/);
+  assert.match(superAdminUsersRoute, /Tenant users, seats, status, and payments are managed by the Tenant Admin/);
+  assert.match(superAdminUsersRoute, /status: 403/);
 });
 
 test("super-admin login exposes safe session recovery actions", () => {
@@ -81,16 +82,18 @@ test("super-admin login exposes safe session recovery actions", () => {
   assert.match(revokeAllSessionsRoute, /revokeAllActiveAppClientSessions/);
 });
 
-test("super-admin seat scaling has a native form fallback", () => {
+test("super-admin platform view does not expose tenant user or seat mutation controls", () => {
   assert.match(salesAuthForm, /Login here/);
-  const superAdminUsersControl = fs.readFileSync(new URL("../src/components/super-admin/super-admin-closer-control.tsx", import.meta.url), "utf8");
-  assert.match(superAdminUsersControl, /action="\/api\/super-admin\/users" method="post"/);
-  assert.match(superAdminUsersControl, /totalSeats: Math\.max\(0, prev\.totalSeats - delta\)/);
-  assert.match(superAdminUsersControl, /committedSeats/);
-  assert.match(superAdminUsersUiRoute, /Object\.fromEntries\(await request\.formData\(\)/);
-  assert.match(superAdminUsersUiRoute, /NextResponse\.redirect\(new URL\("\/super-admin\?message=Seats\+updated"/);
-  assert.match(superAdminUsersUiRoute, /tenant-super-admin-/);
-  assert.match(superAdminUsersUiRoute, /tenantId,\n\s+userId,/);
+  const superAdminPlatformView = fs.readFileSync(new URL("../src/components/super-admin/super-admin-platform-overview.tsx", import.meta.url), "utf8");
+  assert.match(superAdminUsersUiRoute, /getSuperAdminPlatformSummary/);
+  assert.match(superAdminUsersUiRoute, /Tenant users, seats, status, and payments are managed by the Tenant Admin/);
+  assert.match(superAdminUsersUiRoute, /status: 403/);
+  assert.match(superAdminPlatformView, /Tenant summaries/);
+  assert.match(superAdminPlatformView, /Package/);
+  assert.match(superAdminPlatformView, /Active/);
+  assert.match(superAdminPlatformView, /Pending/);
+  assert.match(superAdminPlatformView, /Suspended/);
+  assert.doesNotMatch(superAdminPlatformView, /Add New User|Login as User|Update seats/);
 });
 
 test("production bootstrap does not recreate legacy demo users after a clean purge", () => {

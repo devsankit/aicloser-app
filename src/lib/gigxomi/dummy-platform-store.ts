@@ -1153,7 +1153,7 @@ function buildWhatsAppOutboundTextForCustomerLane(
 }
 
 function getDefaultPublicBaseUrl() {
-  return process.env.NEXT_PUBLIC_APP_URL?.trim() || "https://gigxomi.com";
+  return process.env.NEXT_PUBLIC_APP_URL?.trim() || "https://app.aicloser.in";
 }
 
 function normalizePublicBaseUrl(value?: string) {

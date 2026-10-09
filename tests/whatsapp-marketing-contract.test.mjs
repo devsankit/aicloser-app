@@ -226,8 +226,10 @@ test("WhatsApp Marketing API routes enforce tenant-scoping and authorization rol
   assert.match(webhookRoute, /x-hub-signature-256/);
 });
 
-test("Extraction contract: legacy public meta webhook remains absent", async () => {
-  await assert.rejects(access(new URL("../src/app/api/meta/whatsapp/webhook/route.ts", import.meta.url)));
+test("Extraction contract: public Meta webhook aliases the canonical WhatsApp route", async () => {
+  await access(new URL("../src/app/api/meta/whatsapp/webhook/route.ts", import.meta.url));
+  const webhookAlias = await read("src/app/api/meta/whatsapp/webhook/route.ts");
+  assert.match(webhookAlias, /api\/whatsapp-marketing\/webhook/);
   await access(new URL("../src/app/api/whatsapp-marketing/webhook/route.ts", import.meta.url));
 });
 

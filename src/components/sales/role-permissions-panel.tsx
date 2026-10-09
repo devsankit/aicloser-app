@@ -451,7 +451,7 @@ export function RolePermissionsPanel({
               <strong style={{ display: "block", fontSize: "0.82rem", color: "var(--closer-ink)" }}>Need more users?</strong>
               <span style={{ display: "block", marginTop: 3, fontSize: "0.72rem", color: "var(--closer-muted)" }}>Upgrade seats and unlock more workspace capacity.</span>
             </div>
-            <a href="/?tab=roles#workspace-plan" className="sales-secondary-button compact" style={{ display: "inline-flex", alignItems: "center", gap: 5, whiteSpace: "nowrap", textDecoration: "none" }}>
+            <a href="https://wa.me/919589510954?text=Hi%2C%20I%20want%20to%20upgrade%20my%20AI%20Closer%20workspace%20seats." target="_blank" rel="noreferrer" className="sales-secondary-button compact" style={{ display: "inline-flex", alignItems: "center", gap: 5, whiteSpace: "nowrap", textDecoration: "none" }}>
               Manage plan <ArrowUpRight size={13} />
             </a>
           </div>
@@ -765,7 +765,6 @@ export function RolePermissionsPanel({
               <tr style={{ background: "var(--closer-surface-soft)", borderBottom: "1px solid var(--closer-line)" }}>
                 <th style={{ padding: "12px 16px", fontWeight: 700, color: "var(--closer-ink)" }}>Team Member</th>
                 <th style={{ padding: "12px 16px", fontWeight: 700, color: "var(--closer-ink)" }}>Login Email ID & Phone</th>
-                <th style={{ padding: "12px 16px", fontWeight: 700, color: "var(--closer-ink)" }}>Plan</th>
                 <th style={{ padding: "12px 16px", fontWeight: 700, color: "var(--closer-ink)" }}>Assigned Role</th>
                 <th style={{ padding: "12px 16px", fontWeight: 700, color: "var(--closer-ink)" }}>Reports To</th>
                 <th style={{ padding: "12px 16px", fontWeight: 700, color: "var(--closer-ink)" }}>Status</th>
@@ -792,11 +791,8 @@ export function RolePermissionsPanel({
                     ) : null}
                   </td>
                   <td style={{ padding: "12px 16px" }}>
-                    <div style={{ fontWeight: 700, color: "var(--closer-ink)" }}>{user.packageName || "Free plan"}</div>
-                    <div style={{ fontSize: "0.75rem", color: "var(--closer-muted)" }}>{user.packageStatus === "ACTIVE" ? "Active" : user.packageStatus}</div>
-                  </td>
-                  <td style={{ padding: "12px 16px" }}>
                     <select
+                      className="role-permissions-select"
                       value={user.role}
                       onChange={(e) => void handleRoleChange(user.id, e.target.value as "UNASSIGNED" | "ADMIN" | "MANAGER" | "SALES_AGENT")}
                       style={{
@@ -818,6 +814,7 @@ export function RolePermissionsPanel({
                   <td style={{ padding: "12px 16px", color: "var(--closer-muted)", fontSize: "0.8rem" }}>
                     {user.role === "SALES_AGENT" ? (
                       <select
+                        className="role-permissions-select role-permissions-manager-select"
                         value={user.parentAgentId || ""}
                         onChange={(e) => void handleManagerChange(user.id, e.target.value)}
                         style={{

@@ -55,7 +55,9 @@ test("Meta integration exposes signed Instagram ingress and only the canonical W
   await access(new URL("../src/app/api/meta/instagram/oauth/connect/route.ts", import.meta.url));
   await access(new URL("../src/app/api/meta/instagram/oauth/callback/route.ts", import.meta.url));
   await access(new URL("../src/app/api/meta/whatsapp/messages/route.ts", import.meta.url));
-  await assert.rejects(access(new URL("../src/app/api/meta/whatsapp/webhook/route.ts", import.meta.url)));
+  await access(new URL("../src/app/api/meta/whatsapp/webhook/route.ts", import.meta.url));
+  const whatsappWebhook = await source("src/app/api/meta/whatsapp/webhook/route.ts");
+  assert.match(whatsappWebhook, /api\/whatsapp-marketing\/webhook/);
   await access(new URL("../src/app/api/meta/instagram/webhook/route.ts", import.meta.url));
   const instagramWebhook = await source("src/app/api/meta/instagram/webhook/route.ts");
   assert.match(instagramWebhook, /verifyMetaWebhookSignature/);

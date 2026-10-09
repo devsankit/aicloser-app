@@ -466,6 +466,21 @@ enum PaymentTransactionStatus {
   EXPIRED
 }
 
+enum UpiPaymentLinkStatus {
+  PENDING
+  CUSTOMER_CONFIRMED
+  PAID
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
+enum UpiPaymentDurationUnit {
+  DAY
+  MONTH
+  YEAR
+}
+
 enum GappWebinarPriceMode {
   FREE
   PAID
@@ -2280,6 +2295,118 @@ model PaymentProviderConfig {
   @@map("payment_provider_configs")
 }
 
+model UpiPaymentSetting {
+  id                      String   @id @default(cuid())
+  tenantId                String   @unique
+  enabled                 Boolean  @default(false)
+  upiId                   String?
+  payeeName               String?
+  instructions            String?
+  qrBrandName             String?
+  qrAccentColor           String?  @default("#ff5a1f")
+  qrLogoDataUrl            String?
+  screenshotRequired      Boolean  @default(true)
+  utrEnabled              Boolean  @default(true)
+  autoActivateOnApproval  Boolean  @default(false)
+  durationMultipliers     Json?
+  createdByUserId         String?
+  updatedByUserId         String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([enabled])
+  @@map("upi_payment_settings")
+}
+
+model UpiPaymentFieldPolicy {
+  id             String   @id @default(cuid())
+  tenantId       String
+  fieldKey       String
+  label          String
+  visible        Boolean  @default(true)
+  required       Boolean  @default(false)
+  surface        String   @default("CLOSER")
+  reportVisible  Boolean  @default(true)
+  sortOrder      Int      @default(100)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([tenantId, fieldKey])
+  @@index([tenantId, surface, sortOrder])
+  @@map("upi_payment_field_policies")
+}
+
+model UpiPaymentLink {
+  id                    String                  @id @default(cuid())
+  tenantId              String
+  publicToken           String                  @unique
+  createdByUserId       String
+  customerUserId        String?
+  status                UpiPaymentLinkStatus    @default(PENDING)
+  baseAmount            Decimal                 @db.Decimal(12, 2)
+  quantity              Int                     @default(1)
+  duration              Int                     @default(1)
+  durationUnit          UpiPaymentDurationUnit
+  durationMultiplier    Decimal                 @db.Decimal(8, 4)
+  totalAmount           Decimal                 @db.Decimal(12, 2)
+  currency              String                  @default("INR")
+  upiIdSnapshot         String
+  payeeNameSnapshot     String
+  instructionsSnapshot  String?
+  customerName          String?
+  customerPhone         String?
+  customerEmail         String?
+  productName           String?
+  packageId             String?
+  customFields          Json?
+  customerNote          String?
+  utrReference          String?
+  proofStoragePath       String?
+  proofMimeType          String?
+  proofSizeBytes         Int?
+  confirmedByUserId      String?
+  confirmedAt            DateTime?
+  confirmationNote       String?
+  approvedByUserId       String?
+  approvedAt             DateTime?
+  rejectedByUserId       String?
+  rejectedAt             DateTime?
+  rejectionReason        String?
+  paidAt                 DateTime?
+  activatedAt            DateTime?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  createdBy              AppAuthUser              @relation("UpiPaymentLinkCreator", fields: [createdByUserId], references: [id], onDelete: Cascade)
+  customerUser           AppAuthUser?             @relation("UpiPaymentLinkCustomer", fields: [customerUserId], references: [id], onDelete: SetNull)
+  confirmedBy            AppAuthUser?             @relation("UpiPaymentLinkConfirmer", fields: [confirmedByUserId], references: [id], onDelete: SetNull)
+  approvedBy             AppAuthUser?             @relation("UpiPaymentLinkApprover", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  rejectedBy             AppAuthUser?             @relation("UpiPaymentLinkRejector", fields: [rejectedByUserId], references: [id], onDelete: SetNull)
+  events                 UpiPaymentEvent[]
+
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, createdByUserId, createdAt])
+  @@index([customerUserId, status])
+  @@map("upi_payment_links")
+}
+
+model UpiPaymentEvent {
+  id             String         @id @default(cuid())
+  tenantId       String
+  paymentLinkId  String
+  actorUserId    String?
+  actorRole      String?
+  action         String
+  note           String?
+  metadata       Json?
+  createdAt      DateTime       @default(now())
+  paymentLink    UpiPaymentLink @relation(fields: [paymentLinkId], references: [id], onDelete: Cascade)
+  actor          AppAuthUser?   @relation("UpiPaymentEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([paymentLinkId, createdAt])
+  @@map("upi_payment_events")
+}
+
 model PlatformYouTubeConnection {
   id                   String                          @id @default(cuid())
   connectionKey        String                          @unique
@@ -2383,6 +2510,12 @@ model AppAuthUser {
   freelancerRatings          AppFreelancerRating[]          @relation("FreelancerRatingsReceived")
   agencyRatingsGiven         AppFreelancerRating[]          @relation("AgencyRatingsGiven")
   dripDeliveries             AppDripDelivery[]
+  upiPaymentLinksCreated     UpiPaymentLink[]  @relation("UpiPaymentLinkCreator")
+  upiPaymentLinksCustomer    UpiPaymentLink[]  @relation("UpiPaymentLinkCustomer")
+  upiPaymentLinksConfirmed   UpiPaymentLink[]  @relation("UpiPaymentLinkConfirmer")
+  upiPaymentLinksApproved    UpiPaymentLink[]  @relation("UpiPaymentLinkApprover")
+  upiPaymentLinksRejected    UpiPaymentLink[]  @relation("UpiPaymentLinkRejector")
+  upiPaymentEvents           UpiPaymentEvent[] @relation("UpiPaymentEventActor")
 
   @@index([tenantId])
   @@index([role])

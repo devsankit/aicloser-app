@@ -27,6 +27,12 @@ type CrmSettingsPanelProps = {
   isAdmin?: boolean;
   initialTab?: SettingsTab;
   tenantId?: string;
+  profile?: {
+    displayName: string;
+    email: string;
+    phone: string;
+    companyName?: string | null;
+  };
   rolePermissionsComponent?: ReactNode;
   showRolePermissionsTab?: boolean;
   showTeamTab?: boolean;
@@ -48,6 +54,7 @@ export function CrmSettingsPanel({
   isAdmin = true,
   initialTab = "round_robin",
   tenantId,
+  profile,
   rolePermissionsComponent,
   showRolePermissionsTab = true,
   showTeamTab = true,
@@ -67,6 +74,12 @@ export function CrmSettingsPanel({
   const [currency, setCurrency] = useState("INR");
   const [timezone, setTimezone] = useState("Asia/Kolkata");
   const [primaryBrandColor, setPrimaryBrandColor] = useState("#ff6b2f");
+  const [profileName, setProfileName] = useState(profile?.displayName ?? "");
+  const [profileEmail, setProfileEmail] = useState(profile?.email ?? "");
+  const [profilePhone, setProfilePhone] = useState(profile?.phone ?? "");
+  const [passwordDraft, setPasswordDraft] = useState("");
+  const [passwordConfirmation, setPasswordConfirmation] = useState("");
+  const [passwordSaving, setPasswordSaving] = useState(false);
 
   // Round-Robin & Distribution Settings
   const [rrSettings, setRrSettings] = useState<RoundRobinSettings>({
@@ -121,6 +134,14 @@ export function CrmSettingsPanel({
     void loadSettings();
   }, []);
 
+  useEffect(() => {
+    if (!profile) return;
+    setProfileName(profile.displayName);
+    setProfileEmail(profile.email);
+    setProfilePhone(profile.phone);
+    if (profile.companyName) setWorkspaceName(profile.companyName);
+  }, [profile]);
+
   const handleSaveSettings = async () => {
     setSaving(true);
     setBanner(null);
@@ -154,6 +175,30 @@ export function CrmSettingsPanel({
       ? current.filter((id) => id !== agentId)
       : [...current, agentId];
     setRrSettings({ ...rrSettings, participatingAgentIds: next });
+  };
+
+  const handleSavePassword = async () => {
+    setPasswordSaving(true);
+    setBanner(null);
+    try {
+      const response = await fetch("/api/auth/password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: passwordDraft, confirmPassword: passwordConfirmation }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) {
+        setBanner({ tone: "error", text: data.error || "Could not save password." });
+        return;
+      }
+      setPasswordDraft("");
+      setPasswordConfirmation("");
+      setBanner({ tone: "success", text: "Workspace password saved. You can now sign in with email and password." });
+    } catch {
+      setBanner({ tone: "error", text: "Could not save password. Please try again." });
+    } finally {
+      setPasswordSaving(false);
+    }
   };
 
   return (
@@ -426,7 +471,7 @@ export function CrmSettingsPanel({
                   <select
                     value={rrSettings.participatingGroupId ?? ""}
                     onChange={(event) => setRrSettings({ ...rrSettings, participatingGroupId: event.target.value || null })}
-                    style={{ width: "100%", padding: 9, borderRadius: 8, fontSize: 13 }}
+                    style={{ width: "100%", boxSizing: "border-box", padding: 9, borderRadius: 8, border: "1px solid var(--closer-line, #475569)", background: "var(--closer-surface, #111827)", color: "var(--closer-ink, #f8fafc)", fontSize: 13 }}
                   >
                     <option value="">All active sales users</option>
                     {groupsList.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
@@ -504,7 +549,7 @@ export function CrmSettingsPanel({
                   <select
                     value={rrSettings.strategy}
                     onChange={(e) => setRrSettings({ ...rrSettings, strategy: e.target.value as any })}
-                    style={{ width: "100%", padding: 9, borderRadius: 8, fontSize: 13 }}
+                    style={{ width: "100%", boxSizing: "border-box", padding: 9, borderRadius: 8, border: "1px solid var(--closer-line, #475569)", background: "var(--closer-surface, #111827)", color: "var(--closer-ink, #f8fafc)", fontSize: 13 }}
                   >
                     <option value="ROUND_ROBIN">Pure Sequential Round-Robin (Equal Leads)</option>
                     <option value="CAPACITY_WEIGHTED">Capacity-Weighted (Give to Rep with lowest active leads)</option>
@@ -519,7 +564,7 @@ export function CrmSettingsPanel({
                     type="number"
                     value={rrSettings.maxActiveLeadsPerAgent}
                     onChange={(e) => setRrSettings({ ...rrSettings, maxActiveLeadsPerAgent: Number(e.target.value) })}
-                    style={{ width: "100%", padding: 9, borderRadius: 8, fontSize: 13 }}
+                    style={{ width: "100%", boxSizing: "border-box", padding: 9, borderRadius: 8, border: "1px solid var(--closer-line, #475569)", background: "var(--closer-surface, #111827)", color: "var(--closer-ink, #f8fafc)", fontSize: 13 }}
                   />
                 </div>
               </div>
@@ -759,14 +804,22 @@ export function CrmSettingsPanel({
                 </h3>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gap: 12 }}>
+                <div style={{ padding: 14, borderRadius: 12, border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.2))", background: "var(--closer-surface-soft)" }}>
+                  <strong style={{ display: "block", marginBottom: 10 }}>Account details</strong>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
+                    <label style={{ display: "grid", gap: 4, fontSize: 12, fontWeight: 700 }}>Full name<input value={profileName} readOnly style={{ width: "100%", boxSizing: "border-box", padding: 9, borderRadius: 8, border: "1px solid var(--closer-line, #475569)", background: "var(--closer-surface, #111827)", color: "var(--closer-ink, #f8fafc)", fontSize: 13 }} /></label>
+                    <label style={{ display: "grid", gap: 4, fontSize: 12, fontWeight: 700 }}>Work email<input value={profileEmail} readOnly style={{ width: "100%", boxSizing: "border-box", padding: 9, borderRadius: 8, border: "1px solid var(--closer-line, #475569)", background: "var(--closer-surface, #111827)", color: "var(--closer-ink, #f8fafc)", fontSize: 13 }} /></label>
+                    <label style={{ display: "grid", gap: 4, fontSize: 12, fontWeight: 700 }}>Calling phone<input value={profilePhone} readOnly style={{ width: "100%", boxSizing: "border-box", padding: 9, borderRadius: 8, border: "1px solid var(--closer-line, #475569)", background: "var(--closer-surface, #111827)", color: "var(--closer-ink, #f8fafc)", fontSize: 13 }} /></label>
+                  </div>
+                </div>
                 <div>
                   <label style={{ display: "block", fontSize: 12, fontWeight: 700, marginBottom: 4 }}>Workspace Name</label>
                   <input
                     type="text"
                     value={workspaceName}
                     onChange={(e) => setWorkspaceName(e.target.value)}
-                    style={{ width: "100%", padding: 9, borderRadius: 8, fontSize: 13 }}
+                    style={{ width: "100%", boxSizing: "border-box", padding: 9, borderRadius: 8, border: "1px solid var(--closer-line, #475569)", background: "var(--closer-surface, #111827)", color: "var(--closer-ink, #f8fafc)", fontSize: 13 }}
                   />
                 </div>
                 <div>
@@ -795,6 +848,18 @@ export function CrmSettingsPanel({
                     onChange={(e) => setTimezone(e.target.value)}
                     style={{ width: "100%", padding: 9, borderRadius: 8, fontSize: 13 }}
                   />
+                </div>
+              </div>
+
+              <div style={{ padding: 14, borderRadius: 12, border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.2))", background: "var(--closer-surface-soft)", display: "grid", gap: 10 }}>
+                <div>
+                  <strong style={{ display: "block" }}>Workspace password</strong>
+                  <span style={{ display: "block", marginTop: 4, color: "var(--muted)", fontSize: 12 }}>Google-signup users can set a password here and use email/password login any time.</span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 10, alignItems: "end" }}>
+                  <label style={{ display: "grid", gap: 4, fontSize: 12, fontWeight: 700 }}>New password<input minLength={8} type="password" value={passwordDraft} onChange={(event) => setPasswordDraft(event.target.value)} placeholder="At least 8 characters" style={{ width: "100%", padding: 9, borderRadius: 8, fontSize: 13 }} /></label>
+                  <label style={{ display: "grid", gap: 4, fontSize: 12, fontWeight: 700 }}>Confirm password<input minLength={8} type="password" value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} placeholder="Repeat password" style={{ width: "100%", padding: 9, borderRadius: 8, fontSize: 13 }} /></label>
+                  <button className="sales-primary-button compact" type="button" disabled={passwordSaving || !passwordDraft || !passwordConfirmation} onClick={() => void handleSavePassword()}>{passwordSaving ? "Saving…" : "Save password"}</button>
                 </div>
               </div>
             </div>

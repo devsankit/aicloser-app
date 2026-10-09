@@ -22,8 +22,8 @@ import {
   CheckCircle2,
   Clock,
   Clock3,
-  Code2,
   Copy,
+  CreditCard,
   Download,
   Edit3,
   ExternalLink,
@@ -63,7 +63,6 @@ import {
 
 import type { InstagramPluginConnectionView, InstagramSetupUrls } from "@/components/super-admin/super-admin-instagram-plugin-card";
 import { InternalAppShell } from "@/components/ui/internal-app-shell";
-import { GlobalAiToggleButton } from "@/components/ai/global-ai-toggle-button";
 import { LeadNotesManager } from "@/components/sales/lead-notes-manager";
 import { LeadStatusTagsSelector } from "@/components/sales/lead-status-tags-selector";
 import { LeadCustomFieldsEditor } from "@/components/sales/lead-custom-fields-editor";
@@ -143,9 +142,9 @@ const AdvancedReportsPanel = dynamic(
   () => import("@/components/sales/advanced-reports-panel").then((m) => m.AdvancedReportsPanel),
   { ssr: false, loading: () => <PanelLoadingSkeleton label="Loading Performance Reports..." /> }
 );
-const ReferralCommissionPanel = dynamic(
-  () => import("@/components/sales/referral-commission-panel").then((m) => m.ReferralCommissionPanel),
-  { ssr: false, loading: () => <PanelLoadingSkeleton label="Loading Commissions & Referrals..." /> }
+const UpiPaymentCollectionPanel = dynamic(
+  () => import("@/components/sales/upi-payment-collection-panel").then((m) => m.UpiPaymentCollectionPanel),
+  { ssr: false, loading: () => <PanelLoadingSkeleton label="Loading Payments & Confirmations..." /> }
 );
 const CustomFieldsPanel = dynamic(
   () => import("@/components/sales/custom-fields-panel").then((m) => m.CustomFieldsPanel),
@@ -199,6 +198,7 @@ type SalesTab =
   | "campaigns"
   | "automations"
   | "developer"
+  | "payments"
   | "forms"
   | "plugins"
   | "reports"
@@ -253,19 +253,28 @@ const tabs: Array<{ id: SalesTab; label: string; icon: typeof Users; badge?: str
   { id: "grab-leads", label: "Grab Leads", icon: Hand, badge: "Queue", group: "crm" },
   { id: "contacts", label: "Contacts & Import Hub", icon: Users, badge: "All Sources", group: "crm" },
   { id: "lead-import", label: "Lead Import", icon: Upload, badge: "5 Sources", group: "crm" },
-  { id: "calls", label: "Call Reports & Recordings", icon: PhoneCall, group: "crm" },
+  { id: "calls", label: "Call Recordings & Missed Call History", icon: PhoneCall, group: "crm" },
   { id: "conversations", label: "Live Multi-Channel Chat", icon: MessageSquare, group: "crm" },
   { id: "forms", label: "Lead Form Builder", icon: Edit3, badge: "Web Forms", group: "growth" },
   { id: "plugins", label: "Plugins & Channels", icon: Users2, badge: "WA + Email + IG", group: "growth" },
   { id: "whatsapp-marketing", label: "WhatsApp Marketing", icon: MessageCircle, group: "growth" },
   { id: "automations", label: "AI Bot & Automations", icon: Bot, badge: "AI + Flows", group: "growth" },
-  { id: "developer", label: "Developer", icon: Code2, badge: "Webhooks + API", group: "system" },
+  { id: "payments", label: "Payments & Confirmations", icon: CreditCard, group: "system" },
   { id: "reports", label: "Reports & Lead-IQ", icon: BarChart3, group: "system" },
   { id: "roles", label: "Team & Users", icon: UserRound, badge: "Plan & Seats", group: "system" },
   { id: "profile", label: "Settings, Team & Channels", icon: Sliders, group: "system" },
 ];
 
 const leadStages: SalesLeadStage[] = ["NEW", "ASSIGNED", "CONTACTED", "INTERESTED", "FOLLOW_UP", "NEGOTIATION", "CLOSED_WON", "CLOSED_LOST", "NOT_REACHABLE", "RECYCLED"];
+const leadStatusOptions: Array<{ value: SalesLeadStage; label: string }> = [
+  { value: "NEW", label: "New lead" },
+  { value: "CONTACTED", label: "Contacted" },
+  { value: "INTERESTED", label: "Interested / qualified" },
+  { value: "WEBINAR_INVITED", label: "Training booked" },
+  { value: "FOLLOW_UP", label: "Follow-up needed" },
+  { value: "CLOSED_WON", label: "Closed won" },
+  { value: "CLOSED_LOST", label: "Lost / recycled" },
+];
 
 function money(value: number) {
   return new Intl.NumberFormat("en-IN", { currency: "INR", maximumFractionDigits: 0, style: "currency" }).format(value);
@@ -788,7 +797,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   const navigationTabs = (isWorkspaceAdmin
     ? tabs.filter((tab) => tab.id !== "grab-leads")
     : isCloser
-      ? tabs.filter((tab) => ["dashboard", "crm", "grab-leads", "conversations"].includes(tab.id))
+      ? tabs.filter((tab) => ["dashboard", "crm", "grab-leads", "conversations", "payments"].includes(tab.id))
       : tabs.filter((tab) => !["roles", "profile", "developer", "grab-leads"].includes(tab.id)))
     .filter((tab) => !tabFeatureMap[tab.id] || hasFeature(tabFeatureMap[tab.id] as string));
   const canImportLeads = isWorkspaceAdmin || roundRobinAccess.allowNonAdminImportData;
@@ -1146,8 +1155,12 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
         setActiveTab(isWorkspaceAdmin ? "roles" : "dashboard");
         if (isWorkspaceAdmin) setSettingsHubView("team");
       } else if (savedTab === "custom-fields") {
-        setActiveTab("profile");
-        setSettingsHubView("custom-fields");
+        if (navigationTabs.some((tab) => tab.id === "profile")) {
+          setActiveTab("profile");
+          setSettingsHubView("custom-fields");
+        } else {
+          setActiveTab("dashboard");
+        }
       } else if (savedTab === "leads" || savedTab === "queue" || savedTab === "deals") {
         setActiveTab("crm");
       } else if (tabs.some((tab) => tab.id === savedTab) && navigationTabs.some((tab) => tab.id === savedTab)) {
@@ -1363,6 +1376,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
         customerName: String(form.get("customerName") ?? ""),
         customerPhone: String(form.get("customerPhone") ?? ""),
         customerEmail: String(form.get("customerEmail") ?? ""),
+        stage: String(form.get("stage") ?? "NEW"),
         serviceInterest: "Agency services",
         segment: "agency",
         notes: String(form.get("notes") ?? ""),
@@ -1567,6 +1581,11 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
 
   function navigateSales(section: string) {
     const nextTab = (isWorkspaceAdmin && section === "calls" ? "reports" : section) as SalesTab;
+    if (!navigationTabs.some((tab) => tab.id === nextTab)) {
+      setStatus("This page is not available for your account.");
+      setActiveTab("dashboard");
+      return;
+    }
     setActiveTab(nextTab);
     setStatus("");
     if (!operating && nextTab === "conversations") {
@@ -1605,7 +1624,6 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       showTopbarLabel
       title={pageTitle}
       topbarAccessory={canViewTeamData ? <AdminViewingContext agents={reportingAgents} selectedAgentId={viewingAgentId} onChange={updateViewingAgent} /> : null}
-      topbarCenter={<GlobalAiToggleButton />}
     >
       <div className={isConversationTab ? "sales-theme-scope sales-theme-scope-chat" : "sales-theme-scope"} style={salesThemeStyle}>
       {activeTab === "dashboard" ? (
@@ -1696,6 +1714,13 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                 type="button"
               >
                 <MessageSquare size={16} /> Open Live Multi-Channel Chat
+              </button>
+              <button
+                className="sales-hero-btn secondary"
+                onClick={() => navigateSales("payments")}
+                type="button"
+              >
+                <CreditCard size={16} /> Open Payments &amp; Confirmations
               </button>
             </div>
           </div>
@@ -2430,9 +2455,9 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                 >
                   <Users2 size={15} /> Deduplicate
                 </button> : null}
-                {!isCloser ? <button className="sales-primary-button compact" onClick={() => setDrawer("lead-create")} type="button">
+                <button className="sales-primary-button compact" onClick={() => setDrawer("lead-create")} type="button">
                   <Plus size={15} /> Add lead
-                </button> : null}
+                </button>
                 {canImportLeads ? <button className="sales-secondary-button compact" onClick={() => setDrawer("lead-import")} type="button">
                   <Upload size={15} /> Import
                 </button> : null}
@@ -2719,9 +2744,20 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
         </div>
       ) : null}
 
+      {activeTab === "payments" ? (
+        <section className="sales-tool-workspace sales-payments-workspace" style={{ padding: "16px 20px 28px", width: "100%", maxWidth: "none", margin: 0 }}>
+          <UpiPaymentCollectionPanel
+            embedded
+            sessionRole={(effectiveWorkspaceRole === "ADMIN" || effectiveWorkspaceRole === "MANAGER" || effectiveWorkspaceRole === "SALES_AGENT" || effectiveWorkspaceRole === "SUPER_ADMIN"
+              ? effectiveWorkspaceRole
+              : sessionRole) as "SALES_AGENT" | "MANAGER" | "ADMIN" | "SUPER_ADMIN"}
+            tenantId={salesOperations.tenantId}
+          />
+        </section>
+      ) : null}
+
       {activeTab === "reports" ? (
         <section className="sales-tool-workspace" style={{ padding: "20px", width: "100%", maxWidth: "1280px", margin: "0 auto" }}>
-          <ReferralCommissionPanel snapshot={snapshot} canRequestWithdrawal={sessionRole === "SALES_AGENT"} />
           <AdvancedReportsPanel selectedAgentId={viewingAgentId === "all" ? null : viewingAgentId} selectedAgentName={viewingAgent?.displayName ?? null} />
         </section>
       ) : null}
@@ -2732,12 +2768,18 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
         </section>
       ) : null}
 
-      {activeTab === "profile" || activeTab === "custom-fields" ? (
+      {isWorkspaceAdmin && (activeTab === "profile" || activeTab === "custom-fields") ? (
         <section className="sales-tool-workspace sales-settings-workspace" style={{ padding: "16px 20px", width: "100%", maxWidth: "1350px", margin: "0 auto" }}>
           <CrmSettingsPanel
             key={activeTab}
             isAdmin={isWorkspaceAdmin}
             initialTab={activeTab === "custom-fields" ? "custom_fields" : undefined}
+            profile={currentAgent ? {
+              displayName: currentAgent.displayName,
+              email: currentAgent.email,
+              phone: currentAgent.phone,
+              companyName: typeof currentAgentPermissions?.companyName === "string" ? currentAgentPermissions.companyName : null,
+            } : undefined}
             showRolePermissionsTab={false}
             showTeamTab={false}
             tenantId={salesOperations.tenantId}
@@ -2813,16 +2855,18 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                   Connect WhatsApp and Instagram to capture new leads, reply faster, and keep every follow-up in one focused inbox.
                 </span>
               </div>
-              <button
-                type="button"
-                className="chat-connection-action"
-                onClick={() => {
-                  setSettingsHubView("channels");
-                  setActiveTab("profile");
-                }}
-              >
-                Connect channels
-              </button>
+              {navigationTabs.some((tab) => tab.id === "profile") ? (
+                <button
+                  type="button"
+                  className="chat-connection-action"
+                  onClick={() => {
+                    setSettingsHubView("channels");
+                    navigateSales("profile");
+                  }}
+                >
+                  Connect channels
+                </button>
+              ) : null}
             </div>
           ) : null}
           <ChatWorkspace
@@ -3013,6 +3057,12 @@ function LeadForm({ onSubmit }: { onSubmit: (event: FormEvent<HTMLFormElement>) 
       <label>
         <span>Email <small>(optional)</small></span>
         <input name="customerEmail" placeholder="e.g. aarav@company.com" type="email" />
+      </label>
+      <label>
+        <span>Lead status</span>
+        <select defaultValue="NEW" name="stage">
+          {leadStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
       </label>
       <label>
         <span>Notes <small>(optional)</small></span>
@@ -4125,6 +4175,14 @@ function CallReportsPanel({
             <strong style={{ fontSize: "24px", color: card.tone }}>{loading ? "—" : card.value}</strong>
           </div>
         ))}
+      </div>
+
+      <div style={{ border: "1px solid rgba(220, 38, 38, 0.22)", borderRadius: "14px", background: "var(--closer-surface, #ffffff)", overflow: "hidden" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 18px", borderBottom: "1px solid rgba(220, 38, 38, 0.16)" }}>
+          <div><h3 style={{ margin: 0, fontSize: "16px", color: "var(--closer-ink, #0f172a)" }}>Missed call history</h3><p style={{ margin: "4px 0 0", fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>Missed calls from this workspace, refreshed with the same live call feed.</p></div>
+          <strong style={{ color: "#dc2626", fontSize: "18px" }}>{loading ? "—" : totals.missedCalls}</strong>
+        </div>
+        {loading ? <p className="muted-copy" style={{ padding: "24px" }}>Loading missed calls…</p> : calls.filter((call) => call.status === "MISSED").length === 0 ? <p className="muted-copy" style={{ padding: "24px" }}>No missed calls in this workspace.</p> : <div style={{ overflowX: "auto" }}><table className="crm-data-table" style={{ width: "100%", minWidth: "760px", borderCollapse: "collapse", textAlign: "left" }}><thead><tr><th style={{ padding: "11px 14px" }}>User</th><th style={{ padding: "11px 14px" }}>Contact</th><th style={{ padding: "11px 14px" }}>When</th><th style={{ padding: "11px 14px" }}>Recording</th><th style={{ padding: "11px 14px" }}>Note</th></tr></thead><tbody>{calls.filter((call) => call.status === "MISSED").map((call) => <tr key={`missed-${call.id}`} style={{ borderTop: "1px solid var(--closer-line, rgba(148, 163, 184, 0.18))" }}><td style={{ padding: "11px 14px" }}><strong>{call.agentName}</strong></td><td style={{ padding: "11px 14px" }}><strong>{call.customerName}</strong><small style={{ display: "block", color: "var(--closer-muted, #64748b)" }}>{call.phoneNumber}</small></td><td style={{ padding: "11px 14px" }}>{formatDateTime(call.startedAt)}</td><td style={{ padding: "11px 14px" }}>{call.recordingStatus === "UPLOADED" ? <CallRecordingPlayer callId={call.id} expectedDurationSeconds={call.durationSeconds} labelText={`${call.customerName} missed call recording`} /> : <span className="sales-chip neutral">{recordingStatusLabel(call.recordingStatus)}</span>}</td><td style={{ padding: "11px 14px" }}>{call.note || "No note recorded."}</td></tr>)}</tbody></table></div>}
       </div>
 
       <div style={{ border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.22))", borderRadius: "14px", background: "var(--closer-surface, #ffffff)", overflow: "hidden" }}>

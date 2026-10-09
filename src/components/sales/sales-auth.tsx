@@ -305,7 +305,7 @@ export function SalesSignupForm({ googleOnboarding = false, googleEmail = "", go
       <label style={lightLabelStyle}>
         <span>Number of users / team seats</span>
         <input defaultValue={5} max={500} min={1} name="seats" required style={lightInputStyle} type="number" />
-        <small style={{ color: "#64748b", fontSize: "0.72rem", fontWeight: 500 }}>You can change this later from Super Admin.</small>
+        <small style={{ color: "#64748b", fontSize: "0.72rem", fontWeight: 500 }}>You can change this later from workspace settings.</small>
       </label>
       {!googleOnboarding ? <>
         <SalesPasswordField autoComplete="new-password" label="Password" name="password" placeholder="Create at least 8 characters" />

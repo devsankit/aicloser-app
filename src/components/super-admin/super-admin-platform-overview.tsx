@@ -1,0 +1,28 @@
+"use client";
+
+import { Building2, CheckCircle2, Layers3, Users } from "lucide-react";
+
+import { BrandWordmark } from "@/components/ui/brand-wordmark";
+import type { SuperAdminBusinessSummary, SuperAdminPlatformStats } from "@/lib/super-admin/platform-summary";
+
+function dateLabel(value: string | null) {
+  if (!value) return "No expiry set";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "No expiry set" : date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function statusLabel(value: string) {
+  return value.replaceAll("_", " ").toLowerCase().replace(/(^|\s)\S/g, (character) => character.toUpperCase());
+}
+
+function Kpi({ icon: Icon, label, value, tone }: { icon: typeof Users; label: string; value: number; tone: string }) {
+  return <div className="rounded-2xl border border-white/10 bg-[#121a16] p-5"><div className={`mb-3 inline-flex rounded-xl p-3 ${tone}`}><Icon size={20} /></div><p className="m-0 text-xs uppercase tracking-[0.14em] text-slate-400">{label}</p><strong className="mt-2 block text-2xl text-white">{value}</strong></div>;
+}
+
+export function SuperAdminPlatformOverview({ adminUser, businesses, stats }: { adminUser: { displayName?: string | null; email?: string | null; role?: string | null }; businesses: SuperAdminBusinessSummary[]; stats: SuperAdminPlatformStats }) {
+  return <main className="min-h-screen bg-[#080c0a] text-slate-100"><header className="border-b border-white/10 bg-[#0b100d]"><div className="mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-6 py-4"><div className="flex items-center gap-4"><BrandWordmark /><span className="rounded-full border border-orange-400/40 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-orange-300">Super Admin · Platform view</span></div><div className="text-right"><p className="m-0 text-sm font-semibold text-white">{adminUser.displayName || "Platform Owner"}</p><p className="m-0 text-xs text-slate-400">{adminUser.email || ""}</p></div></div></header><div className="mx-auto max-w-[1440px] space-y-6 px-6 py-8"><section><p className="m-0 text-xs font-semibold uppercase tracking-[0.18em] text-orange-400">Business overview</p><h1 className="mt-2 text-3xl font-semibold text-white">Platform health at a glance</h1><p className="mt-2 max-w-3xl text-sm text-slate-400">Super Admin can monitor tenant health, plans, workspace capacity, and aggregate team counts. Individual users and tenant payment operations stay inside the Tenant Admin workspace.</p></section><section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><Kpi icon={Building2} label="Businesses" value={stats.totalBusinesses} tone="bg-orange-500/15 text-orange-300" /><Kpi icon={Users} label="Total team users" value={stats.totalTeamUsers} tone="bg-blue-500/15 text-blue-300" /><Kpi icon={CheckCircle2} label="Active users" value={stats.activeUsers} tone="bg-emerald-500/15 text-emerald-300" /><Kpi icon={Layers3} label="Allocated seats" value={stats.allocatedSeats} tone="bg-violet-500/15 text-violet-300" /></section><section className="overflow-hidden rounded-2xl border border-white/10 bg-[#101612]"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-5 py-4"><div><h2 className="m-0 text-lg font-semibold text-white">Tenant summaries</h2><p className="m-0 mt-1 text-xs text-slate-400">Aggregate business data only</p></div><div className="flex gap-3 text-xs text-slate-400"><span>Pending {stats.pendingUsers}</span><span>Suspended {stats.suspendedUsers}</span><span>Today {stats.newSignupsToday}</span></div></div>{businesses.length === 0 ? <div className="p-8 text-sm text-slate-400">No tenant businesses found.</div> : <div className="overflow-x-auto"><table className="min-w-[1080px] w-full text-left text-sm"><thead className="bg-white/[0.03] text-xs uppercase tracking-[0.1em] text-slate-400"><tr><th className="px-5 py-4">Business / Admin</th><th className="px-5 py-4">Package</th><th className="px-5 py-4">Workspace</th><th className="px-5 py-4">Team users</th><th className="px-5 py-4">Capacity</th></tr></thead><tbody>{businesses.map((business) => <BusinessRow key={business.tenantId} business={business} />)}</tbody></table></div>}</section></div></main>;
+}
+
+function BusinessRow({ business }: { business: SuperAdminBusinessSummary }) {
+  return <tr className="border-t border-white/10 align-top"><td className="px-5 py-4"><div className="font-semibold text-white">{business.businessName}</div><div className="mt-1 text-xs text-slate-400">Admin: {business.adminName}{business.adminEmail ? ` · ${business.adminEmail}` : ""}</div></td><td className="px-5 py-4"><div className="font-medium text-slate-200">{business.packageName}</div><div className="mt-1 text-xs text-slate-400">{statusLabel(business.packageStatus)} · {dateLabel(business.packageExpiresAt)}</div></td><td className="px-5 py-4"><span className="inline-flex items-center gap-2 rounded-full bg-emerald-400/10 px-3 py-1 text-xs font-semibold text-emerald-300"><CheckCircle2 size={13} />{statusLabel(business.workspaceStatus)}</span></td><td className="px-5 py-4"><div className="font-semibold text-white">{business.totalTeamUsers}</div><div className="mt-2 flex gap-3 text-xs"><span className="text-emerald-300">Active {business.activeUsers}</span><span className="text-amber-300">Pending {business.pendingUsers}</span><span className="text-rose-300">Suspended {business.suspendedUsers}</span></div></td><td className="px-5 py-4"><div className="flex items-center gap-2 font-semibold text-white"><Layers3 size={15} className="text-violet-300" />{business.allocatedSeats} seats</div><div className="mt-1 text-xs text-slate-500">Platform capacity</div></td></tr>;
+}
