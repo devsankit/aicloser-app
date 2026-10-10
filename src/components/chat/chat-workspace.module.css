@@ -486,12 +486,28 @@
   filter: brightness(1.1);
 }
 
-/* Focused inbox mode: keep the conversation header about the three actions
-   an operator needs while chatting — assignment, status, and private notes. */
-.shell :global(.chat-focused-actions .chat-automation-actions),
-.shell :global(.chat-focused-actions .chat-lane-actions),
-.shell :global(.chat-focused-actions .chat-legacy-actions) {
-  display: none;
+/* Keep the conversation header controls available without letting them push
+   the customer identity out of view. The action rail can scroll at compact
+   widths, while desktop keeps the full icon menu visible. */
+.shell :global(.chat-focused-actions) {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--accent) 42%, transparent) transparent;
+}
+
+.shell :global(.chat-focused-actions > .chat-thread-head-action-group) {
+  flex: 0 0 auto;
+}
+
+.shell :global(.chat-focused-actions::-webkit-scrollbar) {
+  height: 4px;
+}
+
+.shell :global(.chat-focused-actions::-webkit-scrollbar-thumb) {
+  background: color-mix(in srgb, var(--accent) 42%, transparent);
+  border-radius: 999px;
 }
 
 .shell :global(.chat-focused-actions .chat-assignment-actions .chat-head-icon) {
