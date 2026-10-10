@@ -111,7 +111,9 @@ object CallAudioRecorder {
             } else {
                 store.finalizeRecording(finalUploadId, file.length(), durationMs)
             }
-            RecordingUploadWorker.enqueue(context)
+            // An unprepared dialer call is linked to its real CRM call from the
+            // call log after IDLE. Do not race that rebinding with an upload.
+            if (!callId.startsWith(UNPREPARED_CALL_PREFIX)) RecordingUploadWorker.enqueue(context)
             prefs.edit().putString("recordingState", "LOCAL_PENDING").apply()
             PendingRecording(callId, file.absolutePath, file.length(), durationMs, finalUploadId)
         }.getOrElse { error ->
@@ -155,4 +157,5 @@ object CallAudioRecorder {
     }
 
     const val PREFS = "gxclosers_calls"
+    const val UNPREPARED_CALL_PREFIX = "unprepared-"
 }

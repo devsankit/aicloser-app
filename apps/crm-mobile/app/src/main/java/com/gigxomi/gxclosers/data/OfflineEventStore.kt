@@ -228,6 +228,11 @@ class OfflineEventStore(context: Context) : SQLiteOpenHelper(context, "gxclosers
         writableDatabase.update("recording_queue", values, "client_upload_id = ?", arrayOf(clientUploadId))
     }
 
+    fun rebindRecordingCall(clientUploadId: String, callId: String) {
+        val values = ContentValues().apply { put("call_id", callId) }
+        writableDatabase.update("recording_queue", values, "client_upload_id = ?", arrayOf(clientUploadId))
+    }
+
     fun updateRecordingStatus(clientUploadId: String, status: String, errorMessage: String? = null) {
         val values = ContentValues().apply {
             put("status", status)

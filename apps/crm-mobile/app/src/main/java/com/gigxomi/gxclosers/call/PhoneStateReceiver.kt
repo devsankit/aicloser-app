@@ -10,6 +10,8 @@ import android.telephony.TelephonyManager
 import android.util.Log
 import com.gigxomi.gxclosers.data.CrmRepository
 import com.gigxomi.gxclosers.data.OfflineEventStore
+import com.gigxomi.gxclosers.data.RecordingUploadWorker
+import com.gigxomi.gxclosers.data.SessionStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -45,6 +47,17 @@ class PhoneStateReceiver : BroadcastReceiver() {
             val callId = prefs.getString("activeCallId", null) ?: prefs.getString("recordingCallId", null)
             if (!callId.isNullOrBlank()) {
                 startRecorder(context, callId)
+            } else if (!prefs.getBoolean("incomingSessionStarting", false) &&
+                !SessionStore(context).token.isNullOrBlank() &&
+                SessionStore(context).setupComplete
+            ) {
+                // The normal dialer does not expose an outgoing number in
+                // PHONE_STATE. Capture locally and bind it to the real
+                // tenant-scoped call-log session after the call ends.
+                val localCallId = prefs.getString("unpreparedRecordingCallId", null)
+                    ?: "${CallAudioRecorder.UNPREPARED_CALL_PREFIX}${System.currentTimeMillis()}"
+                prefs.edit().putString("unpreparedRecordingCallId", localCallId).apply()
+                startRecorder(context, localCallId)
             }
         }
 
@@ -119,7 +132,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
                 // activeCallId because CRM did not get a chance to prepare it.
                 // Read the just-finished real system call-log row and create
                 // the tenant-scoped CRM session before closing it.
-                syncUnpreparedCallLog(context)
+                syncUnpreparedCallLog(context, pending)
             }
             val cleanup = prefs.edit()
                 .remove("activeCallId")
@@ -128,6 +141,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
                 .remove("activeStartedAt")
                 .remove("pendingInboundLeadId")
                 .remove("recordingError")
+                .remove("unpreparedRecordingCallId")
             if (!sessionStarting) {
                 cleanup.remove("wasOffhook").remove("offhookAt").remove("incomingSessionEnded").remove("incomingEndedAt").remove("phone")
             }
@@ -229,7 +243,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun syncUnpreparedCallLog(context: Context) {
+    private fun syncUnpreparedCallLog(context: Context, pendingRecording: PendingRecording? = null) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
             context.checkSelfPermission(android.Manifest.permission.READ_CALL_LOG) != android.content.pm.PackageManager.PERMISSION_GRANTED
         ) return
@@ -290,16 +304,28 @@ class PhoneStateReceiver : BroadcastReceiver() {
                     val repository = CrmRepository(context)
                     val lead = CallManager.lookup(context, phone)
                     val callId = repository.startUnmatchedCall(lead?.id, phone, direction, deviceId)
+                    val localRecordingStartedAt = pendingRecording?.callId
+                        ?.takeIf { it.startsWith(CallAudioRecorder.UNPREPARED_CALL_PREFIX) }
+                        ?.removePrefix(CallAudioRecorder.UNPREPARED_CALL_PREFIX)
+                        ?.toLongOrNull()
+                    val linkedRecording = pendingRecording?.takeIf {
+                        localRecordingStartedAt != null &&
+                            kotlin.math.abs(startedAt - localRecordingStartedAt) <= CALL_LOG_LOOKBACK_MS
+                    }
+                    if (linkedRecording != null) {
+                        OfflineEventStore(context).rebindRecordingCall(linkedRecording.clientUploadId, callId)
+                    }
                     val endedAt = startedAt + (duration * 1000L)
                     val payload = JSONObject()
                         .put("callSessionId", callId)
                         .put("status", status)
                         .put("endedAt", Instant.ofEpochMilli(endedAt).toString())
                         .put("durationSeconds", duration)
-                        .put("recordingStatus", "RECORDING_UNAVAILABLE")
-                        .put("recordingError", "Call synced from the device call log because no recorder session was available.")
+                        .put("recordingStatus", if (linkedRecording != null) "LOCAL_PENDING" else "RECORDING_UNAVAILABLE")
+                        .put("recordingError", if (linkedRecording == null) "Call synced from the device call log because no recorder session was available." else "")
                     OfflineEventStore(context).enqueue("call-log-end-$id", "CALL_END", payload, callId)
                     repository.syncOffline()
+                    if (linkedRecording != null) RecordingUploadWorker.enqueue(context)
                 }.onFailure { error ->
                     // Leave the call-log marker untouched only for a failed
                     // server request so the next phone event can retry it.
