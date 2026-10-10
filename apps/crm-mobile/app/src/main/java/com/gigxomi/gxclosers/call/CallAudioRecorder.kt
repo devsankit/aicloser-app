@@ -30,6 +30,20 @@ object CallAudioRecorder {
         stop(context)
         val directory = File(context.filesDir, "crm-recordings").apply { mkdirs() }
         val file = File(directory, "$callId-${System.currentTimeMillis()}.m4a")
+        val uploadId = UUID.randomUUID().toString()
+        val sessionStore = SessionStore(context)
+        OfflineEventStore(context).enqueueRecording(
+            QueuedRecording(
+                clientUploadId = uploadId,
+                callId = callId,
+                tenantId = null,
+                deviceId = sessionStore.installationId,
+                filePath = file.absolutePath,
+                sizeBytes = 0L,
+                durationMs = 0L,
+                status = "RECORDING",
+            )
+        )
         return runCatching {
             @Suppress("DEPRECATION")
             val next = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) MediaRecorder(context) else MediaRecorder()
@@ -46,6 +60,7 @@ object CallAudioRecorder {
             activeCallId = callId
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
                 .putString("recordingCallId", callId)
+                .putString("recordingUploadId", uploadId)
                 .putString("recordingState", "RECORDING")
                 .remove("recordingError")
                 .putLong("recordingStartedAt", System.currentTimeMillis())
@@ -57,6 +72,7 @@ object CallAudioRecorder {
                 .putString("recordingState", "FAILED")
                 .putString("recordingError", error.message ?: "Failed to initialize audio recorder")
                 .apply()
+            OfflineEventStore(context).updateRecordingStatus(uploadId, "FAILED", error.message ?: "Failed to initialize audio recorder")
             false
         }
     }
@@ -65,6 +81,7 @@ object CallAudioRecorder {
     fun stop(context: Context): PendingRecording? {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val callId = activeCallId ?: prefs.getString("recordingCallId", null)
+        val uploadId = prefs.getString("recordingUploadId", null)
         val file = outputFile
         if (recorder == null) return pending(context)
 
@@ -75,23 +92,28 @@ object CallAudioRecorder {
                 prefs.edit().putString("recordingState", "RECORDING_UNAVAILABLE").apply()
                 return@runCatching null
             }
-            val uploadId = UUID.randomUUID().toString()
             val durationMs = duration(file)
-            val sessionStore = SessionStore(context)
-            val queued = QueuedRecording(
-                clientUploadId = uploadId,
-                callId = callId,
-                tenantId = null,
-                deviceId = sessionStore.installationId,
-                filePath = file.absolutePath,
-                sizeBytes = file.length(),
-                durationMs = durationMs,
-                status = "LOCAL_PENDING",
-            )
-            OfflineEventStore(context).enqueueRecording(queued)
+            val finalUploadId = uploadId ?: UUID.randomUUID().toString()
+            val store = OfflineEventStore(context)
+            if (uploadId.isNullOrBlank()) {
+                store.enqueueRecording(
+                    QueuedRecording(
+                        clientUploadId = finalUploadId,
+                        callId = callId,
+                        tenantId = null,
+                        deviceId = SessionStore(context).installationId,
+                        filePath = file.absolutePath,
+                        sizeBytes = file.length(),
+                        durationMs = durationMs,
+                        status = "LOCAL_PENDING",
+                    )
+                )
+            } else {
+                store.finalizeRecording(finalUploadId, file.length(), durationMs)
+            }
             RecordingUploadWorker.enqueue(context)
             prefs.edit().putString("recordingState", "LOCAL_PENDING").apply()
-            PendingRecording(callId, file.absolutePath, file.length(), durationMs, uploadId)
+            PendingRecording(callId, file.absolutePath, file.length(), durationMs, finalUploadId)
         }.getOrElse { error ->
             release()
             prefs.edit().putString("recordingState", "FAILED").putString("recordingError", error.message).apply()
@@ -100,9 +122,11 @@ object CallAudioRecorder {
     }
 
     fun pending(context: Context): PendingRecording? {
-        val queued = OfflineEventStore(context).pendingRecordings().firstOrNull() ?: return null
+        val queued = OfflineEventStore(context).pendingRecordings().firstOrNull { it.status == "LOCAL_PENDING" } ?: return null
         return PendingRecording(queued.callId, queued.filePath, queued.sizeBytes, queued.durationMs, queued.clientUploadId)
     }
+
+    fun currentCallId(): String? = activeCallId
 
     fun clearPending(context: Context) {
         pending(context)?.let { recording ->

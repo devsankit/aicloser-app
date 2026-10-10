@@ -35,6 +35,7 @@ class CrmRepository(context: Context) {
         val response = api.post("/mobile/auth/login", body)
         val session = parseSession(response.getJSONObject("session"))
         sessionStore.saveLogin(response.getString("token"), session)
+        RecordingUploadWorker.retryNow(appContext)
         return session
     }
 
@@ -105,6 +106,7 @@ class CrmRepository(context: Context) {
             .put("recordingCapability", "MIC_RECORDING")
             .put("recordingEnabled", true))
         sessionStore.setupComplete = true
+        RecordingUploadWorker.retryNow(appContext)
         CallbackReminderWorker.enqueue(appContext)
     }
 

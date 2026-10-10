@@ -1,6 +1,7 @@
 package com.gigxomi.gxclosers.data
 
 import android.content.Context
+import com.gigxomi.gxclosers.call.CallAudioRecorder
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -16,10 +17,13 @@ class RecordingUploadWorker(appContext: Context, workerParams: WorkerParameters)
     override suspend fun doWork(): Result {
         val store = OfflineEventStore(applicationContext)
         val sessionStore = SessionStore(applicationContext)
+        store.reconcileRecordingFiles(File(applicationContext.filesDir, "crm-recordings"), CallAudioRecorder.currentCallId())
         if (sessionStore.token.isNullOrBlank()) return Result.success()
 
         val api = ApiClient(sessionStore)
-        val pending = store.pendingRecordings()
+        // An active recorder remains in RECORDING until the phone emits IDLE.
+        // Never upload that file while it is still being written.
+        val pending = store.pendingRecordings().filter { it.status != "RECORDING" }
         if (pending.isEmpty()) return Result.success()
 
         var hasFailures = false

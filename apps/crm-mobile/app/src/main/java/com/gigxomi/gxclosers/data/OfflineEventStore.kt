@@ -5,6 +5,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import org.json.JSONObject
+import java.io.File
 
 data class OfflineEventRecord(
     val id: String,
@@ -38,7 +39,7 @@ data class SyncCounts(
     val failed: Int,
 )
 
-class OfflineEventStore(context: Context) : SQLiteOpenHelper(context, "gxclosers-offline.db", null, 3) {
+class OfflineEventStore(context: Context) : SQLiteOpenHelper(context, "gxclosers-offline.db", null, 4) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """CREATE TABLE offline_events (
@@ -70,10 +71,36 @@ class OfflineEventStore(context: Context) : SQLiteOpenHelper(context, "gxclosers
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        // Never drop the offline queue during an app upgrade. A recording can be
+        // the only copy of a call until the server confirms the upload.
         if (oldVersion < 3) {
-            db.execSQL("DROP TABLE IF EXISTS offline_events")
-            db.execSQL("DROP TABLE IF EXISTS recording_queue")
-            onCreate(db)
+            db.execSQL(
+                """CREATE TABLE IF NOT EXISTS offline_events (
+                    id TEXT PRIMARY KEY,
+                    type TEXT NOT NULL,
+                    entity_id TEXT,
+                    payload TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    retry_count INTEGER NOT NULL DEFAULT 0,
+                    sync_status TEXT NOT NULL DEFAULT 'PENDING',
+                    error_message TEXT
+                )"""
+            )
+            db.execSQL(
+                """CREATE TABLE IF NOT EXISTS recording_queue (
+                    client_upload_id TEXT PRIMARY KEY,
+                    call_id TEXT NOT NULL,
+                    tenant_id TEXT,
+                    device_id TEXT,
+                    file_path TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL,
+                    duration_ms INTEGER NOT NULL,
+                    retry_count INTEGER NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL DEFAULT 'LOCAL_PENDING',
+                    error_message TEXT,
+                    created_at INTEGER NOT NULL
+                )"""
+            )
         }
     }
 
@@ -191,6 +218,16 @@ class OfflineEventStore(context: Context) : SQLiteOpenHelper(context, "gxclosers
         writableDatabase.insertWithOnConflict("recording_queue", null, values, SQLiteDatabase.CONFLICT_IGNORE)
     }
 
+    fun finalizeRecording(clientUploadId: String, sizeBytes: Long, durationMs: Long) {
+        val values = ContentValues().apply {
+            put("size_bytes", sizeBytes)
+            put("duration_ms", durationMs)
+            put("status", "LOCAL_PENDING")
+            putNull("error_message")
+        }
+        writableDatabase.update("recording_queue", values, "client_upload_id = ?", arrayOf(clientUploadId))
+    }
+
     fun updateRecordingStatus(clientUploadId: String, status: String, errorMessage: String? = null) {
         val values = ContentValues().apply {
             put("status", status)
@@ -214,7 +251,7 @@ class OfflineEventStore(context: Context) : SQLiteOpenHelper(context, "gxclosers
     fun pendingRecordings(): List<QueuedRecording> = readableDatabase.query(
         "recording_queue",
         arrayOf("client_upload_id", "call_id", "tenant_id", "device_id", "file_path", "size_bytes", "duration_ms", "retry_count", "status", "error_message", "created_at"),
-        "status IN ('LOCAL_PENDING', 'FAILED')",
+        "status IN ('LOCAL_PENDING', 'FAILED', 'RECORDING')",
         null,
         null,
         null,
@@ -281,6 +318,67 @@ class OfflineEventStore(context: Context) : SQLiteOpenHelper(context, "gxclosers
 
     fun removeRecording(clientUploadId: String) {
         writableDatabase.delete("recording_queue", "client_upload_id = ?", arrayOf(clientUploadId))
+    }
+
+    /**
+     * Reconciles the app-private audio directory after a process death or an
+     * interrupted upgrade. The local file is the source of truth until upload
+     * is acknowledged by the API, so an orphan must be re-added to the queue.
+     */
+    fun reconcileRecordingFiles(directory: File, activeCallId: String? = null): Int {
+        if (!directory.exists()) return 0
+        val existing = allRecordings()
+        val knownPaths = existing.mapTo(mutableSetOf()) { it.filePath }
+        val db = writableDatabase
+        var recovered = 0
+        db.beginTransaction()
+        try {
+            existing.filter { it.status == "RECORDING" && it.callId != activeCallId }.forEach { item ->
+                val file = File(item.filePath)
+                if (file.exists() && file.length() > 0L) {
+                    val values = ContentValues().apply {
+                        put("size_bytes", file.length())
+                        put("status", "LOCAL_PENDING")
+                        putNull("error_message")
+                    }
+                    db.update("recording_queue", values, "client_upload_id = ?", arrayOf(item.clientUploadId))
+                    recovered++
+                } else {
+                    val values = ContentValues().apply {
+                        put("status", "FAILED")
+                        put("error_message", "Audio file was lost before upload.")
+                    }
+                    db.update("recording_queue", values, "client_upload_id = ?", arrayOf(item.clientUploadId))
+                }
+            }
+
+            directory.listFiles()
+                ?.filter { it.isFile && it.extension.equals("m4a", ignoreCase = true) && it.length() > 0L }
+                ?.filterNot { knownPaths.contains(it.absolutePath) }
+                ?.forEach { file ->
+                    val callId = file.nameWithoutExtension.substringBeforeLast("-")
+                    if (callId.isBlank()) return@forEach
+                    val uploadId = "recovered-${file.nameWithoutExtension}"
+                    val values = ContentValues().apply {
+                        put("client_upload_id", uploadId)
+                        put("call_id", callId)
+                        putNull("tenant_id")
+                        putNull("device_id")
+                        put("file_path", file.absolutePath)
+                        put("size_bytes", file.length())
+                        put("duration_ms", 0L)
+                        put("retry_count", 0)
+                        put("status", "LOCAL_PENDING")
+                        putNull("error_message")
+                        put("created_at", file.lastModified().takeIf { it > 0L } ?: System.currentTimeMillis())
+                    }
+                    if (db.insertWithOnConflict("recording_queue", null, values, SQLiteDatabase.CONFLICT_IGNORE) != -1L) recovered++
+                }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        return recovered
     }
 
     fun clear() {

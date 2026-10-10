@@ -41,7 +41,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
         }
 
         if (state == "OFFHOOK") {
-            prefs.edit().putBoolean("wasOffhook", true).apply()
+            prefs.edit().putBoolean("wasOffhook", true).putLong("offhookAt", System.currentTimeMillis()).apply()
             val callId = prefs.getString("activeCallId", null) ?: prefs.getString("recordingCallId", null)
             if (!callId.isNullOrBlank()) {
                 startRecorder(context, callId)
@@ -68,7 +68,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
 
             if (!callId.isNullOrBlank()) {
                 val started = prefs.getLong("activeStartedAt", System.currentTimeMillis())
-                val durationSeconds = ((System.currentTimeMillis() - started) / 1000).coerceAtLeast(0)
+                val connectedAt = prefs.getLong("offhookAt", started)
                 // PHONE_STATE can go RINGING -> IDLE without OFFHOOK for a
                 // missed/rejected call. Treat the absence of OFFHOOK as not
                 // connected; defaulting to true falsely reports missed calls
@@ -86,8 +86,9 @@ class PhoneStateReceiver : BroadcastReceiver() {
                 val payload = JSONObject()
                     .put("callSessionId", callId)
                     .put("status", if (connected) "COMPLETED" else "MISSED")
+                    .put("connectedAt", if (connected) Instant.ofEpochMilli(connectedAt).toString() else JSONObject.NULL)
                     .put("endedAt", Instant.now().toString())
-                    .put("durationSeconds", durationSeconds)
+                    .put("durationSeconds", if (connected) ((System.currentTimeMillis() - connectedAt) / 1000).coerceAtLeast(0) else 0)
                     .put("recordingStatus", recordingStatus)
                     .put("recordingError", recordingError.ifBlank {
                         if (connected && recordingStatus == "RECORDING_UNAVAILABLE") "Recorder did not produce an audio file before the call ended." else ""
@@ -128,7 +129,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
                 .remove("pendingInboundLeadId")
                 .remove("recordingError")
             if (!sessionStarting) {
-                cleanup.remove("wasOffhook").remove("incomingSessionEnded").remove("incomingEndedAt").remove("phone")
+                cleanup.remove("wasOffhook").remove("offhookAt").remove("incomingSessionEnded").remove("incomingEndedAt").remove("phone")
             }
             cleanup.apply()
         }
@@ -173,8 +174,9 @@ class PhoneStateReceiver : BroadcastReceiver() {
                     val payload = JSONObject()
                         .put("callSessionId", callId)
                         .put("status", if (wasOffhook) "COMPLETED" else "MISSED")
+                        .put("connectedAt", if (wasOffhook) Instant.ofEpochMilli(prefs.getLong("offhookAt", prefs.getLong("incomingEndedAt", System.currentTimeMillis()))).toString() else JSONObject.NULL)
                         .put("endedAt", Instant.ofEpochMilli(prefs.getLong("incomingEndedAt", System.currentTimeMillis())).toString())
-                        .put("durationSeconds", 0)
+                        .put("durationSeconds", if (wasOffhook) ((prefs.getLong("incomingEndedAt", System.currentTimeMillis()) - prefs.getLong("offhookAt", prefs.getLong("incomingEndedAt", System.currentTimeMillis()))) / 1000).coerceAtLeast(0) else 0)
                         .put("recordingStatus", if (wasOffhook) "RECORDING_UNAVAILABLE" else "NONE")
                         .put("recordingError", if (wasOffhook) "Call connected before the recorder session was ready." else "")
                     OfflineEventStore(context).enqueue("call-end-$callId", "CALL_END", payload, callId)
@@ -187,6 +189,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
                         .remove("activePhone")
                         .remove("activeStartedAt")
                         .remove("wasOffhook")
+                        .remove("offhookAt")
                         .remove("incomingSessionEnded")
                         .remove("incomingEndedAt")
                         .apply()
