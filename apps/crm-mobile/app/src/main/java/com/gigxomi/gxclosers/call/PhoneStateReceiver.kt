@@ -69,8 +69,13 @@ class PhoneStateReceiver : BroadcastReceiver() {
             if (!callId.isNullOrBlank()) {
                 val started = prefs.getLong("activeStartedAt", System.currentTimeMillis())
                 val durationSeconds = ((System.currentTimeMillis() - started) / 1000).coerceAtLeast(0)
-                val connected = prefs.getBoolean("wasOffhook", true)
+                // PHONE_STATE can go RINGING -> IDLE without OFFHOOK for a
+                // missed/rejected call. Treat the absence of OFFHOOK as not
+                // connected; defaulting to true falsely reports missed calls
+                // as completed and attaches a recording failure to them.
+                val connected = prefs.getBoolean("wasOffhook", false)
                 val lastRecordingState = prefs.getString("recordingState", null)
+                val recordingError = prefs.getString("recordingError", null).orEmpty()
                 val recordingStatus = when {
                     pending?.callId == callId -> "LOCAL_PENDING"
                     !connected -> "NONE"
@@ -84,6 +89,17 @@ class PhoneStateReceiver : BroadcastReceiver() {
                     .put("endedAt", Instant.now().toString())
                     .put("durationSeconds", durationSeconds)
                     .put("recordingStatus", recordingStatus)
+                    .put("recordingError", recordingError.ifBlank {
+                        if (connected && recordingStatus == "RECORDING_UNAVAILABLE") "Recorder did not produce an audio file before the call ended." else ""
+                    })
+
+                // Android can deliver more than one IDLE broadcast for the same
+                // physical call. Keep a short-lived fingerprint so the next
+                // broadcast cannot create a second call-log fallback row.
+                prefs.edit()
+                    .putLong("lastTrackedCallEndedAt", System.currentTimeMillis())
+                    .putString("lastTrackedCallPhone", phone)
+                    .apply()
 
                 // Enqueue call-end with deterministic idempotency key
                 val store = OfflineEventStore(context)
@@ -110,6 +126,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
                 .remove("activePhone")
                 .remove("activeStartedAt")
                 .remove("pendingInboundLeadId")
+                .remove("recordingError")
             if (!sessionStarting) {
                 cleanup.remove("wasOffhook").remove("incomingSessionEnded").remove("incomingEndedAt").remove("phone")
             }
@@ -159,6 +176,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
                         .put("endedAt", Instant.ofEpochMilli(prefs.getLong("incomingEndedAt", System.currentTimeMillis())).toString())
                         .put("durationSeconds", 0)
                         .put("recordingStatus", if (wasOffhook) "RECORDING_UNAVAILABLE" else "NONE")
+                        .put("recordingError", if (wasOffhook) "Call connected before the recorder session was ready." else "")
                     OfflineEventStore(context).enqueue("call-end-$callId", "CALL_END", payload, callId)
                     CoroutineScope(Dispatchers.IO).launch {
                         runCatching { CrmRepository(context).syncOffline() }
@@ -199,6 +217,12 @@ class PhoneStateReceiver : BroadcastReceiver() {
                 .setAction(CallRecordingService.ACTION_START)
                 .putExtra(CallRecordingService.EXTRA_CALL_ID, callId)
             if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(service) else context.startService(service)
+        }.onFailure { error ->
+            context.getSharedPreferences(CallAudioRecorder.PREFS, Context.MODE_PRIVATE).edit()
+                .putString("recordingState", "FAILED")
+                .putString("recordingError", error.message ?: "Could not start foreground recording service")
+                .apply()
+            Log.e("GXCallRecording", "Could not start recorder service callId=$callId", error)
         }
     }
 
@@ -235,6 +259,20 @@ class PhoneStateReceiver : BroadcastReceiver() {
             val type = it.getInt(it.getColumnIndexOrThrow(CallLog.Calls.TYPE))
             val startedAt = it.getLong(it.getColumnIndexOrThrow(CallLog.Calls.DATE))
             val duration = it.getLong(it.getColumnIndexOrThrow(CallLog.Calls.DURATION)).coerceAtLeast(0)
+
+            val lastTrackedAt = prefs.getLong("lastTrackedCallEndedAt", 0L)
+            val lastTrackedPhone = prefs.getString("lastTrackedCallPhone", "").orEmpty()
+            val callLogEndedAt = startedAt + (duration * 1000L)
+            if (lastTrackedAt > 0L &&
+                (System.currentTimeMillis() - lastTrackedAt).coerceAtLeast(0L) <= DUPLICATE_IDLE_WINDOW_MS &&
+                normalizedPhone(phone) == normalizedPhone(lastTrackedPhone) &&
+                kotlin.math.abs(callLogEndedAt - lastTrackedAt) <= DUPLICATE_IDLE_WINDOW_MS
+            ) {
+                // Mark the row as seen without creating a second CRM call.
+                prefs.edit().putString(LAST_CALL_LOG_ID, id).apply()
+                Log.i("GXPhoneState", "Ignoring duplicate IDLE call-log row id=$id phone=$phone")
+                return
+            }
             val direction = when (type) {
                 CallLog.Calls.INCOMING_TYPE, CallLog.Calls.MISSED_TYPE, CallLog.Calls.REJECTED_TYPE -> "INBOUND"
                 else -> "OUTBOUND"
@@ -256,6 +294,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
                         .put("endedAt", Instant.ofEpochMilli(endedAt).toString())
                         .put("durationSeconds", duration)
                         .put("recordingStatus", "RECORDING_UNAVAILABLE")
+                        .put("recordingError", "Call synced from the device call log because no recorder session was available.")
                     OfflineEventStore(context).enqueue("call-log-end-$id", "CALL_END", payload, callId)
                     repository.syncOffline()
                 }.onFailure { error ->
@@ -271,6 +310,10 @@ class PhoneStateReceiver : BroadcastReceiver() {
     private companion object {
         const val LAST_CALL_LOG_ID = "lastSyncedCallLogId"
         const val CALL_LOG_LOOKBACK_MS = 2 * 60 * 60 * 1000L
+        const val DUPLICATE_IDLE_WINDOW_MS = 15_000L
     }
+
+    private fun normalizedPhone(phone: String): String =
+        phone.filter { it.isDigit() }.takeLast(10)
 
 }

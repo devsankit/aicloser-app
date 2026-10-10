@@ -47,6 +47,7 @@ object CallAudioRecorder {
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
                 .putString("recordingCallId", callId)
                 .putString("recordingState", "RECORDING")
+                .remove("recordingError")
                 .putLong("recordingStartedAt", System.currentTimeMillis())
                 .apply()
             true

@@ -5,18 +5,42 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import com.gigxomi.gxclosers.R
 
 class CallRecordingService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel(CHANNEL, "GXClosers call recording", NotificationManager.IMPORTANCE_LOW))
-        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) Notification.Builder(this, CHANNEL) else @Suppress("DEPRECATION") Notification.Builder(this)
-        startForeground(2402, builder.setContentTitle("GXClosers call recording").setContentText("Recording the active company sales call").setSmallIcon(R.drawable.ic_launcher).build())
         val callId = intent?.getStringExtra(EXTRA_CALL_ID).orEmpty()
-        if (intent?.action != ACTION_START || callId.isBlank() || !CallAudioRecorder.start(this, callId)) stopSelf()
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel(CHANNEL, "GXClosers call recording", NotificationManager.IMPORTANCE_LOW))
+            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) Notification.Builder(this, CHANNEL) else @Suppress("DEPRECATION") Notification.Builder(this)
+            val notification = builder
+                .setContentTitle("GXClosers call recording")
+                .setContentText("Recording the active company sales call")
+                .setSmallIcon(R.drawable.ic_launcher)
+                .build()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(2402, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+            } else {
+                @Suppress("DEPRECATION")
+                startForeground(2402, notification)
+            }
+            if (intent?.action != ACTION_START || callId.isBlank() || !CallAudioRecorder.start(this, callId)) {
+                Log.e("GXCallRecording", "Recorder service could not start callId=$callId")
+                stopSelf()
+            }
+        } catch (error: Exception) {
+            getSharedPreferences(CallAudioRecorder.PREFS, MODE_PRIVATE).edit()
+                .putString("recordingState", "FAILED")
+                .putString("recordingError", error.message ?: "Foreground recording service could not start")
+                .apply()
+            Log.e("GXCallRecording", "Recorder service failed callId=$callId", error)
+            stopSelf()
+        }
         return START_NOT_STICKY
     }
     override fun onDestroy() { CallAudioRecorder.stop(this); super.onDestroy() }
