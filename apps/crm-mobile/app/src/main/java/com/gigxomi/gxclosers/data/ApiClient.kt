@@ -4,6 +4,7 @@ import com.gigxomi.gxclosers.BuildConfig
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
@@ -27,6 +28,27 @@ class NetworkTimeoutException(message: String = "Connection timed out. Please ch
 class ApiClient(private val sessionStore: SessionStore) {
     fun get(path: String) = request(path, "GET")
     fun post(path: String, body: JSONObject = JSONObject()) = request(path, "POST", body)
+
+    fun downloadRecording(callId: String, destination: File) {
+        val connection = URL(endpoint("/sales/mobile/calls/$callId/recording")).openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod = "GET"
+            connection.connectTimeout = 15_000
+            connection.readTimeout = 60_000
+            connection.setRequestProperty("Accept", "audio/mp4,audio/*")
+            sessionStore.token?.let { connection.setRequestProperty("Authorization", "Bearer $it") }
+            val status = connection.responseCode
+            if (status !in 200..299) {
+                val payload = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                val message = runCatching { JSONObject(payload).optString("error") }.getOrNull().orEmpty()
+                throw ApiException(message.ifBlank { "Recording could not be loaded ($status)" }, status)
+            }
+            destination.parentFile?.mkdirs()
+            connection.inputStream.use { input -> FileOutputStream(destination).use { output -> input.copyTo(output) } }
+        } finally {
+            connection.disconnect()
+        }
+    }
 
     private fun request(path: String, method: String, body: JSONObject? = null): JSONObject {
         val url = URL(endpoint(path))

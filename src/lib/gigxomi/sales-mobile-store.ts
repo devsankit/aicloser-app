@@ -200,7 +200,11 @@ export async function startSalesMobileCall(actor: SalesMobileActor, input: Recor
   const agent = await getSalesMobileAgent(actor);
   if (!agent.tenantId) throw new Error("Your sales profile is not assigned to a workspace.");
   const pending = await prisma.salesMobileCall.count({ where: { agentId: agent.id, noteRequired: true, noteSubmitted: false } });
-  if (pending) throw new Error("Submit the pending call disposition before starting another call.");
+  // A call started from the CRM can keep the mandatory disposition guard.
+  // Calls discovered from Android's real call log are already finished by the
+  // time the app sees them, so they must be accepted and reported first; the
+  // disposition can be completed afterward from the dashboard/mobile app.
+  if (pending && input.allowUnmatched !== true) throw new Error("Submit the pending call disposition before starting another call.");
   const assignmentId = clean(input.leadId || input.assignmentId);
   const phone = normalizePhone(input.phoneNumber);
   const assignment = assignmentId

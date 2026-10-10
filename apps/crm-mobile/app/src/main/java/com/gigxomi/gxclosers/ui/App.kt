@@ -86,10 +86,18 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
     }
     LaunchedEffect(vm.authenticated, vm.setupComplete) {
         val destination = when { !vm.authenticated -> LOGIN; !vm.setupComplete -> SETUP; else -> MAIN }
-        nav.navigate(destination) { popUpTo(nav.graph.startDestinationId) { inclusive = true }; launchSingleTop = true }
+        // NavHost installs its graph during composition. The first state
+        // effect can run before that happens, so do not read nav.graph (or
+        // navigate) until a real destination exists. The startDestination
+        // already renders the correct initial screen; this branch is only for
+        // later login/setup transitions.
+        val current = nav.currentDestination
+        if (current != null && current.route != destination) {
+            nav.navigate(destination) { popUpTo(current.id) { inclusive = true }; launchSingleTop = true }
+        }
     }
     LaunchedEffect(initialLink, vm.authenticated, vm.setupComplete) {
-        if (vm.authenticated && vm.setupComplete && initialLink != null) {
+        if (vm.authenticated && vm.setupComplete && initialLink != null && nav.currentDestination != null) {
             val id = initialLink.lastPathSegment.orEmpty()
             when (initialLink.host) { "lead" -> nav.navigate("lead/$id"); "disposition" -> nav.navigate("disposition/$id") }
         }
@@ -211,7 +219,7 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
     val roleManager = if (Build.VERSION.SDK_INT >= 29) context.getSystemService(RoleManager::class.java) else null
     val finishSetup = { vm.registerDevice {} }
     val permissions = buildList {
-        add(Manifest.permission.CALL_PHONE); add(Manifest.permission.READ_PHONE_STATE); add(Manifest.permission.READ_PHONE_NUMBERS)
+        add(Manifest.permission.CALL_PHONE); add(Manifest.permission.READ_PHONE_STATE); add(Manifest.permission.READ_PHONE_NUMBERS); add(Manifest.permission.READ_CALL_LOG)
         add(Manifest.permission.RECORD_AUDIO); add(Manifest.permission.READ_CONTACTS)
         if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
     }.toTypedArray()
@@ -238,7 +246,7 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
     }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         if (!permissions.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }) {
-            vm.showError("Allow phone, microphone, contacts, and notification access to continue setup.")
+            vm.showError("Allow phone, call history, microphone, contacts, and notification access to continue setup.")
         } else if (Build.VERSION.SDK_INT >= 29 && roleManager?.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING) == true && !roleManager.isRoleHeld(RoleManager.ROLE_CALL_SCREENING)) {
             roleLauncher.launch(roleManager.createRequestRoleIntent(RoleManager.ROLE_CALL_SCREENING))
         } else {
@@ -342,9 +350,9 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
 @Composable private fun GxBottomNav(tabs: List<Tab>, selected: Int, onSelect: (Int) -> Unit) {
     Box(Modifier.fillMaxWidth().background(Color.Transparent).padding(top = 4.dp, bottom = 4.dp).navigationBarsPadding(), contentAlignment = Alignment.Center) {
         Surface(
-            color = GxSurface.copy(alpha = .86f),
+            color = GxSurface,
             shape = RoundedCornerShape(30.dp),
-            border = BorderStroke(1.dp, GxMuted.copy(alpha = .16f)),
+            border = BorderStroke(1.dp, GxOutlineSoft),
             shadowElevation = 7.dp,
             modifier = Modifier.fillMaxWidth(.88f).widthIn(min = 316.dp, max = 560.dp).heightIn(min = 68.dp),
         ) {
@@ -356,7 +364,7 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
                     ) {
-                        Surface(color = if (active) GxAccent.copy(alpha = .18f) else Color.Transparent, shape = androidx.compose.foundation.shape.CircleShape, border = BorderStroke(1.dp, if (active) GxAccent.copy(alpha = .30f) else Color.Transparent)) {
+                        Surface(color = if (active) GxAccent.copy(alpha = .16f) else Color.Transparent, shape = androidx.compose.foundation.shape.CircleShape, border = BorderStroke(1.dp, if (active) GxAccent.copy(alpha = .42f) else Color.Transparent)) {
                             Box(Modifier.size(30.dp), contentAlignment = Alignment.Center) {
                             Icon(tab.icon, tab.label, tint = if (active) GxAccent else GxMuted, modifier = Modifier.size(21.dp))
                             }
@@ -544,9 +552,14 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
                     }
                     Text("${call.durationSeconds}s", color = GxMuted)
                 }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     Text(
                         recordingStatusLabel(call.recordingStatus),
+                        modifier = Modifier.weight(1f),
                         color = when (call.recordingStatus) {
                             "UPLOADED" -> GxSuccess
                             "UPLOADING" -> GxWarning
@@ -562,6 +575,16 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
                             Text("Speed ${vm.playbackSpeed}x", color = GxAccent, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
                         }
                     }
+                }
+                if (call.recordingStatus == "UPLOADED") {
+                    SecondaryButton(
+                        when {
+                            vm.playbackLoadingCallId == call.id -> "Loading audio…"
+                            vm.playingCallId == call.id -> "Pause recording"
+                            else -> "Play recording"
+                        },
+                        vm.playbackLoadingCallId == call.id,
+                    ) { vm.playRecording(call.id) }
                 }
                 call.recordingError?.let { Text(it, color = GxDanger, fontSize = 11.sp) }
                 if (call.note.isNullOrBlank()) {
@@ -1368,7 +1391,16 @@ private fun formatMessageDay(value: String): String {
 }
 
 @Composable private fun Page(vertical: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
-    Column(Modifier.fillMaxSize().background(GxBackground).then(if (vertical) Modifier.verticalScroll(rememberScrollState()) else Modifier.verticalScroll(rememberScrollState())).imePadding().padding(start = 16.dp, top = 5.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(13.dp), content = content)
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(GxBackground)
+            .verticalScroll(rememberScrollState())
+            .imePadding()
+            .padding(start = 16.dp, top = 10.dp, end = 16.dp, bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(13.dp),
+        content = content,
+    )
 }
 @Composable private fun BrandHeader(title: String, subtitle: String, fullLogo: Boolean = false) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -1406,7 +1438,16 @@ private fun formatMessageDay(value: String): String {
     }
 }
 @Composable private fun HeaderWithBack(title: String, subtitle: String, back: () -> Unit) { Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) { IconButton(back) { Icon(Icons.Default.ArrowBack, "Back") }; Column(Modifier.weight(1f)) { Text(title, fontSize = 22.sp, fontWeight = FontWeight.Black); Text(subtitle, color = GxMuted, fontSize = 12.sp) } } }
-@Composable private fun GxCard(accent: Boolean = false, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) { Surface(color = if (accent) GxSurface2 else GxSurface, shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, if (accent) GxAccent.copy(alpha = .35f) else GxMuted.copy(alpha = .15f)), modifier = Modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content) } }
+@Composable private fun GxCard(accent: Boolean = false, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
+    Surface(
+        color = if (accent) GxSurface2 else GxSurface,
+        shape = RoundedCornerShape(18.dp),
+        border = BorderStroke(1.dp, if (accent) GxAccent.copy(alpha = .30f) else GxOutlineSoft),
+        modifier = Modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
+    }
+}
 @Composable private fun PrimaryButton(label: String, loading: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
     Button(
         onClick = onClick,
@@ -1424,7 +1465,19 @@ private fun formatMessageDay(value: String): String {
         else Text(label, fontWeight = FontWeight.Black, color = Color.White)
     }
 }
-@Composable private fun SecondaryButton(label: String, loading: Boolean, enabled: Boolean = true, onClick: () -> Unit) { OutlinedButton(onClick, enabled = enabled && !loading, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(15.dp)) { if (loading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text(label, fontWeight = FontWeight.Bold) } }
+@Composable private fun SecondaryButton(label: String, loading: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
+    OutlinedButton(
+        onClick,
+        enabled = enabled && !loading,
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = GxText),
+        border = BorderStroke(1.dp, GxOutline),
+        modifier = Modifier.fillMaxWidth().height(48.dp),
+        shape = RoundedCornerShape(15.dp),
+    ) {
+        if (loading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = GxAccent)
+        else Text(label, fontWeight = FontWeight.Bold)
+    }
+}
 @Composable private fun FeatureRow(icon: ImageVector, title: String, copy: String) { Row(verticalAlignment = Alignment.Top) { Icon(icon, null, tint = GxAccent); Spacer(Modifier.width(12.dp)); Column { Text(title, fontWeight = FontWeight.Black); Text(copy, color = GxMuted, fontSize = 12.sp) } } }
 @Composable private fun Metric(value: String, label: String, modifier: Modifier) { Surface(color = GxSurface, shape = RoundedCornerShape(16.dp), modifier = modifier) { Column(Modifier.padding(14.dp)) { Text(value, fontSize = 25.sp, fontWeight = FontWeight.Black); Text(label, color = GxMuted, fontSize = 11.sp) } } }
 @Composable private fun StatusPill(label: String, color: androidx.compose.ui.graphics.Color) { Surface(color = color.copy(alpha = .12f), shape = RoundedCornerShape(99.dp), border = BorderStroke(1.dp, color.copy(alpha = .35f))) { Text(label, color = color, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) } }

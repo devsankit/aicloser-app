@@ -132,9 +132,13 @@ class CrmRepository(context: Context) {
     }
 
     fun startIncomingCall(leadId: String?, phone: String, deviceId: String): String {
+        return startUnmatchedCall(leadId, phone, "INBOUND", deviceId)
+    }
+
+    fun startUnmatchedCall(leadId: String?, phone: String, direction: String, deviceId: String): String {
         val payload = JSONObject()
             .put("phoneNumber", phone)
-            .put("direction", "INBOUND")
+            .put("direction", direction)
             .put("deviceId", deviceId)
             .put("recordingStatus", "NONE")
             .put("allowUnmatched", true)

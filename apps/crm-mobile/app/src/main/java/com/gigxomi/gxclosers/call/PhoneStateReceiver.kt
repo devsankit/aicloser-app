@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.provider.CallLog
 import android.provider.Settings
 import android.telephony.TelephonyManager
 import android.util.Log
@@ -96,6 +97,12 @@ class PhoneStateReceiver : BroadcastReceiver() {
                         repo.syncOffline()
                     }
                 }
+            } else if (!sessionStarting) {
+                // A call started from the normal Android dialer never gets an
+                // activeCallId because CRM did not get a chance to prepare it.
+                // Read the just-finished real system call-log row and create
+                // the tenant-scoped CRM session before closing it.
+                syncUnpreparedCallLog(context)
             }
             val cleanup = prefs.edit()
                 .remove("activeCallId")
@@ -193,6 +200,77 @@ class PhoneStateReceiver : BroadcastReceiver() {
                 .putExtra(CallRecordingService.EXTRA_CALL_ID, callId)
             if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(service) else context.startService(service)
         }
+    }
+
+    private fun syncUnpreparedCallLog(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+            context.checkSelfPermission(android.Manifest.permission.READ_CALL_LOG) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) return
+
+        val resolver = context.contentResolver
+        val prefs = context.getSharedPreferences(CallAudioRecorder.PREFS, Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val cursor = runCatching {
+            resolver.query(
+                CallLog.Calls.CONTENT_URI,
+                arrayOf(
+                    CallLog.Calls._ID,
+                    CallLog.Calls.NUMBER,
+                    CallLog.Calls.TYPE,
+                    CallLog.Calls.DATE,
+                    CallLog.Calls.DURATION,
+                ),
+                "${CallLog.Calls.DATE} >= ?",
+                arrayOf((now - CALL_LOG_LOOKBACK_MS).toString()),
+                "${CallLog.Calls.DATE} DESC"
+            )
+        }.getOrNull() ?: return
+
+        cursor.use {
+            if (!it.moveToFirst()) return
+            val id = it.getString(it.getColumnIndexOrThrow(CallLog.Calls._ID))
+            if (id == prefs.getString(LAST_CALL_LOG_ID, null)) return
+            val phone = it.getString(it.getColumnIndexOrThrow(CallLog.Calls.NUMBER)).orEmpty()
+            if (phone.isBlank()) return
+            val type = it.getInt(it.getColumnIndexOrThrow(CallLog.Calls.TYPE))
+            val startedAt = it.getLong(it.getColumnIndexOrThrow(CallLog.Calls.DATE))
+            val duration = it.getLong(it.getColumnIndexOrThrow(CallLog.Calls.DURATION)).coerceAtLeast(0)
+            val direction = when (type) {
+                CallLog.Calls.INCOMING_TYPE, CallLog.Calls.MISSED_TYPE, CallLog.Calls.REJECTED_TYPE -> "INBOUND"
+                else -> "OUTBOUND"
+            }
+            val status = if (type == CallLog.Calls.MISSED_TYPE || duration == 0L) "MISSED" else "COMPLETED"
+            val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+                ?: "${Build.MANUFACTURER}-${Build.MODEL}"
+
+            prefs.edit().putString(LAST_CALL_LOG_ID, id).apply()
+            CoroutineScope(Dispatchers.IO).launch {
+                runCatching {
+                    val repository = CrmRepository(context)
+                    val lead = CallManager.lookup(context, phone)
+                    val callId = repository.startUnmatchedCall(lead?.id, phone, direction, deviceId)
+                    val endedAt = startedAt + (duration * 1000L)
+                    val payload = JSONObject()
+                        .put("callSessionId", callId)
+                        .put("status", status)
+                        .put("endedAt", Instant.ofEpochMilli(endedAt).toString())
+                        .put("durationSeconds", duration)
+                        .put("recordingStatus", "RECORDING_UNAVAILABLE")
+                    OfflineEventStore(context).enqueue("call-log-end-$id", "CALL_END", payload, callId)
+                    repository.syncOffline()
+                }.onFailure { error ->
+                    // Leave the call-log marker untouched only for a failed
+                    // server request so the next phone event can retry it.
+                    Log.e("GXPhoneState", "Could not sync unprepared call log id=$id", error)
+                    prefs.edit().remove(LAST_CALL_LOG_ID).apply()
+                }
+            }
+        }
+    }
+
+    private companion object {
+        const val LAST_CALL_LOG_ID = "lastSyncedCallLogId"
+        const val CALL_LOG_LOOKBACK_MS = 2 * 60 * 60 * 1000L
     }
 
 }

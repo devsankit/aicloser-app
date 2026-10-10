@@ -1,6 +1,7 @@
 package com.gigxomi.gxclosers.ui
 
 import android.app.Application
+import android.media.MediaPlayer
 import android.os.Build
 import android.provider.Settings
 import androidx.compose.runtime.getValue
@@ -48,12 +49,15 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
     var status by mutableStateOf<String?>(null); private set
     var syncCounts by mutableStateOf(repository.getSyncCounts()); private set
     var playbackSpeed by mutableFloatStateOf(1.0f); private set
+    var playingCallId by mutableStateOf<String?>(null); private set
+    var playbackLoadingCallId by mutableStateOf<String?>(null); private set
 
     private var heartbeatJob: Job? = null
     private var realtimeConnection: AutoCloseable? = null
     private var lastEventId: String? = null
     private val processedEventIds = Collections.synchronizedSet(HashSet<String>())
     private var activeConversationId: String? = null
+    private var mediaPlayer: MediaPlayer? = null
 
     init {
         if (authenticated && setupComplete) {
@@ -259,6 +263,69 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setSpeed(speed: Float) {
         playbackSpeed = speed
+        mediaPlayer?.let { player ->
+            runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    player.playbackParams = player.playbackParams.setSpeed(speed)
+                }
+            }
+        }
+    }
+
+    fun playRecording(callId: String) {
+        if (playingCallId == callId) {
+            mediaPlayer?.pause()
+            playingCallId = null
+            return
+        }
+        mediaPlayer?.release()
+        mediaPlayer = null
+        playingCallId = null
+        playbackLoadingCallId = callId
+        viewModelScope.launch {
+            try {
+                val file = withContext(Dispatchers.IO) {
+                    val cached = java.io.File(getApplication<Application>().cacheDir, "recording-$callId.m4a")
+                    repository.api.downloadRecording(callId, cached)
+                    cached
+                }
+                val player = MediaPlayer().apply {
+                    setDataSource(file.absolutePath)
+                    setOnPreparedListener { prepared ->
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            prepared.playbackParams = prepared.playbackParams.setSpeed(playbackSpeed)
+                        }
+                        playbackLoadingCallId = null
+                        playingCallId = callId
+                        prepared.start()
+                    }
+                    setOnCompletionListener {
+                        playingCallId = null
+                        playbackLoadingCallId = null
+                        it.release()
+                        if (mediaPlayer === it) mediaPlayer = null
+                    }
+                    setOnErrorListener { failed, _, _ ->
+                        playbackLoadingCallId = null
+                        playingCallId = null
+                        failed.release()
+                        if (mediaPlayer === failed) mediaPlayer = null
+                        true
+                    }
+                }
+                mediaPlayer = player
+                player.prepareAsync()
+            } catch (e: Exception) {
+                playbackLoadingCallId = null
+                error = e.message ?: "Recording could not be played."
+            }
+        }
+    }
+
+    override fun onCleared() {
+        mediaPlayer?.release()
+        mediaPlayer = null
+        super.onCleared()
     }
 
     fun loadInbox() {
