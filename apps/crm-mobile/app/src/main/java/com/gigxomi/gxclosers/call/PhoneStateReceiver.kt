@@ -44,7 +44,15 @@ class PhoneStateReceiver : BroadcastReceiver() {
 
         if (state == "OFFHOOK") {
             prefs.edit().putBoolean("wasOffhook", true).putLong("offhookAt", System.currentTimeMillis()).apply()
-            val callId = prefs.getString("activeCallId", null) ?: prefs.getString("recordingCallId", null)
+            // Only trust a server call ID that belongs to the current call.
+            // `recordingCallId` is persisted for the upload queue and can be
+            // left behind after a previous call finishes. Reusing it here
+            // attaches a new dialer call's recording to the old call session.
+            // A live in-process recorder is safe to reuse; otherwise the
+            // unprepared-call path below creates a fresh local ID and binds it
+            // to the device call-log row after IDLE.
+            val callId = prefs.getString("activeCallId", null)
+                ?: CallAudioRecorder.currentCallId()
             if (!callId.isNullOrBlank()) {
                 startRecorder(context, callId)
             } else if (!prefs.getBoolean("incomingSessionStarting", false) &&
@@ -141,6 +149,9 @@ class PhoneStateReceiver : BroadcastReceiver() {
                 .remove("activeStartedAt")
                 .remove("pendingInboundLeadId")
                 .remove("recordingError")
+                .remove("recordingCallId")
+                .remove("recordingUploadId")
+                .remove("recordingState")
                 .remove("unpreparedRecordingCallId")
             if (!sessionStarting) {
                 cleanup.remove("wasOffhook").remove("offhookAt").remove("incomingSessionEnded").remove("incomingEndedAt").remove("phone")
