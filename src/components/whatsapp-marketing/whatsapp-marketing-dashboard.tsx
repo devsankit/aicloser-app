@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   AlertCircle,
   ArrowRight,
@@ -26,6 +26,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { AdminWhatsAppSetupPanel } from "@/components/admin/admin-dummy-controls";
 
 type WhatsAppTab = "overview" | "templates" | "campaigns" | "contacts" | "import" | "settings";
 
@@ -49,6 +50,7 @@ interface WhatsAppChannelState {
 interface ChannelResponse {
   ok: boolean;
   connected: boolean;
+  tenantId?: string;
   requestedPhone: string;
   matchesRequestedPhone?: boolean;
   mockMode?: boolean;
@@ -80,6 +82,31 @@ interface WhatsAppTemplateItem {
     displayPhoneNumber: string;
     verifiedName: string | null;
   };
+}
+
+type TemplateHeaderType = "NONE" | "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT";
+type TemplateButtonDraft = {
+  type: "QUICK_REPLY" | "URL" | "PHONE_NUMBER";
+  text: string;
+  url?: string;
+  phone_number?: string;
+  example?: string;
+};
+type TemplateCarouselCardDraft = {
+  bodyText: string;
+  headerHandle: string;
+  exampleValues: Record<string, string>;
+  buttons: TemplateButtonDraft[];
+};
+
+function extractTemplateVariables(...texts: Array<string | null | undefined>) {
+  const variables = new Set<number>();
+  for (const text of texts) {
+    for (const match of text?.matchAll(/\{\{(\d+)\}\}/g) || []) {
+      variables.add(Number(match[1]));
+    }
+  }
+  return [...variables].sort((a, b) => a - b);
 }
 
 interface WhatsAppCampaignItem {
@@ -150,27 +177,30 @@ export function WhatsAppMarketingDashboard() {
 
   // Channel Connection State
   const [channelInfo, setChannelInfo] = useState<ChannelResponse | null>(null);
-  const [isConnecting, setIsConnecting] = useState(false);
 
   // Template State
   const [templates, setTemplates] = useState<WhatsAppTemplateItem[]>([]);
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
   const [isSyncingTemplates, setIsSyncingTemplates] = useState(false);
+  const templateBuilderRef = useRef<HTMLDivElement>(null);
 
   // New Template Draft State
   const [templateDraft, setTemplateDraft] = useState({
     name: "",
     language: "en_US",
     category: "MARKETING" as "MARKETING" | "UTILITY" | "AUTHENTICATION",
-    headerType: "NONE" as "NONE" | "TEXT" | "IMAGE",
+    templateType: "STANDARD" as "STANDARD" | "CAROUSEL",
+    headerType: "NONE" as TemplateHeaderType,
     headerText: "",
     headerHandle: "",
     bodyText: "Hello {{1}}, we have an exclusive update for you! Reply STOP to opt out.",
     footerText: "Reply STOP to unsubscribe",
     exampleValues: { "1": "Ankit" } as Record<string, string>,
-    buttons: [] as Array<{ type: "QUICK_REPLY" | "URL" | "PHONE_NUMBER"; text: string; url?: string; phone_number?: string }>,
+    buttons: [] as TemplateButtonDraft[],
+    carouselCards: [] as TemplateCarouselCardDraft[],
   });
   const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [hasSavedTemplateDraft, setHasSavedTemplateDraft] = useState(false);
 
   // Campaign State
   const [campaigns, setCampaigns] = useState<WhatsAppCampaignItem[]>([]);
@@ -189,7 +219,7 @@ export function WhatsAppMarketingDashboard() {
   });
   const [campaignPreviews, setCampaignPreviews] = useState<CampaignPreviewItem[]>([]);
   const [isTestingSend, setIsTestingSend] = useState(false);
-  const [testPhoneNumber, setTestPhoneNumber] = useState("9993328124");
+  const [testPhoneNumber, setTestPhoneNumber] = useState("");
 
   // Contacts & Groups State
   const [contacts, setContacts] = useState<MarketingContactItem[]>([]);
@@ -207,13 +237,16 @@ export function WhatsAppMarketingDashboard() {
   const [isProcessingImport, setIsProcessingImport] = useState(false);
   const [importResult, setImportResult] = useState<ImportResultData | null>(null);
 
-  // Manual Channel Setup form
-  const [manualSetup, setManualSetup] = useState({
-    phoneNumberId: "",
-    wabaId: "",
-    businessPortfolioId: "",
-    accessToken: "",
-  });
+  const templateDraftStorageKey = channelInfo?.tenantId ? `aicloser.whatsapp.templateDraft:${channelInfo.tenantId}` : null;
+
+  const templateVariables = extractTemplateVariables(
+    templateDraft.bodyText,
+    templateDraft.headerText,
+    ...templateDraft.carouselCards.map((card) => card.bodyText),
+    ...templateDraft.buttons.flatMap((button) => [button.url, button.example]),
+  );
+  const selectedCampaignTemplate = templates.find((template) => template.id === campaignDraft.templateId);
+  const campaignVariableNumbers = extractTemplateVariables(selectedCampaignTemplate?.bodyText);
 
   const showToast = (text: string, type: "success" | "error" | "info" = "info") => {
     setStatusMessage({ text, type });
@@ -227,14 +260,6 @@ export function WhatsAppMarketingDashboard() {
       const data = await res.json();
       if (data.ok) {
         setChannelInfo(data);
-        if (data.channel) {
-          setManualSetup({
-            phoneNumberId: data.channel.phoneNumberId || "",
-            wabaId: data.channel.wabaId || "",
-            businessPortfolioId: data.channel.businessPortfolioId || "",
-            accessToken: "",
-          });
-        }
       }
     } catch {
       // ignore
@@ -296,6 +321,26 @@ export function WhatsAppMarketingDashboard() {
   }, [loadChannel, loadTemplates, loadCampaigns, loadGroups]);
 
   useEffect(() => {
+    if (!templateDraftStorageKey) return;
+    try {
+      const savedDraft = window.localStorage.getItem(templateDraftStorageKey);
+      if (savedDraft) {
+        const parsed = JSON.parse(savedDraft) as Partial<typeof templateDraft>;
+        setTemplateDraft((current) => ({ ...current, ...parsed }));
+        setHasSavedTemplateDraft(true);
+      }
+    } catch {
+      window.localStorage.removeItem(templateDraftStorageKey);
+    }
+  }, [templateDraftStorageKey]);
+
+  useEffect(() => {
+    if (isTemplateModalOpen) {
+      window.requestAnimationFrame(() => templateBuilderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    }
+  }, [isTemplateModalOpen]);
+
+  useEffect(() => {
     void loadContacts();
   }, [loadContacts]);
 
@@ -329,11 +374,28 @@ export function WhatsAppMarketingDashboard() {
       const res = await fetch("/api/whatsapp-marketing/templates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(templateDraft),
+        body: JSON.stringify({
+          ...templateDraft,
+          buttons: templateDraft.buttons.map((button) => ({
+            ...button,
+            example: button.example ? [button.example] : undefined,
+          })),
+          carouselCards: templateDraft.templateType === "CAROUSEL"
+            ? templateDraft.carouselCards.map((card) => ({
+                ...card,
+                buttons: card.buttons.map((button) => ({
+                  ...button,
+                  example: button.example ? [button.example] : undefined,
+                })),
+              }))
+            : undefined,
+        }),
       });
       const data = await res.json();
       if (data.ok) {
-        showToast(`Template "${templateDraft.name}" submitted to Meta for approval.`, "success");
+        if (templateDraftStorageKey) window.localStorage.removeItem(templateDraftStorageKey);
+        setHasSavedTemplateDraft(false);
+        showToast(`Template "${templateDraft.name}" submitted to Meta for approval. Status: ${data.status || "PENDING"}.`, "success");
         setIsTemplateModalOpen(false);
         await loadTemplates();
       } else {
@@ -346,8 +408,42 @@ export function WhatsAppMarketingDashboard() {
     }
   };
 
+  const handleSaveTemplateDraft = () => {
+    if (!templateDraft.name.trim()) {
+      showToast("Add a template name before saving this draft.", "error");
+      return;
+    }
+    if (!templateDraftStorageKey) {
+      showToast("Workspace context is still loading. Try Save Draft again in a moment.", "info");
+      return;
+    }
+    window.localStorage.setItem(templateDraftStorageKey, JSON.stringify(templateDraft));
+    setHasSavedTemplateDraft(true);
+    showToast("Template draft saved. You can reopen it from this account/browser.", "success");
+  };
+
+  const handleClearTemplateDraft = () => {
+    if (templateDraftStorageKey) window.localStorage.removeItem(templateDraftStorageKey);
+    setHasSavedTemplateDraft(false);
+    setTemplateDraft({
+      name: "",
+      language: "en_US",
+      category: "MARKETING",
+      templateType: "STANDARD",
+      headerType: "NONE",
+      headerText: "",
+      headerHandle: "",
+      bodyText: "Hello {{1}}, we have an exclusive update for you! Reply STOP to opt out.",
+      footerText: "Reply STOP to unsubscribe",
+      exampleValues: { "1": "Ankit" },
+      buttons: [],
+      carouselCards: [],
+    });
+    showToast("Saved template draft cleared.", "info");
+  };
+
   // Upload Sample Header Media
-  const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>, carouselCardIndex?: number) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -361,10 +457,15 @@ export function WhatsAppMarketingDashboard() {
       });
       const data = await res.json();
       if (data.ok && data.handle) {
-        setTemplateDraft((prev) => ({
-          ...prev,
-          headerHandle: data.handle,
-        }));
+        setTemplateDraft((prev) => {
+          if (carouselCardIndex === undefined) return { ...prev, headerHandle: data.handle };
+          return {
+            ...prev,
+            carouselCards: prev.carouselCards.map((card, index) =>
+              index === carouselCardIndex ? { ...card, headerHandle: data.handle } : card,
+            ),
+          };
+        });
         showToast("Header sample media uploaded to Meta successfully.", "success");
       } else {
         showToast(data.error || "Failed to upload sample media.", "error");
@@ -376,34 +477,6 @@ export function WhatsAppMarketingDashboard() {
     }
   };
 
-  // Save Meta Connection
-  const handleSaveConnection = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsConnecting(true);
-    try {
-      const res = await fetch("/api/whatsapp-marketing/channel", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(manualSetup),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        showToast(
-          data.matchesRequestedPhone
-            ? "Connected & verified WhatsApp business number 9993328124 successfully!"
-            : "Connected to Meta successfully, but display number does not match 9993328124.",
-          data.matchesRequestedPhone ? "success" : "info",
-        );
-        await loadChannel();
-      } else {
-        showToast(data.error || "Failed to connect to Meta.", "error");
-      }
-    } catch {
-      showToast("Network error connecting to Meta.", "error");
-    } finally {
-      setIsConnecting(false);
-    }
-  };
 
   // Send Test Message
   const handleSendTestMessage = async (templateId: string) => {
@@ -659,9 +732,9 @@ export function WhatsAppMarketingDashboard() {
               <span className="text-slate-300">
                 Line: <strong className="text-white">{channelInfo.channel.displayPhoneNumber}</strong>
               </span>
-              {channelInfo.matchesRequestedPhone ? (
+              {channelInfo.channel.displayPhoneNumber ? (
                 <span className="px-1.5 py-0.5 bg-[#ff6b2f]/20 text-[#ff6b2f] rounded font-semibold text-[10px]">
-                  VERIFIED 9993328124
+                  VERIFIED
                 </span>
               ) : (
                 <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-300 rounded text-[10px]">
@@ -836,7 +909,10 @@ export function WhatsAppMarketingDashboard() {
               <h3 className="font-semibold text-white">Quick Management</h3>
               <div className="space-y-2.5">
                 <button
-                  onClick={() => setIsTemplateModalOpen(true)}
+                  onClick={() => {
+                    setActiveTab("templates");
+                    setIsTemplateModalOpen(true);
+                  }}
                   className="w-full flex items-center justify-between p-3.5 rounded-xl bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50 text-sm font-medium transition"
                 >
                   <span className="flex items-center gap-2.5">
@@ -1313,7 +1389,7 @@ export function WhatsAppMarketingDashboard() {
                 </label>
                 <textarea
                   rows={8}
-                  placeholder={`name,phone,email,group,tags\nAnkit Rathore,+919993328124,ankit@aicloser.in,Enterprise Leads,hot\nJohn Doe,9876543210,john@example.com,Inbound Trial,warm`}
+                  placeholder={`name,phone,email,group,tags\nExample Contact,+<country_code><number>,contact@example.com,Enterprise Leads,hot\nJohn Doe,+<country_code><number>,john@example.com,Inbound Trial,warm`}
                   value={csvInput}
                   onChange={(e) => setCsvInput(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-200 font-mono focus:border-[#ff6b2f] focus:outline-none"
@@ -1417,7 +1493,7 @@ export function WhatsAppMarketingDashboard() {
           <div>
             <h2 className="text-lg font-bold text-white">Meta WhatsApp Cloud API Connection</h2>
             <p className="text-xs text-slate-400">
-              Official Embedded Signup / System User Token configuration verifying phone line 9993328124.
+              Connect this workspace through Meta Embedded Signup. Each tenant keeps its own WhatsApp line, WABA, phone ID, and encrypted token.
             </p>
           </div>
 
@@ -1428,7 +1504,7 @@ export function WhatsAppMarketingDashboard() {
                 <span className="text-xs font-semibold text-slate-400 uppercase">Target WhatsApp Business Number</span>
                 {channelInfo?.matchesRequestedPhone ? (
                   <span className="flex items-center gap-1 text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold">
-                    <CheckCircle2 className="w-3.5 h-3.5" /> VERIFIED MATCH (9993328124)
+                    <CheckCircle2 className="w-3.5 h-3.5" /> CONNECTED {channelInfo.channel?.displayPhoneNumber || "WHATSAPP LINE"}
                   </span>
                 ) : (
                   <span className="flex items-center gap-1 text-xs px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
@@ -1469,7 +1545,7 @@ export function WhatsAppMarketingDashboard() {
               <div className="flex gap-2">
                 <input
                   type="text"
-                  placeholder="Recipient phone number (e.g. 9993328124)"
+                  placeholder="Recipient phone number with country code"
                   value={testPhoneNumber}
                   onChange={(e) => setTestPhoneNumber(e.target.value)}
                   className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white flex-1 focus:outline-none"
@@ -1484,114 +1560,22 @@ export function WhatsAppMarketingDashboard() {
               </div>
             </div>
 
-            {/* Manual Credential Configuration Form */}
-            <form onSubmit={handleSaveConnection} className="space-y-4 pt-2">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold text-white uppercase tracking-wider">
-                  Admin Connection Credentials
-                </h4>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setManualSetup({
-                      phoneNumberId: "962346373625331",
-                      wabaId: "2744233995921639",
-                      businessPortfolioId: "100910602174128",
-                      accessToken: manualSetup.accessToken,
-                    });
-                    showToast("Pre-filled verified Meta credentials for 9993328124", "info");
-                  }}
-                  className="px-2.5 py-1 text-[11px] bg-[#ff6b2f]/10 hover:bg-[#ff6b2f]/20 text-[#ff6b2f] border border-[#ff6b2f]/30 rounded-lg transition font-medium flex items-center gap-1"
-                >
-                  <ShieldCheck className="w-3.5 h-3.5" /> Pre-fill Verified Account (9993328124)
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs text-slate-300 font-medium">Meta Phone Number ID</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. 106429382910394"
-                    value={manualSetup.phoneNumberId}
-                    onChange={(e) => setManualSetup({ ...manualSetup, phoneNumberId: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white mt-1 focus:border-[#ff6b2f] focus:outline-none font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs text-slate-300 font-medium">WhatsApp Business Account ID (WABA ID)</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. 102938475619283"
-                    value={manualSetup.wabaId}
-                    onChange={(e) => setManualSetup({ ...manualSetup, wabaId: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white mt-1 focus:border-[#ff6b2f] focus:outline-none font-mono"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs text-slate-300 font-medium">Meta Business Portfolio ID (Optional)</label>
-                <input
-                  type="text"
-                  placeholder="e.g. 100910602174128"
-                  value={manualSetup.businessPortfolioId}
-                  onChange={(e) => setManualSetup({ ...manualSetup, businessPortfolioId: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white mt-1 focus:border-[#ff6b2f] focus:outline-none font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs text-slate-300 font-medium">
-                  Meta System User / WhatsApp Access Token (Encrypted At Rest)
-                </label>
-                <input
-                  type="password"
-                  placeholder="EAAG..."
-                  value={manualSetup.accessToken}
-                  onChange={(e) => setManualSetup({ ...manualSetup, accessToken: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white mt-1 focus:border-[#ff6b2f] focus:outline-none font-mono"
-                />
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Never logged, exposed in client responses, or committed to git. Encrypted with AES-256-GCM.
+            {/* Tenant-scoped Meta Embedded Signup. No global phone IDs or client-side tokens. */}
+            <div className="space-y-4 pt-2">
+              <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+                <h4 className="text-xs font-bold text-white uppercase tracking-wider">Connect this workspace via Meta</h4>
+                <p className="text-[11px] text-slate-400">
+                  Each workspace authorizes its own WhatsApp Business account. Meta returns that workspace&apos;s WABA, phone ID, and token after signup; AI Closer stores them encrypted and uses them only for this tenant.
                 </p>
               </div>
-
-              <div className="pt-2">
-                <button
-                  type="submit"
-                  disabled={isConnecting}
-                  className="px-6 py-2.5 bg-[#ff6b2f] hover:bg-[#e85a20] text-white rounded-xl font-bold text-xs flex items-center gap-2 transition shadow-lg shadow-[#ff6b2f]/20"
-                >
-                  {isConnecting ? (
-                    <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Verifying Connection...
-                    </>
-                  ) : (
-                    <>
-                      <ShieldCheck className="w-4 h-4" /> Save & Verify Meta Line
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-
-            {/* Webhook Instructions */}
-            <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-2 text-xs">
-              <span className="font-bold text-white">Meta Webhook Configuration:</span>
-              <p className="text-slate-400">
-                In your Meta App Dashboard under WhatsApp &gt; Configuration, point the Callback URL to:
-              </p>
-              <div className="font-mono p-2 bg-slate-900 rounded border border-slate-800 text-[#ff6b2f] select-all">
-                https://app.aicloser.in/api/whatsapp-marketing/webhook
-              </div>
-              <p className="text-slate-500 text-[11px]">
-                Verify token: <code className="text-slate-300">gigxomi_whatsapp_marketing_token</code>
-              </p>
+              <AdminWhatsAppSetupPanel
+                tenantId={channelInfo?.tenantId}
+                fallbackPhoneNumber={channelInfo?.channel?.displayPhoneNumber}
+                variant="compact"
+                settingsHref={null}
+              />
             </div>
+
           </div>
         </div>
       )}
@@ -1600,8 +1584,8 @@ export function WhatsAppMarketingDashboard() {
       {/* MODAL: CREATE TEMPLATE BUILDER */}
       {/* ------------------------------------------------------------- */}
       {isTemplateModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-4xl overflow-hidden shadow-2xl my-8">
+        <div ref={templateBuilderRef} className="wa-template-builder mt-6 w-full overflow-hidden rounded-3xl border border-slate-800 bg-slate-900 shadow-2xl">
+          <div className="w-full">
             <div className="p-6 border-b border-slate-800 flex items-center justify-between">
               <div>
                 <h3 className="font-bold text-lg text-white">Create Meta WhatsApp Template</h3>
@@ -1670,23 +1654,63 @@ export function WhatsAppMarketingDashboard() {
                   </div>
                 </div>
 
-                {/* Header Type */}
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">Header (Optional)</label>
+                  <label className="text-xs font-semibold text-slate-300">Template format</label>
                   <select
-                    value={templateDraft.headerType}
-                    onChange={(e) =>
+                    value={templateDraft.templateType}
+                    onChange={(e) => {
+                      const templateType = e.target.value as "STANDARD" | "CAROUSEL";
                       setTemplateDraft({
                         ...templateDraft,
-                        headerType: e.target.value as "NONE" | "TEXT" | "IMAGE",
-                      })
-                    }
+                        templateType,
+                        carouselCards: templateType === "CAROUSEL" && templateDraft.carouselCards.length < 2
+                          ? [
+                              ...templateDraft.carouselCards,
+                              { bodyText: "", headerHandle: "", exampleValues: {}, buttons: [] },
+                              { bodyText: "", headerHandle: "", exampleValues: {}, buttons: [] },
+                            ].slice(0, 2)
+                          : templateDraft.carouselCards,
+                      });
+                    }}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white mt-1 focus:outline-none"
                   >
-                    <option value="NONE">None</option>
-                    <option value="TEXT">Text Header</option>
-                    <option value="IMAGE">Image Header</option>
+                    <option value="STANDARD">Standard template</option>
+                    <option value="CAROUSEL">Carousel template (2–10 cards)</option>
                   </select>
+                  <p className="text-[10px] text-slate-500 mt-1">Use standard templates for text, image, video or PDF headers; carousel cards are submitted as Meta carousel components.</p>
+                </div>
+
+                {/* Header Type */}
+                <div>
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="text-xs font-semibold text-slate-300">Header format for Meta approval</label>
+                    <span className="text-[10px] text-slate-500">Choose one</span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 sm:grid-cols-5 gap-2" role="radiogroup" aria-label="Header format">
+                    {([
+                      ["NONE", "No header", "Text only"],
+                      ["TEXT", "Text", "Up to 60 chars"],
+                      ["IMAGE", "Image", "JPG / PNG"],
+                      ["VIDEO", "Video", "MP4"],
+                      ["DOCUMENT", "PDF / Document", "PDF"],
+                    ] as const).map(([value, label, helper]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        role="radio"
+                        aria-checked={templateDraft.headerType === value}
+                        onClick={() => setTemplateDraft({ ...templateDraft, headerType: value, headerHandle: value === templateDraft.headerType ? templateDraft.headerHandle : "" })}
+                        className={`min-h-[58px] rounded-xl border px-2 py-2 text-left transition ${
+                          templateDraft.headerType === value
+                            ? "border-[#ff6b2f] bg-[#ff6b2f]/15 text-white shadow-sm"
+                            : "border-slate-800 bg-slate-950/70 text-slate-400 hover:border-slate-600 hover:text-slate-200"
+                        }`}
+                      >
+                        <span className="block text-[11px] font-semibold leading-tight">{label}</span>
+                        <span className="mt-1 block text-[9px] opacity-75">{helper}</span>
+                      </button>
+                    ))}
+                  </div>
 
                   {templateDraft.headerType === "TEXT" && (
                     <input
@@ -1699,17 +1723,22 @@ export function WhatsAppMarketingDashboard() {
                     />
                   )}
 
-                  {templateDraft.headerType === "IMAGE" && (
+                  {(["IMAGE", "VIDEO", "DOCUMENT"] as TemplateHeaderType[]).includes(templateDraft.headerType) && (
                     <div className="mt-2 p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-[11px] text-slate-400">Sample Header Image</span>
+                        <span className="text-[11px] text-slate-400">
+                          Sample {templateDraft.headerType === "DOCUMENT" ? "PDF / Document" : templateDraft.headerType.toLowerCase()} header
+                        </span>
                         <input
                           type="file"
-                          accept="image/*"
+                          accept={templateDraft.headerType === "IMAGE" ? "image/*" : templateDraft.headerType === "VIDEO" ? "video/*" : "application/pdf,.pdf"}
                           onChange={handleMediaUpload}
                           className="text-[11px] text-slate-300 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700"
                         />
                       </div>
+                      <p className="text-[10px] leading-relaxed text-slate-500">
+                        Upload a sample file so Meta can review this header format. The file is sent through Meta&apos;s media upload before approval.
+                      </p>
                       {uploadingMedia && <p className="text-[10px] text-amber-400">Uploading to Meta...</p>}
                       {templateDraft.headerHandle && (
                         <p className="text-[10px] text-emerald-400 flex items-center gap-1">
@@ -1733,35 +1762,118 @@ export function WhatsAppMarketingDashboard() {
                   />
                 </div>
 
+                {templateDraft.templateType === "CAROUSEL" && (
+                  <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <label className="text-xs font-semibold text-slate-300">Carousel cards</label>
+                        <p className="text-[10px] text-slate-500 mt-1">Each card can use an image header and its own variables.</p>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={templateDraft.carouselCards.length >= 10}
+                        onClick={() =>
+                          setTemplateDraft({
+                            ...templateDraft,
+                            carouselCards: [...templateDraft.carouselCards, { bodyText: "", headerHandle: "", exampleValues: {}, buttons: [] }],
+                          })
+                        }
+                        className="px-2.5 py-1.5 rounded-lg border border-slate-700 text-[10px] font-semibold text-emerald-400 hover:border-emerald-500 disabled:opacity-50"
+                      >
+                        <Plus className="w-3 h-3 inline mr-1" /> Add card
+                      </button>
+                    </div>
+                    {templateDraft.carouselCards.map((card, cardIndex) => {
+                      const cardVariables = extractTemplateVariables(card.bodyText);
+                      return (
+                        <div key={cardIndex} className="rounded-xl border border-slate-800 bg-slate-900/60 p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">Card {cardIndex + 1}</span>
+                            <button
+                              type="button"
+                              disabled={templateDraft.carouselCards.length <= 2}
+                              onClick={() => setTemplateDraft({ ...templateDraft, carouselCards: templateDraft.carouselCards.filter((_, index) => index !== cardIndex) })}
+                              className="text-[10px] text-slate-500 hover:text-red-400 disabled:opacity-30"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] text-slate-400">Image header (optional)</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => void handleMediaUpload(e, cardIndex)}
+                              className="max-w-[180px] text-[10px] text-slate-300 file:mr-1 file:py-1 file:px-2 file:rounded file:border-0 file:bg-slate-800 file:text-slate-300"
+                            />
+                          </div>
+                          {card.headerHandle && <p className="text-[10px] text-emerald-400">Media uploaded for this card.</p>}
+                          <textarea
+                            rows={2}
+                            value={card.bodyText}
+                            placeholder="Card text, e.g. Explore {{1}}"
+                            onChange={(e) => {
+                              const carouselCards = [...templateDraft.carouselCards];
+                              carouselCards[cardIndex] = { ...card, bodyText: e.target.value };
+                              setTemplateDraft({ ...templateDraft, carouselCards });
+                            }}
+                            className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-[10px] text-white focus:outline-none font-mono"
+                          />
+                          {cardVariables.length > 0 && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {cardVariables.map((variableNumber) => (
+                                <input
+                                  key={variableNumber}
+                                  placeholder={`Card {{${variableNumber}}} sample`}
+                                  value={card.exampleValues[String(variableNumber)] || ""}
+                                  onChange={(e) => {
+                                    const carouselCards = [...templateDraft.carouselCards];
+                                    carouselCards[cardIndex] = {
+                                      ...card,
+                                      exampleValues: { ...card.exampleValues, [String(variableNumber)]: e.target.value },
+                                    };
+                                    setTemplateDraft({ ...templateDraft, carouselCards });
+                                  }}
+                                  className="bg-slate-950 border border-slate-800 rounded-lg p-2 text-[10px] text-white focus:outline-none"
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
                 {/* Sample Values for Variables */}
                 <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-2">
-                  <label className="text-xs font-semibold text-slate-300">Sample Variable Values</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      type="text"
-                      placeholder="Sample value for {{1}}"
-                      value={templateDraft.exampleValues["1"] || ""}
-                      onChange={(e) =>
-                        setTemplateDraft({
-                          ...templateDraft,
-                          exampleValues: { ...templateDraft.exampleValues, "1": e.target.value },
-                        })
-                      }
-                      className="bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none"
-                    />
-                    <input
-                      type="text"
-                      placeholder="Sample value for {{2}}"
-                      value={templateDraft.exampleValues["2"] || ""}
-                      onChange={(e) =>
-                        setTemplateDraft({
-                          ...templateDraft,
-                          exampleValues: { ...templateDraft.exampleValues, "2": e.target.value },
-                        })
-                      }
-                      className="bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none"
-                    />
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="text-xs font-semibold text-slate-300">Sample Variable Values</label>
+                    <span className="text-[10px] text-slate-500">{templateVariables.length} detected</span>
                   </div>
+                  {templateVariables.length === 0 ? (
+                    <p className="text-[11px] text-slate-500">Add {"{{1}}"}, {"{{2}}"}, etc. to the body to generate review fields here.</p>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {templateVariables.map((variableNumber) => (
+                        <label key={variableNumber} className="space-y-1">
+                          <span className="text-[10px] font-mono text-emerald-400">{"{{"}{variableNumber}{"}}"}</span>
+                          <input
+                            type="text"
+                            placeholder={"Sample value for {{" + variableNumber + "}}"}
+                            value={templateDraft.exampleValues[String(variableNumber)] || ""}
+                            onChange={(e) =>
+                              setTemplateDraft({
+                                ...templateDraft,
+                                exampleValues: { ...templateDraft.exampleValues, [String(variableNumber)]: e.target.value },
+                              })
+                            }
+                            className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Footer Text */}
@@ -1775,45 +1887,155 @@ export function WhatsAppMarketingDashboard() {
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white mt-1 focus:outline-none"
                   />
                 </div>
+
+                {/* Buttons */}
+                <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <label className="text-xs font-semibold text-slate-300">Buttons (Optional)</label>
+                      <p className="text-[10px] text-slate-500 mt-1">Quick replies, URL and phone buttons supported by Meta.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setTemplateDraft({
+                          ...templateDraft,
+                          buttons: [...templateDraft.buttons, { type: "QUICK_REPLY", text: "" }],
+                        })
+                      }
+                      className="px-2.5 py-1.5 rounded-lg border border-slate-700 text-[10px] font-semibold text-emerald-400 hover:border-emerald-500"
+                    >
+                      <Plus className="w-3 h-3 inline mr-1" /> Add button
+                    </button>
+                  </div>
+                  {templateDraft.buttons.map((button, buttonIndex) => (
+                    <div key={buttonIndex} className="grid grid-cols-[110px_1fr_auto] gap-2 items-start">
+                      <select
+                        value={button.type}
+                        onChange={(e) => {
+                          const buttons = [...templateDraft.buttons];
+                          buttons[buttonIndex] = { ...button, type: e.target.value as TemplateButtonDraft["type"] };
+                          setTemplateDraft({ ...templateDraft, buttons });
+                        }}
+                        className="bg-slate-900 border border-slate-800 rounded-lg p-2 text-[10px] text-white focus:outline-none"
+                      >
+                        <option value="QUICK_REPLY">Quick reply</option>
+                        <option value="URL">URL</option>
+                        <option value="PHONE_NUMBER">Phone</option>
+                      </select>
+                      <div className="space-y-2">
+                        <input
+                          value={button.text}
+                          maxLength={25}
+                          placeholder="Button label"
+                          onChange={(e) => {
+                            const buttons = [...templateDraft.buttons];
+                            buttons[buttonIndex] = { ...button, text: e.target.value };
+                            setTemplateDraft({ ...templateDraft, buttons });
+                          }}
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-[10px] text-white focus:outline-none"
+                        />
+                        {button.type === "URL" && (
+                          <>
+                            <input
+                              value={button.url || ""}
+                              placeholder="https://example.com/{{1}}"
+                              onChange={(e) => {
+                                const buttons = [...templateDraft.buttons];
+                                buttons[buttonIndex] = { ...button, url: e.target.value };
+                                setTemplateDraft({ ...templateDraft, buttons });
+                              }}
+                              className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-[10px] text-white focus:outline-none"
+                            />
+                            {button.url?.includes("{{") && (
+                              <input
+                                value={button.example || ""}
+                                placeholder="Sample URL variable"
+                                onChange={(e) => {
+                                  const buttons = [...templateDraft.buttons];
+                                  buttons[buttonIndex] = { ...button, example: e.target.value };
+                                  setTemplateDraft({ ...templateDraft, buttons });
+                                }}
+                                className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-[10px] text-white focus:outline-none"
+                              />
+                            )}
+                          </>
+                        )}
+                        {button.type === "PHONE_NUMBER" && (
+                          <input
+                            value={button.phone_number || ""}
+                            placeholder="+919876543210"
+                            onChange={(e) => {
+                              const buttons = [...templateDraft.buttons];
+                              buttons[buttonIndex] = { ...button, phone_number: e.target.value };
+                              setTemplateDraft({ ...templateDraft, buttons });
+                            }}
+                            className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-[10px] text-white focus:outline-none"
+                          />
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setTemplateDraft({ ...templateDraft, buttons: templateDraft.buttons.filter((_, index) => index !== buttonIndex) })}
+                        className="p-2 text-slate-500 hover:text-red-400"
+                        aria-label={`Remove button ${buttonIndex + 1}`}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               {/* Live Mobile Mockup Preview */}
-              <div className="flex flex-col items-center justify-center p-4 bg-slate-950/70 border border-slate-800 rounded-2xl">
+              <div className="flex min-h-[620px] flex-col items-center justify-center overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/70 p-5 sm:p-6">
                 <span className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">
                   Live WhatsApp Preview
                 </span>
 
-                <div className="w-72 bg-[#0b141a] rounded-[2.5rem] border-[6px] border-slate-800 p-3 shadow-2xl relative">
+                <div className="relative flex w-full max-w-[318px] min-h-[520px] aspect-[9/19] flex-col overflow-hidden rounded-[3rem] border-[8px] border-slate-800 bg-[#0b141a] p-4 shadow-2xl sm:min-h-[590px] sm:p-5">
                   {/* Phone Notch */}
-                  <div className="w-24 h-4 bg-slate-800 rounded-b-xl mx-auto mb-3" />
+                  <div className="mx-auto mb-5 h-5 w-28 shrink-0 rounded-b-2xl bg-slate-800" />
 
                   {/* WhatsApp Chat Bubble */}
-                  <div className="bg-[#005c4b] text-slate-100 p-3.5 rounded-2xl rounded-tl-sm text-xs space-y-2 shadow">
+                  <div className="rounded-2xl rounded-tl-sm bg-[#005c4b] p-4 text-sm text-slate-100 shadow sm:p-5">
                     {templateDraft.headerType === "TEXT" && templateDraft.headerText && (
-                      <div className="font-bold text-white text-xs border-b border-emerald-600/50 pb-1">
+                      <div className="border-b border-emerald-600/50 pb-2 text-sm font-bold text-white">
                         {templateDraft.headerText}
                       </div>
                     )}
 
-                    {templateDraft.headerType === "IMAGE" && (
-                      <div className="w-full h-24 bg-emerald-900/50 rounded-lg flex items-center justify-center text-[10px] text-emerald-300 border border-emerald-600/40">
-                        [Header Image Preview]
+                    {(["IMAGE", "VIDEO", "DOCUMENT"] as TemplateHeaderType[]).includes(templateDraft.headerType) && (
+                      <div className="flex h-36 w-full items-center justify-center rounded-xl border border-emerald-600/40 bg-emerald-900/50 text-xs text-emerald-300">
+                        [{templateDraft.headerType} Header Preview]
                       </div>
                     )}
 
-                    <div className="text-slate-100 leading-relaxed font-sans">
-                      {templateDraft.bodyText
-                        .replace(/\{\{1\}\}/g, templateDraft.exampleValues["1"] || "{{1}}")
-                        .replace(/\{\{2\}\}/g, templateDraft.exampleValues["2"] || "{{2}}")}
+                    <div className="font-sans leading-relaxed text-slate-100">
+                      {templateVariables.reduce(
+                        (preview, variableNumber) =>
+                          preview.replaceAll(`{{${variableNumber}}}`, templateDraft.exampleValues[String(variableNumber)] || `{{${variableNumber}}}`),
+                        templateDraft.bodyText,
+                      )}
                     </div>
 
                     {templateDraft.footerText && (
-                      <div className="text-[10px] text-slate-300/80 pt-1 border-t border-emerald-600/30">
+                      <div className="border-t border-emerald-600/30 pt-2 text-xs text-slate-300/80">
                         {templateDraft.footerText}
                       </div>
                     )}
 
-                    <div className="text-[9px] text-slate-300/60 text-right flex items-center justify-end gap-1">
+                    {templateDraft.buttons.length > 0 && (
+                      <div className="space-y-1.5 border-t border-emerald-600/30 pt-2">
+                        {templateDraft.buttons.map((button, index) => (
+                          <div key={index} className="rounded-md border border-emerald-500/30 py-1.5 text-center text-xs font-semibold text-emerald-200">
+                            {button.text || `Button ${index + 1}`}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-end gap-1 text-[10px] text-slate-300/60">
                       <span>10:30 AM</span>
                       <CheckCheck size={11} className="text-emerald-400" />
                     </div>
@@ -1822,7 +2044,24 @@ export function WhatsAppMarketingDashboard() {
               </div>
             </div>
 
-            <div className="p-6 border-t border-slate-800 flex items-center justify-end gap-3 bg-slate-950/40">
+            <div className="p-6 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-950/40">
+              <div className="flex items-center gap-2">
+                {hasSavedTemplateDraft ? (
+                  <button
+                    onClick={handleClearTemplateDraft}
+                    className="px-3 py-2 rounded-xl text-xs font-medium text-slate-500 hover:text-rose-300"
+                  >
+                    Clear saved draft
+                  </button>
+                ) : null}
+                <button
+                  onClick={handleSaveTemplateDraft}
+                  className="px-4 py-2 rounded-xl border border-slate-700 text-xs font-semibold text-slate-200 hover:border-[#ff6b2f] hover:text-white"
+                >
+                  Save Draft
+                </button>
+              </div>
+              <div className="flex items-center justify-end gap-3">
               <button
                 onClick={() => setIsTemplateModalOpen(false)}
                 className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white"
@@ -1844,6 +2083,7 @@ export function WhatsAppMarketingDashboard() {
                   </>
                 )}
               </button>
+              </div>
             </div>
           </div>
         </div>
@@ -2024,50 +2264,49 @@ export function WhatsAppMarketingDashboard() {
               {campaignStep === 3 && (
                 <div className="space-y-4">
                   <label className="text-xs font-semibold text-slate-300">Map Variables to Contact Fields</label>
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-3 p-3 bg-slate-950 rounded-xl border border-slate-800">
-                      <span className="font-mono text-emerald-400 text-xs font-bold w-16">{"{{1}}"}</span>
-                      <select
-                        value={campaignDraft.variableMappings["1"]?.fieldOrValue || "firstName"}
-                        onChange={(e) =>
-                          setCampaignDraft({
-                            ...campaignDraft,
-                            variableMappings: {
-                              ...campaignDraft.variableMappings,
-                              "1": { source: "contact_field", fieldOrValue: e.target.value },
-                            },
-                          })
-                        }
-                        className="bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-white flex-1 focus:outline-none"
-                      >
-                        <option value="firstName">Contact First Name</option>
-                        <option value="fullName">Contact Full Name</option>
-                        <option value="phone">Contact Phone Number</option>
-                        <option value="email">Contact Email</option>
-                      </select>
+                  {campaignVariableNumbers.length === 0 ? (
+                    <p className="p-3 rounded-xl border border-slate-800 bg-slate-950 text-xs text-slate-500">
+                      The selected template has no variables to map.
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {campaignVariableNumbers.map((variableNumber) => {
+                        const mapping = campaignDraft.variableMappings[String(variableNumber)] || { source: "contact_field" as const, fieldOrValue: "firstName" };
+                        const selectedValue = mapping.source === "static" ? `static:${mapping.fieldOrValue}` : mapping.fieldOrValue;
+                        return (
+                          <div key={variableNumber} className="flex items-center gap-3 p-3 bg-slate-950 rounded-xl border border-slate-800">
+                            <span className="font-mono text-emerald-400 text-xs font-bold w-16">{"{{"}{variableNumber}{"}}"}</span>
+                            <select
+                              value={selectedValue}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                const isStatic = value.startsWith("static:");
+                                setCampaignDraft({
+                                  ...campaignDraft,
+                                  variableMappings: {
+                                    ...campaignDraft.variableMappings,
+                                    [String(variableNumber)]: {
+                                      source: isStatic ? "static" : "contact_field",
+                                      fieldOrValue: isStatic ? value.slice(7) : value,
+                                    },
+                                  },
+                                });
+                              }}
+                              className="bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-white flex-1 focus:outline-none"
+                            >
+                              <option value="firstName">Contact First Name</option>
+                              <option value="fullName">Contact Full Name</option>
+                              <option value="phone">Contact Phone Number</option>
+                              <option value="email">Contact Email</option>
+                              <option value="static:Exclusive Access">Static: Exclusive Access</option>
+                              <option value="static:VIP Offer">Static: VIP Offer</option>
+                              <option value="static:20% Discount">Static: 20% Discount</option>
+                            </select>
+                          </div>
+                        );
+                      })}
                     </div>
-
-                    <div className="flex items-center gap-3 p-3 bg-slate-950 rounded-xl border border-slate-800">
-                      <span className="font-mono text-emerald-400 text-xs font-bold w-16">{"{{2}}"}</span>
-                      <select
-                        value={campaignDraft.variableMappings["2"]?.fieldOrValue || "VIP Offer"}
-                        onChange={(e) =>
-                          setCampaignDraft({
-                            ...campaignDraft,
-                            variableMappings: {
-                              ...campaignDraft.variableMappings,
-                              "2": { source: "static", fieldOrValue: e.target.value },
-                            },
-                          })
-                        }
-                        className="bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-white flex-1 focus:outline-none"
-                      >
-                        <option value="Exclusive Access">Exclusive Access</option>
-                        <option value="VIP Offer">VIP Offer</option>
-                        <option value="20% Discount">20% Discount</option>
-                      </select>
-                    </div>
-                  </div>
+                  )}
                 </div>
               )}
 
@@ -2114,7 +2353,7 @@ export function WhatsAppMarketingDashboard() {
                     <div className="grid grid-cols-2 gap-2 text-xs text-slate-300">
                       <div>Name: <strong className="text-white">{campaignDraft.name}</strong></div>
                       <div>Recipients: <strong className="text-emerald-400">All Opted-In</strong></div>
-                      <div>Sender Line: <strong className="text-white">9993328124</strong></div>
+                      <div>Sender Line: <strong className="text-white">{channelInfo?.channel?.displayPhoneNumber || "Not connected"}</strong></div>
                       <div>Throttle: <strong className="text-white">20 msgs / sec</strong></div>
                     </div>
                   </div>

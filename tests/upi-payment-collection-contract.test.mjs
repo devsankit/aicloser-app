@@ -36,6 +36,14 @@ test("customer confirmation does not equal approval", () => {
   assert.match(approvalRoute, /tenantForSession/);
   assert.match(service, /closerCanApprovePayment/);
   assert.match(service, /Closer approval is not enabled for this workspace/);
+  assert.match(service, /Attach and review the payment screenshot before approval/);
   assert.match(rejectionRoute, /requireSessionRole\(\["ADMIN"\]\)/);
   assert.doesNotMatch(approvalRoute, /SUPER_ADMIN/);
+});
+
+test("closer approval is enabled by default but can be explicitly disabled", () => {
+  assert.match(service, /closerCanApprovePayment: source\.closerCanApprovePayment === undefined \? true/);
+  assert.match(read("src/components/sales/upi-payment-collection-panel.tsx"), /settings\.closerCanApprovePayment !== false/);
+  assert.match(read("src/components/sales/upi-payment-collection-panel.tsx"), /Only Tenant Admin can approve this payment/);
+  assert.doesNotMatch(read("src/components/sales/upi-payment-collection-panel.tsx"), /Admin approval off/);
 });

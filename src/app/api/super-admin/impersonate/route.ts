@@ -30,6 +30,7 @@ export async function POST(request: Request) {
       const hex = Math.random().toString(16).slice(2, 8).toUpperCase();
       agentProfile = await prisma.salesAgentProfile.create({
         data: {
+          tenantId: targetUser.tenantId ?? "tenant-gigxomi",
           userId,
           agentCode: `GX-${sanitized}-${hex}`,
           status: "ACTIVE",

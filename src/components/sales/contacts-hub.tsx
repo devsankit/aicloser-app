@@ -57,6 +57,8 @@ type ContactsHubProps = {
   tenantId?: string;
   view?: "contacts" | "lead-import";
   canManageContacts?: boolean;
+  canImportData?: boolean;
+  personalWhatsAppOnly?: boolean;
   onOpenMultiChannelChat?: (conversationId?: string) => void;
   onOpenPluginsHub?: () => void;
   onOpenBulkMarketing?: (contactIds?: string[]) => void;
@@ -299,6 +301,8 @@ export function ContactsHub({
   tenantId,
   view = "contacts",
   canManageContacts = false,
+  canImportData = false,
+  personalWhatsAppOnly = false,
   onOpenMultiChannelChat,
   onOpenPluginsHub,
   onOpenBulkMarketing,
@@ -341,9 +345,13 @@ export function ContactsHub({
 
   // 1. WhatsApp QR Scanner & Scraper State
   const [scannerState, setScannerState] = useState<WhatsAppScannerSessionState | null>(null);
-  const [waAccountType, setWaAccountType] = useState<WhatsAppAccountType>("WHATSAPP_BUSINESS");
+  const [waAccountType, setWaAccountType] = useState<WhatsAppAccountType>(
+    personalWhatsAppOnly ? "WHATSAPP_PERSONAL" : "WHATSAPP_BUSINESS",
+  );
   const [waSyncMode, setWaSyncMode] = useState<WhatsAppSyncMode>("FULL_INBOX_SYNC");
-  const [waVisibility, setWaVisibility] = useState<"TEAM_SHARED" | "PRIVATE">("TEAM_SHARED");
+  const [waVisibility, setWaVisibility] = useState<"TEAM_SHARED" | "PRIVATE">(
+    personalWhatsAppOnly ? "PRIVATE" : "TEAM_SHARED",
+  );
   const [waIncludeGroups, setWaIncludeGroups] = useState(true);
   const [waConnectedPhoneInput, setWaConnectedPhoneInput] = useState("+91 99818 07309");
   const [waPairingMethod, setWaPairingMethod] = useState<"QR_CAMERA" | "PAIRING_CODE">("QR_CAMERA");
@@ -432,9 +440,9 @@ export function ContactsHub({
     if (scannerResult.status === "fulfilled" && scannerResult.value.response.ok && scannerResult.value.data?.ok && scannerResult.value.data.scanner) {
       const scannerJson = scannerResult.value.data;
       setScannerState(scannerJson.scanner);
-      setWaAccountType(scannerJson.scanner.accountType || "WHATSAPP_BUSINESS");
+      setWaAccountType(personalWhatsAppOnly ? "WHATSAPP_PERSONAL" : scannerJson.scanner.accountType || "WHATSAPP_BUSINESS");
       setWaSyncMode(scannerJson.scanner.syncMode || "FULL_INBOX_SYNC");
-      setWaVisibility(scannerJson.scanner.visibilityMode || "TEAM_SHARED");
+      setWaVisibility(personalWhatsAppOnly ? "PRIVATE" : scannerJson.scanner.visibilityMode || "TEAM_SHARED");
     }
 
     if (emailResult.status === "fulfilled" && emailResult.value.response.ok && emailResult.value.data?.ok) {
@@ -443,7 +451,7 @@ export function ContactsHub({
       setParsedEnquiries(emailJson.enquiries || []);
     }
 
-  }, [tenantId]);
+  }, [personalWhatsAppOnly, tenantId]);
 
   useEffect(() => {
     void loadAllContactsAndIntegrations();
@@ -564,9 +572,9 @@ export function ContactsHub({
         body: JSON.stringify({
           tenantId,
           action: "generate_qr",
-          accountType: waAccountType,
+          accountType: personalWhatsAppOnly ? "WHATSAPP_PERSONAL" : waAccountType,
           syncMode: waSyncMode,
-          visibilityMode: waVisibility,
+          visibilityMode: personalWhatsAppOnly ? "PRIVATE" : waVisibility,
         }),
       });
       const data = await res.json();
@@ -591,7 +599,7 @@ export function ContactsHub({
         body: JSON.stringify({
           tenantId,
           action: "request_pairing_code",
-          accountType: waAccountType,
+          accountType: personalWhatsAppOnly ? "WHATSAPP_PERSONAL" : waAccountType,
           syncMode: waSyncMode,
           connectedPhone: waConnectedPhoneInput,
         }),
@@ -642,9 +650,9 @@ export function ContactsHub({
         body: JSON.stringify({
           tenantId,
           action: "complete_scan",
-          accountType: waAccountType,
+          accountType: personalWhatsAppOnly ? "WHATSAPP_PERSONAL" : waAccountType,
           syncMode: waSyncMode,
-          visibilityMode: waVisibility,
+          visibilityMode: personalWhatsAppOnly ? "PRIVATE" : waVisibility,
           connectedPhone: waConnectedPhoneInput,
           includeGroups: waIncludeGroups,
         }),
@@ -1133,6 +1141,11 @@ export function ContactsHub({
                 ? "Bring contacts in from five sources, review the data, then save only the rows you approve."
                 : "One clean, deduplicated directory for every contact from WhatsApp, email, sheets, CSV, imports, and the CRM."}
             </p>
+            {!canImportData ? (
+              <p style={{ margin: "10px 0 0", color: "var(--muted)", fontSize: 12 }}>
+                Import and WhatsApp scanning are currently disabled for your role. Ask a workspace administrator to enable them.
+              </p>
+            ) : null}
           </div>
 
           <div className="crm-hero-actions">
@@ -1722,6 +1735,22 @@ export function ContactsHub({
                     <strong>Also scrape WhatsApp Group participants</strong> (extracts member phone numbers & group tags)
                   </span>
                 </label>
+              ) : personalWhatsAppOnly ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 8,
+                    fontSize: "0.83rem",
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    background: "rgba(59, 130, 246, 0.10)",
+                    border: "1px solid rgba(59, 130, 246, 0.28)",
+                  }}
+                >
+                  <ShieldCheck size={16} color="#3b82f6" style={{ flexShrink: 0, marginTop: 1 }} />
+                  <span><strong>Personal WhatsApp stays private.</strong> Synced contacts and chat history will be available in your dashboard only.</span>
+                </div>
               ) : (
                 <label
                   style={{

@@ -113,7 +113,7 @@ function SalesPasswordField({
   return (
     <label style={{ display: "grid", gap: "6px", color: "#334155", fontSize: "0.8rem", fontWeight: 600 }}>
       <span>{label}</span>
-      <span className="sales-password-field" style={{ position: "relative", display: "block" }}>
+      <span className="sales-password-field" style={{ position: "relative", display: "block", width: "100%", minWidth: 0 }}>
         <input
           autoComplete={autoComplete}
           minLength={8}
@@ -130,6 +130,8 @@ function SalesPasswordField({
             background: "#f8fafc",
             color: "#0f172a",
             fontSize: "0.9rem",
+            boxSizing: "border-box",
+            maxWidth: "100%",
           }}
         />
         <button
@@ -162,6 +164,9 @@ function SalesPasswordField({
 
 const lightInputStyle = {
   width: "100%",
+  maxWidth: "100%",
+  minWidth: 0,
+  boxSizing: "border-box",
   minHeight: "44px",
   padding: "0 13px",
   borderRadius: "10px",
@@ -305,7 +310,6 @@ export function SalesSignupForm({ googleOnboarding = false, googleEmail = "", go
       <label style={lightLabelStyle}>
         <span>Number of users / team seats</span>
         <input defaultValue={5} max={500} min={1} name="seats" required style={lightInputStyle} type="number" />
-        <small style={{ color: "#64748b", fontSize: "0.72rem", fontWeight: 500 }}>You can change this later from workspace settings.</small>
       </label>
       {!googleOnboarding ? <>
         <SalesPasswordField autoComplete="new-password" label="Password" name="password" placeholder="Create at least 8 characters" />
@@ -331,7 +335,7 @@ export function SalesSignupForm({ googleOnboarding = false, googleEmail = "", go
   );
 }
 
-export function SalesPasswordLoginForm({ redirectTo = "/", error = "", message = "", identifier = "", clientType = "DESKTOP" }: { redirectTo?: string; error?: string; message?: string; identifier?: string; clientType?: string }) {
+export function SalesPasswordLoginForm({ redirectTo = "/?tab=dashboard", error = "", message = "", identifier = "", clientType = "DESKTOP" }: { redirectTo?: string; error?: string; message?: string; identifier?: string; clientType?: string }) {
   const [loginIdentifier, setLoginIdentifier] = useState(identifier);
   const [loginPassword, setLoginPassword] = useState("");
   const [loginNotice, setLoginNotice] = useState(friendlyLoginError(error));
@@ -400,8 +404,8 @@ export function SalesPasswordLoginForm({ redirectTo = "/", error = "", message =
       </label>
       <label style={lightLabelStyle}>
         <span>Password</span>
-        <div style={{ position: "relative" }}>
-          <input autoComplete="current-password" name="password" onChange={(event) => setLoginPassword(event.target.value)} placeholder="Enter your workspace password" required style={{ ...lightInputStyle, paddingRight: "44px" }} type={showLoginPassword ? "text" : "password"} value={loginPassword} />
+        <div style={{ position: "relative", width: "100%", minWidth: 0 }}>
+          <input autoComplete="current-password" name="password" onChange={(event) => setLoginPassword(event.target.value)} placeholder="Enter your workspace password" required style={{ ...lightInputStyle, width: "100%", maxWidth: "100%", boxSizing: "border-box", paddingRight: "44px" }} type={showLoginPassword ? "text" : "password"} value={loginPassword} />
           <button
             aria-label={showLoginPassword ? "Hide password" : "Show password"}
             onClick={() => setShowLoginPassword((current) => !current)}
@@ -532,8 +536,8 @@ export function SuperAdminLoginForm({ redirectTo = "/super-admin", error = "", m
       </label>
       <label style={lightLabelStyle}>
         <span>Owner password</span>
-        <div style={{ position: "relative" }}>
-          <input autoComplete="current-password" name="password" onChange={(event) => setLoginPassword(event.target.value)} placeholder="Enter owner master password" required type={showLoginPassword ? "text" : "password"} value={loginPassword} style={{ ...lightInputStyle, paddingRight: "44px" }} />
+        <div style={{ position: "relative", width: "100%", minWidth: 0 }}>
+          <input autoComplete="current-password" name="password" onChange={(event) => setLoginPassword(event.target.value)} placeholder="Enter owner master password" required type={showLoginPassword ? "text" : "password"} value={loginPassword} style={{ ...lightInputStyle, width: "100%", maxWidth: "100%", boxSizing: "border-box", paddingRight: "44px" }} />
           <button aria-label={showLoginPassword ? "Hide owner password" : "Show owner password"} onClick={() => setShowLoginPassword((current) => !current)} type="button" style={{ position: "absolute", top: "50%", right: "8px", transform: "translateY(-50%)", width: "32px", height: "32px", border: 0, borderRadius: "8px", background: "transparent", color: "#64748b", display: "grid", placeItems: "center", cursor: "pointer" }}>
             {showLoginPassword ? <EyeOff aria-hidden="true" size={16} /> : <Eye aria-hidden="true" size={16} />}
           </button>

@@ -30,7 +30,7 @@ export async function GET(request: Request) {
       },
     });
 
-    const activeProfiles = profiles.filter((profile) => profile.status === "ACTIVE" && !isWorkspaceAdmin(profile.permissions));
+    const activeProfiles = profiles.filter((profile) => profile.status === "ACTIVE" );
     const currentProfile = profiles.find((profile) => profile.userId === auth.session.userId);
     const currentIsWorkspaceAdmin = auth.session.role === "ADMIN" || auth.session.role === "SUPER_ADMIN" || isWorkspaceAdmin(currentProfile?.permissions);
     const visibleProfiles = currentIsWorkspaceAdmin
@@ -45,7 +45,7 @@ export async function GET(request: Request) {
     }
     const agentFilter = selectedAgentId
       ? { tenantId, agentId: selectedAgentId }
-      : { tenantId, agentId: { in: visibleAgentIds } };
+      : currentIsWorkspaceAdmin ? { tenantId } : { tenantId, agentId: { in: visibleAgentIds } };
     const [totalCalls, inboundCalls, outboundCalls, missedCalls, uploadedRecordings, duration, rows] = await Promise.all([
       prisma.salesMobileCall.count({ where: agentFilter }),
       prisma.salesMobileCall.count({ where: { ...agentFilter, direction: "INBOUND" } }),
@@ -58,6 +58,13 @@ export async function GET(request: Request) {
         include: {
           assignment: { select: { customerName: true } },
           agent: { include: { user: { select: { displayName: true, email: true } } } },
+          device: {
+            select: {
+              manufacturer: true,
+              model: true,
+              recordingCapability: true,
+            },
+          },
         },
         orderBy: { startedAt: "desc" },
         take: 100,
@@ -89,6 +96,9 @@ export async function GET(request: Request) {
         note: call.note ?? "",
         startedAt: call.startedAt.toISOString(),
         endedAt: call.endedAt?.toISOString() ?? null,
+        deviceModel: call.device?.model ?? "",
+        deviceManufacturer: call.device?.manufacturer ?? "",
+        recordingCapability: call.device?.recordingCapability ?? "",
       })),
     });
   } catch (error) {

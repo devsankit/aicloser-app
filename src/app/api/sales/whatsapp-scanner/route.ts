@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 import { requireSessionRole } from "@/lib/api/require-session-role";
 import { resolveSessionTenantId, resolveWhatsAppSetupTenantId } from "@/lib/api/resolve-session-tenant";
 import { createSalesLead, getSalesSnapshotForRole } from "@/lib/gigxomi/sales-store";
+import { readRoundRobinSettings } from "@/lib/gigxomi/round-robin-service";
 import { syncExternalThreadToInboxFromFile } from "@/lib/gigxomi/dummy-platform-file-store";
 import { upsertMarketingContact } from "@/lib/whatsapp-marketing/contact-service";
 
@@ -42,6 +44,7 @@ export type DiscoveredWhatsAppGroup = {
 };
 
 export type WhatsAppScannerSessionState = {
+  storeVersion: number;
   tenantId: string;
   status: "DISCONNECTED" | "QR_READY" | "CONNECTED";
   accountType: WhatsAppAccountType;
@@ -252,6 +255,7 @@ const DEFAULT_GROUPS: DiscoveredWhatsAppGroup[] = [
 
 function createDefaultState(tenantId: string): WhatsAppScannerSessionState {
   return {
+    storeVersion: 2,
     tenantId,
     status: "DISCONNECTED",
     accountType: "WHATSAPP_BUSINESS",
@@ -268,8 +272,8 @@ function createDefaultState(tenantId: string): WhatsAppScannerSessionState {
       totalSyncedChatThreads: 0,
       totalGroupContactsScraped: 0,
     },
-    discoveredChats: [...DEFAULT_BUSINESS_CHATS, ...DEFAULT_PERSONAL_CHATS],
-    discoveredGroups: DEFAULT_GROUPS,
+    discoveredChats: [],
+    discoveredGroups: [],
   };
 }
 
@@ -277,16 +281,13 @@ async function readScannerStore(tenantId: string): Promise<WhatsAppScannerSessio
   try {
     const raw = await readFile(SCANNER_STORE_PATH, "utf8");
     const parsed = JSON.parse(raw) as Record<string, WhatsAppScannerSessionState>;
-    if (parsed[tenantId]) {
+    if (parsed[tenantId]?.storeVersion === 2) {
       return {
         ...createDefaultState(tenantId),
         ...parsed[tenantId],
-        discoveredChats: parsed[tenantId].discoveredChats?.length
-          ? parsed[tenantId].discoveredChats
-          : [...DEFAULT_BUSINESS_CHATS, ...DEFAULT_PERSONAL_CHATS],
-        discoveredGroups: parsed[tenantId].discoveredGroups?.length
-          ? parsed[tenantId].discoveredGroups
-          : DEFAULT_GROUPS,
+        storeVersion: 2,
+        discoveredChats: parsed[tenantId].discoveredChats || [],
+        discoveredGroups: parsed[tenantId].discoveredGroups || [],
       };
     }
   } catch {
@@ -308,19 +309,26 @@ async function writeScannerStore(tenantId: string, state: WhatsAppScannerSession
   await writeFile(SCANNER_STORE_PATH, JSON.stringify(all, null, 2), "utf8");
 }
 
-const WA_SERVICE_URL = "http://127.0.0.1:3015";
+function serviceKey(tenantId: string) {
+  return createHash("sha256").update(tenantId).digest("hex").slice(0, 16);
+}
 
-async function isWaServiceHealthy(): Promise<boolean> {
+function waServiceUrl(tenantId: string) {
+  const port = 3200 + (Number.parseInt(serviceKey(tenantId).slice(0, 6), 16) % 500);
+  return `http://127.0.0.1:${port}`;
+}
+
+async function isWaServiceHealthy(serviceUrl: string): Promise<boolean> {
   try {
-    const res = await fetch(`${WA_SERVICE_URL}/health`, { signal: AbortSignal.timeout(1000) });
+    const res = await fetch(`${serviceUrl}/health`, { signal: AbortSignal.timeout(1000) });
     return res.ok;
   } catch {
     return false;
   }
 }
 
-async function ensureWaService(): Promise<boolean> {
-  if (await isWaServiceHealthy()) return true;
+async function ensureWaService(tenantId: string, serviceUrl: string): Promise<boolean> {
+  if (await isWaServiceHealthy(serviceUrl)) return true;
   try {
     const { spawn } = await import("node:child_process");
     const scriptPath = path.join(process.cwd(), "scripts", "whatsapp-baileys-service.mjs");
@@ -328,10 +336,15 @@ async function ensureWaService(): Promise<boolean> {
       detached: true,
       stdio: "ignore",
       cwd: process.cwd(),
+      env: {
+        ...process.env,
+        WA_SERVICE_PORT: new URL(serviceUrl).port,
+        WA_SESSION_KEY: serviceKey(tenantId),
+      },
     });
     child.unref();
     await new Promise((r) => setTimeout(r, 1500));
-    return await isWaServiceHealthy();
+    return await isWaServiceHealthy(serviceUrl);
   } catch (err) {
     console.warn("[WA Service] Auto-start attempt failed:", err);
     return false;
@@ -344,17 +357,27 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const tenantId = resolveWhatsAppSetupTenantId(auth.session, url.searchParams.get("tenantId"));
-  const state = await readScannerStore(tenantId);
+  const serviceUrl = waServiceUrl(tenantId);
+  let state = await readScannerStore(tenantId);
 
   // Check live service status
-  const isHealthy = await isWaServiceHealthy();
+  const isHealthy = await isWaServiceHealthy(serviceUrl);
   if (isHealthy) {
     try {
-      const resp = await fetch(`${WA_SERVICE_URL}/status`, { signal: AbortSignal.timeout(1500) });
+      const resp = await fetch(`${serviceUrl}/status`, { signal: AbortSignal.timeout(1500) });
       if (resp.ok) {
         const live = await resp.json();
         if (live.scanner) {
           state.status = live.scanner.status;
+          if (state.status === "DISCONNECTED") {
+            state.connectedPhone = "";
+            state.connectedDisplayName = "";
+            state.connectedAt = null;
+            state.lastSyncAt = null;
+            state.stats = { totalScrapedContacts: 0, totalSyncedChatThreads: 0, totalGroupContactsScraped: 0 };
+            state.discoveredChats = [];
+            state.discoveredGroups = [];
+          }
           if (live.scanner.qrCodeDataUrl) state.qrCodeDataUrl = live.scanner.qrCodeDataUrl;
           if (live.scanner.pairingCode) state.pairingCode = live.scanner.pairingCode;
           state.isLiveService = true;
@@ -374,7 +397,7 @@ export async function GET(request: Request) {
     } catch {}
   } else {
     // Attempt auto-start in background
-    ensureWaService().catch(() => {});
+    ensureWaService(tenantId, serviceUrl).catch(() => {});
   }
 
   return NextResponse.json({
@@ -402,16 +425,26 @@ export async function POST(request: Request) {
   };
 
   const tenantId = resolveWhatsAppSetupTenantId(auth.session, body.tenantId);
-  const state = await readScannerStore(tenantId);
+  const serviceUrl = waServiceUrl(tenantId);
+  let state = await readScannerStore(tenantId);
 
   const action = body.action || "generate_qr";
+  if (auth.session.role !== "ADMIN" && auth.session.role !== "SUPER_ADMIN") {
+    const workspaceSettings = await readRoundRobinSettings(resolveSessionTenantId(auth.session));
+    const importActions = new Set(["generate_qr", "request_pairing_code", "switch_mode", "complete_scan", "run_scraper", "scrape_custom_list"]);
+    if (importActions.has(action) && !workspaceSettings.allowNonAdminImportData) {
+      return NextResponse.json({ ok: false, error: "WhatsApp scanning is disabled for sales users. Ask a workspace administrator to enable lead imports." }, { status: 403 });
+    }
+  }
   const nextAccountType: WhatsAppAccountType = body.accountType || state.accountType || "WHATSAPP_BUSINESS";
   const nextSyncMode: WhatsAppSyncMode = body.syncMode || state.syncMode || "FULL_INBOX_SYNC";
-  const nextVisibility = body.visibilityMode || state.visibilityMode || "TEAM_SHARED";
+  const nextVisibility = auth.session.role === "SALES_AGENT"
+    ? "PRIVATE"
+    : body.visibilityMode || state.visibilityMode || "TEAM_SHARED";
 
   if (action === "disconnect") {
     try {
-      await fetch(`${WA_SERVICE_URL}/disconnect`, { method: "POST", signal: AbortSignal.timeout(3000) });
+      await fetch(`${serviceUrl}/disconnect`, { method: "POST", signal: AbortSignal.timeout(3000) });
     } catch {}
 
     const disconnected: WhatsAppScannerSessionState = {
@@ -433,13 +466,13 @@ export async function POST(request: Request) {
   }
 
   if (action === "request_pairing_code") {
-    await ensureWaService();
+    await ensureWaService(tenantId, serviceUrl);
     const cleanPhone = (body.connectedPhone || "").replace(/\D/g, "");
     if (!cleanPhone) {
       return NextResponse.json({ ok: false, error: "Please enter your WhatsApp phone number with country code (e.g. 919981807309)." }, { status: 400 });
     }
     try {
-      const resp = await fetch(`${WA_SERVICE_URL}/pairing-code`, {
+      const resp = await fetch(`${serviceUrl}/pairing-code`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone: cleanPhone }),
@@ -481,17 +514,17 @@ export async function POST(request: Request) {
   }
 
   if (action === "generate_qr") {
-    await ensureWaService();
+    await ensureWaService(tenantId, serviceUrl);
 
     // Check if WhatsApp is already authenticated/connected on the service
     try {
-      const stRes = await fetch(`${WA_SERVICE_URL}/status`, { signal: AbortSignal.timeout(1500) });
+      const stRes = await fetch(`${serviceUrl}/status`, { signal: AbortSignal.timeout(1500) });
       if (stRes.ok) {
         const stData = await stRes.json();
         if (stData.scanner?.status === "CONNECTED" || (stData.scanner?.connectedPhone && (stData.scanner?.stats?.totalContacts || 0) > 0)) {
           state.status = "CONNECTED";
-          state.connectedPhone = stData.scanner.connectedPhone || "+918109249911";
-          state.connectedDisplayName = stData.scanner.connectedDisplayName || "Ominiflow";
+          state.connectedPhone = stData.scanner.connectedPhone || "";
+          state.connectedDisplayName = stData.scanner.connectedDisplayName || "";
           if (stData.scanner.stats?.totalContacts) {
             state.stats.totalScrapedContacts = stData.scanner.stats.totalContacts;
             state.stats.totalSyncedChatThreads = stData.scanner.stats.totalChats;
@@ -511,7 +544,7 @@ export async function POST(request: Request) {
     let liveQrDataUrl = "";
 
     try {
-      await fetch(`${WA_SERVICE_URL}/start`, {
+      await fetch(`${serviceUrl}/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ accountType: nextAccountType, syncMode: nextSyncMode, forceRefresh: false }),
@@ -521,13 +554,13 @@ export async function POST(request: Request) {
       // Poll up to 3.5 seconds for live QR code from Baileys
       for (let i = 0; i < 7; i++) {
         await new Promise((r) => setTimeout(r, 500));
-        const stRes = await fetch(`${WA_SERVICE_URL}/status`, { signal: AbortSignal.timeout(1500) });
+        const stRes = await fetch(`${serviceUrl}/status`, { signal: AbortSignal.timeout(1500) });
         if (stRes.ok) {
           const stData = await stRes.json();
           if (stData.scanner?.status === "CONNECTED") {
             state.status = "CONNECTED";
-            state.connectedPhone = stData.scanner.connectedPhone || "+918109249911";
-            state.connectedDisplayName = stData.scanner.connectedDisplayName || "Ominiflow";
+            state.connectedPhone = stData.scanner.connectedPhone || "";
+            state.connectedDisplayName = stData.scanner.connectedDisplayName || "";
             await writeScannerStore(tenantId, state);
             return NextResponse.json({
               ok: true,
@@ -564,6 +597,7 @@ export async function POST(request: Request) {
   }
 
   // For complete_scan, run_scraper, or scrape_custom_list:
+  await ensureWaService(tenantId, serviceUrl);
   const snapshot = await getSalesSnapshotForRole(auth.session);
   const fallbackAgent =
     snapshot.currentAgent ??
@@ -582,9 +616,9 @@ export async function POST(request: Request) {
   let groupContactsScraped = 0;
 
   // Check if live Baileys service has scraped real WhatsApp data!
-  if (await isWaServiceHealthy()) {
+  if (await isWaServiceHealthy(serviceUrl)) {
     try {
-      const scrapeRes = await fetch(`${WA_SERVICE_URL}/scrape`, { signal: AbortSignal.timeout(5000) });
+      const scrapeRes = await fetch(`${serviceUrl}/scrape`, { signal: AbortSignal.timeout(5000) });
       if (scrapeRes.ok) {
         const scrapeData = await scrapeRes.json();
         if (scrapeData.connectedPhone) {
@@ -822,11 +856,11 @@ export async function POST(request: Request) {
     connectedPhone:
       body.connectedPhone?.trim() ||
       state.connectedPhone ||
-      "+918109249911",
+      "",
     connectedDisplayName:
       body.connectedDisplayName?.trim() ||
       state.connectedDisplayName ||
-      "Ominiflow",
+      "",
     connectedAt: state.connectedAt || nowIso,
     lastSyncAt: nowIso,
     stats: {

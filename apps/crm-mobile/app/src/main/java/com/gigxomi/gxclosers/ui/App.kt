@@ -6,13 +6,13 @@ import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
 import android.content.pm.PackageManager
-import android.app.role.RoleManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
+import android.telecom.TelecomManager
 import android.os.Handler
 import android.os.Looper
-import android.provider.Settings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.viewinterop.AndroidView
@@ -53,6 +54,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -60,8 +63,17 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.gigxomi.gxclosers.data.*
+import com.gigxomi.gxclosers.call.CallManager
+import com.gigxomi.gxclosers.call.DeviceCertificationManager
+import androidx.compose.ui.text.style.TextDecoration
+import com.gigxomi.gxclosers.call.SimOption
+import com.gigxomi.gxclosers.call.SystemCallRecordingImporter
+import com.gigxomi.gxclosers.call.DialerShareAutomation
 import com.gigxomi.gxclosers.ui.theme.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.time.Instant
 import java.time.LocalDate
@@ -73,6 +85,93 @@ import java.time.format.DateTimeFormatter
 private const val LOGIN = "login"
 private const val SETUP = "setup"
 private const val MAIN = "main"
+
+private enum class RecordingDeviceFamily {
+    PIXEL,
+    XIAOMI,
+    OPPO,
+    VIVO,
+    SAMSUNG,
+    MOTOROLA,
+    OTHER,
+}
+
+private data class RecordingDeviceProfile(
+    val family: RecordingDeviceFamily,
+    val deviceLabel: String,
+    val setupHeadline: String,
+    val setupDetail: String,
+    val phoneRecordingDetail: String,
+    val shareDetail: String,
+    val folderDetail: String,
+    val folderTip: String,
+)
+
+private fun recordingDeviceProfile(): RecordingDeviceProfile {
+    val manufacturer = Build.MANUFACTURER.trim().lowercase()
+    val brand = Build.BRAND.trim().lowercase()
+    val model = Build.MODEL.trim().ifBlank { "Android phone" }
+    val family = when {
+        manufacturer.contains("google") || brand.contains("google") || model.lowercase().contains("pixel") -> RecordingDeviceFamily.PIXEL
+        manufacturer.contains("xiaomi") || manufacturer.contains("poco") || manufacturer.contains("redmi") || brand.contains("xiaomi") || brand.contains("poco") || brand.contains("redmi") -> RecordingDeviceFamily.XIAOMI
+        manufacturer.contains("oppo") || manufacturer.contains("realme") || brand.contains("oppo") || brand.contains("realme") -> RecordingDeviceFamily.OPPO
+        manufacturer.contains("vivo") || brand.contains("vivo") -> RecordingDeviceFamily.VIVO
+        manufacturer.contains("samsung") || brand.contains("samsung") -> RecordingDeviceFamily.SAMSUNG
+        manufacturer.contains("motorola") || manufacturer.contains("lenovo") || brand.contains("motorola") -> RecordingDeviceFamily.MOTOROLA
+        else -> RecordingDeviceFamily.OTHER
+    }
+    return when (family) {
+        RecordingDeviceFamily.PIXEL -> RecordingDeviceProfile(
+            family, "Google $model", "Guided for Google Phone", "Google Phone keeps recordings private on many Pixel builds, so the visible Share flow is the primary connection.",
+            "Enable Call recording in Google Phone, then make one short test call.",
+            "Primary path — AI Closer watches the visible Phone share flow and imports the finished audio.",
+            "Optional on Pixel. Use it only if Google Phone exposes a readable recording folder.",
+            "If no folder is visible, leave this optional and use Share automation instead."
+        )
+        RecordingDeviceFamily.XIAOMI -> RecordingDeviceProfile(
+            family, "Xiaomi/Redmi/POCO $model", "Guided for Xiaomi dialer", "Xiaomi-family phones commonly publish recordings through a shared folder; AI Closer will prefer that exact folder and use Share as backup.",
+            "Enable recording in the active Phone app and confirm the newest call is saved.",
+            "Backup path — allows AI Closer to select Share if the dialer exposes the recording there.",
+            "Recommended. Choose the folder containing the newest Xiaomi/Recorder call file.",
+            "Make one test call first, then choose the folder from Files so the app can match new files by call time."
+        )
+        RecordingDeviceFamily.OPPO -> RecordingDeviceProfile(
+            family, "OPPO/realme $model", "Guided for OPPO Phone", "OPPO-family dialers vary by region and ColorOS version, so AI Closer checks both the visible Share route and an approved recording folder.",
+            "Turn on call recording in the active Phone app, then return here.",
+            "Recommended fallback — lets AI Closer receive a recording when the Phone app offers Share.",
+            "Recommended if the Recorder app shows a normal folder. Otherwise use Share automation.",
+            "Do not select a generic Music folder; choose the folder where the newest call recording appears."
+        )
+        RecordingDeviceFamily.VIVO -> RecordingDeviceProfile(
+            family, "vivo $model", "Guided for vivo Phone", "vivo recording locations depend on Funtouch OS and region; the app keeps both approved paths available without changing the phone dialer.",
+            "Enable recording in the active Phone app and complete one short test call.",
+            "Recommended fallback — imports the recording through the Phone app's visible Share action.",
+            "Recommended when Recorder exposes call files to Files; otherwise use Share automation.",
+            "After the test call, select the folder containing the newest audio file."
+        )
+        RecordingDeviceFamily.SAMSUNG -> RecordingDeviceProfile(
+            family, "Samsung $model", "Guided for Samsung Phone", "Samsung recording availability varies by region and Phone version; AI Closer uses only the recording access the device exposes.",
+            "Enable call recording in Samsung Phone, then make one test call.",
+            "Backup path for a Phone app that offers Share after recording.",
+            "Choose it if Samsung Voice Recorder or Files exposes the call recording folder.",
+            "If the device does not expose recordings, the setup screen will keep Share as the safer route."
+        )
+        RecordingDeviceFamily.MOTOROLA -> RecordingDeviceProfile(
+            family, "Motorola/Lenovo $model", "Guided for Android Phone", "Recording controls are usually provided by Google Phone or the carrier; AI Closer adapts to whichever route is available.",
+            "Enable call recording in the active Phone app, then make one test call.",
+            "Recommended when the Phone app exposes a finished recording through Share.",
+            "Choose a folder only if the Phone/Recorder app exposes one through Files.",
+            "The folder is optional; do not grant access to a private app folder that Android cannot share."
+        )
+        RecordingDeviceFamily.OTHER -> RecordingDeviceProfile(
+            family, model, "Guided for this Android phone", "AI Closer will detect the recording path available on this device and keep the setup reversible.",
+            "Enable call recording in the active Phone app, then make one test call.",
+            "Use this when the Phone or Recorder app offers a visible Share action.",
+            "Choose a folder only when the recording appears in Files.",
+            "The app never assumes a private folder; Android must explicitly approve the folder or Share action."
+        )
+    }
+}
 
 @Composable
 fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
@@ -110,7 +209,12 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
             composable(MAIN) { MainScreen(vm, nav) }
             composable("lead-grab") { LeadGrabScreen(vm) { nav.popBackStack() } }
             composable("lead/{id}", arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
-                LeadDetailScreen(vm, entry.arguments?.getString("id").orEmpty()) { nav.popBackStack() }
+                LeadDetailScreen(
+                    vm = vm,
+                    id = entry.arguments?.getString("id").orEmpty(),
+                    back = { nav.popBackStack() },
+                    openDisposition = { callId -> nav.navigate("disposition/$callId") },
+                )
             }
             composable("disposition/{id}", arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
                 DispositionScreen(vm, entry.arguments?.getString("id").orEmpty()) { nav.navigate(MAIN) { popUpTo(MAIN) { inclusive = true } } }
@@ -215,66 +319,371 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
 
 @Composable private fun SetupScreen(vm: CrmViewModel) {
     val context = LocalContext.current
+    val deviceProfile = remember { recordingDeviceProfile() }
     var setupIssue by rememberSaveable { mutableStateOf<String?>(null) }
-    val roleManager = if (Build.VERSION.SDK_INT >= 29) context.getSystemService(RoleManager::class.java) else null
+    var setupStep by rememberSaveable { mutableIntStateOf(0) }
+    var simOptions by remember { mutableStateOf<List<SimOption>>(emptyList()) }
+    var selectedSimId by rememberSaveable { mutableStateOf("") }
+    val setupPrefs = remember { context.getSharedPreferences("gxclosers_setup", Context.MODE_PRIVATE) }
+    var recordingSettingsOpened by rememberSaveable {
+        mutableStateOf(setupPrefs.getBoolean("phoneRecordingSettingsOpened", false))
+    }
+    var accessibilityEnabled by remember { mutableStateOf(DialerShareAutomation.isAccessibilityEnabled(context)) }
+    var micFallbackEnabled by remember { mutableStateOf(context.getSharedPreferences("gxclosers_calls", Context.MODE_PRIVATE).getBoolean("micFallbackEnabled", false)) }
+    var recordingFolderUri by remember { mutableStateOf(RecordingFolderStore.getTreeUri(context)) }
+    var folderCheckBusy by remember { mutableStateOf(false) }
+    var folderCheckMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    val folderCheckScope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                accessibilityEnabled = DialerShareAutomation.isAccessibilityEnabled(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(setupStep) {
+        if (setupStep == 2) {
+            repeat(6) {
+                accessibilityEnabled = DialerShareAutomation.isAccessibilityEnabled(context)
+                if (accessibilityEnabled) return@LaunchedEffect
+                delay(500L)
+            }
+        }
+    }
     val finishSetup = { vm.registerDevice {} }
     val permissions = buildList {
         add(Manifest.permission.CALL_PHONE); add(Manifest.permission.READ_PHONE_STATE); add(Manifest.permission.READ_PHONE_NUMBERS); add(Manifest.permission.READ_CALL_LOG)
-        add(Manifest.permission.RECORD_AUDIO); add(Manifest.permission.READ_CONTACTS)
+        add(Manifest.permission.READ_CONTACTS)
+        if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.READ_MEDIA_AUDIO) else add(Manifest.permission.READ_EXTERNAL_STORAGE)
         if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
     }.toTypedArray()
-    val overlayLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
-            vm.showError("Allow display over other apps to show call context, then tap setup again.")
-        } else {
-            finishSetup()
-        }
+    val micPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        micFallbackEnabled = granted
+        context.getSharedPreferences("gxclosers_calls", Context.MODE_PRIVATE).edit().putBoolean("micFallbackEnabled", granted).apply()
+        if (!granted) setupIssue = "Microphone fallback permission was denied. System dialer folder/MediaStore sync can still be used."
     }
-    fun finishSetupWithOverlay() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
-            overlayLauncher.launch(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
-        } else {
-            finishSetup()
-        }
+    fun prepareSimSelection() {
+        simOptions = CallManager.availableSims(context)
+        val saved = CallManager.simSelection(context)
+        selectedSimId = simOptions.firstOrNull { it.subscriptionId == saved }?.subscriptionId.orEmpty()
+        setupStep = 1
     }
-    val roleLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        if (Build.VERSION.SDK_INT >= 29 && roleManager?.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING) == true && !roleManager.isRoleHeld(RoleManager.ROLE_CALL_SCREENING)) {
-            vm.showError("Allow call screening so incoming company calls can be linked to CRM.")
-        } else {
-            finishSetupWithOverlay()
+    fun continueAfterRecordingSetup() {
+        val hasRecordingRoute = accessibilityEnabled ||
+            recordingFolderUri != null ||
+            micFallbackEnabled ||
+            deviceProfile.family == RecordingDeviceFamily.XIAOMI
+        if (!hasRecordingRoute && deviceProfile.family == RecordingDeviceFamily.PIXEL) {
+            setupIssue = "Enable AI Closer under Android Accessibility or enable Microphone fallback before continuing. Google Phone keeps call recordings private."
+            return
         }
+        setupStep = 3
     }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         if (!permissions.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }) {
-            vm.showError("Allow phone, call history, microphone, contacts, and notification access to continue setup.")
-        } else if (Build.VERSION.SDK_INT >= 29 && roleManager?.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING) == true && !roleManager.isRoleHeld(RoleManager.ROLE_CALL_SCREENING)) {
-            roleLauncher.launch(roleManager.createRequestRoleIntent(RoleManager.ROLE_CALL_SCREENING))
+            vm.showError("Allow phone, call history, recording-file, contacts, and notification access to continue setup.")
         } else {
-            finishSetupWithOverlay()
+            prepareSimSelection()
+        }
+    }
+    val recordingFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        if (persistRecordingFolder(context, uri)) {
+            recordingFolderUri = uri
+            folderCheckMessage = null
+            setupIssue = null
+        } else {
+            setupIssue = "Android did not allow persistent access to that folder. Choose the Phone app's recording folder again."
+        }
+    }
+    fun checkRecordingFolder() {
+        if (recordingFolderUri == null || folderCheckBusy) return
+        folderCheckBusy = true
+        folderCheckMessage = null
+        folderCheckScope.launch {
+            val result = withContext(Dispatchers.IO) { SystemCallRecordingImporter.checkSelectedFolder(context) }
+            folderCheckBusy = false
+            folderCheckMessage = result?.let {
+                "Access confirmed: ${it.fileName}${if (it.durationMs > 0L) " · ${it.durationMs / 1000}s audio" else ""}"
+            } ?: "No readable audio file found. Make one test call with recording enabled, then check this folder again."
         }
     }
     fun continueSetup() {
         if (permissions.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }) {
-            if (Build.VERSION.SDK_INT >= 29 && roleManager?.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING) == true && !roleManager.isRoleHeld(RoleManager.ROLE_CALL_SCREENING)) {
-                roleLauncher.launch(roleManager.createRequestRoleIntent(RoleManager.ROLE_CALL_SCREENING))
-            } else {
-                finishSetupWithOverlay()
-            }
+            prepareSimSelection()
         } else {
             permissionLauncher.launch(permissions)
         }
+    }
+    fun continueWithSim() {
+        if (selectedSimId.isBlank()) {
+            setupIssue = "Select the SIM that should be used for CRM calls."
+            return
+        }
+        CallManager.saveSimSelection(context, selectedSimId)
+        setupIssue = null
+        setupStep = 2
+    }
+    fun openPhoneRecordingSettings() {
+        val defaultDialerPackage = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            context.getSystemService(TelecomManager::class.java)?.defaultDialerPackage
+        } else null
+        val phoneIntent = defaultDialerPackage
+            ?.let { context.packageManager.getLaunchIntentForPackage(it) }
+            ?: context.packageManager.getLaunchIntentForPackage("com.google.android.dialer")
+            ?: Intent(Intent.ACTION_DIAL)
+        runCatching {
+            context.startActivity(phoneIntent)
+            recordingSettingsOpened = true
+            setupPrefs.edit().putBoolean("phoneRecordingSettingsOpened", true).apply()
+            setupIssue = null
+        }
+            .onFailure { vm.showError("Open the Phone app manually and enable Call recording from Phone app settings.") }
     }
     LaunchedEffect(vm.error) {
         vm.error?.let { setupIssue = it }
     }
     Page(vertical = true) {
-        BrandHeader("Set up company phone", "Native Android call context and CRM sync")
-        GxCard {
-            FeatureRow(Icons.Default.Phone, "Tracked company calls", "Link outbound and assigned inbound calls to the correct lead.")
-            FeatureRow(Icons.Default.Mic, "Local recording", "Capture supported calls through the phone microphone and upload securely.")
-            FeatureRow(Icons.Default.Sync, "Offline continuity", "Queue call-end events and mandatory notes until the connection returns.")
-            FeatureRow(Icons.Default.Notifications, "Lead context", "Show the assigned lead and post-call action without display-over-app access.")
-            Text("Android and device manufacturers can restrict call audio. GXClosers reports recording failures instead of pretending audio was captured.", color = GxWarning, fontSize = 12.sp)
+        BrandHeader("Connect your work phone", "${deviceProfile.setupHeadline} · ${deviceProfile.deviceLabel}")
+        SetupProgress(step = setupStep)
+        GxCard(accent = setupStep == 2) {
+            when (setupStep) {
+                0 -> {
+                    SetupIntroHero()
+                    SetupStatusRow(Icons.Default.PhoneAndroid, deviceProfile.setupHeadline, deviceProfile.setupDetail, GxAccent)
+                    FeatureRow(Icons.Default.Phone, "Calls linked to your CRM", "Inbound and outbound calls stay connected to the right lead.")
+                    FeatureRow(Icons.Default.Mic, "Recordings synced securely", "Completed dialer recordings appear in your dashboard.")
+                    FeatureRow(Icons.Default.Sync, "Works with weak networks", "Events wait safely and sync when the connection returns.")
+                    Text("You’ll allow access, choose a SIM, then connect the recording flow available on this phone.", color = GxMuted, fontSize = 12.sp, lineHeight = 17.sp)
+                }
+                1 -> {
+                    SectionHeading(Icons.Default.SimCard, "Choose your calling SIM")
+                    Text("Select the SIM your team uses for work calls. AI Closer will use it to match call history and recordings.", color = GxMuted, fontSize = 12.sp, lineHeight = 17.sp)
+                    if (simOptions.isEmpty()) {
+                        SetupStatusRow(Icons.Default.Warning, "No active SIM found", "Insert or enable a SIM, then retry setup.", GxWarning)
+                    } else {
+                        simOptions.forEach { sim ->
+                            Surface(
+                                color = if (selectedSimId == sim.subscriptionId) GxAccent.copy(alpha = .10f) else GxSurface2,
+                                shape = RoundedCornerShape(14.dp),
+                                border = BorderStroke(1.dp, if (selectedSimId == sim.subscriptionId) GxAccent.copy(alpha = .55f) else GxOutlineSoft),
+                                modifier = Modifier.fillMaxWidth().clickable { selectedSimId = sim.subscriptionId },
+                            ) {
+                                Row(Modifier.padding(horizontal = 10.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    RadioButton(selected = selectedSimId == sim.subscriptionId, onClick = { selectedSimId = sim.subscriptionId })
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text(sim.label, fontWeight = FontWeight.Bold)
+                                        sim.phoneNumber?.takeIf(String::isNotBlank)?.let { Text(it, color = GxMuted, fontSize = 11.sp) }
+                                    }
+                                    if (selectedSimId == sim.subscriptionId) Icon(Icons.Default.CheckCircle, "Selected", tint = GxSuccess, modifier = Modifier.size(20.dp))
+                                }
+                            }
+                        }
+                    }
+                    PrimaryButton("Continue", vm.busy, simOptions.isNotEmpty() && selectedSimId.isNotBlank()) { continueWithSim() }
+                }
+                2 -> {
+                    SectionHeading(Icons.Default.SettingsPhone, "Connect call recording")
+                    Text(deviceProfile.setupDetail, color = GxMuted, fontSize = 12.sp, lineHeight = 17.sp)
+                    SetupStatusRow(
+                        icon = Icons.Default.SettingsPhone,
+                        title = "Phone recording",
+                        detail = if (recordingSettingsOpened) "Phone opened. Turn on Call recording, then return here." else deviceProfile.phoneRecordingDetail,
+                        color = if (recordingSettingsOpened) GxSuccess else GxAccent,
+                        actionLabel = "Open Phone settings",
+                        onAction = ::openPhoneRecordingSettings,
+                    )
+                    SetupStatusRow(
+                        icon = Icons.Default.Accessibility,
+                        title = "Share automation",
+                        detail = if (accessibilityEnabled) "Connected — AI Closer can receive the finished recording." else deviceProfile.shareDetail,
+                        color = if (accessibilityEnabled) GxSuccess else GxWarning,
+                        actionLabel = if (accessibilityEnabled) "Review access" else "Enable access",
+                        onAction = {
+                            runCatching { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+                                .onFailure { vm.showError("Open Android Accessibility settings manually and enable AI Closer.") }
+                        },
+                    )
+                    if (!accessibilityEnabled) {
+                        Text("Android may turn this protected access off after an APK update. Check it once after updating.", color = GxWarning, fontSize = 11.sp, lineHeight = 15.sp)
+                    }
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp), color = GxMuted.copy(alpha = .18f))
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Microphone fallback", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("Optional backup for phones that do not expose dialer recordings. It may capture one side only.", color = GxWarning, fontSize = 11.sp, lineHeight = 15.sp)
+                        }
+                        Switch(
+                            checked = micFallbackEnabled,
+                            onCheckedChange = { enabled ->
+                                if (!enabled) {
+                                    micFallbackEnabled = false
+                                    context.getSharedPreferences("gxclosers_calls", Context.MODE_PRIVATE).edit().putBoolean("micFallbackEnabled", false).apply()
+                                } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                                    micFallbackEnabled = true
+                                    context.getSharedPreferences("gxclosers_calls", Context.MODE_PRIVATE).edit().putBoolean("micFallbackEnabled", true).apply()
+                                } else {
+                                    micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                }
+                            }
+                        )
+                    }
+                    if (micFallbackEnabled) {
+                        Text("Fallback enabled. A visible notification appears only while a call is being captured.", color = GxSuccess, fontSize = 11.sp, lineHeight = 15.sp)
+                    }
+                    SetupStatusRow(
+                        icon = Icons.Default.Folder,
+                        title = "Recording folder",
+                        detail = if (recordingFolderUri != null) "Folder linked. New audio can be matched automatically." else deviceProfile.folderDetail,
+                        color = if (recordingFolderUri != null) GxSuccess else GxMuted,
+                        actionLabel = if (recordingFolderUri == null) "Choose folder" else "Change folder",
+                        onAction = { recordingFolderPicker.launch(recordingFolderUri) },
+                    )
+                    if (recordingFolderUri != null) {
+                        Text("New Phone recordings will be matched to the call and uploaded to the dashboard.", color = GxSuccess, fontSize = 11.sp, lineHeight = 15.sp)
+                    } else {
+                        Text(deviceProfile.folderTip, color = GxMuted, fontSize = 11.sp, lineHeight = 15.sp)
+                    }
+                    SecondaryButton("Check selected folder", folderCheckBusy, recordingFolderUri != null) { checkRecordingFolder() }
+                    folderCheckMessage?.let { message ->
+                        Text(message, color = if (message.startsWith("Access confirmed")) GxSuccess else GxWarning, fontSize = 11.sp, lineHeight = 16.sp)
+                    }
+                    var isBatteryExempt by remember { mutableStateOf(DeviceCertificationManager.isBatteryOptimizationExempt(context)) }
+                    SetupStatusRow(
+                        icon = Icons.Default.BatteryChargingFull,
+                        title = "Battery optimization exemption",
+                        detail = if (isBatteryExempt) "Exempted. Background call recording won't be killed by Android." else "Recommended for Xiaomi/vivo/OPPO/Samsung so background recording stays running.",
+                        color = if (isBatteryExempt) GxSuccess else GxAccent,
+                        actionLabel = if (isBatteryExempt) "Exempted" else "Allow background",
+                        onAction = {
+                            if (!isBatteryExempt && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                    data = Uri.parse("package:${context.packageName}")
+                                }
+                                runCatching { context.startActivity(intent) }
+                                    .onFailure {
+                                        runCatching { context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
+                                    }
+                            }
+                        },
+                    )
+                    PrimaryButton("Continue to phone verification", vm.busy, recordingSettingsOpened || micFallbackEnabled || recordingFolderUri != null || accessibilityEnabled) { continueAfterRecordingSetup() }
+                }
+                3 -> {
+                    SectionHeading(Icons.Default.Verified, "Verify recording on this device")
+                    Text("Make a 10-second test call to verify call logging, work SIM scoping, readable audio, and dashboard sync.", color = GxMuted, fontSize = 12.sp, lineHeight = 17.sp)
+
+                    Surface(
+                        color = if (vm.certificationStatus == DeviceCertificationManager.STATUS_VERIFIED) GxSuccess.copy(alpha = 0.08f) else GxSurface2,
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, if (vm.certificationStatus == DeviceCertificationManager.STATUS_VERIFIED) GxSuccess.copy(alpha = 0.45f) else GxOutlineSoft),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    if (vm.certificationStatus == DeviceCertificationManager.STATUS_VERIFIED) Icons.Default.CheckCircle else Icons.Default.PhoneCallback,
+                                    null,
+                                    tint = if (vm.certificationStatus == DeviceCertificationManager.STATUS_VERIFIED) GxSuccess else GxAccent,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text("Certification Status", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Spacer(Modifier.weight(1f))
+                                StatusPill(
+                                    vm.certificationStatus,
+                                    when (vm.certificationStatus) {
+                                        DeviceCertificationManager.STATUS_VERIFIED -> GxSuccess
+                                        DeviceCertificationManager.STATUS_PARTIAL -> GxWarning
+                                        DeviceCertificationManager.STATUS_ACTION_REQUIRED -> GxDanger
+                                        else -> GxAccent
+                                    }
+                                )
+                            }
+
+                            val isVerified = vm.certificationStatus == DeviceCertificationManager.STATUS_VERIFIED
+                            CertificationCheckRow("1. Call state captured", isVerified || vm.certificationStatus == DeviceCertificationManager.STATUS_PARTIAL)
+                            CertificationCheckRow("2. Work SIM matched", isVerified || (vm.certificationStatus != DeviceCertificationManager.STATUS_UNVERIFIED && vm.certificationFailureReason != DeviceCertificationManager.REASON_WRONG_SIM))
+                            CertificationCheckRow("3. Readable audio file (> 1KB)", isVerified)
+                            CertificationCheckRow("4. Upload confirmed", isVerified)
+                            CertificationCheckRow("5. Synced to CRM dashboard", isVerified)
+
+                            vm.certificationFailureReason?.let { reason ->
+                                Surface(
+                                    color = GxDanger.copy(alpha = 0.08f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        when (reason) {
+                                            DeviceCertificationManager.REASON_CALL_NOT_DETECTED -> "No completed call was detected after test session started. Dial a test number (e.g. 198) and stay connected for 10s."
+                                            DeviceCertificationManager.REASON_WRONG_SIM -> "Call was placed on personal or unconfigured SIM. Ensure phone dialer uses the configured work SIM."
+                                            DeviceCertificationManager.REASON_RECORDING_NOT_FOUND -> "Call captured, but audio was not found. Enable Phone app auto-recording or select the recording folder."
+                                            DeviceCertificationManager.REASON_AUDIO_UNREADABLE -> "Audio file was empty or unreadable (< 1KB). Check microphone and storage permissions."
+                                            DeviceCertificationManager.REASON_UPLOAD_FAILED -> "Recording saved on phone, but CRM upload failed. Check internet connection."
+                                            DeviceCertificationManager.REASON_DASHBOARD_SYNC_FAILED -> "Cloud sync could not link the recording to the CRM call session."
+                                            else -> "Issue: $reason"
+                                        },
+                                        color = GxDanger,
+                                        fontSize = 11.sp,
+                                        lineHeight = 15.sp,
+                                        modifier = Modifier.padding(8.dp)
+                                    )
+                                }
+                            }
+
+                            vm.testSessionMessage?.let { msg ->
+                                Text(msg, color = if (isVerified) GxSuccess else GxMuted, fontSize = 11.sp, lineHeight = 15.sp)
+                            }
+                        }
+                    }
+
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = {
+                                vm.startTestSession()
+                                runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:198"))) }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.Phone, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Dial test call", fontSize = 12.sp)
+                        }
+                        OutlinedButton(
+                            onClick = { vm.evaluateTestCall() },
+                            enabled = !vm.testSessionBusy,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            if (vm.testSessionBusy) {
+                                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = GxAccent)
+                            } else {
+                                Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Check result", fontSize = 12.sp)
+                            }
+                        }
+                    }
+
+                    if (vm.certificationStatus == DeviceCertificationManager.STATUS_VERIFIED) {
+                        PrimaryButton("Finish setup (Certified)", vm.busy) { finishSetup() }
+                    } else {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("Test call optional to continue", color = GxMuted, fontSize = 11.sp)
+                            TextButton(
+                                onClick = { vm.skipTestCertification { finishSetup() } },
+                                enabled = !vm.busy
+                            ) {
+                                Text("Skip test for now", color = GxMuted, fontSize = 12.sp, textDecoration = TextDecoration.Underline)
+                            }
+                        }
+                    }
+                }
+            }
+            if (setupStep < 3) Text("Your phone controls recording access. AI Closer reports the real sync status after every call.", color = GxMuted, fontSize = 11.sp, lineHeight = 15.sp)
             setupIssue?.let { issue ->
                 Surface(
                     color = GxDanger.copy(alpha = 0.08f),
@@ -291,23 +700,49 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                         Text(issue, color = GxText, fontSize = 12.sp, lineHeight = 16.sp)
                         if (issue.contains("registered to another", ignoreCase = true)) {
                             Text(
-                                "Ask an admin to revoke the other closer's device registration, then retry here. This phone will not replace another closer automatically.",
+                                "“Login here” will assign this company phone to your account and activate it immediately without admin approval.",
                                 color = GxMuted,
                                 fontSize = 11.sp,
                                 lineHeight = 15.sp
                             )
-                        }
-                        TextButton(
-                            onClick = { setupIssue = null; continueSetup() },
-                            enabled = !vm.busy,
-                            modifier = Modifier.align(Alignment.End)
-                        ) {
-                            Text("Retry setup", color = GxAccent, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.height(4.dp))
+                            Button(
+                                onClick = {
+                                    setupIssue = null
+                                    vm.registerDevice(force = true) {}
+                                },
+                                enabled = !vm.busy,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = GxAccent,
+                                    contentColor = Color.White
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth().height(42.dp)
+                            ) {
+                                Icon(Icons.Default.Login, null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Login here", fontWeight = FontWeight.Black, fontSize = 13.sp)
+                            }
+                        } else {
+                            TextButton(
+                                onClick = { setupIssue = null; continueSetup() },
+                                enabled = !vm.busy,
+                                modifier = Modifier.align(Alignment.End)
+                            ) {
+                                Text("Retry setup", color = GxAccent, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
             }
-            PrimaryButton("Grant permissions and register", vm.busy) { setupIssue = null; continueSetup() }
+            if (setupStep == 0) PrimaryButton("Grant permissions and continue", vm.busy) { setupIssue = null; continueSetup() }
+            Spacer(Modifier.height(8.dp))
+            TextButton(
+                onClick = { vm.logout {} },
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            ) {
+                Text("Sign in with different account", color = GxMuted, fontSize = 12.sp)
+            }
         }
     }
 }
@@ -476,9 +911,140 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
 }
 
 @Composable private fun CallsScreen(vm: CrmViewModel, disposition: (String) -> Unit) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var accessibilityEnabled by remember { mutableStateOf(DialerShareAutomation.isAccessibilityEnabled(context)) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                accessibilityEnabled = DialerShareAutomation.isAccessibilityEnabled(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val data = vm.bootstrap
     Page {
         BrandHeader("Calls & Recordings", "Outcomes, notes and secure audio sync")
+
+        if (vm.certificationStatus != DeviceCertificationManager.STATUS_VERIFIED) {
+            GxCard(accent = true) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Warning, null, tint = GxWarning, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("PHONE UNCERTIFIED", color = GxWarning, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                        Text(
+                            when (vm.certificationStatus) {
+                                DeviceCertificationManager.STATUS_TESTING -> "Test session in progress. Place a 10s call on work SIM."
+                                DeviceCertificationManager.STATUS_PARTIAL -> "Make one test call to verify audio recording sync."
+                                DeviceCertificationManager.STATUS_ACTION_REQUIRED -> "Recording setup needs attention. Run verification."
+                                else -> "Phone uncertified — make one test call to verify recording."
+                            },
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp,
+                        )
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    StatusPill(
+                        vm.certificationStatus,
+                        if (vm.certificationStatus == DeviceCertificationManager.STATUS_PARTIAL) GxWarning else GxDanger
+                    )
+                }
+                vm.certificationFailureReason?.let { reason ->
+                    Text(
+                        when (reason) {
+                            DeviceCertificationManager.REASON_CALL_NOT_DETECTED -> "Last issue: No call detected during test session."
+                            DeviceCertificationManager.REASON_WRONG_SIM -> "Last issue: Call placed on personal or unconfigured SIM."
+                            DeviceCertificationManager.REASON_RECORDING_NOT_FOUND -> "Last issue: No recording file found."
+                            DeviceCertificationManager.REASON_AUDIO_UNREADABLE -> "Last issue: Audio file unreadable or < 1KB."
+                            DeviceCertificationManager.REASON_UPLOAD_FAILED -> "Last issue: Audio upload to CRM failed."
+                            DeviceCertificationManager.REASON_DASHBOARD_SYNC_FAILED -> "Last issue: Sync could not link recording to call."
+                            else -> "Last issue: $reason"
+                        },
+                        color = GxMuted,
+                        fontSize = 11.sp
+                    )
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            vm.startTestSession()
+                            runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:198"))) }
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(Icons.Default.Phone, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Dial test call", fontSize = 12.sp)
+                    }
+                    Button(
+                        onClick = { vm.evaluateTestCall() },
+                        enabled = !vm.testSessionBusy,
+                        colors = ButtonDefaults.buttonColors(containerColor = GxAccent),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        if (vm.testSessionBusy) {
+                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = Color.White)
+                        } else {
+                            Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Verify now", fontSize = 12.sp)
+                        }
+                    }
+                }
+                vm.testSessionMessage?.let { msg ->
+                    Text(msg, color = if (vm.certificationStatus == DeviceCertificationManager.STATUS_VERIFIED) GxSuccess else GxWarning, fontSize = 11.sp)
+                }
+            }
+        }
+
+        if (!accessibilityEnabled) {
+            GxCard(accent = true) {
+                Text("RECORDING BRIDGE NEEDS ATTENTION", color = GxWarning, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                Text("Pixel/Google Phone recordings are private until AI Closer is allowed to use the visible Share flow.", fontWeight = FontWeight.Black)
+                Text("After an APK update, Android may turn this protected service off. Enable it before making the next test call; otherwise the call can appear without audio.", color = GxMuted, fontSize = 11.sp, lineHeight = 16.sp)
+                OutlinedButton(
+                    onClick = {
+                        runCatching { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Default.Accessibility, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Open Accessibility settings")
+                }
+            }
+        }
+
+        vm.pendingSharedRecording?.let { pending ->
+            val attachableCalls = data?.calls.orEmpty()
+                .filter { it.status.equals("COMPLETED", ignoreCase = true) && it.recordingStatus != "UPLOADED" }
+                .take(8)
+            GxCard(accent = true) {
+                Text("SHARED RECORDING", color = GxAccent, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                Text("${pending.displayName} is ready to attach.", fontWeight = FontWeight.Black)
+                Text(
+                    if (pending.durationMs > 0L) "${pending.durationMs / 1000L}s audio • choose the matching completed call below."
+                    else "Audio imported • choose the matching completed call below.",
+                    color = GxMuted,
+                    fontSize = 11.sp,
+                )
+                if (attachableCalls.isEmpty()) {
+                    Text("No completed calls are available yet. Sync calls first.", color = GxWarning, fontSize = 11.sp)
+                } else {
+                    attachableCalls.forEach { call ->
+                        SecondaryButton(
+                            "Attach to ${call.assignment?.customerName ?: call.phoneNumber}",
+                            vm.busy,
+                        ) { vm.attachSharedRecording(call) }
+                    }
+                }
+                TextButton(onClick = { vm.discardSharedRecording() }, enabled = !vm.busy) {
+                    Text("Discard import", color = GxMuted)
+                }
+            }
+        }
 
         GxCard {
             Text("SYNC & QUEUE STATUS", color = GxAccent, fontSize = 10.sp, fontWeight = FontWeight.Black)
@@ -518,6 +1084,12 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
         GxCard {
             Text(if ((data?.pendingUploads ?: 0) > 0) "${data?.pendingUploads} upload(s) waiting in queue" else "Recording upload queue is clear", fontWeight = FontWeight.Black)
             Text(if ((data?.pendingNotes ?: 0) > 0) "${data?.pendingNotes} mandatory disposition(s) due" else "All completed calls have notes.", color = GxMuted)
+            if ((data?.pendingNotes ?: 0) > 0) {
+                val pendingCall = data?.calls.orEmpty().firstOrNull { it.note.isNullOrBlank() }
+                SecondaryButton("Complete pending call notes", vm.busy) {
+                    pendingCall?.id?.let(disposition)
+                }
+            }
             if ((data?.pendingUploads ?: 0) > 0) {
                 SecondaryButton("Retry audio uploads now", vm.busy) {
                     vm.retryPendingRecordings()
@@ -588,7 +1160,7 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
                 }
                 call.recordingError?.let { Text(it, color = GxDanger, fontSize = 11.sp) }
                 if (call.note.isNullOrBlank()) {
-                    PrimaryButton("Complete required disposition", false) { disposition(call.id) }
+                    PrimaryButton("Add call notes & outcome", false) { disposition(call.id) }
                 } else {
                     Text(call.outcome.orEmpty().replace('_', ' '), color = GxAccent, fontWeight = FontWeight.Bold)
                     Text(call.note, color = GxMuted)
@@ -742,10 +1314,37 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
 }
 
 @Composable private fun MoreScreen(vm: CrmViewModel, edit: () -> Unit, inbox: () -> Unit, openLesson: (Course, Lesson) -> Unit) {
+    val context = LocalContext.current
     val session = vm.session
     val data = vm.bootstrap
     val agent = data?.agent
     var selectedSection by rememberSaveable { mutableIntStateOf(0) }
+    var simOptions by remember { mutableStateOf<List<SimOption>>(emptyList()) }
+    var simSelection by rememberSaveable { mutableStateOf(CallManager.simSelection(context)) }
+    var recordingFolderUri by remember { mutableStateOf(RecordingFolderStore.getTreeUri(context)) }
+    var folderCheckBusy by remember { mutableStateOf(false) }
+    var folderCheckMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    val folderCheckScope = rememberCoroutineScope()
+    val recordingFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        if (persistRecordingFolder(context, uri)) {
+            recordingFolderUri = uri
+            folderCheckMessage = null
+        }
+    }
+    fun checkRecordingFolder() {
+        if (recordingFolderUri == null || folderCheckBusy) return
+        folderCheckBusy = true
+        folderCheckMessage = null
+        folderCheckScope.launch {
+            val result = withContext(Dispatchers.IO) { SystemCallRecordingImporter.checkSelectedFolder(context) }
+            folderCheckBusy = false
+            folderCheckMessage = result?.let {
+                "Access confirmed: ${it.fileName}${if (it.durationMs > 0L) " · ${it.durationMs / 1000}s audio" else ""}"
+            } ?: "No readable audio file found. Make one test call with recording enabled, then check this folder again."
+        }
+    }
+    LaunchedEffect(Unit) { simOptions = CallManager.availableSims(context) }
     val lessons = vm.courses.flatMap { it.lessons }
     val learningScore = if (vm.courses.isEmpty()) 0 else vm.courses.map { it.completionPercent }.average().toInt()
     val completedLessons = lessons.count { it.progressPercent >= it.completionThreshold }
@@ -817,6 +1416,181 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
                 CustomerFact(Icons.Default.PhoneAndroid, "Company phone", if ((data?.deviceCount ?: 0) > 0) "Connected to ${data?.deviceCount} registered device${if ((data?.deviceCount ?: 0) == 1) "" else "s"}" else "Device registration pending")
                 CustomerFact(Icons.Default.CloudDone, "CRM connection", "closers.gigxomi.com")
                 CustomerFact(Icons.Default.Security, "Account security", "Authenticated native Android session")
+            }
+            GxCard {
+                SectionHeading(Icons.Default.Folder, "Call recording folder")
+                Text(
+                    "TeleCRM-style sync reads the recording created by the Phone app. Choose the folder where that app saves completed call recordings.",
+                    color = GxMuted,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                )
+                Text(
+                    "How to find it: make a short recorded call, open Files, locate the newest audio file, and select the folder containing it. Pixel/Google Phone may keep recordings private and unavailable to other apps.",
+                    color = GxMuted,
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp,
+                )
+                OutlinedButton(
+                    onClick = { recordingFolderPicker.launch(recordingFolderUri) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Default.Folder, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (recordingFolderUri == null) "Select recording folder" else "Change recording folder")
+                }
+                SecondaryButton("Check selected folder", folderCheckBusy, recordingFolderUri != null) { checkRecordingFolder() }
+                Text(
+                    if (recordingFolderUri == null) "No folder linked. GXClosers will try Android's automatic audio library scan; private OEM recordings may require Share/Export to a visible folder."
+                    else "Folder linked. New system-dialer recordings will be matched and uploaded after each call.",
+                    color = if (recordingFolderUri == null) GxWarning else GxSuccess,
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp,
+                )
+                folderCheckMessage?.let { message ->
+                    Text(message, color = if (message.startsWith("Access confirmed")) GxSuccess else GxWarning, fontSize = 11.sp, lineHeight = 16.sp)
+                }
+            }
+            var testPhoneBusy by remember { mutableStateOf(false) }
+            var testPhoneResult by rememberSaveable { mutableStateOf<String?>(null) }
+            val diagScope = rememberCoroutineScope()
+            GxCard {
+                val diag = remember { DeviceDiagnostics.snapshot(context) }
+                SectionHeading(Icons.Default.Analytics, "Device capability & diagnostics")
+                Text(
+                    "Hardware capability probe for call tracking and recording sync.",
+                    color = GxMuted,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                )
+                CustomerFact(Icons.Default.PhoneAndroid, "Model", "${diag.optString("manufacturer")} ${diag.optString("model")} (Android ${diag.optString("androidVersion")})")
+                CustomerFact(Icons.Default.Call, "Dialer", diag.optString("defaultDialer").ifBlank { "System default dialer" })
+                val capability = diag.optString("recordingCapability")
+                val capabilityLabel = when (capability) {
+                    "SYSTEM_FOLDER_OR_MEDIASTORE" -> "Automatic native dialer recording"
+                    "DIALER_SHARE" -> "Dialer Share automation"
+                    "MICROPHONE_FALLBACK" -> "Microphone fallback active"
+                    else -> "Setup required"
+                }
+                CustomerFact(Icons.Default.Mic, "Recording route", capabilityLabel)
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            testPhoneBusy = true
+                            testPhoneResult = null
+                            diagScope.launch {
+                                delay(600L)
+                                val current = DeviceDiagnostics.snapshot(context)
+                                val hasPhone = current.optBoolean("permissionPhoneState") && current.optBoolean("permissionCallLog")
+                                val hasRec = current.optString("recordingCapability") != "UNAVAILABLE"
+                                testPhoneBusy = false
+                                testPhoneResult = when {
+                                    !hasPhone -> "Phone or Call Log permission missing. Re-open Setup to grant access."
+                                    !hasRec -> "Recording route unavailable. Check phone dialer recording settings."
+                                    else -> "Device verified: ready for automated CRM call tracking & sync."
+                                }
+                                DeviceDiagnostics.enqueueSnapshot(context, force = true)
+                            }
+                        },
+                        modifier = Modifier.weight(1f).height(42.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        enabled = !testPhoneBusy,
+                    ) {
+                        Icon(Icons.Default.Speed, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (testPhoneBusy) "Checking..." else "Test this phone", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            runCatching {
+                                val current = DeviceDiagnostics.snapshot(context)
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_SUBJECT, "AI Closer Diagnostics - ${Build.MODEL}")
+                                    putExtra(Intent.EXTRA_TEXT, current.toString(2))
+                                }
+                                context.startActivity(Intent.createChooser(shareIntent, "Share Diagnostics"))
+                            }
+                        },
+                        modifier = Modifier.weight(1f).height(42.dp),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        Icon(Icons.Default.Share, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Export report", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                testPhoneResult?.let { result ->
+                    val isPass = result.startsWith("Device verified")
+                    Surface(
+                        color = (if (isPass) GxSuccess else GxDanger).copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, (if (isPass) GxSuccess else GxDanger).copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            result,
+                            color = if (isPass) GxSuccess else GxDanger,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(10.dp),
+                        )
+                    }
+                }
+            }
+            GxCard {
+                SectionHeading(Icons.Default.SimCard, "Calling SIM")
+                Text("Choose the SIM used for outbound CRM calls. Recordings stay linked to the selected call session.", color = GxMuted, fontSize = 12.sp, lineHeight = 17.sp)
+                if (simOptions.isEmpty()) {
+                    Text("No active SIM details are available. Allow phone access in setup.", color = GxWarning, fontSize = 12.sp)
+                } else {
+                    simOptions.forEach { sim ->
+                        Row(
+                            Modifier.fillMaxWidth().clickable {
+                                simSelection = sim.subscriptionId
+                                CallManager.saveSimSelection(context, sim.subscriptionId)
+                            },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(
+                                selected = simSelection == sim.subscriptionId,
+                                onClick = {
+                                    simSelection = sim.subscriptionId
+                                    CallManager.saveSimSelection(context, sim.subscriptionId)
+                                },
+                            )
+                            Column(Modifier.weight(1f)) {
+                                Text(sim.label, fontWeight = FontWeight.Bold)
+                                sim.phoneNumber?.takeIf(String::isNotBlank)?.let { Text(it, color = GxMuted, fontSize = 11.sp) }
+                            }
+                        }
+                    }
+                }
+                Row(
+                    Modifier.fillMaxWidth().clickable {
+                        simSelection = CallManager.SIM_SELECTION_ASK
+                        CallManager.saveSimSelection(context, CallManager.SIM_SELECTION_ASK)
+                    },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(
+                        selected = simSelection == CallManager.SIM_SELECTION_ASK,
+                        onClick = {
+                            simSelection = CallManager.SIM_SELECTION_ASK
+                            CallManager.saveSimSelection(context, CallManager.SIM_SELECTION_ASK)
+                        },
+                    )
+                    Column {
+                        Text("Ask every time", fontWeight = FontWeight.Bold)
+                        Text("Show SIM picker before each outbound call", color = GxMuted, fontSize = 11.sp)
+                    }
+                }
             }
             SecondaryButton("Refresh profile", vm.busy) { vm.refreshAll() }
             TextButton(onClick = { vm.logout {} }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Icon(Icons.Default.Logout, null, Modifier.size(18.dp)); Spacer(Modifier.width(7.dp)); Text("Sign out", color = GxDanger, fontWeight = FontWeight.Bold) }
@@ -918,7 +1692,7 @@ private fun parseLeadContext(raw: String): List<LeadContextEvent> {
     }
 }
 
-@Composable private fun LeadDetailScreen(vm: CrmViewModel, id: String, back: () -> Unit) {
+@Composable private fun LeadDetailScreen(vm: CrmViewModel, id: String, back: () -> Unit, openDisposition: (String) -> Unit) {
     val context = LocalContext.current
     val keyboard = LocalSoftwareKeyboardController.current
     val lead = vm.bootstrap?.leads?.find { it.id == id }
@@ -931,6 +1705,9 @@ private fun parseLeadContext(raw: String): List<LeadContextEvent> {
     var taskPriority by rememberSaveable(id) { mutableStateOf("NORMAL") }
     var taskComposerOpen by rememberSaveable(id) { mutableStateOf(false) }
     var historyExpanded by rememberSaveable(id) { mutableStateOf(false) }
+    var simChooserOpen by remember { mutableStateOf(false) }
+    var simOptions by remember { mutableStateOf<List<SimOption>>(emptyList()) }
+    val pendingCall = vm.bootstrap?.calls.orEmpty().firstOrNull { it.note.isNullOrBlank() }
     LaunchedEffect(id) { vm.clearCustomer360(); vm.loadCustomer360(id) }
     Page {
         HeaderWithBack(lead?.customerName ?: "Lead unavailable", lead?.let { "${it.stage.replace('_', ' ')} · ${it.priority}" } ?: "This lead may have moved.", back)
@@ -953,21 +1730,35 @@ private fun parseLeadContext(raw: String): List<LeadContextEvent> {
                     border = BorderStroke(1.dp, GxWarning.copy(alpha = .28f)),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.EditNote, null, tint = GxWarning, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "Complete ${vm.bootstrap?.pendingNotes} pending call note${if ((vm.bootstrap?.pendingNotes ?: 0) == 1) "" else "s"} before starting another call. Open Calls to finish it.",
-                            color = GxWarning,
-                            fontSize = 11.sp,
-                            lineHeight = 15.sp,
-                        )
+                    Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.EditNote, null, tint = GxWarning, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "Complete ${vm.bootstrap?.pendingNotes} pending call note${if ((vm.bootstrap?.pendingNotes ?: 0) == 1) "" else "s"} before starting another call.",
+                                color = GxWarning,
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp,
+                            )
+                        }
+                        if (pendingCall != null) {
+                            SecondaryButton("Open pending call notes", false) { openDisposition(pendingCall.id) }
+                        }
                     }
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
-                    onClick = { vm.startCall(lead) },
+                    onClick = {
+                        val activeSims = CallManager.availableSims(context)
+                        val preferredSim = CallManager.preferredSim(context, activeSims)
+                        if (activeSims.size > 1 && preferredSim == null) {
+                            simOptions = activeSims
+                            simChooserOpen = true
+                        } else {
+                            vm.startCall(lead, preferredSim ?: activeSims.firstOrNull())
+                        }
+                    },
                     enabled = lead.customerPhone.isNotBlank() && !vm.busy && (vm.bootstrap?.pendingNotes ?: 0) == 0,
                     colors = ButtonDefaults.buttonColors(containerColor = GxAccent, contentColor = Color.White),
                     modifier = Modifier.weight(1f).height(48.dp),
@@ -1091,6 +1882,53 @@ private fun parseLeadContext(raw: String): List<LeadContextEvent> {
         }
         GxCard { SectionHeading(Icons.Default.Security, "Tracked-call flow"); Text("CRM session → company dialer → supported recording → secure upload → required disposition", color = GxMuted, fontSize = 12.sp, lineHeight = 18.sp) }
     }
+    if (simChooserOpen) {
+        AlertDialog(
+            onDismissRequest = { simChooserOpen = false },
+            title = { Text("Choose SIM for this call", fontWeight = FontWeight.Black) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("The selected SIM will route the call. Recording will be linked to this CRM call session.", color = GxMuted, fontSize = 12.sp)
+                    simOptions.forEach { sim ->
+                        OutlinedButton(
+                            onClick = {
+                                simChooserOpen = false
+                                CallManager.saveSimSelection(context, sim.subscriptionId)
+                                lead?.let { vm.startCall(it, sim) }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                        ) {
+                            Icon(Icons.Default.SimCard, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
+                                Text(sim.label, fontWeight = FontWeight.Bold)
+                                sim.phoneNumber?.takeIf(String::isNotBlank)?.let { Text(it, color = GxMuted, fontSize = 11.sp) }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { simChooserOpen = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+private fun persistRecordingFolder(context: Context, uri: Uri): Boolean {
+    val resolver = context.contentResolver
+    val read = Intent.FLAG_GRANT_READ_URI_PERMISSION
+    val write = Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+    val persisted = runCatching {
+        resolver.takePersistableUriPermission(uri, read or write)
+        true
+    }.getOrElse {
+        runCatching {
+            resolver.takePersistableUriPermission(uri, read)
+            true
+        }.getOrDefault(false)
+    }
+    if (persisted) RecordingFolderStore.saveTreeUri(context, uri)
+    return persisted
 }
 
 private fun showFollowUpPicker(context: Context, onPicked: (iso: String, display: String) -> Unit) {
@@ -1480,6 +2318,111 @@ private fun formatMessageDay(value: String): String {
 }
 @Composable private fun FeatureRow(icon: ImageVector, title: String, copy: String) { Row(verticalAlignment = Alignment.Top) { Icon(icon, null, tint = GxAccent); Spacer(Modifier.width(12.dp)); Column { Text(title, fontWeight = FontWeight.Black); Text(copy, color = GxMuted, fontSize = 12.sp) } } }
 @Composable private fun Metric(value: String, label: String, modifier: Modifier) { Surface(color = GxSurface, shape = RoundedCornerShape(16.dp), modifier = modifier) { Column(Modifier.padding(14.dp)) { Text(value, fontSize = 25.sp, fontWeight = FontWeight.Black); Text(label, color = GxMuted, fontSize = 11.sp) } } }
+@Composable private fun SetupIntroHero() {
+    Surface(
+        color = GxAccent.copy(alpha = .11f),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, GxAccent.copy(alpha = .22f)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(color = GxAccent.copy(alpha = .18f), shape = RoundedCornerShape(14.dp)) {
+                Icon(Icons.Default.AutoAwesome, "AI Closer", tint = GxAccent, modifier = Modifier.padding(12.dp).size(24.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("Ready for your first synced call?", color = GxText, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                Text("About 2 minutes · No overlay access", color = GxMuted, fontSize = 11.sp)
+            }
+        }
+    }
+}
+
+@Composable private fun CertificationCheckRow(label: String, passed: Boolean) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            if (passed) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+            null,
+            tint = if (passed) GxSuccess else GxMuted,
+            modifier = Modifier.size(14.dp)
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            label,
+            color = if (passed) GxText else GxMuted,
+            fontSize = 11.sp,
+            fontWeight = if (passed) FontWeight.Bold else FontWeight.Normal
+        )
+    }
+}
+
+@Composable fun SetupProgress(step: Int) {
+    val labels = listOf("Access", "SIM", "Recording", "Verify")
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            labels.forEachIndexed { index, label ->
+                val active = index <= step
+                Surface(
+                    color = if (active) GxAccent else GxSurface2,
+                    shape = RoundedCornerShape(99.dp),
+                    modifier = Modifier.weight(1f).height(5.dp),
+                ) {}
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            labels.forEachIndexed { index, label ->
+                Text(
+                    "${index + 1}. $label",
+                    color = if (index == step) GxAccent else GxMuted,
+                    fontSize = 10.sp,
+                    fontWeight = if (index == step) FontWeight.Black else FontWeight.Medium,
+                )
+            }
+        }
+    }
+}
+
+@Composable private fun SetupStatusRow(
+    icon: ImageVector,
+    title: String,
+    detail: String,
+    color: Color,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+) {
+    Surface(
+        color = GxSurface2,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, GxOutlineSoft),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.Top) {
+                Surface(color = color.copy(alpha = .13f), shape = RoundedCornerShape(10.dp)) {
+                    Icon(icon, null, tint = color, modifier = Modifier.padding(7.dp).size(18.dp))
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(title, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(detail, color = GxMuted, fontSize = 11.sp, lineHeight = 15.sp)
+                }
+                if (actionLabel == null) Icon(Icons.Default.CheckCircle, "Ready", tint = color, modifier = Modifier.size(19.dp))
+            }
+            if (actionLabel != null && onAction != null) {
+                OutlinedButton(
+                    onClick = onAction,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = GxText),
+                    border = BorderStroke(1.dp, color.copy(alpha = .42f)),
+                    modifier = Modifier.fillMaxWidth().height(42.dp),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Text(actionLabel, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+
 @Composable private fun StatusPill(label: String, color: androidx.compose.ui.graphics.Color) { Surface(color = color.copy(alpha = .12f), shape = RoundedCornerShape(99.dp), border = BorderStroke(1.dp, color.copy(alpha = .35f))) { Text(label, color = color, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) } }
 @Composable private fun LeadCard(lead: SalesLead, open: () -> Unit) {
     GxCard(onClick = open) {

@@ -14,7 +14,7 @@ import {
   readGoogleOAuthState,
   verifyGoogleIdToken,
 } from "@/lib/auth/google-oauth";
-import { applySessionCookie, getDashboardPathForIdentity, getSafeRedirectPath } from "@/lib/auth/session";
+import { applySessionCookie, getDashboardPathForIdentity, getSafeSalesRedirectPath } from "@/lib/auth/session";
 import { getSalesAgentAccess } from "@/lib/gigxomi/sales-store";
 import { getPublicRequestUrl } from "@/lib/auth/request-url";
 import { prisma } from "@/lib/prisma";
@@ -121,7 +121,7 @@ export async function GET(request: Request) {
       replaceExisting: true,
     });
     await prisma.appAuthUser.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
-    const destination = getSafeRedirectPath(savedState.redirectTo, effectiveRole as Parameters<typeof getSafeRedirectPath>[1]);
+    const destination = getSafeSalesRedirectPath(savedState.redirectTo, effectiveRole as Parameters<typeof getSafeSalesRedirectPath>[1]);
     const response = clearStateCookie(NextResponse.redirect(getPublicRequestUrl(request, destination || getDashboardPathForIdentity({ role: effectiveRole as Parameters<typeof getDashboardPathForIdentity>[0]["role"], packageAudience: user.packageAudience, workspaceMode: user.workspaceMode }))));
     await applySessionCookie(response, {
       userId: user.id,

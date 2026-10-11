@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
@@ -19,6 +19,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
+  ChevronUp,
   CheckCircle2,
   Clock,
   Clock3,
@@ -293,6 +294,79 @@ function recordingStatusLabel(value: string | null | undefined) {
   return label(value);
 }
 
+function getRecordingUnavailableDetails(call: {
+  durationSeconds?: number | null;
+  status?: string | null;
+  recordingStatus?: string | null;
+  recordingError?: string | null;
+  recordingCapability?: string | null;
+}): { badge: string; reason: string; tone: "warning" | "neutral" | "danger" } {
+  const status = call.recordingStatus || "NONE";
+  const duration = call.durationSeconds ?? 0;
+  const callStatus = (call.status || "").toUpperCase();
+  const err = (call.recordingError || "").trim();
+
+  if (status === "UPLOADED") {
+    return { badge: "Ready to play", reason: "Audio recording verified and ready", tone: "neutral" };
+  }
+
+  if (status === "LOCAL_PENDING" || status === "UPLOADING") {
+    return {
+      badge: "Processing",
+      reason: "Audio recorded on phone; syncing to server...",
+      tone: "warning",
+    };
+  }
+
+  if (err.length > 0) {
+    if (err.toLowerCase().includes("permission")) {
+      return { badge: "Permission needed", reason: "Phone storage/accessibility permission missing", tone: "warning" };
+    }
+    if (err.toLowerCase().includes("share") || err.toLowerCase().includes("google")) {
+      return { badge: "Share required", reason: "Google Dialer: Share recording from Phone app", tone: "warning" };
+    }
+    return { badge: "Recording unavailable", reason: err, tone: "danger" };
+  }
+
+  if (duration <= 0 || callStatus === "MISSED" || callStatus === "REJECTED" || callStatus === "FAILED") {
+    return {
+      badge: "No audio",
+      reason: "Call not connected (0s duration)",
+      tone: "neutral",
+    };
+  }
+
+  if (duration < 3) {
+    return {
+      badge: "No audio",
+      reason: "Call too brief (< 3s talk time)",
+      tone: "neutral",
+    };
+  }
+
+  if (call.recordingCapability === "DIALER_SHARE") {
+    return {
+      badge: "Share required",
+      reason: "Google dialer hides files; use Share in Phone app",
+      tone: "warning",
+    };
+  }
+
+  if (call.recordingCapability === "UNAVAILABLE") {
+    return {
+      badge: "Not supported",
+      reason: "Call recording disabled or unsupported on this device",
+      tone: "danger",
+    };
+  }
+
+  return {
+    badge: "Recording unavailable",
+    reason: "Phone dialer didn't save recording or auto-record was off",
+    tone: "neutral",
+  };
+}
+
 function formatDate(value: string | null) {
   return value ? new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" }).format(new Date(value)) : "Not set";
 }
@@ -542,6 +616,8 @@ const pipelineColumns: Array<{
   { key: "CLOSED_LOST", label: "Lost / Recycled", stage: "CLOSED_LOST", matchingStages: ["CLOSED_LOST", "LOST", "NOT_REACHABLE", "RECYCLED"] },
 ];
 
+const CRM_LEADS_PER_PAGE = 50;
+
 function flashWindow(createdAt: string) {
   const created = new Date(createdAt).getTime();
   if (!Number.isFinite(created)) return "30s flash";
@@ -596,6 +672,48 @@ function CallRecordingPlayer({ callId, expectedDurationSeconds = 0, labelText = 
   const [isSeeking, setIsSeeking] = useState(false);
   const [seekTime, setSeekTime] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
+  const [waveform, setWaveform] = useState<number[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let audioContext: AudioContext | null = null;
+    const fallback = Array.from({ length: 56 }, (_, index) => 24 + Math.abs(Math.sin(index * 1.73)) * 54);
+    fetch(`/api/sales/mobile/calls/${callId}/recording`, { credentials: "same-origin" })
+      .then((response) => {
+        if (!response.ok) throw new Error("Waveform unavailable");
+        return response.arrayBuffer();
+      })
+      .then((buffer) => {
+        if (typeof window === "undefined") throw new Error("Audio context unavailable");
+        const AudioContextImpl = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (!AudioContextImpl) throw new Error("Audio context unavailable");
+        audioContext = new AudioContextImpl();
+        return audioContext.decodeAudioData(buffer.slice(0));
+      })
+      .then((decoded) => {
+        if (cancelled) return;
+        const samples = decoded.getChannelData(0);
+        const bucketSize = Math.max(1, Math.floor(samples.length / 56));
+        const peaks = Array.from({ length: 56 }, (_, index) => {
+          const start = index * bucketSize;
+          const end = Math.min(samples.length, start + bucketSize);
+          let peak = 0;
+          for (let cursor = start; cursor < end; cursor += 1) peak = Math.max(peak, Math.abs(samples[cursor]));
+          return Math.max(16, Math.min(100, peak * 100));
+        });
+        setWaveform(peaks);
+      })
+      .catch(() => {
+        if (!cancelled) setWaveform(fallback);
+      })
+      .finally(() => {
+        audioContext?.close().catch(() => undefined);
+      });
+    return () => {
+      cancelled = true;
+      audioContext?.close().catch(() => undefined);
+    };
+  }, [callId]);
 
   async function toggle() {
     const audio = audioRef.current;
@@ -675,6 +793,15 @@ function CallRecordingPlayer({ callId, expectedDurationSeconds = 0, labelText = 
           ))}
         </div>
       </div>
+      <div aria-label={`${labelText} waveform`} className="sales-recording-waveform" role="img">
+        {(waveform.length ? waveform : Array.from({ length: 56 }, () => 18)).map((height, index, bars) => (
+          <span
+            className={index / bars.length * 100 <= progressPercent ? "is-played" : undefined}
+            key={`${callId}-wave-${index}`}
+            style={{ height: `${height}%` }}
+          />
+        ))}
+      </div>
       <div className="sales-recording-seek-wrap">
         <input
           aria-label={`Seek ${labelText}`}
@@ -715,6 +842,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [operating, setOperating] = useState<SalesOperatingSnapshot | null>(null);
   const [activeTab, setActiveTab] = useState<SalesTab>("dashboard");
+  const [telephonyRevision, setTelephonyRevision] = useState(0);
   const [crmView, setCrmView] = useState<CrmView>("kanban");
   const [viewingAgentId, setViewingAgentId] = useState("all");
   const [crmSearch, setCrmSearch] = useState("");
@@ -726,6 +854,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
   const [quickPillFilter, setQuickPillFilter] = useState<"all" | "today-leads" | "today-followups">("all");
+  const [leadPage, setLeadPage] = useState(1);
   const [status, setStatus] = useState("");
   const [drawer, setDrawer] = useState<SalesDrawer>(null);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
@@ -737,7 +866,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   const [roundRobinAccess, setRoundRobinAccess] = useState<SalesRoundRobinAccess>({
     enabled: false,
     allowNonAdminModifyLeads: false,
-    allowNonAdminImportData: false,
+    allowNonAdminImportData: true,
     allowNonAdminExportData: false,
   });
   const [liveRolePermissions, setLiveRolePermissions] = useState(rolePermissions);
@@ -797,7 +926,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   const navigationTabs = (isWorkspaceAdmin
     ? tabs.filter((tab) => tab.id !== "grab-leads")
     : isCloser
-      ? tabs.filter((tab) => ["dashboard", "crm", "grab-leads", "conversations", "payments"].includes(tab.id))
+      ? tabs.filter((tab) => ["dashboard", "crm", "grab-leads", "contacts", "lead-import", "conversations", "payments"].includes(tab.id))
       : tabs.filter((tab) => !["roles", "profile", "developer", "grab-leads"].includes(tab.id)))
     .filter((tab) => !tabFeatureMap[tab.id] || hasFeature(tabFeatureMap[tab.id] as string));
   const canImportLeads = isWorkspaceAdmin || roundRobinAccess.allowNonAdminImportData;
@@ -1052,6 +1181,17 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     }),
     [dashboardCalls, filteredLeads],
   );
+  const leadPageCount = Math.max(1, Math.ceil(listLeads.length / CRM_LEADS_PER_PAGE));
+  const paginatedLeads = useMemo(
+    () => listLeads.slice((leadPage - 1) * CRM_LEADS_PER_PAGE, leadPage * CRM_LEADS_PER_PAGE),
+    [leadPage, listLeads],
+  );
+  useEffect(() => {
+    setLeadPage(1);
+  }, [crmSearch, statusFilter, groupFilter, sourceFilter, segmentFilter, quickPillFilter, dateRangeFilter, customStartDate, customEndDate, leadOwnershipScope, crmView]);
+  useEffect(() => {
+    setLeadPage((current) => Math.min(current, leadPageCount));
+  }, [leadPageCount]);
   const latestCallByLead = useMemo(() => {
     const calls = new Map<string, SalesDashboardSnapshot["mobileCalls"][number]>();
     for (const call of dashboardCalls) {
@@ -1088,10 +1228,14 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     if (typeof window === "undefined" || typeof EventSource === "undefined") return;
     const source = new EventSource("/api/sales/realtime");
     let refreshTimer: number | undefined;
+    let fallbackInFlight = false;
     const onEvent = (event: MessageEvent<string>) => {
       try {
         const payload = JSON.parse(event.data) as { type?: string; eventType?: string };
         const eventType = payload.eventType ?? payload.type;
+        if (["call.started", "call.ended", "recording.uploaded", "recording.failed"].includes(eventType ?? "")) {
+          setTelephonyRevision((revision) => revision + 1);
+        }
         if (!eventType || ["lead.created", "lead.updated", "call.started", "call.ended", "recording.uploaded", "recording.failed", "conversation.created", "message.created"].includes(eventType)) {
           if (refreshTimer) window.clearTimeout(refreshTimer);
           refreshTimer = window.setTimeout(() => { void refresh().catch(() => undefined); }, 250);
@@ -1101,11 +1245,24 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       }
     };
     source.addEventListener("crm", onEvent);
+    const fallbackPoll = () => {
+      if (activeTab !== "calls" && activeTab !== "dashboard") return;
+      if (source.readyState === EventSource.OPEN || document.visibilityState === "hidden" || fallbackInFlight) return;
+      fallbackInFlight = true;
+      void refresh()
+        .then(() => setTelephonyRevision((revision) => revision + 1))
+        .catch(() => undefined)
+        .finally(() => {
+          fallbackInFlight = false;
+        });
+    };
+    const fallbackTimer = window.setInterval(fallbackPoll, 15_000);
     return () => {
       if (refreshTimer) window.clearTimeout(refreshTimer);
+      window.clearInterval(fallbackTimer);
       source.close();
     };
-  }, [viewingAgentId]);
+  }, [activeTab, viewingAgentId]);
 
   useEffect(() => {
     let active = true;
@@ -1580,7 +1737,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   ];
 
   function navigateSales(section: string) {
-    const nextTab = (isWorkspaceAdmin && section === "calls" ? "reports" : section) as SalesTab;
+    const nextTab = section as SalesTab;
     if (!navigationTabs.some((tab) => tab.id === nextTab)) {
       setStatus("This page is not available for your account.");
       setActiveTab("dashboard");
@@ -2038,14 +2195,22 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                             expectedDurationSeconds={call.durationSeconds}
                             labelText={`${call.customerName} recording`}
                           />
-                        ) : (
-                          <span
-                            className={`sales-chip ${call.recordingStatus === "FAILED" ? "danger" : "neutral"}`}
-                            style={{ fontSize: "11px" }}
-                          >
-                            {recordingStatusLabel(call.recordingStatus)}
-                          </span>
-                        )}
+                        ) : (() => {
+                          const unavailable = getRecordingUnavailableDetails(call);
+                          return (
+                            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "2px" }}>
+                              <span
+                                className={`sales-chip ${unavailable.tone === "danger" ? "danger" : "neutral"}`}
+                                style={{ fontSize: "11px" }}
+                              >
+                                {recordingStatusLabel(call.recordingStatus)}
+                              </span>
+                              <span style={{ fontSize: "10px", color: "var(--closer-muted, #64748b)", textAlign: "right", maxWidth: "160px" }}>
+                                {unavailable.reason}
+                              </span>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   ))
@@ -2056,7 +2221,10 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
 
           {/* 3. Admin reporting replaces rep-only targets; closers keep their personal tracker. */}
           {isWorkspaceAdmin ? (
-            <AdminTeamReportingPanel agents={reportingAgents} leads={dashboardLeads} calls={dashboardCalls} />
+            <>
+              <AdminTeamReportingPanel agents={reportingAgents} leads={dashboardLeads} calls={dashboardCalls} />
+              <DeviceHealthPanel devices={snapshot.mobileDevices} diagnostics={snapshot.mobileDiagnostics} />
+            </>
           ) : (
           <div
             className="sales-goal-card"
@@ -2596,7 +2764,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       <DndContext collisionDetection={closestCorners} onDragEnd={handleLeadDragEnd} sensors={kanbanSensors}>
                 <div className="sales-kanban">
                   {pipelineColumns.map((col) => {
-                    const colLeads = filteredLeads.filter((lead) => col.matchingStages.includes(lead.stage));
+                    const colLeads = paginatedLeads.filter((lead) => col.matchingStages.includes(lead.stage));
                     const totalColValue = colLeads.reduce((sum, l) => sum + (l.budgetAmount || 0), 0);
                     return (
                       <LeadKanbanColumn
@@ -2624,7 +2792,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                   <span>Stage</span>
                   <span>Actions</span>
                 </div>
-                {listLeads.map((lead) => {
+                {paginatedLeads.map((lead) => {
                   const call = latestCallByLead.get(lead.id);
                   return <article className="sales-crm-list-row" key={lead.id}>
                     <button className="sales-crm-list-main" onClick={() => setSelectedLeadId(lead.id)} type="button">
@@ -2654,6 +2822,18 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
               </div>
             )}
           </div>
+          {leadPageCount > 1 ? (
+            <nav aria-label="CRM lead pages" className="sales-crm-pagination">
+              <span>
+                Showing {(leadPage - 1) * CRM_LEADS_PER_PAGE + 1}-{Math.min(leadPage * CRM_LEADS_PER_PAGE, listLeads.length)} of {listLeads.length} filtered leads
+              </span>
+              <div className="sales-crm-pagination-actions">
+                <button className="sales-secondary-button compact" disabled={leadPage === 1} onClick={() => setLeadPage((page) => Math.max(1, page - 1))} type="button">Previous</button>
+                <strong>Page {leadPage} of {leadPageCount}</strong>
+                <button className="sales-secondary-button compact" disabled={leadPage === leadPageCount} onClick={() => setLeadPage((page) => Math.min(leadPageCount, page + 1))} type="button">Next</button>
+              </div>
+            </nav>
+          ) : null}
         </section>
       ) : null}
 
@@ -2662,6 +2842,8 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
           <ContactsHub
             view={activeTab === "lead-import" ? "lead-import" : "contacts"}
             canManageContacts={canManageContacts}
+            canImportData={canImportLeads}
+            personalWhatsAppOnly={isCloser}
             tenantId={salesOperations.tenantId}
             onOpenMultiChannelChat={openSalesConversation}
             onOpenPluginsHub={() => navigateSales("plugins")}
@@ -2673,9 +2855,10 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
 
       {activeTab === "calls" || activeTab === "campaigns" ? (
         <CallReportsPanel
-          agents={reportingAgents}
+          agents={isWorkspaceAdmin ? snapshot.visibleAgents.filter((a) => a.status === "ACTIVE") : reportingAgents}
           isAdmin={isWorkspaceAdmin}
           selectedAgentId={viewingAgentId}
+          refreshSignal={telephonyRevision}
           onAgentChange={updateViewingAgent}
         />
       ) : null}
@@ -2828,12 +3011,12 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
           className="sales-tool-workspace sales-chat-workspace"
           style={{
             display: "grid",
-            gridTemplateRows: !isWhatsAppConnected || !isInstagramConnected ? "auto minmax(0, 1fr)" : "minmax(0, 1fr)",
+            gridTemplateRows: !isWhatsAppConnected && !isInstagramConnected ? "auto minmax(0, 1fr)" : "minmax(0, 1fr)",
             gap: "10px",
             alignContent: "start",
           }}
         >
-          {!isWhatsAppConnected || !isInstagramConnected ? (
+          {!isWhatsAppConnected && !isInstagramConnected ? (
             <div className="chat-connection-notice">
               <div className="chat-connection-copy">
                 <div className="chat-connection-title-row">
@@ -3095,6 +3278,15 @@ function LeadImportForm({
         <span>Google Sheets link</span>
         <input name="googleSheetUrl" placeholder="https://docs.google.com/spreadsheets/d/..." type="url" />
       </label>
+      <div className="sales-import-template-row">
+        <div>
+          <strong>Need the right Excel columns?</strong>
+          <span>Download the template, replace the example row, then upload it here.</span>
+        </div>
+        <a className="sales-secondary-button compact" download href="/templates/aicloser-lead-import-template.csv">
+          <FileSpreadsheet size={14} /> Download Excel sample
+        </a>
+      </div>
       <p className="muted-copy">Upload one file or paste a Google Sheet shared as “Anyone with the link”. Contacts are added only to your CRM and duplicates are skipped.</p>
       <p className="muted-copy">Headers: name, phone/WhatsApp, email, source, segment, service/package, budget, priority, tags, notes.</p>
       <button className="sales-primary-button" disabled={isImporting} type="submit">
@@ -4056,6 +4248,74 @@ function AdminTeamReportingPanel({
   );
 }
 
+function DeviceHealthPanel({
+  devices,
+  diagnostics,
+}: {
+  devices: SalesDashboardSnapshot["mobileDevices"];
+  diagnostics: SalesDashboardSnapshot["mobileDiagnostics"];
+}) {
+  const safeDevices = devices ?? [];
+  const recentDiagnostics = (diagnostics ?? []).slice(0, 30);
+  return (
+    <section aria-label="Mobile device health and recording diagnostics" className="sales-goal-card" style={{ background: "var(--closer-surface, #ffffff)", border: "1px solid var(--closer-line, #cbd5e1)", borderRadius: "18px", padding: "20px 24px", boxShadow: "var(--shadow-card, 0 8px 24px rgba(15, 23, 42, 0.05))", marginTop: "16px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px", flexWrap: "wrap", marginBottom: "14px" }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "var(--closer-ink, #0f172a)" }}>Mobile device health</h3>
+          <p style={{ margin: "4px 0 0", fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>Every signed-in phone reports its model, dialer, recording route and failure points. Phone numbers and audio are not stored here.</p>
+        </div>
+        <span className="sales-chip neutral">{safeDevices.length} registered device{safeDevices.length === 1 ? "" : "s"}</span>
+      </div>
+      {safeDevices.length ? (
+        <div style={{ overflowX: "auto", border: "1px solid var(--closer-line, #cbd5e1)", borderRadius: "12px" }}>
+          <table className="crm-data-table" style={{ width: "100%", minWidth: "920px", borderCollapse: "collapse", textAlign: "left" }}>
+            <thead>
+              <tr>
+                <th style={{ padding: "11px 14px" }}>Sales user</th>
+                <th style={{ padding: "11px 14px" }}>Device</th>
+                <th style={{ padding: "11px 14px" }}>Android / app</th>
+                <th style={{ padding: "11px 14px" }}>Access health</th>
+                <th style={{ padding: "11px 14px" }}>Recording capability</th>
+                <th style={{ padding: "11px 14px" }}>Last seen</th>
+              </tr>
+            </thead>
+            <tbody>
+            {safeDevices.map((device) => {
+                const latest = recentDiagnostics.find((item) => item.deviceId === device.deviceId);
+                const owner = latest?.agentName ?? "Assigned sales user";
+                const accessOk = latest ? latest.permissionCallLog && latest.permissionMicrophone : device.recordingEnabled;
+                return (
+                  <tr key={device.id} style={{ borderTop: "1px solid var(--closer-line, #cbd5e1)" }}>
+                    <td style={{ padding: "11px 14px" }}><strong>{owner}</strong><small style={{ display: "block", color: "var(--closer-muted, #64748b)" }}>{device.simLabel || "SIM not reported"}</small></td>
+                    <td style={{ padding: "11px 14px" }}><strong>{[device.manufacturer, device.model].filter(Boolean).join(" ") || device.deviceName}</strong><small style={{ display: "block", color: "var(--closer-muted, #64748b)" }}>{device.deviceName}</small></td>
+                    <td style={{ padding: "11px 14px" }}><strong>{latest?.appVersion || "—"}</strong><small style={{ display: "block", color: "var(--closer-muted, #64748b)" }}>{latest?.androidVersion ? `Android ${latest.androidVersion}${latest.androidApi ? ` / API ${latest.androidApi}` : ""}` : "No snapshot yet"}<br />{latest?.defaultDialer || "Dialer not reported"}</small></td>
+                    <td style={{ padding: "11px 14px" }}><span className={`sales-chip ${accessOk ? "success" : "danger"}`}>{accessOk ? "Core access OK" : "Action needed"}</span><small style={{ display: "block", color: "var(--closer-muted, #64748b)" }}>{latest ? `${latest.sharedAudioAccess ? "Storage" : "Storage off"} · ${latest.miuiRecordingFolderPresent ? "MIUI folder" : latest.accessibilityShareEnabled ? "Share route" : "No audio route"}` : "Waiting for diagnostics"}</small></td>
+                    <td style={{ padding: "11px 14px" }}><span className={`sales-chip ${device.recordingEnabled ? "success" : "danger"}`}>{latest?.recordingCapability || device.recordingCapability}</span></td>
+                    <td style={{ padding: "11px 14px" }}>{formatDateTime(device.lastSeenAt)}<small style={{ display: "block", color: device.isActive ? "#059669" : "var(--closer-muted, #64748b)" }}>{device.isActive ? "Active" : "Inactive"}</small></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : <p className="muted-copy">No mobile devices have reported capability data yet.</p>}
+      <div style={{ marginTop: "18px" }}>
+        <strong style={{ display: "block", marginBottom: "8px", fontSize: "13px" }}>Recent diagnostics</strong>
+        {recentDiagnostics.length ? (
+          <div style={{ display: "grid", gap: "6px" }}>
+            {recentDiagnostics.map((item) => (
+              <div key={item.id} style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", padding: "8px 10px", borderRadius: "8px", background: "var(--closer-soft, #f8fafc)", fontSize: "12px" }}>
+                <span><strong>{item.agentName}</strong> · {item.deviceModel || "Unknown device"} · {item.kind.replaceAll("_", " ")}</span>
+                <span style={{ color: item.status.includes("FAIL") || item.kind.includes("MISSING") ? "#dc2626" : "var(--closer-muted, #64748b)" }}>{[item.stage, item.route, item.errorCode].filter(Boolean).join(" · ") || "snapshot"} · {formatDateTime(item.createdAt)}</span>
+              </div>
+            ))}
+          </div>
+        ) : <p className="muted-copy">No diagnostic events received yet.</p>}
+      </div>
+    </section>
+  );
+}
+
 type CallReportRow = {
   id: string;
   agentId: string;
@@ -4071,6 +4331,9 @@ type CallReportRow = {
   note: string;
   startedAt: string;
   endedAt: string | null;
+  deviceModel?: string;
+  deviceManufacturer?: string;
+  recordingCapability?: string;
 };
 
 type CallReportTotals = {
@@ -4086,11 +4349,13 @@ function CallReportsPanel({
   agents,
   isAdmin,
   selectedAgentId,
+  refreshSignal,
   onAgentChange,
 }: {
   agents: SalesDashboardSnapshot["visibleAgents"];
   isAdmin: boolean;
   selectedAgentId: string;
+  refreshSignal: number;
   onAgentChange: (agentId: string) => void;
 }) {
   const [totals, setTotals] = useState<CallReportTotals>({
@@ -4105,6 +4370,103 @@ function CallReportsPanel({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"nested" | "flat">("nested");
+  const [activityTab, setActivityTab] = useState<"ALL" | "INBOUND" | "OUTBOUND" | "MISSED">("ALL");
+  const [expandedContacts, setExpandedContacts] = useState<Record<string, boolean>>({});
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const filteredCalls = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return calls.filter((call) => {
+      const matchesTab =
+        activityTab === "ALL" ||
+        (activityTab === "MISSED" ? call.status === "MISSED" : call.direction === activityTab);
+      if (!matchesTab) return false;
+      if (!query) return true;
+      return (
+        (call.customerName || "").toLowerCase().includes(query) ||
+        (call.phoneNumber || "").includes(query) ||
+        (call.agentName || "").toLowerCase().includes(query)
+      );
+    });
+  }, [calls, activityTab, searchQuery]);
+
+  const contactGroups = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        key: string;
+        customerName: string;
+        phoneNumber: string;
+        totalCalls: number;
+        inboundCount: number;
+        outboundCount: number;
+        missedCount: number;
+        totalDurationSeconds: number;
+        latestCallAt: string;
+        agents: Set<string>;
+        uploadedRecordingsCount: number;
+        calls: CallReportRow[];
+      }
+    >();
+
+    for (const call of filteredCalls) {
+      const cleaned = (call.phoneNumber || "").replace(/[^\d]/g, "");
+      const normalizedKey = cleaned.length >= 10 ? cleaned.slice(-10) : (cleaned || call.phoneNumber || call.customerName);
+      const groupKey = normalizedKey || call.id;
+
+      let group = map.get(groupKey);
+      if (!group) {
+        group = {
+          key: groupKey,
+          customerName: call.customerName || "Unknown Contact",
+          phoneNumber: call.phoneNumber || "No number",
+          totalCalls: 0,
+          inboundCount: 0,
+          outboundCount: 0,
+          missedCount: 0,
+          totalDurationSeconds: 0,
+          latestCallAt: call.startedAt,
+          agents: new Set<string>(),
+          uploadedRecordingsCount: 0,
+          calls: [],
+        };
+        map.set(groupKey, group);
+      }
+
+      group.totalCalls += 1;
+      if (call.direction === "INBOUND") group.inboundCount += 1;
+      if (call.direction === "OUTBOUND") group.outboundCount += 1;
+      if (call.status === "MISSED") group.missedCount += 1;
+      group.totalDurationSeconds += call.durationSeconds ?? 0;
+      if (new Date(call.startedAt).getTime() >= new Date(group.latestCallAt).getTime()) {
+        group.latestCallAt = call.startedAt;
+        if (call.customerName && call.customerName.trim() && call.customerName !== call.phoneNumber) {
+          group.customerName = call.customerName;
+        }
+      }
+      if (call.agentName) group.agents.add(call.agentName);
+      if (call.recordingStatus === "UPLOADED") group.uploadedRecordingsCount += 1;
+      group.calls.push(call);
+    }
+
+    return Array.from(map.values())
+      .map((g) => ({
+        ...g,
+        agentsList: Array.from(g.agents),
+        calls: g.calls.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()),
+      }))
+      .sort((a, b) => new Date(b.latestCallAt).getTime() - new Date(a.latestCallAt).getTime());
+  }, [filteredCalls]);
+
+  const filteredFlatCalls = filteredCalls;
+
+  const activityTabs = [
+    { key: "ALL" as const, label: "All", count: totals.totalCalls },
+    { key: "INBOUND" as const, label: "Inbound", count: totals.inboundCalls },
+    { key: "OUTBOUND" as const, label: "Outbound", count: totals.outboundCalls },
+    { key: "MISSED" as const, label: "Missed", count: totals.missedCalls },
+  ];
 
   async function loadReports(signal?: AbortSignal) {
     setLoading(true);
@@ -4128,12 +4490,10 @@ function CallReportsPanel({
   useEffect(() => {
     const controller = new AbortController();
     void loadReports(controller.signal);
-    const refreshTimer = window.setInterval(() => void loadReports(), 30_000);
     return () => {
       controller.abort();
-      window.clearInterval(refreshTimer);
     };
-  }, [selectedAgentId]);
+  }, [selectedAgentId, refreshSignal]);
 
   const cards = [
     { label: "Total calls", value: totals.totalCalls, tone: "var(--closer-ink, #0f172a)" },
@@ -4150,7 +4510,7 @@ function CallReportsPanel({
         <div>
           <span style={{ display: "block", color: "var(--closer-orange, #ff6b2f)", fontSize: "11px", fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" }}>Live telephony reporting</span>
           <h2 style={{ margin: "5px 0 4px", fontSize: "22px", color: "var(--closer-ink, #0f172a)" }}>Calls &amp; recordings</h2>
-          <p style={{ margin: 0, color: "var(--closer-muted, #64748b)", fontSize: "13px" }}>Counts and recordings are read from the connected mobile call records. They refresh automatically.</p>
+          <p style={{ margin: 0, color: "var(--closer-muted, #64748b)", fontSize: "13px" }}>Counts and recordings are read from the connected mobile call records. Live events update this view; a 15-second fallback sync runs only if the live stream is unavailable.</p>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
           {isAdmin ? (
@@ -4177,32 +4537,479 @@ function CallReportsPanel({
         ))}
       </div>
 
-      <div style={{ border: "1px solid rgba(220, 38, 38, 0.22)", borderRadius: "14px", background: "var(--closer-surface, #ffffff)", overflow: "hidden" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 18px", borderBottom: "1px solid rgba(220, 38, 38, 0.16)" }}>
-          <div><h3 style={{ margin: 0, fontSize: "16px", color: "var(--closer-ink, #0f172a)" }}>Missed call history</h3><p style={{ margin: "4px 0 0", fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>Missed calls from this workspace, refreshed with the same live call feed.</p></div>
-          <strong style={{ color: "#dc2626", fontSize: "18px" }}>{loading ? "—" : totals.missedCalls}</strong>
+      <section aria-label="Call goal and recording progress" style={{ padding: "18px 20px", borderRadius: "14px", border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.22))", background: "var(--closer-surface, #ffffff)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px", flexWrap: "wrap", marginBottom: "14px" }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: "16px", color: "var(--closer-ink, #0f172a)" }}>Call goal &amp; recording progress</h3>
+            <p style={{ margin: "4px 0 0", fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>A live view of calls, talk time, missed-call follow-up, and uploaded recordings.</p>
+          </div>
+          <span className="sales-chip neutral">Mobile call feed</span>
         </div>
-        {loading ? <p className="muted-copy" style={{ padding: "24px" }}>Loading missed calls…</p> : calls.filter((call) => call.status === "MISSED").length === 0 ? <p className="muted-copy" style={{ padding: "24px" }}>No missed calls in this workspace.</p> : <div style={{ overflowX: "auto" }}><table className="crm-data-table" style={{ width: "100%", minWidth: "760px", borderCollapse: "collapse", textAlign: "left" }}><thead><tr><th style={{ padding: "11px 14px" }}>User</th><th style={{ padding: "11px 14px" }}>Contact</th><th style={{ padding: "11px 14px" }}>When</th><th style={{ padding: "11px 14px" }}>Recording</th><th style={{ padding: "11px 14px" }}>Note</th></tr></thead><tbody>{calls.filter((call) => call.status === "MISSED").map((call) => <tr key={`missed-${call.id}`} style={{ borderTop: "1px solid var(--closer-line, rgba(148, 163, 184, 0.18))" }}><td style={{ padding: "11px 14px" }}><strong>{call.agentName}</strong></td><td style={{ padding: "11px 14px" }}><strong>{call.customerName}</strong><small style={{ display: "block", color: "var(--closer-muted, #64748b)" }}>{call.phoneNumber}</small></td><td style={{ padding: "11px 14px" }}>{formatDateTime(call.startedAt)}</td><td style={{ padding: "11px 14px" }}>{call.recordingStatus === "UPLOADED" ? <CallRecordingPlayer callId={call.id} expectedDurationSeconds={call.durationSeconds} labelText={`${call.customerName} missed call recording`} /> : <span className="sales-chip neutral">{recordingStatusLabel(call.recordingStatus)}</span>}</td><td style={{ padding: "11px 14px" }}>{call.note || "No note recorded."}</td></tr>)}</tbody></table></div>}
-      </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "10px" }}>
+          {[
+            { label: "Calls logged", value: loading ? "—" : totals.totalCalls, detail: "All live call records", tone: "var(--closer-orange, #ff6b2f)" },
+            { label: "Talk time", value: loading ? "—" : formatTalkTime(totals.talkTimeSeconds), detail: "Connected call duration", tone: "#059669" },
+            { label: "Missed follow-up", value: loading ? "—" : totals.missedCalls, detail: "Review them in the Missed tab", tone: "#dc2626" },
+            { label: "Recordings ready", value: loading ? "—" : `${totals.uploadedRecordings} / ${totals.totalCalls}`, detail: totals.totalCalls ? `${Math.round((totals.uploadedRecordings / totals.totalCalls) * 100)}% of calls uploaded` : "No call records yet", tone: "#7c3aed" },
+          ].map((item) => (
+            <div key={item.label} style={{ padding: "13px 14px", borderRadius: "10px", border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.18))", background: "var(--closer-soft, rgba(148, 163, 184, 0.06))" }}>
+              <span style={{ display: "block", fontSize: "11px", color: "var(--closer-muted, #64748b)", marginBottom: "6px" }}>{item.label}</span>
+              <strong style={{ display: "block", fontSize: "21px", color: item.tone }}>{item.value}</strong>
+              <span style={{ display: "block", marginTop: "4px", fontSize: "11px", color: "var(--closer-muted, #64748b)" }}>{item.detail}</span>
+            </div>
+          ))}
+        </div>
+        {!loading && totals.totalCalls === 0 ? <p className="muted-copy" style={{ margin: "14px 0 0" }}>No live call data yet. This tracker fills automatically after a mobile call or missed call is synced; no sample data is inserted.</p> : null}
+      </section>
 
       <div style={{ border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.22))", borderRadius: "14px", background: "var(--closer-surface, #ffffff)", overflow: "hidden" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 18px", borderBottom: "1px solid var(--closer-line, rgba(148, 163, 184, 0.18))" }}>
-          <div><h3 style={{ margin: 0, fontSize: "16px", color: "var(--closer-ink, #0f172a)" }}>Recent call activity</h3><p style={{ margin: "4px 0 0", fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>Latest live calls and available recordings.</p></div>
-          {lastUpdated ? <span style={{ fontSize: "11px", color: "var(--closer-muted, #64748b)" }}>Updated {formatDateTime(lastUpdated)}</span> : null}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 18px", borderBottom: "1px solid var(--closer-line, rgba(148, 163, 184, 0.18))", flexWrap: "wrap", gap: "12px" }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: "16px", color: "var(--closer-ink, #0f172a)", fontWeight: 700 }}>
+              Recent call activity
+            </h3>
+            <p style={{ margin: "4px 0 0", fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>
+              {viewMode === "nested"
+                ? "Lead contact history with nested call recordings."
+                : "Flat stream of all individual call attempts."}
+            </p>
+          </div>
+
+          <div
+            role="tablist"
+            aria-label="Call direction filter"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "3px",
+              padding: "3px",
+              borderRadius: "9px",
+              background: "var(--closer-soft, rgba(148, 163, 184, 0.12))",
+              border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.22))",
+              flexWrap: "wrap",
+            }}
+          >
+            {activityTabs.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                role="tab"
+                aria-selected={activityTab === tab.key}
+                onClick={() => setActivityTab(tab.key)}
+                style={{
+                  padding: "6px 10px",
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  borderRadius: "6px",
+                  border: "none",
+                  cursor: "pointer",
+                  background: activityTab === tab.key ? "var(--closer-surface, #ffffff)" : "transparent",
+                  color: activityTab === tab.key
+                    ? tab.key === "MISSED" ? "#dc2626" : "var(--closer-orange, #ff6b2f)"
+                    : "var(--closer-muted, #64748b)",
+                  boxShadow: activityTab === tab.key ? "0 2px 6px rgba(0,0,0,0.08)" : "none",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {tab.label} ({tab.count})
+              </button>
+            ))}
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+            {/* Search Filter */}
+            <div style={{ position: "relative", minWidth: "170px" }}>
+              <input
+                type="text"
+                placeholder="Search contact / phone..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{
+                  fontSize: "12px",
+                  padding: "6px 10px 6px 28px",
+                  borderRadius: "8px",
+                  border: "1px solid var(--closer-line, #cbd5e1)",
+                  background: "var(--closer-soft, rgba(148, 163, 184, 0.08))",
+                  color: "var(--closer-ink, #0f172a)",
+                  outline: "none",
+                }}
+              />
+              <Search size={13} style={{ position: "absolute", left: "9px", top: "50%", transform: "translateY(-50%)", color: "var(--closer-muted, #94a3b8)" }} />
+            </div>
+
+            {/* Toggle: Grouped by Contact vs Flat Stream */}
+            <div style={{ display: "inline-flex", padding: "3px", borderRadius: "8px", background: "var(--closer-soft, rgba(148, 163, 184, 0.12))", border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.22))" }}>
+              <button
+                type="button"
+                onClick={() => setViewMode("nested")}
+                style={{
+                  padding: "5px 10px",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  borderRadius: "6px",
+                  border: "none",
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                  background: viewMode === "nested" ? "var(--closer-surface, #ffffff)" : "transparent",
+                  color: viewMode === "nested" ? "var(--closer-orange, #ff6b2f)" : "var(--closer-muted, #64748b)",
+                  boxShadow: viewMode === "nested" ? "0 2px 6px rgba(0,0,0,0.08)" : "none",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "5px",
+                }}
+              >
+                <Users size={13} />
+                Grouped by Contact ({contactGroups.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("flat")}
+                style={{
+                  padding: "5px 10px",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  borderRadius: "6px",
+                  border: "none",
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                  background: viewMode === "flat" ? "var(--closer-surface, #ffffff)" : "transparent",
+                  color: viewMode === "flat" ? "var(--closer-orange, #ff6b2f)" : "var(--closer-muted, #64748b)",
+                  boxShadow: viewMode === "flat" ? "0 2px 6px rgba(0,0,0,0.08)" : "none",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "5px",
+                }}
+              >
+                <LayoutList size={13} />
+                All Calls Stream ({calls.length})
+              </button>
+            </div>
+
+            {lastUpdated ? <span style={{ fontSize: "11px", color: "var(--closer-muted, #64748b)", whiteSpace: "nowrap" }}>Updated {formatDateTime(lastUpdated)}</span> : null}
+          </div>
         </div>
-        {loading ? <p className="muted-copy" style={{ padding: "24px" }}>Loading live call activity…</p> : calls.length === 0 ? <p className="muted-copy" style={{ padding: "24px" }}>No call activity is available for this selection yet.</p> : (
+
+        {loading ? (
+          <p className="muted-copy" style={{ padding: "24px" }}>Loading live call activity…</p>
+        ) : calls.length === 0 ? (
+          <p className="muted-copy" style={{ padding: "24px" }}>No call activity is available for this selection yet.</p>
+        ) : viewMode === "nested" ? (
+          /* NESTED / GROUPED TABLE */
+          <div style={{ overflowX: "auto" }}>
+            <table className="crm-data-table" style={{ width: "100%", minWidth: "900px", borderCollapse: "collapse", textAlign: "left" }}>
+              <thead>
+                <tr>
+                  <th style={{ padding: "11px 10px", width: "36px" }}></th>
+                  <th style={{ padding: "11px 14px" }}>Contact / Lead</th>
+                  <th style={{ padding: "11px 14px" }}>Handled By</th>
+                  <th style={{ padding: "11px 14px" }}>Call Activity</th>
+                  <th style={{ padding: "11px 14px" }}>Total Talk Time</th>
+                  <th style={{ padding: "11px 14px" }}>Last Contacted</th>
+                  <th style={{ padding: "11px 14px" }}>Recordings</th>
+                  <th style={{ padding: "11px 14px", textAlign: "right" }}>History</th>
+                </tr>
+              </thead>
+              <tbody>
+                {contactGroups.map((group) => {
+                  const isExpanded = !!expandedContacts[group.key];
+                  return (
+                    <Fragment key={group.key}>
+                      <tr
+                        onClick={() => setExpandedContacts((prev) => ({ ...prev, [group.key]: !prev[group.key] }))}
+                        style={{
+                          borderTop: "1px solid var(--closer-line, rgba(148, 163, 184, 0.18))",
+                          cursor: "pointer",
+                          background: isExpanded ? "var(--closer-soft, rgba(148, 163, 184, 0.05))" : "transparent",
+                          transition: "background 0.15s ease",
+                        }}
+                      >
+                        <td style={{ padding: "12px 6px 12px 14px", textAlign: "center" }}>
+                          <button
+                            type="button"
+                            aria-label={isExpanded ? "Collapse calls" : "Expand calls"}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              cursor: "pointer",
+                              padding: "2px",
+                              color: "var(--closer-muted, #64748b)",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                          </button>
+                        </td>
+                        <td style={{ padding: "12px 14px" }}>
+                          <strong style={{ fontSize: "14px", color: "var(--closer-ink, #0f172a)" }}>
+                            {group.customerName || "Unknown Contact"}
+                          </strong>
+                          <small style={{ display: "block", color: "var(--closer-muted, #64748b)", fontSize: "12px" }}>
+                            {group.phoneNumber}
+                          </small>
+                        </td>
+                        <td style={{ padding: "12px 14px" }}>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                            {group.agentsList.map((ag) => (
+                              <span
+                                key={ag}
+                                style={{
+                                  fontSize: "11px",
+                                  fontWeight: 600,
+                                  padding: "2px 6px",
+                                  borderRadius: "4px",
+                                  background: "var(--closer-soft, rgba(148, 163, 184, 0.12))",
+                                  color: "var(--closer-ink, #1e293b)",
+                                }}
+                              >
+                                {ag}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td style={{ padding: "12px 14px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            <span
+                              style={{
+                                fontSize: "12px",
+                                fontWeight: 700,
+                                padding: "2px 8px",
+                                borderRadius: "999px",
+                                background: "rgba(56, 189, 248, 0.12)",
+                                color: "#0284c7",
+                              }}
+                            >
+                              {group.totalCalls} {group.totalCalls === 1 ? "call" : "calls"}
+                            </span>
+                            {group.outboundCount > 0 ? (
+                              <span style={{ fontSize: "11px", color: "var(--closer-orange, #ff6b2f)" }}>
+                                {group.outboundCount} ↗
+                              </span>
+                            ) : null}
+                            {group.inboundCount > 0 ? (
+                              <span style={{ fontSize: "11px", color: "#0284c7" }}>
+                                {group.inboundCount} ↙
+                              </span>
+                            ) : null}
+                            {group.missedCount > 0 ? (
+                              <span style={{ fontSize: "11px", color: "#dc2626" }}>
+                                {group.missedCount} missed
+                              </span>
+                            ) : null}
+                          </div>
+                        </td>
+                        <td style={{ padding: "12px 14px" }}>
+                          <strong style={{ fontSize: "13px", color: group.totalDurationSeconds > 0 ? "#059669" : "var(--closer-muted, #64748b)" }}>
+                            {formatTalkTime(group.totalDurationSeconds)}
+                          </strong>
+                        </td>
+                        <td style={{ padding: "12px 14px", fontSize: "12px", color: "var(--closer-ink, #334155)" }}>
+                          {formatDateTime(group.latestCallAt)}
+                        </td>
+                        <td style={{ padding: "12px 14px" }}>
+                          {group.uploadedRecordingsCount > 0 ? (
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                padding: "2px 8px",
+                                borderRadius: "999px",
+                                background: "rgba(124, 58, 237, 0.12)",
+                                color: "#7c3aed",
+                              }}
+                            >
+                              <Play size={10} fill="#7c3aed" /> {group.uploadedRecordingsCount} ready
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: "11px", color: "var(--closer-muted, #94a3b8)" }}>
+                              No audio available
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ padding: "12px 14px", textAlign: "right" }}>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setExpandedContacts((prev) => ({ ...prev, [group.key]: !prev[group.key] }));
+                            }}
+                            style={{
+                              fontSize: "11px",
+                              fontWeight: 600,
+                              padding: "4px 8px",
+                              borderRadius: "6px",
+                              border: "1px solid var(--closer-line, #cbd5e1)",
+                              background: isExpanded ? "var(--closer-orange, #ff6b2f)" : "var(--closer-surface, #ffffff)",
+                              color: isExpanded ? "#ffffff" : "var(--closer-ink, #0f172a)",
+                              cursor: "pointer",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "4px",
+                            }}
+                          >
+                            {isExpanded ? "Hide" : "Timeline"} ({group.totalCalls})
+                            {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                          </button>
+                        </td>
+                      </tr>
+
+                      {/* Nested Drawer */}
+                      {isExpanded ? (
+                        <tr>
+                          <td colSpan={8} style={{ padding: "0 0 16px", background: "var(--closer-soft, rgba(148, 163, 184, 0.04))" }}>
+                            <div
+                              style={{
+                                margin: "0 14px 8px 36px",
+                                padding: "14px 16px",
+                                borderRadius: "10px",
+                                border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.22))",
+                                background: "var(--closer-surface, #ffffff)",
+                                boxShadow: "0 4px 12px rgba(15, 23, 42, 0.04)",
+                              }}
+                            >
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px", borderBottom: "1px solid var(--closer-line, rgba(148, 163, 184, 0.14))", paddingBottom: "8px" }}>
+                                <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--closer-ink, #0f172a)", display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <Clock3 size={14} color="var(--closer-orange, #ff6b2f)" />
+                                  Call History with {group.customerName} ({group.phoneNumber}) — {group.totalCalls} attempts
+                                </span>
+                                <span style={{ fontSize: "11px", color: "var(--closer-muted, #64748b)" }}>
+                                  Total talk time: {formatTalkTime(group.totalDurationSeconds)}
+                                </span>
+                              </div>
+
+                              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px", textAlign: "left" }}>
+                                <thead>
+                                  <tr style={{ color: "var(--closer-muted, #64748b)", borderBottom: "1px solid var(--closer-line, rgba(148, 163, 184, 0.16))" }}>
+                                    <th style={{ padding: "8px 10px" }}># Attempt</th>
+                                    <th style={{ padding: "8px 10px" }}>Direction</th>
+                                    <th style={{ padding: "8px 10px" }}>Agent</th>
+                                    <th style={{ padding: "8px 10px" }}>Status / Dispo</th>
+                                    <th style={{ padding: "8px 10px" }}>Talk Time</th>
+                                    <th style={{ padding: "8px 10px" }}>When</th>
+                                    <th style={{ padding: "8px 10px" }}>Recording</th>
+                                    <th style={{ padding: "8px 10px" }}>Note</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {group.calls.map((c, idx) => {
+                                    const unavailable = getRecordingUnavailableDetails(c);
+                                    const attemptNum = group.calls.length - idx;
+                                    return (
+                                      <tr key={c.id} style={{ borderBottom: "1px solid var(--closer-line, rgba(148, 163, 184, 0.1))" }}>
+                                        <td style={{ padding: "8px 10px", fontWeight: 600, color: "var(--closer-ink, #334155)" }}>
+                                          Call #{attemptNum} {idx === 0 ? <span style={{ fontSize: "10px", color: "var(--closer-orange, #ff6b2f)", fontWeight: 700 }}>(Latest)</span> : null}
+                                        </td>
+                                        <td style={{ padding: "8px 10px" }}>
+                                          <span
+                                            style={{
+                                              fontSize: "11px",
+                                              fontWeight: 700,
+                                              padding: "1px 6px",
+                                              borderRadius: "4px",
+                                              background: c.direction === "INBOUND" ? "rgba(56, 189, 248, 0.15)" : "rgba(255, 107, 47, 0.12)",
+                                              color: c.direction === "INBOUND" ? "#0284c7" : "var(--closer-orange, #ff6b2f)",
+                                            }}
+                                          >
+                                            {c.direction === "INBOUND" ? "↙ Inbound" : "↗ Outbound"}
+                                          </span>
+                                        </td>
+                                        <td style={{ padding: "8px 10px", fontWeight: 600, color: "var(--closer-ink, #0f172a)" }}>
+                                          {c.agentName}
+                                        </td>
+                                        <td style={{ padding: "8px 10px" }}>
+                                          <div>
+                                            <span>{label(c.status)}</span>
+                                            {c.outcome ? (
+                                              <span style={{ display: "block", fontSize: "11px", color: "#0284c7", fontWeight: 600 }}>
+                                                {label(c.outcome)}
+                                              </span>
+                                            ) : null}
+                                          </div>
+                                        </td>
+                                        <td style={{ padding: "8px 10px", fontWeight: 600, color: c.durationSeconds > 0 ? "#059669" : "var(--closer-muted, #64748b)" }}>
+                                          {formatTalkTime(c.durationSeconds)}
+                                        </td>
+                                        <td style={{ padding: "8px 10px", color: "var(--closer-ink, #334155)" }}>
+                                          {formatDateTime(c.startedAt)}
+                                        </td>
+                                        <td style={{ padding: "8px 10px" }}>
+                                          {c.recordingStatus === "UPLOADED" ? (
+                                            <div>
+                                              <CallRecordingPlayer callId={c.id} expectedDurationSeconds={c.durationSeconds} labelText={`${group.customerName} call recording`} />
+                                              <small style={{ display: "block", marginTop: "3px", color: "var(--closer-muted, #64748b)", fontSize: "10px" }}>
+                                                Duration: {formatTalkTime(c.durationSeconds)}
+                                              </small>
+                                            </div>
+                                          ) : (
+                                            <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                                              <span className={`sales-chip ${unavailable.tone === "danger" ? "danger" : "neutral"}`} style={{ fontSize: "11px", width: "fit-content" }}>
+                                                {unavailable.badge}
+                                              </span>
+                                              <span style={{ fontSize: "11px", color: "var(--closer-muted, #64748b)", lineHeight: "1.25" }}>
+                                                {unavailable.reason}
+                                              </span>
+                                            </div>
+                                          )}
+                                        </td>
+                                        <td style={{ padding: "8px 10px", color: "var(--closer-muted, #64748b)", maxWidth: "180px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                          {c.note || "—"}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          /* FLAT STREAM TABLE */
           <div style={{ overflowX: "auto" }}>
             <table className="crm-data-table" style={{ width: "100%", minWidth: "900px", borderCollapse: "collapse", textAlign: "left" }}>
               <thead><tr><th style={{ padding: "11px 14px" }}>User</th><th style={{ padding: "11px 14px" }}>Contact</th><th style={{ padding: "11px 14px" }}>Direction</th><th style={{ padding: "11px 14px" }}>Status</th><th style={{ padding: "11px 14px" }}>Talk time</th><th style={{ padding: "11px 14px" }}>When</th><th style={{ padding: "11px 14px" }}>Recording</th></tr></thead>
-              <tbody>{calls.map((call) => <tr key={call.id} style={{ borderTop: "1px solid var(--closer-line, rgba(148, 163, 184, 0.18))" }}>
-                <td style={{ padding: "11px 14px" }}><strong>{call.agentName}</strong></td>
-                <td style={{ padding: "11px 14px" }}><strong>{call.customerName}</strong><small style={{ display: "block", color: "var(--closer-muted, #64748b)" }}>{call.phoneNumber}</small></td>
-                <td style={{ padding: "11px 14px" }}>{label(call.direction)}</td>
-                <td style={{ padding: "11px 14px" }}>{label(call.status)}{call.outcome ? <small style={{ display: "block", color: "var(--closer-muted, #64748b)" }}>{label(call.outcome)}</small> : null}</td>
-                <td style={{ padding: "11px 14px" }}>{formatTalkTime(call.durationSeconds)}</td>
-                <td style={{ padding: "11px 14px" }}>{formatDateTime(call.startedAt)}</td>
-                <td style={{ padding: "11px 14px" }}>{call.recordingStatus === "UPLOADED" ? <CallRecordingPlayer callId={call.id} expectedDurationSeconds={call.durationSeconds} labelText={`${call.customerName} recording`} /> : <span className={`sales-chip ${call.recordingStatus === "FAILED" ? "danger" : "neutral"}`}>{recordingStatusLabel(call.recordingStatus)}</span>}</td>
-              </tr>)}</tbody>
+              <tbody>{filteredFlatCalls.map((call) => {
+                const unavailable = getRecordingUnavailableDetails(call);
+                return (
+                  <tr key={call.id} style={{ borderTop: "1px solid var(--closer-line, rgba(148, 163, 184, 0.18))" }}>
+                    <td style={{ padding: "11px 14px" }}><strong>{call.agentName}</strong></td>
+                    <td style={{ padding: "11px 14px" }}><strong>{call.customerName}</strong><small style={{ display: "block", color: "var(--closer-muted, #64748b)" }}>{call.phoneNumber}</small></td>
+                    <td style={{ padding: "11px 14px" }}>{label(call.direction)}</td>
+                    <td style={{ padding: "11px 14px" }}>{label(call.status)}{call.outcome ? <small style={{ display: "block", color: "var(--closer-muted, #64748b)" }}>{label(call.outcome)}</small> : null}</td>
+                    <td style={{ padding: "11px 14px" }}>{formatTalkTime(call.durationSeconds)}</td>
+                    <td style={{ padding: "11px 14px" }}>{formatDateTime(call.startedAt)}</td>
+                    <td style={{ padding: "11px 14px" }}>
+                      {call.recordingStatus === "UPLOADED" ? (
+                        <div>
+                          <CallRecordingPlayer callId={call.id} expectedDurationSeconds={call.durationSeconds} labelText={`${call.customerName} recording`} />
+                          <small style={{ display: "block", marginTop: "5px", color: "var(--closer-muted, #64748b)", whiteSpace: "nowrap" }}>
+                            Call time: {formatDateTime(call.startedAt)} · Call duration: {formatTalkTime(call.durationSeconds)}
+                          </small>
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                          <span className={`sales-chip ${unavailable.tone === "danger" ? "danger" : "neutral"}`} style={{ width: "fit-content" }}>
+                            {unavailable.badge}
+                          </span>
+                          <span style={{ fontSize: "11px", color: "var(--closer-muted, #64748b)", lineHeight: "1.25" }}>
+                            {unavailable.reason}
+                          </span>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}</tbody>
             </table>
           </div>
         )}

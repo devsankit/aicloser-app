@@ -900,6 +900,7 @@ export function LeadFormBuilder({ isAdmin = true, onOpenMultiChannelChat }: Lead
       {/* SHARE & EMBED MODAL */}
       {shareModalForm ? (
         <div
+          className="sales-modal-backdrop"
           style={{
             position: "fixed",
             inset: 0,
@@ -913,6 +914,7 @@ export function LeadFormBuilder({ isAdmin = true, onOpenMultiChannelChat }: Lead
           }}
         >
           <div
+            className="sales-modal-card"
             style={{
               width: "100%",
               maxWidth: 580,
@@ -996,6 +998,7 @@ export function LeadFormBuilder({ isAdmin = true, onOpenMultiChannelChat }: Lead
       {/* LEAD DETAILS & MODIFIER MODAL */}
       {selectedSubmission ? (
         <div
+          className="sales-modal-backdrop"
           style={{
             position: "fixed",
             inset: 0,
@@ -1009,6 +1012,7 @@ export function LeadFormBuilder({ isAdmin = true, onOpenMultiChannelChat }: Lead
           }}
         >
           <div
+            className="sales-modal-card"
             style={{
               width: "100%",
               maxWidth: 540,

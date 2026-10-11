@@ -102,7 +102,9 @@ function parseSettingsJson(value: unknown) {
   const webhook = source.webhook && typeof source.webhook === "object" ? source.webhook as Record<string, unknown> : {};
   return {
     ...pricing,
-    closerCanApprovePayment: source.closerCanApprovePayment === true,
+    // Keep the safer workflow enabled for new and legacy workspaces. An explicit
+    // false is still respected when an admin intentionally turns it off.
+    closerCanApprovePayment: source.closerCanApprovePayment === undefined ? true : source.closerCanApprovePayment === true,
     confirmationWebhookEnabled: webhook.enabled === true,
     confirmationWebhookUrl: cleanText(webhook.url, 2048) || null,
     confirmationWebhookSecret: cleanText(webhook.secret, 256) || null,
@@ -468,6 +470,7 @@ export async function approveUpiPaymentLink(input: { id: string; tenantId: strin
   const result = await prisma.$transaction(async (tx) => {
     const link = await tx.upiPaymentLink.findFirst({ where: { id: input.id, tenantId: input.tenantId } });
     if (!link || !["PENDING", "CUSTOMER_CONFIRMED"].includes(link.status)) throw new Error("Only pending payment links can be approved.");
+    if (!link.proofStoragePath) throw new Error("Attach and review the payment screenshot before approval.");
     const expiresAt = linkExpiresAt(link);
     if (expiresAt && expiresAt <= new Date()) throw new Error("This payment link has expired.");
     const settings = await tx.upiPaymentSetting.findUnique({ where: { tenantId: link.tenantId } });

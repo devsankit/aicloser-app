@@ -35,6 +35,7 @@ type WorkspaceUserItem = {
   packageExpiresAt: string | null;
   groupId: string | null;
   parentAgentId: string | null;
+  isCurrentUser?: boolean;
 };
 
 type WorkspacePlanSnapshot = {
@@ -84,6 +85,7 @@ export function RolePermissionsPanel({
   const [newEmail, setNewEmail] = useState("");
   const [newPhone, setNewPhone] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [newRole, setNewRole] = useState<"UNASSIGNED" | "ADMIN" | "MANAGER" | "SALES_AGENT">("SALES_AGENT");
   const [showPassword, setShowPassword] = useState(false);
   const [creatingUser, setCreatingUser] = useState(false);
   const [userNotice, setUserNotice] = useState<{ text: string; type: "success" | "error" } | null>(null);
@@ -181,6 +183,7 @@ export function RolePermissionsPanel({
           email: newEmail.trim(),
           phone: newPhone.trim(),
           password: newPassword.trim(),
+          role: newRole,
         }),
       });
       const data = await res.json().catch(() => null);
@@ -189,8 +192,9 @@ export function RolePermissionsPanel({
         setNewEmail("");
         setNewPhone("");
         setNewPassword("");
+        setNewRole("SALES_AGENT");
         setUserNotice({
-          text: `User account created for ${data.user?.email || newEmail}. Assign a role from the team list before they sign in.`,
+          text: `User account created for ${data.user?.email || newEmail} with the selected role. You can change it later from the team list.`,
           type: "success",
         });
         await refreshUsers();
@@ -705,21 +709,28 @@ export function RolePermissionsPanel({
             />
           </label>
 
-          <div
-            style={{
-              minHeight: "40px",
-              display: "flex",
-              alignItems: "center",
-              padding: "0 12px",
-              borderRadius: "8px",
-              border: "1px solid var(--closer-line)",
-              background: "var(--closer-surface)",
-              color: "var(--closer-muted)",
-              fontSize: "0.82rem",
-            }}
-          >
-            Role is assigned after account creation.
-          </div>
+          <label style={{ display: "grid", gap: "6px", fontSize: "0.78rem", fontWeight: 600, color: "var(--closer-muted)" }}>
+            <span>Assigned Role *</span>
+            <select
+              required
+              value={newRole}
+              onChange={(e) => setNewRole(e.target.value as "UNASSIGNED" | "ADMIN" | "MANAGER" | "SALES_AGENT")}
+              style={{
+                minHeight: "40px",
+                padding: "0 12px",
+                borderRadius: "8px",
+                border: "1px solid var(--closer-line)",
+                background: "var(--closer-surface)",
+                color: "var(--closer-ink)",
+                fontSize: "0.86rem",
+              }}
+            >
+              <option value="SALES_AGENT">Closer / Telecaller</option>
+              <option value="MANAGER">Sales Manager</option>
+              <option value="ADMIN">Admin (Workspace owner)</option>
+              <option value="UNASSIGNED">Unassigned / Pending</option>
+            </select>
+          </label>
 
           <button
             type="submit"
@@ -791,7 +802,7 @@ export function RolePermissionsPanel({
                     ) : null}
                   </td>
                   <td style={{ padding: "12px 16px" }}>
-                    <select
+                    {user.isCurrentUser && user.role === "ADMIN" ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: "8px", background: "rgba(16, 185, 129, 0.14)", color: "#047857", fontSize: "0.8rem", fontWeight: 700 }}><ShieldCheck size={13} /> Admin (Workspace owner)</span> : <select
                       className="role-permissions-select"
                       value={user.role}
                       onChange={(e) => void handleRoleChange(user.id, e.target.value as "UNASSIGNED" | "ADMIN" | "MANAGER" | "SALES_AGENT")}
@@ -809,7 +820,7 @@ export function RolePermissionsPanel({
                       <option value="ADMIN">Admin (Owner)</option>
                       <option value="MANAGER">Sales Manager</option>
                       <option value="SALES_AGENT">Closer / Telecaller</option>
-                    </select>
+                    </select>}
                   </td>
                   <td style={{ padding: "12px 16px", color: "var(--closer-muted)", fontSize: "0.8rem" }}>
                     {user.role === "SALES_AGENT" ? (
@@ -893,7 +904,7 @@ export function RolePermissionsPanel({
                       </div>
                     ) : (
                       <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                        <button
+                        {!user.isCurrentUser ? <button
                           type="button"
                           disabled={user.role === "UNASSIGNED"}
                           onClick={() => void handleStatusChange(user.id, user.status === "ACTIVE" ? "SUSPENDED" : "ACTIVE")}
@@ -902,7 +913,7 @@ export function RolePermissionsPanel({
                           style={{ fontSize: "0.76rem", color: user.status === "ACTIVE" ? "#b45309" : "#047857", opacity: user.role === "UNASSIGNED" ? 0.55 : 1 }}
                         >
                           {user.role === "UNASSIGNED" ? "Assign role first" : user.status === "ACTIVE" ? "Lock" : "Unlock"}
-                        </button>
+                        </button> : <span style={{ fontSize: "0.76rem", color: "var(--closer-muted)" }}>Workspace Admin</span>}
                         <button
                           type="button"
                           onClick={() => {
@@ -914,7 +925,7 @@ export function RolePermissionsPanel({
                         >
                           <KeyRound size={13} /> Set / Reset Password
                         </button>
-                        <button
+                        {!user.isCurrentUser ? <button
                           type="button"
                           onClick={() => void handleDeleteUser(user.id, user.displayName)}
                           className="sales-secondary-button compact"
@@ -922,7 +933,7 @@ export function RolePermissionsPanel({
                           style={{ padding: "0 8px", color: "#ef4444" }}
                         >
                           <Trash2 size={13} />
-                        </button>
+                        </button> : null}
                       </div>
                     )}
                   </td>

@@ -18,6 +18,13 @@ export type TemplateButtonInput = {
   flow_action?: string;
 };
 
+export type TemplateCarouselCardInput = {
+  bodyText: string;
+  headerHandle?: string;
+  buttons?: TemplateButtonInput[];
+  exampleValues?: Record<string, string>;
+};
+
 export type TemplateValidationInput = {
   name: string;
   category: "MARKETING" | "UTILITY" | "AUTHENTICATION";
@@ -28,6 +35,7 @@ export type TemplateValidationInput = {
   footerText?: string;
   buttons?: TemplateButtonInput[];
   exampleValues?: Record<string, string>;
+  carouselCards?: TemplateCarouselCardInput[];
 };
 
 export type TemplateValidationResult =
@@ -171,6 +179,15 @@ export function validateTemplateStructure(input: TemplateValidationInput): Templ
     }
   }
 
+  if (input.carouselCards && input.carouselCards.length > 0) {
+    if (input.carouselCards.length < 2 || input.carouselCards.length > 10) {
+      errors.push("Carousel templates must contain between 2 and 10 cards.");
+    }
+    input.carouselCards.forEach((card, index) => {
+      if (!card.bodyText.trim()) errors.push(`Carousel card ${index + 1} body text is required.`);
+    });
+  }
+
   if (errors.length > 0) {
     return { valid: false, errors };
   }
@@ -192,6 +209,7 @@ export function buildMetaTemplatePayload(input: {
   footerText?: string;
   buttons?: TemplateButtonInput[];
   exampleValues?: Record<string, string>;
+  carouselCards?: TemplateCarouselCardInput[];
 }): MetaCreateTemplateInput {
   const components: MetaTemplateComponent[] = [];
 
@@ -250,6 +268,44 @@ export function buildMetaTemplatePayload(input: {
     });
   }
 
+  if (input.carouselCards && input.carouselCards.length > 0) {
+    components.push({
+      type: "CAROUSEL",
+      cards: input.carouselCards.map((card) => {
+        const cardComponents: MetaTemplateComponent[] = [];
+        if (card.headerHandle) {
+          cardComponents.push({
+            type: "HEADER",
+            format: "IMAGE",
+            example: { header_handle: [card.headerHandle] },
+          });
+        }
+        const cardBody: MetaTemplateComponent = { type: "BODY", text: card.bodyText };
+        const cardVariables = Array.from(card.bodyText.matchAll(/\{\{(\d+)\}\}/g)).map((match) => Number(match[1]));
+        const uniqueCardVariables = [...new Set(cardVariables)].sort((a, b) => a - b);
+        if (uniqueCardVariables.length > 0) {
+          cardBody.example = {
+            body_text: [uniqueCardVariables.map((variable) => card.exampleValues?.[String(variable)] || `Sample ${variable}`)],
+          };
+        }
+        cardComponents.push(cardBody);
+        if (card.buttons?.length) {
+          cardComponents.push({
+            type: "BUTTONS",
+            buttons: card.buttons.map((button) => ({
+              type: button.type,
+              text: button.text,
+              url: button.url,
+              phone_number: button.phone_number,
+              example: button.example,
+            })),
+          });
+        }
+        return { components: cardComponents };
+      }),
+    });
+  }
+
   return {
     name: input.name,
     language: input.language || "en_US",
@@ -274,6 +330,7 @@ export async function createAndSubmitTemplate(input: {
   footerText?: string;
   buttons?: TemplateButtonInput[];
   exampleValues?: Record<string, string>;
+  carouselCards?: TemplateCarouselCardInput[];
   actorUserId?: string;
 }) {
   const validation = validateTemplateStructure({
@@ -286,6 +343,7 @@ export async function createAndSubmitTemplate(input: {
     footerText: input.footerText,
     buttons: input.buttons,
     exampleValues: input.exampleValues,
+    carouselCards: input.carouselCards,
   });
 
   if (!validation.valid) {
@@ -347,6 +405,7 @@ export async function createAndSubmitTemplate(input: {
     footerText: input.footerText,
     buttons: input.buttons,
     exampleValues: input.exampleValues,
+    carouselCards: input.carouselCards,
   });
 
   // Submit to Meta (or mock)
@@ -402,7 +461,9 @@ export async function createAndSubmitTemplate(input: {
       headerHandle: input.headerHandle || null,
       bodyText: input.bodyText,
       footerText: input.footerText || null,
-      buttons: (input.buttons as unknown as Prisma.InputJsonValue) || undefined,
+      buttons: (input.carouselCards?.length
+        ? ({ buttons: input.buttons ?? [], carouselCards: input.carouselCards } as unknown as Prisma.InputJsonValue)
+        : (input.buttons as unknown as Prisma.InputJsonValue)) || undefined,
       exampleValues: (input.exampleValues as unknown as Prisma.InputJsonValue) || undefined,
       hasVariables: validation.variableCount > 0,
       variableCount: validation.variableCount,
@@ -422,7 +483,9 @@ export async function createAndSubmitTemplate(input: {
       headerHandle: input.headerHandle || null,
       bodyText: input.bodyText,
       footerText: input.footerText || null,
-      buttons: (input.buttons as unknown as Prisma.InputJsonValue) || undefined,
+      buttons: (input.carouselCards?.length
+        ? ({ buttons: input.buttons ?? [], carouselCards: input.carouselCards } as unknown as Prisma.InputJsonValue)
+        : (input.buttons as unknown as Prisma.InputJsonValue)) || undefined,
       exampleValues: (input.exampleValues as unknown as Prisma.InputJsonValue) || undefined,
       hasVariables: validation.variableCount > 0,
       variableCount: validation.variableCount,

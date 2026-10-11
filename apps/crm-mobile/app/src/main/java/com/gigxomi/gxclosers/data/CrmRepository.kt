@@ -35,6 +35,10 @@ class CrmRepository(context: Context) {
         val response = api.post("/mobile/auth/login", body)
         val session = parseSession(response.getJSONObject("session"))
         sessionStore.saveLogin(response.getString("token"), session)
+        // Queue the snapshot now, but sync it only after registerDevice has
+        // created the server-side device row so the history is linked to the
+        // correct device rather than becoming an orphaned login event.
+        DeviceDiagnostics.enqueueSnapshot(appContext, force = true)
         RecordingUploadWorker.retryNow(appContext)
         return session
     }
@@ -43,15 +47,19 @@ class CrmRepository(context: Context) {
         if (sessionStore.token.isNullOrBlank()) return false
         val response = api.post("/auth/heartbeat", JSONObject())
         if (sessionStore.setupComplete && !deviceId.isNullOrBlank()) {
+            val capabilitySnapshot = DeviceDiagnostics.snapshot(appContext)
+            val snapshotQueued = DeviceDiagnostics.enqueueSnapshot(appContext)
             runCatching {
                 api.post(
                     "/sales/mobile/heartbeat",
                     JSONObject()
                         .put("deviceId", deviceId)
                         .put("appVersion", BuildConfig.VERSION_NAME)
-                        .put("recordingCapability", "MIC_RECORDING"),
+                        .put("recordingCapability", capabilitySnapshot.optString("recordingCapability", "UNKNOWN"))
+                        .put("recordingEnabled", capabilitySnapshot.optBoolean("recordingEnabled", false)),
                 )
             }
+            if (snapshotQueued) runCatching { syncOffline() }
         }
         return response.optBoolean("ok", true)
     }
@@ -95,7 +103,28 @@ class CrmRepository(context: Context) {
         return updated
     }
 
-    fun registerDevice(deviceId: String, deviceName: String, manufacturer: String, model: String, androidVersion: String, appVersion: String) {
+    fun recordCertification(
+        deviceId: String,
+        status: String,
+        failureReason: String? = null,
+        testSessionId: String? = null,
+        details: JSONObject = JSONObject()
+    ): JSONObject {
+        val payload = JSONObject()
+            .put("deviceId", deviceId)
+            .put("status", status)
+            .put("failureReason", failureReason ?: JSONObject.NULL)
+            .put("testSessionId", testSessionId ?: JSONObject.NULL)
+            .put("details", details)
+        return try {
+            api.post("/sales/mobile/certification", payload)
+        } catch (e: Exception) {
+            JSONObject().put("ok", false).put("error", e.message)
+        }
+    }
+
+    fun registerDevice(deviceId: String, deviceName: String, manufacturer: String, model: String, androidVersion: String, appVersion: String, force: Boolean = false) {
+        val capabilitySnapshot = DeviceDiagnostics.snapshot(appContext)
         api.post("/sales/mobile/register-device", JSONObject()
             .put("deviceId", deviceId)
             .put("deviceName", deviceName)
@@ -103,9 +132,13 @@ class CrmRepository(context: Context) {
             .put("model", model)
             .put("androidVersion", androidVersion)
             .put("appVersion", appVersion)
-            .put("recordingCapability", "MIC_RECORDING")
-            .put("recordingEnabled", true))
+            .put("recordingCapability", capabilitySnapshot.optString("recordingCapability", "UNKNOWN"))
+            .put("recordingEnabled", capabilitySnapshot.optBoolean("recordingEnabled", false))
+            .put("force", force)
+            .put("forceReplace", force))
         sessionStore.setupComplete = true
+        DeviceDiagnostics.enqueueSnapshot(appContext, force = true)
+        runCatching { syncOffline() }
         RecordingUploadWorker.retryNow(appContext)
         CallbackReminderWorker.enqueue(appContext)
     }
@@ -123,21 +156,52 @@ class CrmRepository(context: Context) {
         api.post("/sales/leads/$leadId/tasks", JSONObject().put("action", "status").put("taskId", taskId).put("status", status))
     }
 
-    fun startCall(lead: SalesLead, deviceId: String): String {
+    fun startCall(
+        lead: SalesLead,
+        deviceId: String,
+        simSubscriptionId: String? = null,
+        simSlotIndex: Int? = null,
+        simLabel: String? = null,
+    ): String {
         val response = api.post("/sales/mobile/call/start", JSONObject()
             .put("leadId", lead.id)
             .put("phoneNumber", lead.customerPhone)
             .put("direction", "OUTBOUND")
             .put("deviceId", deviceId)
-            .put("recordingStatus", "NONE"))
+            .put("recordingStatus", "NONE")
+            // A freshly-created mobile lead can briefly still have the local
+            // optimistic id. The server may safely create/resolve it for this
+            // current agent without bypassing the pending-disposition guard.
+            .put("allowSyntheticLead", true)
+            .put("contactName", lead.customerName)
+            .put("simSubscriptionId", simSubscriptionId ?: JSONObject.NULL)
+            .put("simSlotIndex", simSlotIndex ?: JSONObject.NULL)
+            .put("simLabel", simLabel ?: JSONObject.NULL))
         return response.getJSONObject("call").getString("id")
     }
 
-    fun startIncomingCall(leadId: String?, phone: String, deviceId: String): String {
-        return startUnmatchedCall(leadId, phone, "INBOUND", deviceId)
+    fun startIncomingCall(
+        leadId: String?,
+        phone: String,
+        deviceId: String,
+        contactName: String? = null,
+        simSubscriptionId: String? = null,
+        simSlotIndex: Int? = null,
+        simLabel: String? = null,
+    ): String {
+        return startUnmatchedCall(leadId, phone, "INBOUND", deviceId, contactName, simSubscriptionId, simSlotIndex, simLabel)
     }
 
-    fun startUnmatchedCall(leadId: String?, phone: String, direction: String, deviceId: String): String {
+    fun startUnmatchedCall(
+        leadId: String?,
+        phone: String,
+        direction: String,
+        deviceId: String,
+        contactName: String? = null,
+        simSubscriptionId: String? = null,
+        simSlotIndex: Int? = null,
+        simLabel: String? = null,
+    ): String {
         val payload = JSONObject()
             .put("phoneNumber", phone)
             .put("direction", direction)
@@ -145,8 +209,20 @@ class CrmRepository(context: Context) {
             .put("recordingStatus", "NONE")
             .put("allowUnmatched", true)
         leadId?.takeIf(String::isNotBlank)?.let { payload.put("leadId", it) }
+        contactName?.takeIf(String::isNotBlank)?.let { payload.put("contactName", it) }
+        simSubscriptionId?.takeIf(String::isNotBlank)?.let { payload.put("simSubscriptionId", it) }
+        simSlotIndex?.let { payload.put("simSlotIndex", it) }
+        simLabel?.takeIf(String::isNotBlank)?.let { payload.put("simLabel", it) }
         val response = api.post("/sales/mobile/call/start", payload)
         return response.getJSONObject("call").getString("id")
+    }
+
+    fun discardCall(callId: String): Boolean {
+        if (callId.isBlank()) return false
+        return runCatching {
+            val response = api.post("/sales/mobile/call/discard", JSONObject().put("callSessionId", callId))
+            response.optBoolean("ok", false)
+        }.getOrDefault(false)
     }
 
     fun submitDisposition(callId: String, customerName: String, outcome: String, note: String, followUp: String?, stageUpdate: String?) {
@@ -185,6 +261,7 @@ class CrmRepository(context: Context) {
                 .put("localEventId", event.id)
                 .put("idempotencyKey", event.id)
                 .put("type", event.type)
+                .put("deviceId", sessionStore.installationId)
                 .put("payload", jsonPayload))
         }
 

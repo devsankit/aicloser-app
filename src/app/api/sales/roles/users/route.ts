@@ -64,7 +64,7 @@ export async function GET() {
     phone: agent.phone,
     agentCode: agent.agentCode,
     status: agent.status,
-    role: resolveAgentRole(agent.permissions),
+    role: agent.userId === authorization.session.userId && authorization.session.role === "ADMIN" ? "ADMIN" : resolveAgentRole(agent.permissions),
     packageName: agent.packageName || "Free plan",
     packageStatus: agent.packageStatus || "ACTIVE",
     packageExpiresAt: agent.packageExpiresAt,
@@ -72,6 +72,7 @@ export async function GET() {
     canClaimLeads: agent.canClaimLeads,
     groupId: agent.groupId,
     parentAgentId: agent.parentAgentId,
+    isCurrentUser: agent.userId === authorization.session.userId,
     createdAt: agent.createdAt,
   }));
 
@@ -91,6 +92,11 @@ export async function POST(request: Request) {
   const email = String(body.email ?? "").trim().toLowerCase();
   const phone = String(body.phone ?? "").trim();
   const password = String(body.password ?? "").trim();
+  const requestedRole = String(body.role ?? "SALES_AGENT").toUpperCase();
+  const role: WorkspaceUserRole =
+    requestedRole === "UNASSIGNED" || requestedRole === "ADMIN" || requestedRole === "MANAGER" || requestedRole === "SALES_AGENT"
+      ? requestedRole
+      : "SALES_AGENT";
 
   if (!displayName || !email) {
     return NextResponse.json({ ok: false, error: "Full name and Email ID are required." }, { status: 400 });
@@ -137,10 +143,10 @@ export async function POST(request: Request) {
       password,
       createdByUserId: authorization.session.userId ?? undefined,
       tenantId: authorization.session.tenantId,
-      status: "PENDING",
+      status: role === "UNASSIGNED" ? "PENDING" : "ACTIVE",
       groupId: snapshot.groups[0]?.id ?? "sales-group-main",
       parentAgentId: null,
-      canCreateSubAgents: false,
+      canCreateSubAgents: role === "ADMIN" || role === "MANAGER",
       canClaimLeads: true,
       maxActiveLeads: 25,
     });
@@ -152,12 +158,12 @@ export async function POST(request: Request) {
 
     const updatedAgent = await updateSalesAgentProfile({
       agentId: created.agent.id,
-      status: "PENDING",
-      canCreateSubAgents: false,
+      status: role === "UNASSIGNED" ? "PENDING" : "ACTIVE",
+      canCreateSubAgents: role === "ADMIN" || role === "MANAGER",
       permissions: {
         ...(created.agent.permissions ?? {}),
-        workspaceRole: "UNASSIGNED",
-        workspaceAdmin: false,
+        workspaceRole: role,
+        workspaceAdmin: role === "ADMIN",
       },
     });
 
@@ -211,6 +217,9 @@ export async function PATCH(request: Request) {
     const existing = (snapshot.agents?.length ? snapshot.agents : snapshot.visibleAgents).find((a) => a.id === agentId);
     if (!existing) {
       return NextResponse.json({ ok: false, error: "Workspace user was not found." }, { status: 404 });
+    }
+    if (existing.userId === authorization.session.userId && (payload.role || payload.status || Object.prototype.hasOwnProperty.call(payload, "managerAgentId"))) {
+      return NextResponse.json({ ok: false, error: "Your workspace Admin role and access cannot be changed here." }, { status: 403 });
     }
     const nextRoleInput = payload.role ? String(payload.role).toUpperCase() : resolveAgentRole(existing?.permissions ?? null);
     const nextRole: WorkspaceUserRole =
@@ -266,6 +275,14 @@ export async function DELETE(request: Request) {
   const agentId = String(searchParams.get("agentId") ?? "").trim();
   if (!agentId) {
     return NextResponse.json({ ok: false, error: "User ID is required." }, { status: 400 });
+  }
+
+  const target = await prisma.salesAgentProfile.findUnique({ where: { id: agentId }, select: { userId: true, user: { select: { tenantId: true } } } });
+  if (!target || target.user.tenantId !== authorization.session.tenantId) {
+    return NextResponse.json({ ok: false, error: "Workspace user was not found." }, { status: 404 });
+  }
+  if (target.userId === authorization.session.userId) {
+    return NextResponse.json({ ok: false, error: "The workspace Admin account cannot delete itself." }, { status: 403 });
   }
 
   const deleted = await deleteSalesAgentFromAdmin({ agentId });

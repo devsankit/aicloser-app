@@ -58,6 +58,7 @@ export function DuplicateLeadsModal({ isOpen, onClose, onMerged }: Props) {
 
   return (
     <div
+      className="sales-modal-backdrop"
       style={{
         position: "fixed",
         inset: 0,
@@ -71,6 +72,7 @@ export function DuplicateLeadsModal({ isOpen, onClose, onMerged }: Props) {
       }}
     >
       <div
+        className="sales-modal-card"
         style={{
           width: "100%",
           maxWidth: "750px",

@@ -158,6 +158,7 @@ export function StatusLabelsModal({
 
   return (
     <div
+      className="sales-modal-backdrop"
       style={{
         position: "fixed",
         inset: 0,
@@ -171,6 +172,7 @@ export function StatusLabelsModal({
       }}
     >
       <div
+        className="sales-modal-card"
         style={{
           width: "100%",
           maxWidth: "640px",

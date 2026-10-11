@@ -39,7 +39,17 @@ data class SyncCounts(
     val failed: Int,
 )
 
-class OfflineEventStore(context: Context) : SQLiteOpenHelper(context, "gxclosers-offline.db", null, 4) {
+class OfflineEventStore private constructor(context: Context) : SQLiteOpenHelper(context.applicationContext, "gxclosers-offline.db", null, 4) {
+    companion object {
+        @Volatile private var instance: OfflineEventStore? = null
+
+        operator fun invoke(context: Context): OfflineEventStore =
+            instance ?: synchronized(this) {
+                instance ?: OfflineEventStore(context.applicationContext).also { instance = it }
+            }
+
+        fun getInstance(context: Context): OfflineEventStore = invoke(context)
+    }
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """CREATE TABLE offline_events (
@@ -313,6 +323,9 @@ class OfflineEventStore(context: Context) : SQLiteOpenHelper(context, "gxclosers
         }
     }
 
+    fun recordingForCall(callId: String): QueuedRecording? = allRecordings()
+        .firstOrNull { it.callId == callId }
+
     fun markRecordingUploaded(clientUploadId: String) {
         val values = ContentValues().apply {
             put("status", "UPLOADED")
@@ -384,6 +397,31 @@ class OfflineEventStore(context: Context) : SQLiteOpenHelper(context, "gxclosers
             db.endTransaction()
         }
         return recovered
+    }
+
+    fun deleteRecordingByCallId(callId: String): Int {
+        if (callId.isBlank()) return 0
+        val cursor = readableDatabase.query(
+            "recording_queue",
+            arrayOf("file_path"),
+            "call_id = ?",
+            arrayOf(callId),
+            null,
+            null,
+            null
+        )
+        val files = cursor.use {
+            buildList {
+                while (it.moveToNext()) {
+                    it.getString(0)?.let { path -> add(java.io.File(path)) }
+                }
+            }
+        }
+        files.forEach { file -> runCatching { if (file.exists()) file.delete() } }
+        val db = writableDatabase
+        val deleted = db.delete("recording_queue", "call_id = ?", arrayOf(callId))
+        db.delete("offline_events", "entity_id = ?", arrayOf(callId))
+        return deleted
     }
 
     fun clear() {

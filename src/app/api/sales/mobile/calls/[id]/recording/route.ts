@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import path from "node:path";
 import { requireSessionRole } from "@/lib/api/require-session-role";
 import { readSalesMobileRecording } from "@/lib/gigxomi/sales-mobile-store";
 
@@ -9,12 +10,28 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     const { id } = await params;
     const recording = await readSalesMobileRecording({ userId: auth.session.userId, role: auth.session.role as any }, id);
     const size = recording.bytes.byteLength;
-    const contentType = recording.call.recordingMimeType ?? "application/octet-stream";
+    // Some older uploads were stored with a generic MIME type even though the
+    // bytes are an Android MPEG-4/AAC recording. Keep the browser and mobile
+    // players on a decodable media type instead of returning octet-stream.
+    const extension = path.extname(recording.call.recordingPath || "").toLowerCase();
+    const extensionMimeType: Record<string, string> = {
+      ".m4a": "audio/mp4",
+      ".mp4": "audio/mp4",
+      ".aac": "audio/aac",
+      ".wav": "audio/wav",
+      ".mp3": "audio/mpeg",
+      ".3gp": "audio/3gpp",
+    };
+    const storedMimeType = recording.call.recordingMimeType?.trim().toLowerCase();
+    const contentType = storedMimeType && storedMimeType !== "application/octet-stream"
+      ? storedMimeType
+      : extensionMimeType[extension] || "audio/mp4";
     const range = request.headers.get("range");
     const headers = {
       "Accept-Ranges": "bytes",
       "Cache-Control": "private, no-store",
       "Content-Type": contentType,
+      "Content-Disposition": "inline",
     };
 
     if (!range) {

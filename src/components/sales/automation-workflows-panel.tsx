@@ -524,6 +524,7 @@ export function AutomationWorkflowsPanel({ mode = "workflows" }: { mode?: Automa
       {/* Create / Edit Rule Modal */}
       {modalOpen && editingRule && (
         <div
+          className="sales-modal-backdrop"
           style={{
             position: "fixed",
             inset: 0,
@@ -537,6 +538,7 @@ export function AutomationWorkflowsPanel({ mode = "workflows" }: { mode?: Automa
           }}
         >
           <div
+            className="sales-modal-card"
             style={{
               width: "100%",
               maxWidth: "540px",

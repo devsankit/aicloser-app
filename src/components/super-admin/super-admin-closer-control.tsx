@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useTransition } from "react";
+import { useState, useMemo, useTransition, useEffect } from "react";
 import Link from "next/link";
 import {
   Users,
@@ -25,9 +25,11 @@ import {
   Building,
   KeyRound,
   Filter,
+  Smartphone,
 } from "lucide-react";
 
 import { BrandWordmark } from "@/components/ui/brand-wordmark";
+import { MobileDiagnosticsPanel } from "./mobile-diagnostics-panel";
 
 export type SuperAdminUser = {
   id: string;
@@ -37,7 +39,9 @@ export type SuperAdminUser = {
   role: string;
   companyName: string;
   status: "ACTIVE" | "PENDING" | "SUSPENDED" | string;
+  workspaceStatus?: "ACTIVE" | "SUSPENDED" | string;
   seatLimit: number;
+  workspaceSeatLimit?: number;
   paymentStatus?: "NOT_CONFIGURED" | "PENDING" | "PAID" | string;
   paymentPendingSince?: string | null;
   activationLocked?: boolean;
@@ -110,7 +114,7 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
-  const [activeTab, setActiveTab] = useState<"users" | "logins" | "health">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "logins" | "health" | "mobile">("users");
   const [showDetailedUsers, setShowDetailedUsers] = useState(false);
 
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
@@ -123,6 +127,11 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
   const [deletingUser, setDeletingUser] = useState<SuperAdminUser | null>(null);
   const [quickSeatModalUser, setQuickSeatModalUser] = useState<SuperAdminUser | null>(null);
   const [customSeatsInput, setCustomSeatsInput] = useState<number>(5);
+  const [workspaceSeatOverrides, setWorkspaceSeatOverrides] = useState<Record<string, number>>({});
+  const [workspaceExpiryDrafts, setWorkspaceExpiryDrafts] = useState<Record<string, string>>({});
+  const [workspaceExpirySaving, setWorkspaceExpirySaving] = useState<string | null>(null);
+  const [workspaceStatusOverrides, setWorkspaceStatusOverrides] = useState<Record<string, string>>({});
+  const [workspaceStatusSaving, setWorkspaceStatusSaving] = useState<string | null>(null);
 
   const [isPending, startTransition] = useTransition();
 
@@ -131,7 +140,7 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
     window.setTimeout(() => setToast(null), 3500);
   };
 
-  const refreshData = async () => {
+  const refreshData = async (notify = true) => {
     setIsRefreshing(true);
     try {
       const res = await fetch("/api/super-admin/users", { cache: "no-store" });
@@ -139,7 +148,10 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
       if (data.ok) {
         setUsers(data.users);
         setStats(data.stats);
-        showToast("User directory refreshed successfully");
+        setWorkspaceSeatOverrides({});
+        setWorkspaceExpiryDrafts({});
+        setWorkspaceStatusOverrides({});
+        if (notify) showToast("User directory refreshed successfully");
       } else {
         showToast(data.error || "Failed to refresh users", "error");
       }
@@ -149,6 +161,10 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
       setIsRefreshing(false);
     }
   };
+
+  useEffect(() => {
+    void refreshData(false);
+  }, []);
 
   // Quick seat stepper (+ / -)
   const handleUpdateSeats = async (user: SuperAdminUser, delta: number) => {
@@ -237,6 +253,107 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
     }
   };
 
+  const handleUpdateWorkspaceSeats = async (summary: { key: string; tenantId?: string | null; seats: number }, delta: number) => {
+    if (!summary.tenantId) {
+      showToast("This workspace is missing its tenant mapping.", "error");
+      return;
+    }
+    const nextSeats = Math.max(1, summary.seats + delta);
+    if (nextSeats === summary.seats) return;
+
+    setWorkspaceSeatOverrides((current) => ({ ...current, [summary.key]: nextSeats }));
+    setStats((current) => ({ ...current, totalSeats: Math.max(0, current.totalSeats + delta) }));
+    try {
+      const response = await fetch("/api/super-admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "update-workspace-seats", tenantId: summary.tenantId, seats: nextSeats }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.ok) throw new Error(payload.error || "Could not update workspace seats.");
+      const committedSeats = Math.max(1, Number(payload.seatLimit) || nextSeats);
+      setWorkspaceSeatOverrides((current) => ({ ...current, [summary.key]: committedSeats }));
+      setStats((current) => ({ ...current, totalSeats: current.totalSeats + (committedSeats - nextSeats) }));
+      showToast(`Workspace capacity updated to ${committedSeats} seats.`);
+    } catch (error) {
+      setWorkspaceSeatOverrides((current) => {
+        const next = { ...current };
+        delete next[summary.key];
+        return next;
+      });
+      setStats((current) => ({ ...current, totalSeats: Math.max(0, current.totalSeats - delta) }));
+      showToast(error instanceof Error ? error.message : "Could not update workspace seats.", "error");
+    }
+  };
+
+  const handleUpdateWorkspaceExpiry = async (summary: { key: string; tenantId?: string | null; packageExpiresAt?: string | null }) => {
+    if (!summary.tenantId) {
+      showToast("This workspace is missing its tenant mapping.", "error");
+      return;
+    }
+    const packageExpiresAt = workspaceExpiryDrafts[summary.key] ?? summary.packageExpiresAt?.slice(0, 10) ?? "";
+    setWorkspaceExpirySaving(summary.key);
+    try {
+      const response = await fetch("/api/super-admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "update-workspace-expiry", tenantId: summary.tenantId, packageExpiresAt: packageExpiresAt || null }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.ok) throw new Error(payload.error || "Could not update workspace expiry.");
+      const committedExpiry = typeof payload.packageExpiresAt === "string" ? payload.packageExpiresAt.slice(0, 10) : "";
+      setWorkspaceExpiryDrafts((current) => ({ ...current, [summary.key]: committedExpiry }));
+      setUsers((current) => current.map((user) => user.tenantId === summary.tenantId ? { ...user, packageExpiresAt: payload.packageExpiresAt ?? null } : user));
+      showToast(committedExpiry ? `Workspace access extended until ${committedExpiry}.` : "Workspace expiry cleared.");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Could not update workspace expiry.", "error");
+    } finally {
+      setWorkspaceExpirySaving(null);
+    }
+  };
+
+  const handleUpdateWorkspaceStatus = async (summary: { key: string; tenantId?: string | null; workspaceStatus: string }) => {
+    if (!summary.tenantId) {
+      showToast("This workspace is missing its tenant mapping.", "error");
+      return;
+    }
+    const nextStatus = summary.workspaceStatus === "ACTIVE" ? "SUSPENDED" : "ACTIVE";
+    const affectedUsers = users.filter((user) => user.tenantId === summary.tenantId);
+    const affectedActiveUsers = affectedUsers.filter((user) => user.status === "ACTIVE").length;
+    const affectedSuspendedUsers = affectedUsers.filter((user) => user.status === "SUSPENDED").length;
+    setWorkspaceStatusSaving(summary.key);
+    setWorkspaceStatusOverrides((current) => ({ ...current, [summary.key]: nextStatus }));
+    setUsers((current) => current.map((user) => user.tenantId === summary.tenantId ? { ...user, status: nextStatus } : user));
+    setStats((current) => ({
+      ...current,
+      activeUsers: Math.max(0, current.activeUsers + (nextStatus === "ACTIVE" ? affectedSuspendedUsers : -affectedActiveUsers)),
+    }));
+    try {
+      const response = await fetch("/api/super-admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "update-workspace-status", tenantId: summary.tenantId, status: nextStatus }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.ok) throw new Error(payload.error || "Could not update workspace status.");
+      showToast(`Workspace marked ${nextStatus.toLowerCase()}.`);
+    } catch (error) {
+      setWorkspaceStatusOverrides((current) => {
+        const next = { ...current };
+        delete next[summary.key];
+        return next;
+      });
+      setUsers((current) => current.map((user) => user.tenantId === summary.tenantId ? { ...user, status: summary.workspaceStatus } : user));
+      setStats((current) => ({
+        ...current,
+        activeUsers: Math.max(0, current.activeUsers + (nextStatus === "ACTIVE" ? -affectedSuspendedUsers : affectedActiveUsers)),
+      }));
+      showToast(error instanceof Error ? error.message : "Could not update workspace status.", "error");
+    } finally {
+      setWorkspaceStatusSaving(null);
+    }
+  };
+
   // Toggle user status (ACTIVE <-> SUSPENDED)
   const handleToggleStatus = async (user: SuperAdminUser) => {
     if (user.isSuperAdmin) return;
@@ -245,6 +362,10 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
     setUsers((prev) =>
       prev.map((u) => (u.id === user.id ? { ...u, status: nextStatus } : u))
     );
+    setStats((current) => ({
+      ...current,
+      activeUsers: Math.max(0, current.activeUsers + (nextStatus === "ACTIVE" ? 1 : -1)),
+    }));
 
     try {
       const res = await fetch("/api/super-admin/users", {
@@ -263,12 +384,20 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
         setUsers((prev) =>
           prev.map((u) => (u.id === user.id ? { ...u, status: user.status } : u))
         );
+        setStats((current) => ({
+          ...current,
+          activeUsers: Math.max(0, current.activeUsers + (nextStatus === "ACTIVE" ? -1 : 1)),
+        }));
         showToast(data.error || "Failed to change status", "error");
       }
     } catch {
       setUsers((prev) =>
         prev.map((u) => (u.id === user.id ? { ...u, status: user.status } : u))
       );
+      setStats((current) => ({
+        ...current,
+        activeUsers: Math.max(0, current.activeUsers + (nextStatus === "ACTIVE" ? -1 : 1)),
+      }));
       showToast("Network error", "error");
     }
   };
@@ -399,7 +528,9 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
           active: teamMembers.filter((member) => member.status === "ACTIVE").length,
           pending: teamMembers.filter((member) => member.status === "PENDING").length,
           suspended: teamMembers.filter((member) => member.status === "SUSPENDED").length,
-          seats: admin?.seatLimit || members.reduce((sum, member) => sum + (member.seatLimit || 0), 0),
+          tenantId: admin?.tenantId || members[0]?.tenantId || null,
+          workspaceStatus: workspaceStatusOverrides[key] ?? admin?.status ?? members[0]?.status ?? "PENDING",
+          seats: workspaceSeatOverrides[key] ?? admin?.workspaceSeatLimit ?? admin?.seatLimit ?? members[0]?.workspaceSeatLimit ?? members.reduce((sum, member) => sum + (member.seatLimit || 0), 0),
           packageName: admin?.packageName || members.find((member) => member.packageName)?.packageName || "No package",
           packageExpiresAt: admin?.packageExpiresAt || members.find((member) => member.packageExpiresAt)?.packageExpiresAt || null,
           matches: matchesSearch && matchesRole && matchesStatus,
@@ -407,7 +538,7 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
       })
       .filter((summary) => summary.matches)
       .sort((a, b) => a.companyName.localeCompare(b.companyName));
-  }, [users, searchQuery, roleFilter, statusFilter]);
+  }, [users, searchQuery, roleFilter, statusFilter, workspaceSeatOverrides, workspaceStatusOverrides]);
 
   const adminName = adminUser?.displayName || "Ankit Rathore";
   const adminEmail = adminUser?.email || "hello.ankitrathore@gmail.com";
@@ -503,7 +634,7 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
                 transition: "all 0.15s ease",
               }}
             >
-              <Users size={16} /> Users & Seats
+              <Layers size={16} /> Workspaces & Seats
             </button>
             <button
               type="button"
@@ -544,6 +675,26 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
               }}
             >
               <ShieldCheck size={16} /> Platform Overview
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("mobile")}
+              style={{
+                padding: "0.5rem 1rem",
+                borderRadius: "8px",
+                fontSize: "0.88rem",
+                fontWeight: 600,
+                border: "none",
+                cursor: "pointer",
+                background: activeTab === "mobile" ? "#F97316" : "transparent",
+                color: activeTab === "mobile" ? "#FFFFFF" : "#A1A1AA",
+                display: "flex",
+                alignItems: "center",
+                gap: "0.45rem",
+                transition: "all 0.15s ease",
+              }}
+            >
+              <Smartphone size={16} /> Mobile & Recording Errors
             </button>
           </nav>
 
@@ -799,7 +950,7 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
                 <Search size={16} style={{ color: "#71717A" }} />
                 <input
                   type="text"
-                  placeholder="Search by name, email, phone, company..."
+                placeholder="Search workspace or admin..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   style={{
@@ -867,30 +1018,10 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
                   <option value="SUSPENDED">Suspended</option>
                 </select>
 
-                <button
-                  type="button"
-                  onClick={() => setShowDetailedUsers((current) => !current)}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "0.45rem",
-                    background: showDetailedUsers ? "rgba(249, 115, 22, 0.16)" : "#121714",
-                    border: showDetailedUsers ? "1px solid rgba(249, 115, 22, 0.45)" : "1px solid rgba(255, 255, 255, 0.12)",
-                    borderRadius: "8px",
-                    color: showDetailedUsers ? "#F97316" : "#D4D4D8",
-                    padding: "0.55rem 0.85rem",
-                    fontSize: "0.85rem",
-                    fontWeight: 600,
-                    cursor: "pointer",
-                  }}
-                >
-                  <Users size={14} /> {showDetailedUsers ? "Admin summary" : "Individual users"}
-                </button>
-
                 {/* Refresh Button */}
                 <button
                   type="button"
-                  onClick={refreshData}
+                  onClick={() => void refreshData()}
                   disabled={isRefreshing}
                   style={{
                     display: "inline-flex",
@@ -909,36 +1040,6 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
                   <RefreshCw size={14} className={isRefreshing ? "spin" : ""} /> Refresh
                 </button>
 
-                {/* + Add New User Button */}
-                <button
-                  type="button"
-                  onClick={() => setIsAddModalOpen(true)}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "0.5rem",
-                    background: "linear-gradient(135deg, #F97316 0%, #EA580C 100%)",
-                    border: "none",
-                    borderRadius: "8px",
-                    color: "#FFFFFF",
-                    padding: "0.55rem 1.15rem",
-                    fontSize: "0.88rem",
-                    fontWeight: 700,
-                    cursor: "pointer",
-                    boxShadow: "0 4px 15px rgba(249, 115, 22, 0.3)",
-                    transition: "all 0.15s ease",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.transform = "translateY(-1px)";
-                    e.currentTarget.style.boxShadow = "0 6px 20px rgba(249, 115, 22, 0.4)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = "translateY(0)";
-                    e.currentTarget.style.boxShadow = "0 4px 15px rgba(249, 115, 22, 0.3)";
-                  }}
-                >
-                  <UserPlus size={16} /> Add New User
-                </button>
               </div>
             </div>
 
@@ -955,7 +1056,7 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
                 <div style={{ padding: "1.15rem 1.25rem", borderBottom: "1px solid rgba(255, 255, 255, 0.08)" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
                     <div>
-                      <h2 style={{ margin: 0, color: "#FFFFFF", fontSize: "1.05rem" }}>Business customers</h2>
+                      <h2 style={{ margin: 0, color: "#FFFFFF", fontSize: "1.05rem" }}>Business workspaces</h2>
                       <p style={{ margin: "0.35rem 0 0", color: "#A1A1AA", fontSize: "0.82rem" }}>
                         Platform-level view. Team members remain inside each Admin workspace.
                       </p>
@@ -972,12 +1073,13 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
                         <th style={{ padding: "0.85rem 1rem" }}>Active</th>
                         <th style={{ padding: "0.85rem 1rem" }}>Pending / Suspended</th>
                         <th style={{ padding: "0.85rem 1rem" }}>Package</th>
-                        <th style={{ padding: "0.85rem 1.25rem", textAlign: "right" }}>Control</th>
+                        <th style={{ padding: "0.85rem 1rem" }}>Workspace status</th>
+                        <th style={{ padding: "0.85rem 1.25rem", textAlign: "right" }}>Workspace capacity</th>
                       </tr>
                     </thead>
                     <tbody>
                       {workspaceSummaries.length === 0 ? (
-                        <tr><td colSpan={6} style={{ padding: "2.5rem", textAlign: "center", color: "#A1A1AA" }}>No business workspaces match these filters.</td></tr>
+                        <tr><td colSpan={7} style={{ padding: "2.5rem", textAlign: "center", color: "#A1A1AA" }}>No business workspaces match these filters.</td></tr>
                       ) : workspaceSummaries.map((summary) => (
                         <tr key={summary.key} style={{ borderBottom: "1px solid rgba(255, 255, 255, 0.05)" }}>
                           <td style={{ padding: "1rem 1.25rem" }}>
@@ -990,15 +1092,60 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
                           <td style={{ padding: "1rem" }}>
                             <div style={{ color: "#D4D4D8", fontWeight: 600 }}>{summary.packageName}</div>
                             <div style={{ color: "#A1A1AA", fontSize: "0.76rem", marginTop: "0.25rem" }}>{formatPackageExpiry(summary.packageExpiresAt)}</div>
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.55rem", flexWrap: "wrap" }}>
+                              <input
+                                aria-label={`Workspace expiry for ${summary.companyName}`}
+                                type="date"
+                                value={workspaceExpiryDrafts[summary.key] ?? summary.packageExpiresAt?.slice(0, 10) ?? ""}
+                                onChange={(event) => setWorkspaceExpiryDrafts((current) => ({ ...current, [summary.key]: event.target.value }))}
+                                style={{ colorScheme: "dark", minHeight: "30px", padding: "0.25rem 0.45rem", borderRadius: "6px", border: "1px solid rgba(255, 255, 255, 0.14)", background: "#121714", color: "#D4D4D8", fontSize: "0.76rem" }}
+                              />
+                              <button
+                                type="button"
+                                disabled={workspaceExpirySaving === summary.key}
+                                onClick={() => void handleUpdateWorkspaceExpiry(summary)}
+                                style={{ minHeight: "30px", padding: "0.25rem 0.55rem", borderRadius: "6px", border: "1px solid rgba(249, 115, 22, 0.45)", background: "rgba(249, 115, 22, 0.12)", color: "#F97316", fontSize: "0.76rem", fontWeight: 700, cursor: "pointer" }}
+                              >
+                                {workspaceExpirySaving === summary.key ? "Saving…" : "Save expiry"}
+                              </button>
+                            </div>
+                          </td>
+                          <td style={{ padding: "1rem" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                              <span style={{ color: summary.workspaceStatus === "ACTIVE" ? "#34D399" : "#F87171", fontWeight: 800, fontSize: "0.78rem" }}>{summary.workspaceStatus}</span>
+                              <button
+                                type="button"
+                                disabled={workspaceStatusSaving === summary.key}
+                                onClick={() => void handleUpdateWorkspaceStatus(summary)}
+                                style={{ minHeight: "30px", padding: "0.25rem 0.55rem", borderRadius: "6px", border: summary.workspaceStatus === "ACTIVE" ? "1px solid rgba(248, 113, 113, 0.45)" : "1px solid rgba(52, 211, 153, 0.45)", background: summary.workspaceStatus === "ACTIVE" ? "rgba(248, 113, 113, 0.12)" : "rgba(52, 211, 153, 0.12)", color: summary.workspaceStatus === "ACTIVE" ? "#F87171" : "#34D399", fontSize: "0.76rem", fontWeight: 700, cursor: "pointer" }}
+                              >
+                                {workspaceStatusSaving === summary.key ? "Saving…" : summary.workspaceStatus === "ACTIVE" ? "Suspend" : "Activate"}
+                              </button>
+                            </div>
                           </td>
                           <td style={{ padding: "1rem 1.25rem", textAlign: "right" }}>
-                            <button
-                              type="button"
-                              onClick={() => { setSearchQuery(summary.companyName); setRoleFilter("ALL"); setStatusFilter("ALL"); setShowDetailedUsers(true); }}
-                              style={{ border: "1px solid rgba(249, 115, 22, 0.35)", background: "rgba(249, 115, 22, 0.12)", color: "#F97316", borderRadius: "7px", padding: "0.4rem 0.7rem", fontWeight: 700, cursor: "pointer" }}
-                            >
-                              View team
-                            </button>
+                            <div style={{ display: "inline-flex", alignItems: "center", gap: "0.55rem" }}>
+                              <button
+                                type="button"
+                                aria-label={`Decrease workspace capacity for ${summary.companyName}`}
+                                disabled={summary.seats <= 1 || isPending}
+                                onClick={() => void handleUpdateWorkspaceSeats(summary, -1)}
+                                style={{ width: "30px", height: "30px", borderRadius: "7px", border: "1px solid rgba(255, 255, 255, 0.14)", background: summary.seats <= 1 ? "#1A201C" : "#121714", color: summary.seats <= 1 ? "#52525B" : "#D4D4D8", display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: summary.seats <= 1 ? "not-allowed" : "pointer" }}
+                              >
+                                <Minus size={14} />
+                              </button>
+                              <span style={{ minWidth: "62px", color: "#FFFFFF", fontWeight: 700, textAlign: "center" }}>{summary.seats} seats</span>
+                              <button
+                                type="button"
+                                aria-label={`Increase workspace capacity for ${summary.companyName}`}
+                                disabled={summary.seats >= 500 || isPending}
+                                onClick={() => void handleUpdateWorkspaceSeats(summary, 1)}
+                                style={{ width: "30px", height: "30px", borderRadius: "7px", border: "1px solid rgba(249, 115, 22, 0.45)", background: "rgba(249, 115, 22, 0.12)", color: "#F97316", display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: summary.seats >= 500 ? "not-allowed" : "pointer" }}
+                              >
+                                <Plus size={14} />
+                              </button>
+                            </div>
+                            <div style={{ color: "#71717A", fontSize: "0.72rem", marginTop: "0.35rem" }}>1–500 seats</div>
                           </td>
                         </tr>
                       ))}
@@ -1589,6 +1736,9 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
             </div>
           </div>
         )}
+
+        {/* TAB 4: MOBILE FLEET TELEMETRY & RECORDING ERRORS */}
+        {activeTab === "mobile" && <MobileDiagnosticsPanel />}
       </main>
 
       {/* MODAL 1: ADD NEW USER */}
@@ -1965,6 +2115,7 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
                   status: form.get("status"),
                   seats: Number(form.get("seats") || editingUser.seatLimit),
                   password: form.get("password") || undefined,
+                  packageExpiresAt: form.get("packageExpiresAt") || null,
                 };
 
                 try {
@@ -2047,6 +2198,27 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
                     }}
                   />
                 </div>
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, color: "#A1A1AA", marginBottom: "4px" }}>
+                  Account expiry date
+                </label>
+                <input
+                  name="packageExpiresAt"
+                  type="date"
+                  defaultValue={editingUser.packageExpiresAt ? editingUser.packageExpiresAt.slice(0, 10) : ""}
+                  style={{
+                    width: "100%",
+                    padding: "0.6rem 0.85rem",
+                    borderRadius: "8px",
+                    background: "#18201C",
+                    border: "1px solid rgba(255, 255, 255, 0.12)",
+                    color: "#FFFFFF",
+                    fontSize: "0.88rem",
+                  }}
+                />
+                <p style={{ margin: "0.35rem 0 0", color: "#71717A", fontSize: "0.72rem" }}>Leave blank for no expiry.</p>
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>

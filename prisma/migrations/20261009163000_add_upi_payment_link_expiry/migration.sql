@@ -1,0 +1,3 @@
+-- Payment-link expiry is stored in the link's customFields JSON payload.
+-- This migration intentionally has no DDL; it records the schema-compatible
+-- application change so production migration history can advance safely.

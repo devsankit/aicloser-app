@@ -93,7 +93,7 @@ export default async function SalesLoginPage({
             error={value(params.error)}
             identifier={value(params.identifier)}
             message={value(params.message)}
-            redirectTo={value(params.redirectTo) || "/"}
+            redirectTo={value(params.redirectTo) || "/?tab=dashboard"}
           />
 
           <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: "16px", textAlign: "center" }}>

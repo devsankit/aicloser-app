@@ -33,3 +33,15 @@ test('device table is mounted only on the dashboard', () => {
   assert.ok(source.includes('<div className="sales-dashboard-device-activity">\n              <TeamActivityPanel />\n            </div>'));
   assert.ok(source.indexOf('sales-dashboard-device-activity') > source.indexOf('AdminTeamReportingPanel'));
 });
+
+test('mobile device certification endpoint exists and isolates evidence-based status', () => {
+  const routeSource = readFileSync('src/app/api/sales/mobile/certification/route.ts', 'utf8');
+  assert.ok(routeSource.includes('recordSalesMobileCertification'));
+  assert.ok(routeSource.includes('requireSalesMobileSession'));
+
+  const storeSource = readFileSync('src/lib/gigxomi/sales-mobile-store.ts', 'utf8');
+  assert.ok(storeSource.includes('export async function recordSalesMobileCertification'));
+  assert.ok(storeSource.includes('DEVICE_CERTIFICATION'));
+  assert.ok(storeSource.includes('status = clean(input.status) || "UNVERIFIED"'));
+  assert.ok(storeSource.includes('testSessionId'));
+});

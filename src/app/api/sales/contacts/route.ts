@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSessionRole } from "@/lib/api/require-session-role";
-import { resolveSessionTenantId } from "@/lib/api/resolve-session-tenant";
+import { resolveSessionTenantId, resolveWhatsAppSetupTenantId } from "@/lib/api/resolve-session-tenant";
+import { readRoundRobinSettings } from "@/lib/gigxomi/round-robin-service";
 import { createSalesLead, getSalesSnapshotForRole, updateSalesLead, type SalesLeadStage } from "@/lib/gigxomi/sales-store";
 import { listConversationsForAudienceFromFile } from "@/lib/gigxomi/dummy-platform-file-store";
 import { normalizeE164Phone, upsertMarketingContact } from "@/lib/whatsapp-marketing/contact-service";
@@ -106,15 +107,19 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const tenantId = resolveSessionTenantId(auth.session, url.searchParams.get("tenantId"));
+  const personalScannerTenantId = auth.session.role === "SALES_AGENT"
+    ? resolveWhatsAppSetupTenantId(auth.session)
+    : tenantId;
+  const contactTenantIds = Array.from(new Set([tenantId, personalScannerTenantId]));
 
   const [salesSnapshot, marketingContacts, inboxPayload] = await Promise.all([
     getSalesSnapshotForRole(auth.session),
     prisma.marketingContact.findMany({
-      where: { tenantId },
+      where: { tenantId: { in: contactTenantIds } },
       orderBy: { updatedAt: "desc" },
       take: 1000,
     }),
-    listConversationsForAudienceFromFile("sales", { tenantId, limit: 300 }).catch(() => ({
+    listConversationsForAudienceFromFile("sales", { tenantId: personalScannerTenantId, limit: 300 }).catch(() => ({
       conversations: [],
     })),
   ]);
@@ -292,7 +297,16 @@ export async function POST(request: Request) {
     preview?: boolean;
   };
 
-  const tenantId = resolveSessionTenantId(auth.session, body.tenantId);
+  const workspaceTenantId = resolveSessionTenantId(auth.session, body.tenantId);
+  const tenantId = auth.session.role === "SALES_AGENT"
+    ? resolveWhatsAppSetupTenantId(auth.session)
+    : workspaceTenantId;
+  if (auth.session.role !== "ADMIN" && auth.session.role !== "SUPER_ADMIN") {
+    const settings = await readRoundRobinSettings(workspaceTenantId);
+    if (!settings.allowNonAdminImportData) {
+      return NextResponse.json({ ok: false, error: "Contact import is disabled for your role. Ask a workspace administrator to enable it." }, { status: 403 });
+    }
+  }
   const snapshot = await getSalesSnapshotForRole(auth.session);
   const fallbackAgent =
     snapshot.currentAgent ??

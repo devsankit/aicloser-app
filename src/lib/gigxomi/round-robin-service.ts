@@ -33,7 +33,9 @@ export function getDefaultRoundRobinSettings(tenantId: string): RoundRobinSettin
     lastAssignedIndex: -1,
     allowNonAdminModifyLeads: true,
     allowNonAdminDeleteLeads: false,
-    allowNonAdminImportData: false,
+    // Closers can import their own sources by default. Administrators can
+    // still turn this off for a workspace from CRM settings.
+    allowNonAdminImportData: true,
     allowNonAdminExportData: false,
     allowNonAdminBulkCampaigns: false,
     fallbackAgentId: null,

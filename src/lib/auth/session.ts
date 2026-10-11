@@ -4,6 +4,7 @@ import type { NextResponse } from "next/server";
 import { createSessionToken, verifySessionToken } from "@/lib/auth/token";
 import { repairAgencyTenantIsolation } from "@/lib/auth/store";
 import { isAppClientSessionActive } from "@/lib/auth/client-sessions";
+import { prisma } from "@/lib/prisma";
 import type { AppRole, PackageAudience, PackageStatus, SessionUser, WorkspaceMode } from "@/lib/auth/types";
 
 export type UserRole = AppRole | "GUEST";
@@ -90,9 +91,9 @@ export function getDefaultDashboardPath(role: UserRole) {
     case "SUPER_ADMIN":
       return "/super-admin";
     case "ADMIN":
-      return "/admin/chat";
+      return "/";
     case "MANAGER":
-      return "/manager/chat";
+      return "/";
     case "SALES_AGENT":
       return "/";
     case "FREELANCER":
@@ -108,11 +109,11 @@ export function getDashboardPathForIdentity(identity: DashboardIdentity) {
   }
 
   if (identity.packageAudience === "AGENCY" || identity.workspaceMode === "AGENCY" || identity.role === "ADMIN") {
-    return "/admin/chat";
+    return "/";
   }
 
   if (identity.role === "MANAGER") {
-    return "/manager/chat";
+    return "/";
   }
 
   if (identity.role === "SALES_AGENT") {
@@ -137,6 +138,20 @@ export function getSafeRedirectPath(value: string | null | undefined, role: User
   }
 
   return value;
+}
+
+/**
+ * Sales users should land on the workspace dashboard after authentication.
+ * In particular, a stale marketing-tab URL must not become the post-login
+ * destination just because the user opened that tab before signing in.
+ */
+export function getSafeSalesRedirectPath(value: string | null | undefined, role: UserRole) {
+  const candidate = value?.trim() || "";
+  if (candidate.includes("tab=whatsapp-marketing") || candidate.includes("tab=campaigns")) {
+    return "/?tab=dashboard";
+  }
+
+  return candidate ? getSafeRedirectPath(candidate, role) : "/?tab=dashboard";
 }
 
 export function roleLabel(role: UserRole) {
@@ -231,7 +246,17 @@ export async function getSessionContext(): Promise<SessionContext> {
           workspaceMode: repairedAgencyUser.workspaceMode,
         }
       : verified;
-    const packageStatus = derivePackageStatus(effectiveUser.packageId ?? null, effectiveUser.packageStatus ?? null, effectiveUser.packageExpiresAt ?? null);
+    // Package expiry is editable by Super Admin while a workspace session may
+    // remain open. Refresh this one billing field from the database so an old
+    // stateless token cannot mask a persisted expiry extension or clear.
+    const persistedBilling = await prisma.appAuthUser
+      .findUnique({ where: { id: effectiveUser.userId }, select: { packageExpiresAt: true } })
+      .catch(() => undefined);
+    const packageExpiresAt =
+      persistedBilling === undefined
+        ? effectiveUser.packageExpiresAt ?? null
+        : persistedBilling?.packageExpiresAt?.toISOString() ?? null;
+    const packageStatus = derivePackageStatus(effectiveUser.packageId ?? null, effectiveUser.packageStatus ?? null, packageExpiresAt);
     const resolved = resolveSessionRole(
       effectiveUser.role,
       effectiveUser.assignedRole ?? effectiveUser.role,
@@ -252,7 +277,7 @@ export async function getSessionContext(): Promise<SessionContext> {
       packageName: effectiveUser.packageName,
       packageAudience: effectiveUser.packageAudience,
       packageStatus,
-      packageExpiresAt: effectiveUser.packageExpiresAt,
+      packageExpiresAt,
       workspaceMode: resolved.workspaceMode,
       sessionId: effectiveUser.sessionId,
       expiresAt: effectiveUser.expiresAt,

@@ -92,7 +92,7 @@ export function CrmSettingsPanel({
     lastAssignedIndex: -1,
     allowNonAdminModifyLeads: true,
     allowNonAdminDeleteLeads: false,
-    allowNonAdminImportData: false,
+    allowNonAdminImportData: true,
     allowNonAdminExportData: false,
     allowNonAdminBulkCampaigns: false,
     fallbackAgentId: null,
@@ -679,9 +679,9 @@ export function CrmSettingsPanel({
                   }}
                 >
                   <div>
-                    <strong style={{ fontSize: "0.95rem" }}>Allow Non-Admins to Import Leads &amp; Contacts</strong>
+                    <strong style={{ fontSize: "0.95rem" }}>Allow Sales Users to Import Leads, Contacts &amp; Personal WhatsApp</strong>
                     <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
-                      Keep importing disabled for closers unless the workspace administrator explicitly enables it.
+                      Enabled by default so each closer can import contacts and scan their own WhatsApp. Turn it off to restrict these sources to administrators.
                     </div>
                   </div>
                   <input

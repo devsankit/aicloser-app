@@ -5792,7 +5792,7 @@ export function ChatWorkspace({
                     </span>
                   ) : null}
                 </div>
-                {false && registrationStatus ? (
+                {registrationStatus ? (
                   <div className="crm-status-icon-bar" style={{ display: "flex", alignItems: "center", gap: "7px", marginTop: "6px", flexWrap: "wrap" }}>
                     {/* 1. Agency Registration */}
                     <span
@@ -5866,7 +5866,7 @@ export function ChatWorkspace({
                     {/* 4. WhatsApp Channel */}
                     <span
                       className={cx("crm-status-icon-chip", whatsappChannel?.connected ? "is-on" : whatsappChannel?.hasIssue ? "is-warn" : "is-off")}
-                      title={`WhatsApp: ${whatsappChannel?.status || (whatsappChannel?.connected ? "Connected" : "Not connected")}${whatsappChannel?.phoneNumber ? ` (${whatsappChannel.phoneNumber})` : ""}`}
+                      title={`WhatsApp: ${whatsappChannel?.status || (whatsappChannel?.connected ? "Connected" : "Not connected")}${whatsappChannel?.phoneNumber ? ` (${whatsappChannel?.phoneNumber})` : ""}`}
                       style={{
                         display: "inline-flex",
                         alignItems: "center",
@@ -5905,7 +5905,7 @@ export function ChatWorkspace({
                     {/* 5. Instagram Channel */}
                     <span
                       className={cx("crm-status-icon-chip", instagramChannel?.connected ? "is-on" : instagramChannel?.hasIssue ? "is-warn" : "is-off")}
-                      title={`Instagram: ${instagramChannel?.status || (instagramChannel?.connected ? "Connected" : "Not connected")}${instagramChannel?.username ? ` (@${instagramChannel.username.replace(/^@/, "")})` : ""}`}
+                      title={`Instagram: ${instagramChannel?.status || (instagramChannel?.connected ? "Connected" : "Not connected")}${instagramChannel?.username ? ` (@${(instagramChannel?.username || '').replace(/^@/, "")})` : ""}`}
                       style={{
                         display: "inline-flex",
                         alignItems: "center",
@@ -5948,7 +5948,7 @@ export function ChatWorkspace({
                       const isExpired = registrationStatus.billingState === "TRIAL_EXPIRED";
                       const isBillingActive = isPaid || isTrial;
                       const expiryText = registrationStatus.planExpiresAt
-                        ? ` · Valid until ${new Date(registrationStatus.planExpiresAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}`
+                        ? ` · Valid until ${new Date(String(registrationStatus.planExpiresAt)).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}`
                         : "";
                       const bg = isPaid
                         ? "rgba(255, 107, 47, 0.22)"

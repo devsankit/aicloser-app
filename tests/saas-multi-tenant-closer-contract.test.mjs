@@ -67,8 +67,8 @@ test("pending payment locks workspace access after the 24-hour grace period", ()
   assert.match(paymentAccess, /paymentStatus !== "PENDING"/);
   assert.match(pageGuard, /getWorkspacePaymentState/);
   assert.match(pageGuard, /redirect\("\/activate-plan"\)/);
-  assert.match(superAdminUsersRoute, /Tenant users, seats, status, and payments are managed by the Tenant Admin/);
-  assert.match(superAdminUsersRoute, /status: 403/);
+  assert.match(superAdminUsersRoute, /action === "update-payment-status"/);
+  assert.match(superAdminUsersRoute, /paymentStatus === "PAID"/);
 });
 
 test("super-admin login exposes safe session recovery actions", () => {
@@ -82,18 +82,28 @@ test("super-admin login exposes safe session recovery actions", () => {
   assert.match(revokeAllSessionsRoute, /revokeAllActiveAppClientSessions/);
 });
 
-test("super-admin platform view does not expose tenant user or seat mutation controls", () => {
+test("super-admin platform view exposes scoped tenant controls", () => {
   assert.match(salesAuthForm, /Login here/);
-  const superAdminPlatformView = fs.readFileSync(new URL("../src/components/super-admin/super-admin-platform-overview.tsx", import.meta.url), "utf8");
-  assert.match(superAdminUsersUiRoute, /getSuperAdminPlatformSummary/);
-  assert.match(superAdminUsersUiRoute, /Tenant users, seats, status, and payments are managed by the Tenant Admin/);
-  assert.match(superAdminUsersUiRoute, /status: 403/);
-  assert.match(superAdminPlatformView, /Tenant summaries/);
-  assert.match(superAdminPlatformView, /Package/);
-  assert.match(superAdminPlatformView, /Active/);
-  assert.match(superAdminPlatformView, /Pending/);
-  assert.match(superAdminPlatformView, /Suspended/);
-  assert.doesNotMatch(superAdminPlatformView, /Add New User|Login as User|Update seats/);
+  const superAdminControl = fs.readFileSync(new URL("../src/components/super-admin/super-admin-closer-control.tsx", import.meta.url), "utf8");
+  const superAdminPage = fs.readFileSync(new URL("../src/app/super-admin/page.tsx", import.meta.url), "utf8");
+  assert.match(superAdminUsersUiRoute, /action === "update-seats"/);
+  assert.match(superAdminUsersUiRoute, /action === "update-status"/);
+  assert.match(superAdminUsersUiRoute, /action === "update-expiry"/);
+  assert.match(superAdminUsersRoute, /action === "update-workspace-seats"/);
+  assert.match(superAdminUsersRoute, /action === "update-workspace-expiry"/);
+  assert.match(superAdminUsersRoute, /action === "update-workspace-status"/);
+  assert.match(superAdminControl, /Login as User/);
+  assert.match(superAdminControl, /Account expiry date/);
+  assert.match(superAdminControl, /Update seats|Seats/);
+  assert.match(superAdminControl, /handleUpdateWorkspaceSeats/);
+  assert.match(superAdminControl, /Workspace capacity/);
+  assert.match(superAdminControl, /Workspace expiry/);
+  assert.match(superAdminControl, /Save expiry/);
+  assert.match(superAdminControl, /handleUpdateWorkspaceStatus/);
+  assert.match(superAdminControl, /Workspace status/);
+  assert.doesNotMatch(superAdminControl, /View team/);
+  assert.doesNotMatch(superAdminControl, /Individual users/);
+  assert.match(superAdminPage, /SuperAdminCloserControl/);
 });
 
 test("production bootstrap does not recreate legacy demo users after a clean purge", () => {
@@ -107,10 +117,15 @@ test("production bootstrap does not recreate legacy demo users after a clean pur
 
 test("getSalesSnapshotForRole enforces strict tenant filtering across all entities", () => {
   assert.match(salesStore, /session\.tenantId\?\.trim\(\)/);
+  assert.match(salesStore, /user:\s*\{\s*isSeeded:\s*false,/);
   assert.match(salesStore, /where:\s*isSuperAdminAll\s*\?\s*undefined\s*:\s*\{\s*agent:\s*\{\s*user:\s*\{\s*tenantId:\s*effectiveTenantId/);
   assert.match(salesStore, /where:\s*isSuperAdminAll\s*\?\s*undefined\s*:\s*\{\s*assignedAgent:\s*\{\s*user:\s*\{\s*tenantId:\s*effectiveTenantId/);
   assert.match(salesStore, /mobileDevicesRaw\s*\.filter\(\(device\)\s*=>\s*isWorkspaceAdmin/);
   assert.match(salesStore, /mobileCallsRaw\s*\.filter\(\(call\)\s*=>\s*isWorkspaceAdmin/);
+});
+
+test("super-admin directory excludes seeded demo accounts", () => {
+  assert.match(superAdminUsersRoute, /where:\s*\{\s*role:\s*\{\s*not:\s*\"SUPER_ADMIN\"\s*\},\s*OR:\s*\[\{\s*isSeeded:\s*false\s*\},\s*\{\s*tenantId:\s*\{\s*not:\s*null\s*\}\s*\}\s*\]\s*\}/);
 });
 
 test("syncConversationLeadsIntoSales maintains isolated per-tenant locks and scoped ingestion", () => {
@@ -138,9 +153,9 @@ test("chat and conversation access strictly isolates SALES_AGENT to own tenantId
   assert.match(conversationViewResponse, /conversation\.tenantId === effectiveSessionTenant/);
 });
 
-test("resolveWhatsAppSetupTenantId preserves custom SaaS tenantId", () => {
-  assert.match(resolveSessionTenant, /rawTenant && rawTenant !== "tenant-gigxomi"/);
-  assert.match(resolveSessionTenant, /return rawTenant/);
+test("resolveWhatsAppSetupTenantId isolates a closer's personal WhatsApp state", () => {
+  assert.match(resolveSessionTenant, /session\.role === "SALES_AGENT"/);
+  assert.match(resolveSessionTenant, /return buildSalesWhatsAppTenantId\(session\.userId\)/);
 });
 
 test("role and route authorization allow workspace ADMIN alongside SALES_AGENT", () => {

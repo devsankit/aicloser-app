@@ -58,7 +58,7 @@ export async function POST(request: Request) {
     platform: "WEB",
     replaceExisting: true,
   });
-  const response = NextResponse.json({ ok: true, redirectTo: claims.redirectTo || "/admin/chat" });
+  const response = NextResponse.json({ ok: true, redirectTo: claims.redirectTo || "/" });
   await applySessionCookie(response, {
     userId: result.user.id,
     role: result.user.role,

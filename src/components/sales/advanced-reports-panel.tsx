@@ -318,8 +318,8 @@ export function AdvancedReportsPanel({ selectedAgentId = null, selectedAgentName
         ) : null}
       </div>
 
-      {/* TeleCRM Item #5: Custom Report Builder Bar & Scheduled Email / WhatsApp Digest */}
-      <div
+      {/* Scheduled email/WhatsApp digest is intentionally disabled until its server delivery job is wired. */}
+      {false ? <div
         style={{
           padding: "1rem 1.25rem",
           borderRadius: "12px",
@@ -427,7 +427,7 @@ export function AdvancedReportsPanel({ selectedAgentId = null, selectedAgentName
             <Send size={13} /> Send Digest Now
           </button>
         </div>
-      </div>
+      </div> : null}
 
       {scheduleToast ? (
         <div style={{ padding: "0.6rem 0.9rem", borderRadius: "8px", background: "rgba(16, 185, 129, 0.14)", border: "1px solid rgba(16, 185, 129, 0.35)", color: "#059669", fontSize: "0.8rem", fontWeight: 600, display: "flex", alignItems: "center", gap: "0.4rem" }}>

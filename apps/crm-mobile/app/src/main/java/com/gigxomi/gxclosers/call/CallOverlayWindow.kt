@@ -6,10 +6,13 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.net.Uri
 import android.provider.Settings
 import android.text.TextUtils
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -24,12 +27,16 @@ object CallOverlayWindow {
     fun show(context: Context, phone: String) {
         Log.i(TAG, "show requested phone=$phone overlay=${Settings.canDrawOverlays(context)}")
         if (phone.isBlank() || Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) return
-        context.mainExecutor.execute {
+        // Context.getMainExecutor() was added in API 28. Vivo test devices can
+        // still run API 27, so use the platform main looper for all supported
+        // Android versions and keep the PHONE_STATE receiver from crashing on
+        // the first inbound ring event.
+        Handler(Looper.getMainLooper()).post {
             remove()
             val lead = CallManager.lookup(context, phone)
             val root = LinearLayout(context.applicationContext).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(dp(context, 18), dp(context, 14), dp(context, 14), dp(context, 14))
+                setPadding(dp(context, 14), dp(context, 10), dp(context, 12), dp(context, 10))
                 background = GradientDrawable().apply {
                     setColor(Color.rgb(27, 29, 34))
                     cornerRadius = dp(context, 18).toFloat()
@@ -38,10 +45,18 @@ object CallOverlayWindow {
                 elevation = dp(context, 12).toFloat()
             }
             val header = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
+            val dragHandle = TextView(context).apply {
+                text = "⋮⋮"
+                setTextColor(Color.rgb(140, 148, 160))
+                textSize = 15f
+                gravity = Gravity.CENTER
+                setPadding(0, 0, dp(context, 8), 0)
+                contentDescription = "Drag caller card"
+            }
             val title = TextView(context).apply {
                 text = lead?.name ?: "Unknown caller"
                 setTextColor(Color.WHITE)
-                textSize = 18f
+                textSize = 16f
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
@@ -53,62 +68,76 @@ object CallOverlayWindow {
                 setPadding(dp(context, 8), 0, dp(context, 4), 0)
                 setOnClickListener { remove() }
             }
+            header.addView(dragHandle)
             header.addView(title)
             header.addView(close)
             root.addView(header)
-            addText(context, root, phone, 14f, Color.rgb(190, 196, 206), 2)
+            addText(context, root, phone, 12f, Color.rgb(190, 196, 206), 2)
             if (lead == null) {
-                addText(context, root, "New company caller", 13f, Color.rgb(255, 166, 115), 14)
-                addText(context, root, "This number will appear in New Leads after the call.", 12f, Color.rgb(190, 196, 206), 4)
+                addText(context, root, "NEW LEAD  ·  COMPANY CALLER", 11f, Color.rgb(255, 166, 115), 10)
+                addText(context, root, "Lead details can be added after the call.", 11f, Color.rgb(190, 196, 206), 3)
             } else {
                 listOfNotNull(
                     lead.stage.takeIf(String::isNotBlank)?.let { "Stage  ·  ${it.replace('_', ' ')}" },
                     lead.source.takeIf(String::isNotBlank)?.let { "Source  ·  $it" },
-                    lead.serviceInterest.takeIf(String::isNotBlank)?.let { "Interest  ·  $it" },
-                    lead.email.takeIf(String::isNotBlank)?.let { "Email  ·  $it" },
-                ).forEachIndexed { index, value ->
-                    addText(context, root, value, 12f, Color.rgb(218, 222, 230), if (index == 0) 14 else 5)
-                }
-                lead.notes.takeIf(String::isNotBlank)?.let { note ->
-                    addText(context, root, note, 12f, Color.rgb(177, 183, 194), 10, 2)
-                }
-                lead.lastTouchBy.takeIf(String::isNotBlank)?.let { handledBy ->
-                    addText(context, root, "Previously handled by  ·  $handledBy", 12f, Color.rgb(255, 166, 115), 10)
-                    lead.lastTouchSummary.takeIf(String::isNotBlank)?.let { summary ->
-                        addText(context, root, summary, 11f, Color.rgb(177, 183, 194), 3, 2)
-                    }
+                ).take(2).forEachIndexed { index, value ->
+                    addText(context, root, value, 11f, Color.rgb(218, 222, 230), if (index == 0) 8 else 4)
                 }
             }
 
             val openCrm = TextView(context).apply {
-                text = if (lead == null) "Add details after call" else "Open CRM details"
+                text = if (lead == null) "Add lead details after call" else "Open CRM details"
                 textSize = 12f
                 gravity = Gravity.CENTER
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
                 setTextColor(Color.WHITE)
-                setPadding(dp(context, 12), dp(context, 11), dp(context, 12), dp(context, 11))
+                setPadding(dp(context, 10), dp(context, 9), dp(context, 10), dp(context, 9))
                 background = GradientDrawable().apply {
                     setColor(Color.rgb(255, 105, 45))
                     cornerRadius = dp(context, 11).toFloat()
                 }
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                    topMargin = dp(context, 14)
+                    topMargin = dp(context, 10)
                 }
                 setOnClickListener { openDisposition(context) }
             }
             root.addView(openCrm)
 
             val params = WindowManager.LayoutParams(
-                dp(context, 344),
+                dp(context, 280),
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
                 PixelFormat.TRANSLUCENT,
             ).apply {
-                gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-                y = dp(context, 520)
+                gravity = Gravity.TOP or Gravity.START
+                x = dp(context, 12)
+                y = dp(context, 160)
             }
             windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            var downX = 0f
+            var downY = 0f
+            var startX = params.x
+            var startY = params.y
+            header.setOnTouchListener { _, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        downX = event.rawX
+                        downY = event.rawY
+                        startX = params.x
+                        startY = params.y
+                        true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        params.x = startX + (event.rawX - downX).toInt()
+                        params.y = startY + (event.rawY - downY).toInt()
+                        runCatching { windowManager?.updateViewLayout(root, params) }
+                        true
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> true
+                    else -> false
+                }
+            }
             runCatching {
                 windowManager?.addView(root, params)
                 card = root

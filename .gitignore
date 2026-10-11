@@ -98,3 +98,10 @@ functions-config-manifest.json
 next-env.d.ts
 
 /src/generated/prisma
+
+# local analysis and scratch artifacts
+/work/
+/artifacts/
+/data/uploads/
+apps/crm-mobile/emulator_screen.png
+apps/crm-mobile/.kotlin/

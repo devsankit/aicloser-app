@@ -12,7 +12,7 @@ import {
 export type { RoundRobinSettings };
 
 export async function GET(request: Request) {
-  const auth = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER"]);
+  const auth = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"]);
   if (!auth.ok) return auth.response;
 
   const url = new URL(request.url);
@@ -27,7 +27,12 @@ export async function GET(request: Request) {
     ? salesSnapshot.agents
     : salesSnapshot.visibleAgents;
   const activeAgents = scopedAgents.filter((a) =>
-    a.status === "ACTIVE" && (!settings.participatingGroupId || a.groupId === settings.participatingGroupId),
+    a.status === "ACTIVE" &&
+    a.canClaimLeads !== false &&
+    String(a.permissions?.workspaceRole ?? "").toUpperCase() !== "ADMIN" &&
+    a.permissions?.workspaceAdmin !== true &&
+    !(a.userId === auth.session.userId && (auth.session.role === "ADMIN" || auth.session.role === "SUPER_ADMIN")) &&
+    (!settings.participatingGroupId || a.groupId === settings.participatingGroupId),
   );
 
   // If no participating agents configured yet, default to all active agents
@@ -59,7 +64,7 @@ export async function GET(request: Request) {
     })),
     groups: salesSnapshot.groups
       .filter((group) => group.isActive)
-      .filter((group) => auth.session.role === "ADMIN" || auth.session.role === "SUPER_ADMIN" || scopedAgents.some((agent) => agent.groupId === group.id)),
+      .filter((group) => activeAgents.some((agent) => agent.groupId === group.id)),
     isAdmin: auth.session.role === "ADMIN" || auth.session.role === "SUPER_ADMIN",
   });
 }

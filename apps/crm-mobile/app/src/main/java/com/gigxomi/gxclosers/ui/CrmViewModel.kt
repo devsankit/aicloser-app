@@ -12,6 +12,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.gigxomi.gxclosers.BuildConfig
 import com.gigxomi.gxclosers.call.CallManager
+import com.gigxomi.gxclosers.call.DeviceCertificationManager
 import com.gigxomi.gxclosers.data.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -51,6 +52,12 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
     var playbackSpeed by mutableFloatStateOf(1.0f); private set
     var playingCallId by mutableStateOf<String?>(null); private set
     var playbackLoadingCallId by mutableStateOf<String?>(null); private set
+    var pendingSharedRecording by mutableStateOf(SharedRecordingStore.current(application)); private set
+    var certificationStatus by mutableStateOf(repository.sessionStore.certificationStatus); private set
+    var certificationFailureReason by mutableStateOf(repository.sessionStore.certificationFailureReason); private set
+    var testSessionId by mutableStateOf(repository.sessionStore.lastTestSessionId); private set
+    var testSessionBusy by mutableStateOf(false); private set
+    var testSessionMessage by mutableStateOf<String?>(null); private set
 
     private var heartbeatJob: Job? = null
     private var realtimeConnection: AutoCloseable? = null
@@ -220,7 +227,45 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
         done()
     }
 
-    fun registerDevice(done: () -> Unit) = launchWork {
+fun startTestSession(): String {
+        val id = DeviceCertificationManager.startTestSession(getApplication())
+        testSessionId = id
+        certificationStatus = DeviceCertificationManager.STATUS_TESTING
+        certificationFailureReason = null
+        testSessionMessage = "Test session started. Make a 10+ second test call on your work SIM now."
+        return id
+    }
+
+    fun evaluateTestCall(done: (DeviceCertificationManager.DiagnosticChecklist) -> Unit = {}) {
+        testSessionBusy = true
+        testSessionMessage = "Evaluating test call recording..."
+        viewModelScope.launch {
+            val checklist = withContext(Dispatchers.IO) {
+                DeviceCertificationManager.evaluateTestCall(getApplication(), repository)
+            }
+            certificationStatus = checklist.status
+            certificationFailureReason = checklist.failureReason
+            testSessionMessage = checklist.summaryMessage
+            testSessionBusy = false
+            refreshAll()
+            done(checklist)
+        }
+    }
+
+    fun skipTestCertification(done: () -> Unit = {}) {
+        DeviceCertificationManager.updateStatus(
+            getApplication(),
+            repository,
+            DeviceCertificationManager.STATUS_UNVERIFIED,
+            null,
+            testSessionId
+        )
+        certificationStatus = DeviceCertificationManager.STATUS_UNVERIFIED
+        certificationFailureReason = null
+        done()
+    }
+
+        fun registerDevice(force: Boolean = false, done: () -> Unit = {}) = launchWork {
         val id = deviceId()
         withContext(Dispatchers.IO) {
             repository.registerDevice(
@@ -229,7 +274,8 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
                 Build.MANUFACTURER,
                 Build.MODEL,
                 Build.VERSION.RELEASE,
-                BuildConfig.VERSION_NAME
+                BuildConfig.VERSION_NAME,
+                force = force
             )
         }
         setupComplete = true
@@ -259,6 +305,46 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
     fun retryPendingRecordings() {
         RecordingUploadWorker.retryNow(getApplication())
         status = "Retrying recording uploads..."
+    }
+
+    fun refreshSharedRecording() {
+        pendingSharedRecording = SharedRecordingStore.current(getApplication())
+        status = if (pendingSharedRecording != null) {
+            "Recording imported. Select the completed call to attach it."
+        } else {
+            "Shared recording could not be imported."
+        }
+    }
+
+    fun discardSharedRecording() {
+        SharedRecordingStore.clear(getApplication())
+        pendingSharedRecording = null
+        status = "Imported recording discarded."
+    }
+
+    fun attachSharedRecording(call: MobileCall) = launchWork {
+        val pending = pendingSharedRecording ?: throw IllegalStateException("No shared recording is waiting.")
+        if (call.id.isBlank()) throw IllegalArgumentException("This call cannot accept a recording yet.")
+        if (!call.status.equals("COMPLETED", ignoreCase = true)) {
+            throw IllegalArgumentException("Only a completed call can receive a recording.")
+        }
+        OfflineEventStore(getApplication()).enqueueRecording(
+            QueuedRecording(
+                clientUploadId = "shared-${UUID.randomUUID()}",
+                callId = call.id,
+                tenantId = null,
+                deviceId = deviceId(),
+                filePath = pending.path,
+                sizeBytes = pending.sizeBytes,
+                durationMs = pending.durationMs.takeIf { it > 0L } ?: call.durationSeconds * 1000L,
+                status = "LOCAL_PENDING",
+            )
+        )
+        SharedRecordingStore.clear(getApplication())
+        pendingSharedRecording = null
+        RecordingUploadWorker.enqueue(getApplication())
+        updateSyncCounts()
+        status = "Recording queued for ${call.assignment?.customerName ?: call.phoneNumber}."
     }
 
     fun setSpeed(speed: Float) {
@@ -416,11 +502,19 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
         done()
     }
 
-    fun startCall(lead: SalesLead) = launchWork {
-        val callId = withContext(Dispatchers.IO) { repository.startCall(lead, deviceId()) }
+    fun startCall(lead: SalesLead, sim: com.gigxomi.gxclosers.call.SimOption? = null) = launchWork {
+        val callId = withContext(Dispatchers.IO) {
+            repository.startCall(
+                lead = lead,
+                deviceId = deviceId(),
+                simSubscriptionId = sim?.subscriptionId,
+                simSlotIndex = sim?.slotIndex,
+                simLabel = sim?.label,
+            )
+        }
         val app = getApplication<Application>()
-        CallManager.prepare(app, callId, lead)
-        CallManager.dial(app, lead.customerPhone)
+        CallManager.prepare(app, callId, lead, sim)
+        CallManager.dial(app, lead.customerPhone, sim)
         status = "Tracked call started. Complete the disposition when the call ends."
     }
 
@@ -524,35 +618,35 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
             CallManager.cacheLeads(getApplication(), updatedLeads)
         }
 
-        // Sync to backend via dedicated API https://api.aicloser.in/api/v1/mobile/contacts or fallback
-        try {
-            val contactObj = JSONObject()
-                .put("name", trimmedName)
-                .put("phone", trimmedPhone)
-                .put("email", email.trim())
-                .put("notes", notes.trim())
-                .put("tags", org.json.JSONArray(listOf("hot", "mobile")))
-                .put("source", "MOBILE_MANUAL")
+        val contactObj = JSONObject()
+            .put("name", trimmedName)
+            .put("phone", trimmedPhone)
+            .put("email", email.trim())
+            .put("notes", notes.trim())
+            .put("tags", org.json.JSONArray(listOf("hot", "mobile")))
+            .put("source", "MOBILE_MANUAL")
+        val dedicatedPayload = JSONObject().put("contact", contactObj)
 
-            val dedicatedPayload = JSONObject().put("contact", contactObj)
-
-            withContext(Dispatchers.IO) {
-                // Try dedicated production API first
-                try {
-                    repository.api.requestAt(
-                        BuildConfig.AICLOSER_DEDICATED_API_BASE,
-                        "/api/v1/mobile/contacts",
-                        "POST",
-                        dedicatedPayload
-                    )
-                } catch (_: Exception) {
-                    // Fall back to main web app API route
-                    repository.api.post("/sales/mobile/contacts", dedicatedPayload)
-                }
+        // The app API is the tenant-aware source of truth. Do not leave the
+        // optimistic local id in the lead list after a successful create: the
+        // next call must use the server assignment id belonging to this agent.
+        withContext(Dispatchers.IO) {
+            try {
+                repository.api.post("/sales/mobile/contacts", dedicatedPayload)
+            } catch (mainError: Exception) {
+                if (BuildConfig.AICLOSER_DEDICATED_API_BASE.isBlank()) throw mainError
+                repository.api.requestAt(
+                    BuildConfig.AICLOSER_DEDICATED_API_BASE,
+                    "/api/v1/mobile/contacts",
+                    "POST",
+                    dedicatedPayload,
+                )
             }
-        } catch (_: Exception) {
-            // Silently maintain optimistic local contact
         }
+        val refreshed = withContext(Dispatchers.IO) { repository.bootstrap() }
+        bootstrap = refreshed
+        featurePermissions = refreshed.permissions
+        CallManager.cacheLeads(getApplication(), refreshed.leads)
 
         status = "Contact \"$trimmedName\" added to CRM."
         done()

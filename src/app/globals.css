@@ -877,6 +877,30 @@ select option:focus {
   gap: 4px;
 }
 
+.sales-recording-waveform {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 150px;
+  height: 30px;
+  flex: 1 1 170px;
+  padding: 0 4px;
+  overflow: hidden;
+}
+
+.sales-recording-waveform span {
+  display: block;
+  width: 3px;
+  min-height: 4px;
+  border-radius: 99px;
+  background: var(--color-border-strong, rgba(148, 163, 184, 0.44));
+  transition: background 160ms ease, height 160ms ease;
+}
+
+.sales-recording-waveform span.is-played {
+  background: var(--color-accent, #ff6933);
+}
+
 .sales-recording-speed {
   display: inline-flex;
   align-items: center;

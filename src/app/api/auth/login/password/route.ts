@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { SUPER_ADMIN_HOME_ROUTE, SUPER_ADMIN_LOGIN_ROUTE } from "@/lib/auth/super-admin-config";
 import { authenticatePassword, findUserByIdentifier } from "@/lib/auth/store";
-import { applySessionCookie, getDashboardPathForIdentity, getDefaultDashboardPath, getSafeRedirectPath } from "@/lib/auth/session";
+import { applySessionCookie, getDashboardPathForIdentity, getDefaultDashboardPath, getSafeRedirectPath, getSafeSalesRedirectPath } from "@/lib/auth/session";
 import { getSalesAgentAccess } from "@/lib/gigxomi/sales-store";
 import { acquireAppClientSession, ClientSlotOccupiedError } from "@/lib/auth/client-sessions";
 import { prisma } from "@/lib/prisma";
@@ -148,11 +148,9 @@ export async function POST(request: Request) {
         : loginScope === "manager"
           ? redirectTo.trim()
             ? getSafeRedirectPath(redirectTo, effectiveRole)
-            : "/manager/chat"
-        : loginScope === "sales"
-          ? redirectTo.trim()
-            ? getSafeRedirectPath(redirectTo, effectiveRole)
             : "/"
+        : loginScope === "sales"
+          ? getSafeSalesRedirectPath(redirectTo, effectiveRole)
         : redirectTo.trim()
           ? getSafeRedirectPath(redirectTo, effectiveRole)
           : getDashboardPathForIdentity({

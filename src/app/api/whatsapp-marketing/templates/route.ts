@@ -6,6 +6,7 @@ import { resolveSessionTenantId } from "@/lib/api/resolve-session-tenant";
 import {
   createAndSubmitTemplate,
   type TemplateButtonInput,
+  type TemplateCarouselCardInput,
 } from "@/lib/whatsapp-marketing/template-service";
 
 export async function GET(request: Request) {
@@ -82,6 +83,7 @@ export async function POST(request: Request) {
     footerText: body.footerText ? String(body.footerText) : undefined,
     buttons: Array.isArray(body.buttons) ? (body.buttons as TemplateButtonInput[]) : undefined,
     exampleValues: (body.exampleValues as Record<string, string>) || undefined,
+    carouselCards: Array.isArray(body.carouselCards) ? (body.carouselCards as TemplateCarouselCardInput[]) : undefined,
     actorUserId: auth.session.userId,
   });
 

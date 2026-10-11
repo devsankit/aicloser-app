@@ -469,7 +469,13 @@
     "must": [],
     "avoid": []
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "decision": "Use a focused chat workspace with assignment, lead status, and private notes as the primary thread controls; keep the composer uncluttered and hide connection prompts once any inbox is connected.",
+      "scope": "Live Multi-Channel Chat",
+      "date": "2026-10-10"
+    }
+  ],
   "evidence": [
     {
       "fact": "components.installed",

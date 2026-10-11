@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { startTransition, useEffect, useRef, useState } from "react";
 import { CheckCheck, Copy, ExternalLink, MessageSquareShare } from "lucide-react";
 
@@ -1011,7 +1010,6 @@ export function AdminWhatsAppSetupPanel({
   variant?: "compact" | "full";
   settingsHref?: string | null;
 }) {
-  const router = useRouter();
   const initialTenantId = tenantId ?? tenantOptions?.[0]?.id ?? "";
   const [selectedTenantId, setSelectedTenantId] = useState(tenantId ?? tenantOptions?.[0]?.id ?? "");
   const [connection, setConnection] = useState<DummyWhatsAppConnectionState | null>(initialConnection);
@@ -1373,11 +1371,10 @@ export function AdminWhatsAppSetupPanel({
 
     if (hasUsableWhatsAppLine(latestConnection)) {
       setSetupProgress("connected");
-      setStatus("WhatsApp is connected. Refresh the page if the latest line does not appear immediately.");
-      router.refresh();
+      setStatus("WhatsApp is connected. The latest Meta line is saved for this workspace.");
     } else {
       setSetupProgress("pending");
-      setStatus("Meta signup finished, but Gigxomi could not read the latest connected line yet. Refresh the page once or open WhatsApp settings to retry line status.");
+      setStatus("Meta signup finished, but the line is still pending. The workspace will re-check it after signup completes.");
     }
 
     return latestConnection;
@@ -1459,6 +1456,11 @@ export function AdminWhatsAppSetupPanel({
         setSetupProgress("pending");
         setStatus("Meta signup finished, but Gigxomi did not receive the authorization code, WABA ID, or Cloud API phone number ID yet. Check the Meta OAuth/JSSDK setup and rerun signup.");
       }
+
+      // The exchange response is saved server-side before this point. A full
+      // reload ensures the marketing dashboard reads the latest tenant-scoped
+      // channel and never leaves a stale connected/disconnected badge visible.
+      window.setTimeout(() => window.location.reload(), 700);
 
       return true;
     } finally {

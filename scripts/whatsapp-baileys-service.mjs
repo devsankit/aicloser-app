@@ -6,9 +6,12 @@ import qrcode from "qrcode";
 import pino from "pino";
 
 const PORT = process.env.WA_SERVICE_PORT || 3015;
-const AUTH_DIR = path.join(process.cwd(), ".gigxomi", "wa-auth");
-const SESSION_FILE = path.join(process.cwd(), ".gigxomi", "wa-live-session.json");
-const SCRAPED_CACHE_FILE = path.join(process.cwd(), ".gigxomi", "wa-scraped-cache.json");
+const rawSessionKey = String(process.env.WA_SESSION_KEY || "default").trim();
+const sessionKey = rawSessionKey.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64) || "default";
+const SESSION_DIR = path.join(process.cwd(), ".gigxomi", "wa-sessions", sessionKey);
+const AUTH_DIR = path.join(SESSION_DIR, "auth");
+const SESSION_FILE = path.join(SESSION_DIR, "session.json");
+const SCRAPED_CACHE_FILE = path.join(SESSION_DIR, "scraped-cache.json");
 
 if (!fs.existsSync(AUTH_DIR)) {
   fs.mkdirSync(AUTH_DIR, { recursive: true });
@@ -45,6 +48,44 @@ function jidToPhone(jid) {
   if (!jid) return "";
   const num = jid.split("@")[0].split(":")[0].replace(/\D/g, "");
   return num ? `+${num}` : "";
+}
+
+function appendWhatsAppMessage(message) {
+  if (!message?.key?.remoteJid || message.key.remoteJid.endsWith("@g.us")) return;
+  const jid = message.key.remoteJid;
+  const body =
+    message.message?.conversation ||
+    message.message?.extendedTextMessage?.text ||
+    message.message?.imageMessage?.caption ||
+    (message.message?.imageMessage ? "[Photo]" : "") ||
+    (message.message?.documentMessage ? "[Document]" : "");
+  if (!body) return;
+
+  const timestamp = new Date(message.messageTimestamp ? Number(message.messageTimestamp) * 1000 : Date.now()).toISOString();
+  const messageId = message.key.id || `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const chat = memoryStore.chats.get(jid) || {
+    jid,
+    phone: jidToPhone(jid),
+    name: message.pushName || jidToPhone(jid),
+    unreadCount: 0,
+    lastMessageAt: timestamp,
+    lastMessagePreview: body,
+    messages: [],
+  };
+
+  chat.lastMessagePreview = body;
+  chat.lastMessageAt = timestamp;
+  if (message.pushName && (!chat.name || chat.name.startsWith("+"))) chat.name = message.pushName;
+  if (!chat.messages.some((item) => item.id === messageId)) {
+    chat.messages.push({
+      id: messageId,
+      role: message.key.fromMe ? "sales" : "customer",
+      body,
+      timestamp,
+    });
+  }
+  if (chat.messages.length > 30) chat.messages = chat.messages.slice(-30);
+  memoryStore.chats.set(jid, chat);
 }
 
 function hasRegisteredCreds() {
@@ -136,8 +177,8 @@ function loadSavedSessionState() {
   const reg = getRegisteredPhoneAndName();
   if (reg || (sessionState.connectedPhone && sessionState.connectedPhone.length > 5)) {
     sessionState.status = "CONNECTED";
-    sessionState.connectedPhone = reg?.phone || sessionState.connectedPhone || "+918109249911";
-    sessionState.connectedDisplayName = reg?.name || sessionState.connectedDisplayName || "Ominiflow";
+    sessionState.connectedPhone = reg?.phone || sessionState.connectedPhone || "";
+    sessionState.connectedDisplayName = reg?.name || sessionState.connectedDisplayName || "";
     sessionState.qrCodeDataUrl = "";
     sessionState.qrRaw = "";
     sessionState.pairingCode = "";
@@ -266,8 +307,8 @@ async function startWhatsAppSocket(forceNew = false) {
         sessionState.connectedAt = sessionState.connectedAt || new Date().toISOString();
 
         const userJid = sock.user?.id || "";
-        sessionState.connectedPhone = jidToPhone(userJid) || sessionState.connectedPhone || "+918109249911";
-        sessionState.connectedDisplayName = sock.user?.name || sock.user?.notify || sessionState.connectedDisplayName || "Ominiflow";
+        sessionState.connectedPhone = jidToPhone(userJid) || sessionState.connectedPhone || "";
+        sessionState.connectedDisplayName = sock.user?.name || sock.user?.notify || sessionState.connectedDisplayName || "";
 
         try {
           const biz = await sock.getBusinessProfile(userJid).catch(() => null);
@@ -319,6 +360,9 @@ async function startWhatsAppSocket(forceNew = false) {
           memoryStore.chats.set(ch.id, existing);
         }
       }
+      if (Array.isArray(messages)) {
+        for (const message of messages) appendWhatsAppMessage(message);
+      }
       sessionState.stats.totalContacts = memoryStore.contacts.size;
       sessionState.stats.totalChats = memoryStore.chats.size;
       saveSessionState();
@@ -367,47 +411,7 @@ async function startWhatsAppSocket(forceNew = false) {
     // Listen to messages upsert
     sock.ev.on("messages.upsert", ({ messages }) => {
       for (const m of messages) {
-        if (!m.key?.remoteJid || m.key.remoteJid.endsWith("@g.us")) continue;
-        const jid = m.key.remoteJid;
-        const isFromMe = Boolean(m.key.fromMe);
-        const body =
-          m.message?.conversation ||
-          m.message?.extendedTextMessage?.text ||
-          m.message?.imageMessage?.caption ||
-          (m.message?.imageMessage ? "[Photo]" : "") ||
-          (m.message?.documentMessage ? "[Document]" : "") ||
-          "";
-
-        if (!body) continue;
-
-        const chat = memoryStore.chats.get(jid) || {
-          jid,
-          phone: jidToPhone(jid),
-          name: m.pushName || jidToPhone(jid),
-          unreadCount: 0,
-          lastMessageAt: new Date(m.messageTimestamp ? Number(m.messageTimestamp) * 1000 : Date.now()).toISOString(),
-          lastMessagePreview: body,
-          messages: [],
-        };
-
-        chat.lastMessagePreview = body;
-        chat.lastMessageAt = new Date(m.messageTimestamp ? Number(m.messageTimestamp) * 1000 : Date.now()).toISOString();
-        if (m.pushName && (!chat.name || chat.name.startsWith("+"))) {
-          chat.name = m.pushName;
-        }
-
-        chat.messages.push({
-          id: m.key.id || `msg-${Date.now()}`,
-          role: isFromMe ? "sales" : "customer",
-          body,
-          timestamp: chat.lastMessageAt,
-        });
-
-        if (chat.messages.length > 30) {
-          chat.messages = chat.messages.slice(-30);
-        }
-
-        memoryStore.chats.set(jid, chat);
+        appendWhatsAppMessage(m);
       }
       sessionState.stats.totalChats = memoryStore.chats.size;
       saveSessionState();
@@ -597,8 +601,8 @@ const server = http.createServer(async (req, res) => {
       return sendJson(200, {
         ok: true,
         status: hasRegisteredCreds() ? "CONNECTED" : sessionState.status,
-        connectedPhone: sessionState.connectedPhone || "+918109249911",
-        connectedDisplayName: sessionState.connectedDisplayName || "Ominiflow",
+        connectedPhone: sessionState.connectedPhone || "",
+        connectedDisplayName: sessionState.connectedDisplayName || "",
         accountType: sessionState.accountType,
         totalContacts: contacts.length,
         totalChats: chats.length,
@@ -619,7 +623,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, "127.0.0.1", () => {
   console.log(`[WA Service] WhatsApp Baileys daemon running at http://127.0.0.1:${PORT}`);
   if (hasRegisteredCreds()) {
-    console.log("[WA Service] Found existing WhatsApp Business session for +918109249911, auto-connecting socket...");
+    console.log(`[WA Service] Found existing WhatsApp session for ${sessionKey}, auto-connecting socket...`);
     startWhatsAppSocket(false).catch(console.error);
   }
 });

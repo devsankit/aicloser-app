@@ -40,7 +40,11 @@ export async function GET(request: Request) {
         }
       };
       await poll().catch(() => undefined);
-      const interval = setInterval(() => { void poll().catch(() => undefined); }, 1000);
+      // Keep the stream event-driven from the browser's perspective while
+      // avoiding a database query every second for every connected dashboard.
+      // Mobile call/recording events are persisted to this outbox, so a short
+      // bounded poll is enough to wake the dashboard without full-page reloads.
+      const interval = setInterval(() => { void poll().catch(() => undefined); }, 2500);
       const heartbeat = setInterval(() => send("ping", { createdAt: new Date().toISOString() }), 25_000);
       const cleanup = () => {
         if (closed) return;

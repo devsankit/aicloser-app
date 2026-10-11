@@ -321,6 +321,31 @@ export type SalesDashboardSnapshot = {
   goals: SalesGoalView[];
   rewards: SalesRewardView[];
   mobileDevices: Array<{ id: string; agentId: string; deviceId: string; deviceName: string; manufacturer: string; model: string; simLabel: string; officeSimNumber: string; recordingCapability: string; recordingEnabled: boolean; lastSeenAt: string; isActive: boolean }>;
+  mobileDiagnostics: Array<{
+    id: string;
+    agentId: string;
+    agentName: string;
+    deviceId: string;
+    deviceModel: string;
+    appVersion: string;
+    androidVersion: string;
+    androidApi: string;
+    defaultDialer: string;
+    permissionCallLog: boolean;
+    permissionMicrophone: boolean;
+    sharedAudioAccess: boolean;
+    miuiRecordingFolderPresent: boolean;
+    accessibilityShareEnabled: boolean;
+    batteryOptimizationEnabled: boolean;
+    recordingCapability: string;
+    kind: string;
+    stage: string;
+    route: string;
+    status: string;
+    reason: string;
+    errorCode: string;
+    createdAt: string;
+  }>;
   mobileCalls: Array<{ id: string; assignmentId: string; agentId: string; customerName: string; phoneNumber: string; deviceName: string; deviceModel: string; direction: string; status: string; outcome: string; note: string; durationSeconds: number; recordingStatus: string; recordingError: string; noteSubmitted: boolean; startedAt: string; endedAt: string | null }>;
   reports: {
     assignedLeads: number;
@@ -375,6 +400,7 @@ export function compactSalesSnapshotForInitialRender(snapshot: SalesDashboardSna
     goals: [],
     rewards: [],
     mobileDevices: [],
+    mobileDiagnostics: [],
   };
 }
 
@@ -1242,7 +1268,7 @@ export async function getSalesSnapshotForRole(
   await syncConversationLeadsIntoSales({ ...session, tenantId: effectiveTenantId });
   const isSuperAdminAll = session.role === "SUPER_ADMIN" && effectiveTenantId === "tenant-gigxomi";
 
-  const [groups, agentsRaw, leadPoolRaw, leadsRaw, dealsRaw, rulesRaw, earningsRaw, payoutsRaw, referralsRaw, referralEventsRaw, announcementsRaw, messagesRaw, packagesRaw, goalsRaw, rewardsRaw, mobileDevicesRaw, mobileCallsRaw] = await Promise.all([
+  const [groups, agentsRaw, leadPoolRaw, leadsRaw, dealsRaw, rulesRaw, earningsRaw, payoutsRaw, referralsRaw, referralEventsRaw, announcementsRaw, messagesRaw, packagesRaw, goalsRaw, rewardsRaw, mobileDevicesRaw, mobileDiagnosticsRaw, mobileCallsRaw] = await Promise.all([
     prisma.salesAgentGroup.findMany({
       where: isSuperAdminAll
         ? undefined
@@ -1316,6 +1342,14 @@ export async function getSalesSnapshotForRole(
     prisma.salesMobileDevice.findMany({
       where: isSuperAdminAll ? undefined : { agent: { user: { tenantId: effectiveTenantId } } },
       orderBy: { lastSeenAt: "desc" },
+    }),
+    prisma.salesMobileOfflineEvent.findMany({
+      where: isSuperAdminAll
+        ? { type: "DEVICE_DIAGNOSTIC" }
+        : { type: "DEVICE_DIAGNOSTIC", tenantId: effectiveTenantId },
+      include: { device: true, agent: { include: { user: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 500,
     }),
     prisma.salesMobileCall.findMany({
       where: isSuperAdminAll ? undefined : { agent: { user: { tenantId: effectiveTenantId } } },
@@ -1595,6 +1629,40 @@ export async function getSalesSnapshotForRole(
         ? (!isAgentView || observingAgentIds.has(device.agentId))
         : device.agentId === currentAgent?.id)
       .map((device) => ({ id: device.id, agentId: device.agentId, deviceId: device.deviceId, deviceName: device.deviceName, manufacturer: device.manufacturer ?? "", model: device.model ?? "", simLabel: device.simLabel ?? "", officeSimNumber: device.officeSimNumber ?? "", recordingCapability: device.recordingCapability, recordingEnabled: device.recordingEnabled, lastSeenAt: device.lastSeenAt.toISOString(), isActive: device.isActive })),
+    mobileDiagnostics: mobileDiagnosticsRaw
+      .filter((event) => isWorkspaceAdmin || isWorkspaceManager
+        ? (!isAgentView || observingAgentIds.has(event.agentId))
+        : event.agentId === currentAgent?.id)
+      .map((event) => {
+        const payload = readJsonObject(event.payload) ?? {};
+        const device = event.device;
+        const agentName = event.agent.user?.displayName ?? event.agent.user?.email ?? "Sales user";
+        return {
+          id: event.id,
+          agentId: event.agentId,
+          agentName,
+          deviceId: device?.deviceId ?? "",
+          deviceModel: [device?.manufacturer, device?.model].filter(Boolean).join(" "),
+          appVersion: String(payload.appVersion ?? device?.appVersion ?? ""),
+          androidVersion: String(payload.androidVersion ?? device?.androidVersion ?? ""),
+          androidApi: String(payload.androidApi ?? ""),
+          defaultDialer: String(payload.defaultDialer ?? ""),
+          permissionCallLog: payload.permissionCallLog === true,
+          permissionMicrophone: payload.permissionMicrophone === true,
+          sharedAudioAccess: payload.sharedAudioAccess === true,
+          miuiRecordingFolderPresent: payload.miuiRecordingFolderPresent === true,
+          accessibilityShareEnabled: payload.accessibilityShareEnabled === true,
+          batteryOptimizationEnabled: payload.batteryOptimizationEnabled === true,
+          recordingCapability: String(payload.recordingCapability ?? device?.recordingCapability ?? ""),
+          kind: String(payload.kind ?? event.type),
+          stage: String(payload.stage ?? ""),
+          route: String(payload.route ?? ""),
+          status: String(payload.status ?? ""),
+          reason: String(payload.reason ?? ""),
+          errorCode: String(payload.errorCode ?? ""),
+          createdAt: event.createdAt.toISOString(),
+        };
+      }),
     mobileCalls,
     reports: buildReports({ agents: observingAgents, leadPool: visibleLeadPool, leads: visibleLeads, deals: visibleDeals, earnings: visibleEarnings, payouts: visiblePayouts, referralEvents: visibleReferralEvents, currentAgentId: isWorkspaceAdmin ? null : currentAgent?.id }),
   } satisfies SalesDashboardSnapshot;

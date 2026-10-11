@@ -114,6 +114,7 @@ export function PowerDialerModal({ campaign, onClose, onCampaignUpdated }: Props
 
   return (
     <div
+      className="sales-modal-backdrop"
       style={{
         position: "fixed",
         inset: 0,
@@ -127,6 +128,7 @@ export function PowerDialerModal({ campaign, onClose, onCampaignUpdated }: Props
       }}
     >
       <div
+        className="sales-modal-card"
         style={{
           width: "100%",
           maxWidth: "800px",

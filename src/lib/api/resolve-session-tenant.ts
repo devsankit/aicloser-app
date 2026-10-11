@@ -40,10 +40,8 @@ export function buildSalesWhatsAppTenantId(userId: string) {
 
 export function resolveWhatsAppSetupTenantId(session: WhatsAppTenantScopedSession, explicitTenantId?: string | null) {
   if (session.role === "SALES_AGENT" && session.userId?.trim()) {
-    const rawTenant = session.tenantId?.trim();
-    if (rawTenant && rawTenant !== "tenant-gigxomi") {
-      return rawTenant;
-    }
+    // A closer's linked WhatsApp session is personal device state. Keep it
+    // isolated even when the user belongs to a shared workspace tenant.
     return buildSalesWhatsAppTenantId(session.userId);
   }
 

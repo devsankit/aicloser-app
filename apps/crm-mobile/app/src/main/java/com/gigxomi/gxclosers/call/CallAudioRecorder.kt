@@ -45,27 +45,44 @@ object CallAudioRecorder {
             )
         )
         return runCatching {
-            @Suppress("DEPRECATION")
-            val next = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) MediaRecorder(context) else MediaRecorder()
-            next.setAudioSource(MediaRecorder.AudioSource.MIC)
-            next.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-            next.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-            next.setAudioEncodingBitRate(64_000)
-            next.setAudioSamplingRate(16_000)
-            next.setOutputFile(file.absolutePath)
-            next.prepare()
-            next.start()
-            recorder = next
-            outputFile = file
-            activeCallId = callId
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                .putString("recordingCallId", callId)
-                .putString("recordingUploadId", uploadId)
-                .putString("recordingState", "RECORDING")
-                .remove("recordingError")
-                .putLong("recordingStartedAt", System.currentTimeMillis())
-                .apply()
-            true
+            val sources = listOf(
+                MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                MediaRecorder.AudioSource.MIC,
+            ).distinct()
+            var lastError: Throwable? = null
+            for (source in sources) {
+                @Suppress("DEPRECATION")
+                val next = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) MediaRecorder(context) else MediaRecorder()
+                try {
+                    next.setAudioSource(source)
+                    next.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                    next.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                    next.setAudioEncodingBitRate(96_000)
+                    next.setAudioSamplingRate(16_000)
+                    next.setOutputFile(file.absolutePath)
+                    next.prepare()
+                    next.start()
+                    recorder = next
+                    outputFile = file
+                    activeCallId = callId
+                    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                        .putString("recordingCallId", callId)
+                        .putString("recordingUploadId", uploadId)
+                        .putString("recordingAudioSource", sourceName(source))
+                        .putString("recordingState", "RECORDING")
+                        .remove("recordingError")
+                        .putLong("recordingStartedAt", System.currentTimeMillis())
+                        .apply()
+                    return@runCatching true
+                } catch (error: Throwable) {
+                    lastError = error
+                    runCatching { next.reset() }
+                    runCatching { next.release() }
+                    runCatching { file.delete() }
+                }
+            }
+            throw lastError ?: IllegalStateException("No supported audio source was available")
         }.getOrElse { error ->
             release()
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
@@ -83,7 +100,11 @@ object CallAudioRecorder {
         val callId = activeCallId ?: prefs.getString("recordingCallId", null)
         val uploadId = prefs.getString("recordingUploadId", null)
         val file = outputFile
-        if (recorder == null) return pending(context)
+        if (recorder == null) {
+            // Never return an arbitrary stale recording when recorder was not running.
+            // Only return an unprepared recording if one was explicitly recorded for this exact active call.
+            return if (!callId.isNullOrBlank()) pending(context, callId) else null
+        }
 
         return runCatching {
             recorder?.stop()
@@ -123,8 +144,14 @@ object CallAudioRecorder {
         }
     }
 
-    fun pending(context: Context): PendingRecording? {
-        val queued = OfflineEventStore(context).pendingRecordings().firstOrNull { it.status == "LOCAL_PENDING" } ?: return null
+    fun pending(context: Context, forCallId: String? = null): PendingRecording? {
+        val candidates = OfflineEventStore(context).pendingRecordings().filter { it.status == "LOCAL_PENDING" }
+        val queued = if (!forCallId.isNullOrBlank()) {
+            candidates.firstOrNull { it.callId == forCallId }
+        } else {
+            // Only unprepared captures created within the last 60 seconds are valid without an explicit callId
+            candidates.firstOrNull { it.callId.startsWith(UNPREPARED_CALL_PREFIX) }
+        } ?: return null
         return PendingRecording(queued.callId, queued.filePath, queued.sizeBytes, queued.durationMs, queued.clientUploadId)
     }
 
@@ -154,6 +181,12 @@ object CallAudioRecorder {
         recorder = null
         outputFile = null
         activeCallId = null
+    }
+
+    private fun sourceName(source: Int): String = when (source) {
+        MediaRecorder.AudioSource.VOICE_COMMUNICATION -> "VOICE_COMMUNICATION"
+        MediaRecorder.AudioSource.VOICE_RECOGNITION -> "VOICE_RECOGNITION"
+        else -> "MIC"
     }
 
     const val PREFS = "gxclosers_calls"

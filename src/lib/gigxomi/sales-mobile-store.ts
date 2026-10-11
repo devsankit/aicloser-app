@@ -51,8 +51,9 @@ export async function registerSalesMobileDevice(actor: SalesMobileActor, input: 
   const deviceId = clean(input.deviceId);
   if (!deviceId) throw new Error("deviceId is required.");
 
+  const force = input.force === true || input.forceReplace === true || input.reassign === true;
   const existing = await prisma.salesMobileDevice.findUnique({ where: { deviceId } });
-  if (existing && existing.agentId !== agent.id) throw new Error("This company device is registered to another sales agent.");
+  if (existing && existing.agentId !== agent.id && !force) throw new Error("This company device is registered to another sales agent. Tap 'Login here' to activate this phone for your account.");
 
   return prisma.salesMobileDevice.upsert({
     where: { deviceId },
@@ -71,6 +72,8 @@ export async function registerSalesMobileDevice(actor: SalesMobileActor, input: 
       recordingEnabled: input.recordingEnabled === true,
     },
     update: {
+      tenantId: agent.tenantId,
+      agentId: agent.id,
       deviceName: clean(input.deviceName) || existing?.deviceName || "GXClosers sales phone",
       appVersion: clean(input.appVersion) || null,
       manufacturer: clean(input.manufacturer) || null,
@@ -98,6 +101,7 @@ export async function heartbeatSalesMobileDevice(actor: SalesMobileActor, device
       simLabel: clean(input.simLabel) || device.simLabel,
       officeSimNumber: clean(input.officeSimNumber) || device.officeSimNumber,
       recordingCapability: clean(input.recordingCapability) || device.recordingCapability,
+      recordingEnabled: typeof input.recordingEnabled === "boolean" ? input.recordingEnabled : device.recordingEnabled,
     },
   });
 }
@@ -108,12 +112,17 @@ export async function getSalesMobileBootstrap(actor: SalesMobileActor) {
   // arrive after a lead was assigned. This is idempotent and scoped to the
   // current agent, so CRM never broadens its inbox to unassigned threads.
   await syncSalesAgentConversationLinks(agent.id);
-  const [snapshot, devices, calls, pendingNotes, pendingUploads] = await Promise.all([
+  const [snapshot, devices, calls, pendingNotes, pendingUploads, certifications] = await Promise.all([
     getSalesSnapshotForRole(actor),
     prisma.salesMobileDevice.findMany({ where: { agentId: agent.id, isActive: true }, orderBy: { lastSeenAt: "desc" } }),
     prisma.salesMobileCall.findMany({ where: { agentId: agent.id }, include: { assignment: true }, orderBy: { startedAt: "desc" }, take: 50 }),
     prisma.salesMobileCall.count({ where: { agentId: agent.id, noteRequired: true, noteSubmitted: false } }),
     prisma.salesMobileCall.count({ where: { agentId: agent.id, recordingStatus: { in: ["LOCAL_PENDING", "UPLOADING", "FAILED"] } } }),
+    prisma.salesMobileOfflineEvent.findMany({
+      where: { agentId: agent.id, type: "DEVICE_CERTIFICATION" },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+    }),
   ]);
   const rolePermissions = await getRolePermissionsMatrix();
   const permissionsRole = actor.role in rolePermissions
@@ -134,6 +143,12 @@ export async function getSalesMobileBootstrap(actor: SalesMobileActor) {
     calls,
     pendingNotes,
     pendingUploads,
+    certifications: certifications.map((c) => ({
+      id: c.id,
+      deviceId: c.deviceId,
+      payload: c.payload,
+      createdAt: c.createdAt,
+    })),
   };
 }
 
@@ -204,6 +219,7 @@ export async function startSalesMobileCall(actor: SalesMobileActor, input: Recor
   // Calls discovered from Android's real call log are already finished by the
   // time the app sees them, so they must be accepted and reported first; the
   // disposition can be completed afterward from the dashboard/mobile app.
+  const allowSyntheticLead = input.allowSyntheticLead === true;
   if (pending && input.allowUnmatched !== true) throw new Error("Submit the pending call disposition before starting another call.");
   const assignmentId = clean(input.leadId || input.assignmentId);
   const phone = normalizePhone(input.phoneNumber);
@@ -213,7 +229,16 @@ export async function startSalesMobileCall(actor: SalesMobileActor, input: Recor
       ? await prisma.salesLeadAssignment.findFirst({ where: { assignedAgentId: agent.id, customerPhone: { contains: phone } }, orderBy: { updatedAt: "desc" } })
       : null;
   let resolvedAssignment = assignment;
-  if (!resolvedAssignment && input.allowUnmatched === true && phone) {
+  if (!resolvedAssignment && allowSyntheticLead && phone) {
+    // A refresh race can leave the client holding a local lead id even though
+    // the canonical assignment already exists. Reuse that agent-owned lead
+    // instead of creating a duplicate contact.
+    resolvedAssignment = await prisma.salesLeadAssignment.findFirst({
+      where: { assignedAgentId: agent.id, customerPhone: { contains: phone } },
+      orderBy: { updatedAt: "desc" },
+    });
+  }
+  if (!resolvedAssignment && (input.allowUnmatched === true || allowSyntheticLead) && phone) {
     // Calls can arrive before a CRM lead is imported or assigned. Persist the
     // caller under the current tenant and mobile agent so the call, recording,
     // notes, and future enrichment all have a stable CRM parent.
@@ -256,7 +281,13 @@ export async function startSalesMobileCall(actor: SalesMobileActor, input: Recor
       assignmentId: resolvedAssignment.id,
       actorUserId: actor.userId,
       action: "MOBILE_CALL_STARTED",
-      metadata: { callId: call.id, direction: call.direction },
+      metadata: {
+        callId: call.id,
+        direction: call.direction,
+        ...(clean(input.simSubscriptionId) ? { simSubscriptionId: clean(input.simSubscriptionId) } : {}),
+        ...(input.simSlotIndex !== null && input.simSlotIndex !== undefined && Number.isFinite(Number(input.simSlotIndex)) ? { simSlotIndex: Number(input.simSlotIndex) } : {}),
+        ...(clean(input.simLabel) ? { simLabel: clean(input.simLabel) } : {}),
+      },
     },
   });
   return call;
@@ -273,10 +304,30 @@ export async function endSalesMobileCall(actor: SalesMobileActor, input: Record<
   const recordingInput = clean(input.recordingStatus).toUpperCase();
   const recordingStatus = (["NONE", "RECORDING_UNAVAILABLE", "LOCAL_PENDING", "UPLOADING", "UPLOADED", "FAILED"] as const).includes(recordingInput as never)
     ? recordingInput as "NONE" | "RECORDING_UNAVAILABLE" | "LOCAL_PENDING" | "UPLOADING" | "UPLOADED" | "FAILED"
-    : existing.recordingStatus;
+     : existing.recordingStatus;
+  const phoneNumber = clean(input.phoneNumber);
+  const contactName = clean(input.contactName);
+  const normalizedPhone = normalizePhone(phoneNumber);
+  const currentAssignment = await prisma.salesLeadAssignment.findUnique({
+    where: { id: existing.assignmentId },
+    select: { id: true, customerName: true },
+  });
+  const matchedAssignment = normalizedPhone
+    ? await prisma.salesLeadAssignment.findFirst({
+        where: { tenantId: agent.tenantId, assignedAgentId: agent.id, customerPhone: { contains: normalizedPhone } },
+        orderBy: { updatedAt: "desc" },
+        select: { id: true },
+      })
+    : null;
+  const assignmentId = matchedAssignment?.id ?? existing.assignmentId;
+  if (contactName && currentAssignment?.customerName.toLowerCase().startsWith("unknown caller")) {
+    await prisma.salesLeadAssignment.update({ where: { id: currentAssignment.id }, data: { customerName: contactName, ...(phoneNumber ? { customerPhone: phoneNumber } : {}) } });
+  }
   const call = await prisma.salesMobileCall.update({
     where: { id: existing.id },
     data: {
+      assignmentId,
+      phoneNumber: phoneNumber || existing.phoneNumber,
       status: status as "MISSED" | "FAILED" | "CONNECTED" | "RINGING" | "COMPLETED",
       connectedAt: parseDate(input.connectedAt) ?? existing.connectedAt,
       endedAt: parseDate(input.endedAt) ?? new Date(),
@@ -291,7 +342,16 @@ export async function endSalesMobileCall(actor: SalesMobileActor, input: Record<
       assignmentId: call.assignmentId,
       actorUserId: actor.userId,
       action: "MOBILE_CALL_ENDED",
-      metadata: { callId: call.id, status: call.status, durationSeconds: call.durationSeconds },
+      metadata: {
+        callId: call.id,
+        status: call.status,
+        durationSeconds: call.durationSeconds,
+        ...(phoneNumber ? { phoneNumber } : {}),
+        ...(contactName ? { contactName } : {}),
+        ...(clean(input.simSubscriptionId) ? { simSubscriptionId: clean(input.simSubscriptionId) } : {}),
+        ...(input.simSlotIndex !== null && input.simSlotIndex !== undefined && Number.isFinite(Number(input.simSlotIndex)) ? { simSlotIndex: Number(input.simSlotIndex) } : {}),
+        ...(clean(input.simLabel) ? { simLabel: clean(input.simLabel) } : {}),
+      },
     },
   });
   await persistRealtimeEvent({
@@ -433,7 +493,19 @@ export async function saveSalesMobileRecording(actor: SalesMobileActor, callId: 
     }
   }
   if (!file.size || file.size > MAX_RECORDING_BYTES) throw new Error("Recording must be between 1 byte and 50 MB.");
-  const allowed = new Set(["audio/m4a", "audio/mp4", "audio/aac", "audio/mpeg", "audio/wav", "audio/x-wav", "audio/3gpp", "application/octet-stream"]);
+  const allowed = new Set([
+    "audio/m4a",
+    "audio/mp4",
+    "audio/aac",
+    "audio/mpeg",
+    "audio/wav",
+    "audio/x-wav",
+    "audio/3gpp",
+    "audio/ogg",
+    "audio/opus",
+    "audio/webm",
+    "application/octet-stream",
+  ]);
   if (!allowed.has(file.type || "application/octet-stream")) throw new Error("Unsupported recording format.");
   const uploadId = clean(clientUploadId) || `legacy-${call.id}-${file.size}-${recordingDurationMs}`;
   const existingUpload = await prisma.callRecordingUpload.findUnique({ where: { tenantId_clientUploadId: { tenantId, clientUploadId: uploadId } } });
@@ -667,6 +739,29 @@ export async function syncSalesMobileOfflineEvents(actor: SalesMobileActor, valu
       let result: unknown;
       if (stored.type === "CALL_END") result = await endSalesMobileCall(actor, payload);
       else if (stored.type === "DISPOSITION") result = await submitSalesMobileDisposition(actor, payload);
+      else if (stored.type === "DEVICE_DIAGNOSTIC") {
+        // Diagnostics are deliberately idempotent and side-effect-light. They
+        // share the offline queue so a client can report capability/failure
+        // evidence even when the call itself was offline. Keep the latest
+        // device projection useful for support while retaining the immutable
+        // event history in SalesMobileOfflineEvent.
+        const diagnosticKind = clean(payload.kind).toUpperCase();
+        if (device && diagnosticKind === "DEVICE_SNAPSHOT") {
+          await prisma.salesMobileDevice.update({
+            where: { id: device.id },
+            data: {
+              appVersion: clean(payload.appVersion) || device.appVersion,
+              manufacturer: clean(payload.manufacturer) || device.manufacturer,
+              model: clean(payload.model) || device.model,
+              androidVersion: clean(payload.androidVersion) || device.androidVersion,
+              recordingCapability: clean(payload.recordingCapability) || device.recordingCapability,
+              recordingEnabled: typeof payload.recordingEnabled === "boolean" ? payload.recordingEnabled : device.recordingEnabled,
+              lastSeenAt: new Date(),
+            },
+          });
+        }
+        result = { accepted: true, kind: diagnosticKind || "EVENT" };
+      }
       else throw new Error(`Unsupported offline event type: ${stored.type}`);
       await prisma.salesMobileOfflineEvent.update({ where: { id: stored.id }, data: { status: "SYNCED", result: result as Prisma.InputJsonObject, processedAt: new Date() } });
       results.push({ ok: true, idempotencyKey, result });
@@ -677,4 +772,107 @@ export async function syncSalesMobileOfflineEvents(actor: SalesMobileActor, valu
     }
   }
   return results;
+}
+
+
+export async function discardSalesMobileCall(actor: SalesMobileActor, input: Record<string, unknown>) {
+  const agent = await getSalesMobileAgent(actor);
+  if (!agent.tenantId) throw new Error("Your sales profile is not assigned to a workspace.");
+  const callId = clean(input.callSessionId || input.callId);
+  if (!callId) return { discarded: false };
+
+  const existing = await prisma.salesMobileCall.findFirst({
+    where: { id: callId, agentId: agent.id },
+  });
+  if (!existing) return { discarded: false };
+
+  if (existing.status === "INITIATED" || existing.status === "RINGING" || existing.status === "MISSED") {
+    await prisma.salesMobileCall.delete({ where: { id: callId } });
+
+    await prisma.salesActivityLog.deleteMany({
+      where: {
+        tenantId: agent.tenantId,
+        assignmentId: existing.assignmentId,
+        action: "MOBILE_CALL_STARTED",
+      },
+    }).catch(() => null);
+
+    const remainingCalls = await prisma.salesMobileCall.count({
+      where: { assignmentId: existing.assignmentId },
+    });
+    if (remainingCalls === 0) {
+      const assignment = await prisma.salesLeadAssignment.findUnique({
+        where: { id: existing.assignmentId },
+      });
+      if (assignment && assignment.source === "PHONE_CALL") {
+        await prisma.salesLeadAssignment.delete({
+          where: { id: existing.assignmentId },
+        }).catch(() => null);
+      }
+    }
+    return { discarded: true };
+  }
+  return { discarded: false };
+}
+
+
+export async function recordSalesMobileCertification(actor: SalesMobileActor, input: Record<string, unknown>) {
+  const agent = await getSalesMobileAgent(actor);
+  if (!agent.tenantId) throw new Error("Your sales profile is not assigned to a workspace.");
+  const deviceId = clean(input.deviceId);
+  if (!deviceId) throw new Error("deviceId is required.");
+
+  const status = clean(input.status) || "UNVERIFIED";
+  const failureReason = clean(input.failureReason) || null;
+  const testSessionId = clean(input.testSessionId) || null;
+  const details = input.details && typeof input.details === "object" ? input.details : {};
+
+  const device = await prisma.salesMobileDevice.findFirst({
+    where: { deviceId, agentId: agent.id },
+  });
+
+  if (device && status === "VERIFIED") {
+    await prisma.salesMobileDevice.update({
+      where: { id: device.id },
+      data: {
+        recordingEnabled: true,
+        lastSeenAt: new Date(),
+      },
+    });
+  }
+
+  const idempotencyKey = `cert-${deviceId}-${testSessionId || Date.now()}`;
+  const record = await prisma.salesMobileOfflineEvent.upsert({
+    where: { idempotencyKey },
+    create: {
+      tenantId: agent.tenantId,
+      agentId: agent.id,
+      deviceId: device?.id || null,
+      idempotencyKey,
+      type: "DEVICE_CERTIFICATION",
+      status: "SYNCED",
+      payload: {
+        deviceId,
+        status,
+        failureReason,
+        testSessionId,
+        details,
+        recordedAt: new Date().toISOString(),
+      },
+      result: { ok: true, status },
+    },
+    update: {
+      payload: {
+        deviceId,
+        status,
+        failureReason,
+        testSessionId,
+        details,
+        updatedAt: new Date().toISOString(),
+      },
+      result: { ok: true, status },
+    },
+  });
+
+  return { ok: true, status, failureReason, testSessionId, recordId: record.id };
 }

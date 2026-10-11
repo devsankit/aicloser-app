@@ -330,6 +330,7 @@ export function CallingCampaignsPanel() {
       {/* Create Campaign Modal */}
       {modalOpen && (
         <div
+          className="sales-modal-backdrop"
           style={{
             position: "fixed",
             inset: 0,
@@ -343,6 +344,7 @@ export function CallingCampaignsPanel() {
           }}
         >
           <div
+            className="sales-modal-card"
             style={{
               width: "100%",
               maxWidth: "480px",

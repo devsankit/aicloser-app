@@ -131,7 +131,7 @@ class ApiClient(private val sessionStore: SessionStore) {
                 field("callSessionId", callId)
                 field("clientUploadId", clientUploadId)
                 field("recordingDurationMs", durationMs.toString())
-                out.write("--$boundary\r\nContent-Disposition: form-data; name=\"recording\"; filename=\"${file.name}\"\r\nContent-Type: audio/mp4\r\n\r\n".toByteArray(Charsets.UTF_8))
+                out.write("--$boundary\r\nContent-Disposition: form-data; name=\"recording\"; filename=\"${file.name}\"\r\nContent-Type: ${recordingMimeType(file)}\r\n\r\n".toByteArray(Charsets.UTF_8))
                 file.inputStream().use { it.copyTo(out) }
                 out.write("\r\n--$boundary--\r\n".toByteArray(Charsets.UTF_8))
             }
@@ -152,16 +152,17 @@ class ApiClient(private val sessionStore: SessionStore) {
 
     private fun uploadRecordingToDedicatedApi(callId: String, clientUploadId: String, file: File, durationMs: Long): JSONObject {
         val base = BuildConfig.AICLOSER_DEDICATED_API_BASE.trimEnd('/')
+        val mimeType = recordingMimeType(file)
         val init = requestAt(base, "/api/v1/recordings/init", "POST", JSONObject()
-            .put("callId", callId).put("clientUploadId", clientUploadId).put("mimeType", "audio/mp4")
+            .put("callId", callId).put("clientUploadId", clientUploadId).put("mimeType", mimeType)
             .put("sizeBytes", file.length()).put("durationSeconds", durationMs / 1000))
         val data = init.getJSONObject("data")
         val upload = data.getJSONObject("upload")
         val uploadUrl = data.optString("uploadUrl", "")
         if (uploadUrl.isNotBlank()) {
-            putBytes(uploadUrl, file)
+            putBytes(uploadUrl, file, contentType = mimeType)
         } else {
-            putBytes("$base/api/v1/recordings/${upload.getString("id")}/content", file, authenticated = true, method = "POST")
+            putBytes("$base/api/v1/recordings/${upload.getString("id")}/content", file, authenticated = true, method = "POST", contentType = mimeType)
         }
         return requestAt(base, "/api/v1/recordings/${upload.getString("id")}/complete", "POST", JSONObject().put("sizeBytes", file.length()))
     }
@@ -189,20 +190,31 @@ class ApiClient(private val sessionStore: SessionStore) {
         }
     }
 
-    private fun putBytes(url: String, file: File, authenticated: Boolean = false, method: String = "PUT") {
+    private fun putBytes(url: String, file: File, authenticated: Boolean = false, method: String = "PUT", contentType: String = recordingMimeType(file)) {
         val connection = URL(url).openConnection() as HttpURLConnection
         try {
             connection.requestMethod = method
             connection.connectTimeout = 15_000
             connection.readTimeout = 60_000
             connection.doOutput = true
-            connection.setRequestProperty("Content-Type", "audio/mp4")
+            connection.setRequestProperty("Content-Type", contentType)
             if (authenticated) sessionStore.token?.let { connection.setRequestProperty("Authorization", "Bearer $it") }
             file.inputStream().use { input -> connection.outputStream.use { output -> input.copyTo(output) } }
             if (connection.responseCode !in 200..299) throw ApiException("Recording bytes upload failed", connection.responseCode)
         } finally {
             connection.disconnect()
         }
+    }
+
+    private fun recordingMimeType(file: File): String = when (file.extension.lowercase()) {
+        "m4a", "mp4" -> "audio/mp4"
+        "aac" -> "audio/aac"
+        "amr" -> "audio/amr"
+        "3gp" -> "audio/3gpp"
+        "wav" -> "audio/wav"
+        "mp3" -> "audio/mpeg"
+        "ogg", "oga" -> "audio/ogg"
+        else -> "application/octet-stream"
     }
 
     fun openRealtimeStream(

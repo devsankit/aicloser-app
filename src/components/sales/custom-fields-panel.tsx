@@ -611,6 +611,7 @@ export function CustomFieldsPanel() {
       {/* ================= MODAL: EDIT/CREATE CUSTOM FIELD ================= */}
       {fieldModalOpen && editingField && (
         <div
+          className="sales-modal-backdrop"
           style={{
             position: "fixed",
             inset: 0,
@@ -624,6 +625,7 @@ export function CustomFieldsPanel() {
           }}
         >
           <div
+            className="sales-modal-card"
             style={{
               width: "100%",
               maxWidth: "500px",
@@ -803,6 +805,7 @@ export function CustomFieldsPanel() {
       {/* ================= MODAL: EDIT/CREATE SALES FORM ================= */}
       {formModalOpen && editingForm && (
         <div
+          className="sales-modal-backdrop"
           style={{
             position: "fixed",
             inset: 0,
@@ -816,6 +819,7 @@ export function CustomFieldsPanel() {
           }}
         >
           <div
+            className="sales-modal-card"
             style={{
               width: "100%",
               maxWidth: "520px",

@@ -39,7 +39,7 @@ test("call recordings stay on their own live call-history page", () => {
   assert.match(dashboard, /<BarChart3 size=\{16\} \/> Open Team Report/);
   assert.match(dashboard, /isCloser \? \([\s\S]*?Grab next lead[\s\S]*?\) : isWorkspaceAdmin \? \([\s\S]*?Open Team Report[\s\S]*?\) : \(/);
   assert.match(dashboard, /Call Recordings & Missed Call History/);
-  assert.match(dashboard, /Missed call history/);
+  assert.doesNotMatch(dashboard, /<h3[^>]*>Missed call history<\/h3>/);
   assert.doesNotMatch(dashboard, /ReferralCommissionPanel/);
 });
 
@@ -127,6 +127,15 @@ test("CRM recording states use one user-facing status label", () => {
   assert.match(dashboard, /call \? recordingStatusLabel\(call\.recordingStatus\) : "No recording"/);
   assert.match(dashboard, /\{recordingStatusLabel\(call\.recordingStatus\)\}/);
   assert.match(dashboard, /\{recordingStatusLabel\(c\.recordingStatus\)\}/);
+});
+
+test("call recordings provide direction and missed-call tabs", () => {
+  assert.match(dashboard, /role="tablist"/);
+  assert.match(dashboard, /label: "Inbound"/);
+  assert.match(dashboard, /label: "Outbound"/);
+  assert.match(dashboard, /label: "Missed"/);
+  assert.match(dashboard, /activityTab === "MISSED" \? call\.status === "MISSED"/);
+  assert.doesNotMatch(dashboard, /<h3[^>]*>Missed call history<\/h3>/);
 });
 
 test("disabled lead actions explain the prerequisite", () => {

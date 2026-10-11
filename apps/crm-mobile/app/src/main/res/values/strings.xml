@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">AI Closer</string>
+    <string name="accessibility_service_description">Lets AI Closer open the Phone app Share flow and receive the recording you choose.</string>
 </resources>

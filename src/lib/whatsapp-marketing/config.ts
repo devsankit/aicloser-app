@@ -2,7 +2,9 @@ import crypto from "node:crypto";
 
 export const META_GRAPH_API_VERSION = process.env.META_GRAPH_API_VERSION?.trim() || "v22.0";
 export const META_GRAPH_BASE_URL = `https://graph.facebook.com/${META_GRAPH_API_VERSION}`;
-export const REQUESTED_BUSINESS_PHONE = "9993328124";
+// Each tenant supplies its own WhatsApp number through Meta Embedded Signup.
+// This optional value is only a compatibility check for explicitly configured environments.
+export const REQUESTED_BUSINESS_PHONE = process.env.WHATSAPP_REQUESTED_BUSINESS_PHONE?.trim() || "";
 
 // Rate limiting & dispatch safeguards
 export const DEFAULT_DISPATCH_RATE_PER_SECOND = 20;

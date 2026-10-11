@@ -23,6 +23,22 @@ class SessionStore(context: Context) {
     var setupComplete: Boolean
         get() = prefs.getBoolean("setupComplete", false)
         set(value) { prefs.edit().putBoolean("setupComplete", value).apply() }
+    var certificationStatus: String
+        get() = prefs.getString("certificationStatus", "UNVERIFIED") ?: "UNVERIFIED"
+        set(value) { prefs.edit().putString("certificationStatus", value).apply() }
+
+    var certificationFailureReason: String?
+        get() = prefs.getString("certificationFailureReason", null)
+        set(value) { prefs.edit().putString("certificationFailureReason", value).apply() }
+
+    var lastTestSessionId: String?
+        get() = prefs.getString("lastTestSessionId", null)
+        set(value) { prefs.edit().putString("lastTestSessionId", value).apply() }
+
+    var testCallStartedAt: Long
+        get() = prefs.getLong("testCallStartedAt", 0L)
+        set(value) { prefs.edit().putLong("testCallStartedAt", value).apply() }
+
 
     var session: Session?
         get() = prefs.getString("session", null)?.let { runCatching { parseSession(JSONObject(it)) }.getOrNull() }
