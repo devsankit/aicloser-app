@@ -459,6 +459,6 @@ object SystemCallRecordingImporter {
     private const val MAX_KNOWN_FOLDER_DEPTH = 2
     private const val MAX_KNOWN_FOLDER_FILES = 250
     private const val MAX_MEDIASTORE_CANDIDATES = 250
-    private const val SEARCH_PADDING_MS = 2 * 60 * 1000L
+    private const val SEARCH_PADDING_MS = 5 * 60 * 1000L
     private const val START_TIME_TOLERANCE_MS = 15_000L
 }

@@ -79,7 +79,7 @@ class SystemRecordingImportWorker(appContext: Context, workerParams: WorkerParam
         private const val KEY_ENDED_AT = "endedAt"
         private const val KEY_DURATION_SECONDS = "durationSeconds"
         private const val KEY_PHONE_NUMBER = "phoneNumber"
-        private const val MAX_ATTEMPTS = 5
+        private const val MAX_ATTEMPTS = 8
 
         fun enqueue(context: Context, callId: String, startedAt: Long, endedAt: Long, durationSeconds: Long, phoneNumber: String?) {
             val input = Data.Builder()
