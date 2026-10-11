@@ -525,6 +525,11 @@ class PhoneStateReceiver : BroadcastReceiver() {
         val resolver = context.contentResolver
         val prefs = context.getSharedPreferences(CallAudioRecorder.PREFS, Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
+        // If details was already resolved for this exact call, target that ID directly;
+        // otherwise only search within the active call window (last 2 minutes), never 2 hours ago.
+        val cutoff = if (connectedAtHint > 0L) (connectedAtHint - 15_000L) else (now - 120_000L)
+        val selection = if (details != null) "${CallLog.Calls._ID} = ?" else "${CallLog.Calls.DATE} >= ?"
+        val selectionArgs = if (details != null) arrayOf(details.id) else arrayOf(cutoff.toString())
         val cursor = runCatching {
             resolver.query(
                 CallLog.Calls.CONTENT_URI,
@@ -536,8 +541,8 @@ class PhoneStateReceiver : BroadcastReceiver() {
                     CallLog.Calls.DURATION,
                     CallLog.Calls.PHONE_ACCOUNT_ID,
                 ),
-                "${CallLog.Calls.DATE} >= ?",
-                arrayOf((now - CALL_LOG_LOOKBACK_MS).toString()),
+                selection,
+                selectionArgs,
                 "${CallLog.Calls.DATE} DESC"
             )
         }.getOrNull() ?: return

@@ -12,14 +12,19 @@ class DialerShareAccessibilityService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private val poller = object : Runnable {
         override fun run() {
-            runCatching {
-                val root = rootInActiveWindow
-                val packageName = root?.packageName?.toString()
-                DialerShareAutomation.onAccessibilityWindow(this@DialerShareAccessibilityService, root, packageName)
-            }.onFailure { error ->
-                Log.w("GXShareAccess", "Ignoring accessibility poll", error)
+            if (DialerShareAutomation.isArmed(this@DialerShareAccessibilityService)) {
+                runCatching {
+                    val root = rootInActiveWindow
+                    val packageName = root?.packageName?.toString()
+                    DialerShareAutomation.onAccessibilityWindow(this@DialerShareAccessibilityService, root, packageName)
+                }.onFailure { error ->
+                    Log.w("GXShareAccess", "Ignoring accessibility poll", error)
+                }
+                handler.postDelayed(this, 500L)
+            } else {
+                // When disarmed, relax polling to prevent CPU and window-traversal battery drain
+                handler.postDelayed(this, 5_000L)
             }
-            handler.postDelayed(this, 500L)
         }
     }
 
