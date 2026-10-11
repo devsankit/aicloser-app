@@ -1,0 +1,11 @@
+case_id,title,status,notes
+TC-01,Final APK installed and hash matched,PASS,AI Closer 1.0.22 hash matched release artifact
+TC-02,Redmi permissions and Xiaomi auto-recording setup,PASS,Phone recording ON and All numbers selected
+TC-03,Physical carrier call connects between Redmi and Pixel,PASS,Inbound call answered and held about 26 seconds
+TC-04,Native Xiaomi recording file created,PASS_AUTOMATIC_VERIFIED,New MP3 created in MIUI sound_recorder call_rec folder
+TC-05,System recording importer matches and processes file,PASS_AUTOMATIC_VERIFIED,SystemRecordingImportWorker SUCCESS
+TC-06,Recording upload completes,PASS_AUTOMATIC_VERIFIED,RecordingUploadWorker SUCCESS
+TC-07,Dashboard row and playback,PASS_AUTOMATIC_VERIFIED,Completed row shown and browser playback advanced
+TC-08,Two-sided speech intelligibility,NOT_TESTED,No scripted speech was deliberately injected during this run
+TC-09,Accessibility/share fallback,FAIL_APPLICATION,Runtime reported accessibility=false
+TC-10,Call event deduplication,FAIL_APPLICATION,Two dashboard rows appeared for one phone inbound session window

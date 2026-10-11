@@ -1,0 +1,34 @@
+<journeys>
+  <journey name="Fresh workspace and closer identity">
+    <actions>
+      <action>Complete fresh workspace signup through web UI, with credential entry handed to the user</action>
+      <action>Verify workspace owner identity and tenant scope in the dashboard</action>
+      <action>Create a QA closer through Team and Users; user completes new credential entry</action>
+      <action>Log the same closer into desktop and Android through their login screens</action>
+      <action>Verify both screens show the same closer and workspace</action>
+    </actions>
+  </journey>
+  <journey name="Incoming call and recording">
+    <actions>
+      <action>Verify authenticated closer home and required call permissions</action>
+      <action>Background the app without force stopping</action>
+      <action>Trigger an emulator-only unknown incoming call</action>
+      <action>Verify caller card and exactly one New Lead entry under that closer</action>
+      <action>Answer, connect, then end the call</action>
+      <action>Verify call duration, recording status, recording linkage and playable audio on mobile and web; emulator simulation alone does not prove two-sided audio capture</action>
+      <action>Edit name, status, notes and callback through the caller disposition UI</action>
+      <action>Verify details persist on the same lead after web and mobile refresh</action>
+    </actions>
+  </journey>
+  <journey name="UI imports and messaging assignment">
+    <actions>
+      <action>Import two QA contacts per supported source from browser UI and verify actual saved rows</action>
+      <action>Verify exact-batch round robin without touching unrelated leads</action>
+      <action>Connect WhatsApp using the user-assisted onboarding flow</action>
+      <action>User sends a test inbound message from another number</action>
+      <action>Verify tenant, conversation, lead and closer assignment across two or three QA users</action>
+      <action>Assigned closer replies through mobile UI</action>
+      <action>Closer calls the chat contact and saves notes; verify shared contact linkage, recording and dashboard sync</action>
+    </actions>
+  </journey>
+</journeys>
