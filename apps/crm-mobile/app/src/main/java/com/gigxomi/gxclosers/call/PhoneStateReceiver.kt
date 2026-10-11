@@ -74,8 +74,12 @@ class PhoneStateReceiver : BroadcastReceiver() {
 
             val lead = CallManager.lookup(context, phone)
 
-            LeadCallNotification.show(context, phone)
-            CallOverlayWindow.show(context, phone)
+            val isConfirmedWorkSim = (detectedSubId != null && CallManager.isWorkSim(context, detectedSubId))
+            val allowCrmUi = !isMultiSimConfigured || isConfirmedWorkSim || (lead != null)
+            if (allowCrmUi) {
+                LeadCallNotification.show(context, phone)
+                CallOverlayWindow.show(context, phone)
+            }
 
             val allowRingingSessionStart = !isMultiSimConfigured ||
                 (detectedSubId != null && CallManager.isWorkSim(context, detectedSubId)) ||
@@ -177,6 +181,9 @@ class PhoneStateReceiver : BroadcastReceiver() {
                     .remove("incomingSessionEnded")
                     .remove("incomingEndedAt")
                     .remove("phone")
+                    .putLong("lastCallEndedAt", System.currentTimeMillis())
+                    .putBoolean("lastCallWasWorkSim", false)
+                    .putBoolean("lastDiscardedWasNonWorkSim", true)
                 callLog?.id?.let { logId ->
                     cleanup.putString(LAST_CALL_LOG_ID, logId)
                 }

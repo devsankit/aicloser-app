@@ -147,8 +147,10 @@ object CallOverlayWindow {
     }
 
     fun remove() {
-        card?.let { runCatching { windowManager?.removeView(it) } }
-        card = null
+        Handler(Looper.getMainLooper()).post {
+            card?.let { runCatching { windowManager?.removeView(it) } }
+            card = null
+        }
     }
 
     private fun addText(context: Context, parent: LinearLayout, value: String, size: Float, color: Int, top: Int, maxLines: Int = 1) {

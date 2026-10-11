@@ -192,30 +192,31 @@ object CallManager {
             if (cleanAccount == handleId || cleanAccount.contains(handleId) || handleId.contains(cleanAccount)) return true
         }
 
-        // 3. Match with work SIM slot index (0 or 1, or "SIM 1" / "SIM 2")
         val otherSims = sims.filter { it.subscriptionId != configuredSimId }
-        val workSlot0 = workSim.slotIndex.toString()
-        val workSlot1 = (workSim.slotIndex + 1).toString()
-        if (cleanAccount == workSlot0 || cleanAccount == workSlot1 || cleanAccount.equals("SIM${workSim.slotIndex + 1}", ignoreCase = true)) {
-            if (otherSims.none { it.subscriptionId == cleanAccount }) {
-                return true
-            }
-        }
 
-        // 4. Reject if it matches any other SIM on the device
+        // 3. Reject first if it matches any other SIM's ID, handle, or exact 0-based slot
         for (other in otherSims) {
             if (cleanAccount == other.subscriptionId) return false
             other.phoneAccountHandle?.id?.let { handleId ->
                 if (cleanAccount == handleId || cleanAccount.contains(handleId) || handleId.contains(cleanAccount)) return false
             }
-            val otherSlot0 = other.slotIndex.toString()
-            val otherSlot1 = (other.slotIndex + 1).toString()
-            if (cleanAccount == otherSlot0 || cleanAccount == otherSlot1 || cleanAccount.equals("SIM${other.slotIndex + 1}", ignoreCase = true)) {
-                if (cleanAccount != workSim.subscriptionId) return false
-            }
+            if (cleanAccount == other.slotIndex.toString()) return false
+            if (cleanAccount.equals("SIM${other.slotIndex + 1}", ignoreCase = true)) return false
         }
 
-        // 5. Check SubscriptionInfo directly for ICCID
+        // 4. Match with work SIM exact slot (0-indexed) or label ("SIM 1")
+        val workSlot0 = workSim.slotIndex.toString()
+        if (cleanAccount == workSlot0 || cleanAccount.equals("SIM${workSim.slotIndex + 1}", ignoreCase = true)) {
+            return true
+        }
+
+        // 5. Fallback 1-based slot index ONLY if no other SIM owns that slot index
+        val workSlot1 = (workSim.slotIndex + 1).toString()
+        if (cleanAccount == workSlot1 && otherSims.none { it.slotIndex.toString() == cleanAccount }) {
+            return true
+        }
+
+        // 6. Check SubscriptionInfo directly for ICCID
         val subscriptions = runCatching {
             context.getSystemService(SubscriptionManager::class.java)?.activeSubscriptionInfoList.orEmpty()
         }.getOrElse { emptyList() }
