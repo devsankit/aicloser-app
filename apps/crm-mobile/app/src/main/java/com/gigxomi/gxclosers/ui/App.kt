@@ -98,6 +98,7 @@ import com.gigxomi.gxclosers.call.DialerShareAutomation
 import com.gigxomi.gxclosers.ui.theme.*
 import com.gigxomi.gxclosers.ui.components.*
 import com.gigxomi.gxclosers.ui.screens.*
+import com.gigxomi.gxclosers.ui.reference.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -274,7 +275,7 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                 LessonScreen(vm, entry.arguments?.getString("courseId").orEmpty(), entry.arguments?.getString("lessonId").orEmpty()) { nav.popBackStack() }
             }
             composable("edit-profile") { EditProfileScreen(vm) { nav.popBackStack() } }
-            composable("reference-pack") { ReferenceScreenGallery { nav.popBackStack() } }
+            composable("reference-pack") { ReferenceScreenGallery(vm = vm) { nav.popBackStack() } }
         }
     }
 }
@@ -1157,7 +1158,7 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
 }
 
 @Composable
-private fun ReferenceScreenGallery(onBack: () -> Unit) {
+private fun ReferenceScreenGallery(vm: CrmViewModel, onBack: () -> Unit) {
     val screens = remember {
         listOf(
             "06 Home" to "home06",
@@ -1177,6 +1178,9 @@ private fun ReferenceScreenGallery(onBack: () -> Unit) {
         )
     }
     var selected by rememberSaveable { mutableStateOf("home06") }
+    var selectedLeadId by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedCallId by rememberSaveable { mutableStateOf<String?>(null) }
+    fun select(key: String) { selected = key }
 
     Column(Modifier.fillMaxSize().background(GxBackground)) {
         Row(
@@ -1196,7 +1200,7 @@ private fun ReferenceScreenGallery(onBack: () -> Unit) {
             screens.forEach { (label, key) ->
                 FilterChip(
                     selected = selected == key,
-                    onClick = { selected = key },
+                    onClick = { select(key) },
                     label = { Text(label, maxLines = 1) },
                 )
             }
@@ -1204,20 +1208,87 @@ private fun ReferenceScreenGallery(onBack: () -> Unit) {
         HorizontalDivider(Modifier.padding(top = 10.dp), color = GxOutlineSoft)
         Box(Modifier.fillMaxWidth().weight(1f)) {
             when (selected) {
-                "home06" -> ReferenceHomeScreen()
-                "leads07" -> ReferenceLeadsScreen()
-                "calls08" -> ReferenceCallsScreen()
-                "more09" -> ReferenceMoreDrawer()
-                "grab10" -> ReferenceGrabLeadsScreen()
-                "detail11" -> ReferenceLeadDetailScreen()
-                "complete12" -> ReferenceCompleteCallScreen()
-                "inbox13" -> ReferenceInboxScreen()
-                "chat14" -> ReferenceChatScreen()
-                "settings15" -> ReferenceLeadOverviewScreen()
-                "contact16" -> ReferenceAddContactScreen()
-                "pipeline17" -> ReferencePipelineScreen()
-                "contacts18" -> ReferenceContactsScreen()
-                "payments19" -> ReferencePaymentsScreen()
+                "home06" -> LiveHomeScreenAdapter(
+                    vm = vm,
+                    onNavigateToTab = { tab -> select(if (tab == "leads") "leads07" else if (tab == "calls") "calls08" else "home06") },
+                    onOpenLead = { lead -> selectedLeadId = lead.id; select("detail11") },
+                    onGrabLeads = { select("grab10") },
+                    onOpenChats = { select("inbox13") },
+                    onOpenPayments = { select("payments19") },
+                )
+                "leads07" -> LiveLeadsScreenAdapter(
+                    vm = vm,
+                    onNavigateToTab = { tab -> select(if (tab == "home") "home06" else if (tab == "calls") "calls08" else "leads07") },
+                    onOpenLead = { lead -> selectedLeadId = lead.id; select("detail11") },
+                    onGrabLeads = { select("grab10") },
+                )
+                "calls08" -> LiveCallsScreenAdapter(
+                    vm = vm,
+                    onNavigateToTab = { tab -> select(if (tab == "home") "home06" else if (tab == "leads") "leads07" else "calls08") },
+                    onOpenDisposition = { callId -> selectedCallId = callId; select("complete12") },
+                )
+                "more09" -> LiveMoreDrawerAdapter(
+                    vm = vm,
+                    onClose = { select("home06") },
+                    onInboxClick = { select("inbox13") },
+                    onDiagnosticsClick = { select("settings15") },
+                    onProfileClick = { select("settings15") },
+                    onSettingsClick = { select("settings15") },
+                    onPaymentsClick = { select("payments19") },
+                )
+                "grab10" -> LiveGrabLeadsScreenAdapter(
+                    vm = vm,
+                    onBackClick = { select("home06") },
+                    onClaimCompleted = { select("home06") },
+                )
+                "detail11" -> LiveLeadDetailScreenAdapter(
+                    vm = vm,
+                    leadId = selectedLeadId ?: vm.bootstrap?.leads?.firstOrNull()?.id.orEmpty(),
+                    onBackClick = { select("leads07") },
+                    onOpenDisposition = { callId -> selectedCallId = callId; select("complete12") },
+                    onChatClick = { select("chat14") },
+                )
+                "complete12" -> LiveCompleteCallScreenAdapter(
+                    vm = vm,
+                    callId = selectedCallId ?: vm.bootstrap?.calls?.firstOrNull()?.id.orEmpty(),
+                    onBackClick = { select("calls08") },
+                    onSaved = { select("calls08") },
+                )
+                "inbox13" -> LiveInboxScreen(
+                    viewModel = vm,
+                    onNavigateToChat = { leadId -> selectedLeadId = leadId; select("chat14") },
+                    onNavTabSelect = { tab -> select(if (tab == 1) "leads07" else if (tab == 2) "calls08" else "home06") },
+                )
+                "chat14" -> LiveChatScreen(
+                    viewModel = vm,
+                    leadId = selectedLeadId ?: vm.inbox.firstOrNull()?.lead?.id.orEmpty(),
+                    onBackClick = { select("inbox13") },
+                )
+                "settings15" -> LiveSettingsScreen(
+                    viewModel = vm,
+                    onBackClick = { select("more09") },
+                    onLogout = onBack,
+                )
+                "contact16" -> LiveAddContactScreen(
+                    viewModel = vm,
+                    onContactSaved = { select("contacts18") },
+                    onCancel = { select("contacts18") },
+                )
+                "pipeline17" -> LivePipelineScreen(
+                    viewModel = vm,
+                    onAddLeadClick = { select("contact16") },
+                    onLeadCardClick = { lead -> selectedLeadId = lead.id; select("detail11") },
+                    onNavTabSelect = { tab -> select(if (tab == 0) "home06" else "pipeline17") },
+                )
+                "contacts18" -> LiveContactsScreen(
+                    viewModel = vm,
+                    onContactClick = { lead -> selectedLeadId = lead.id; select("detail11") },
+                    onNavTabSelect = { tab -> select(if (tab == 0) "home06" else "contacts18") },
+                )
+                "payments19" -> LivePaymentsScreen(
+                    viewModel = vm,
+                    onBackClick = { select("more09") },
+                )
             }
         }
     }
