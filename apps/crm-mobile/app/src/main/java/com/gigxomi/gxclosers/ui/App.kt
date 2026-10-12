@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -96,6 +97,7 @@ import com.gigxomi.gxclosers.call.SystemCallRecordingImporter
 import com.gigxomi.gxclosers.call.DialerShareAutomation
 import com.gigxomi.gxclosers.ui.theme.*
 import com.gigxomi.gxclosers.ui.components.*
+import com.gigxomi.gxclosers.ui.screens.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -272,6 +274,7 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                 LessonScreen(vm, entry.arguments?.getString("courseId").orEmpty(), entry.arguments?.getString("lessonId").orEmpty()) { nav.popBackStack() }
             }
             composable("edit-profile") { EditProfileScreen(vm) { nav.popBackStack() } }
+            composable("reference-pack") { ReferenceScreenGallery { nav.popBackStack() } }
         }
     }
 }
@@ -1109,6 +1112,7 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
                 edit = { nav.navigate("edit-profile") },
                 inbox = { nav.navigate("inbox") },
                 openSettings = { showMoreSettings = true },
+                openReferencePack = { nav.navigate("reference-pack") },
                 close = { selected = 0 },
                 bottomBar = {
                     GxBottomNav(
@@ -1148,6 +1152,73 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
                 onSelect = { selected = it },
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
+        }
+    }
+}
+
+@Composable
+private fun ReferenceScreenGallery(onBack: () -> Unit) {
+    val screens = remember {
+        listOf(
+            "06 Home" to "home06",
+            "07 Leads" to "leads07",
+            "08 Calls" to "calls08",
+            "09 More" to "more09",
+            "10 Grab" to "grab10",
+            "11 Lead" to "detail11",
+            "12 Outcome" to "complete12",
+            "13 Inbox" to "inbox13",
+            "14 Chat" to "chat14",
+            "15 Settings" to "settings15",
+            "16 Contact" to "contact16",
+            "17 Pipeline" to "pipeline17",
+            "18 Contacts" to "contacts18",
+            "19 Payments" to "payments19",
+        )
+    }
+    var selected by rememberSaveable { mutableStateOf("home06") }
+
+    Column(Modifier.fillMaxSize().background(GxBackground)) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+            Text("Reference screens", color = GxText, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        }
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            screens.forEach { (label, key) ->
+                FilterChip(
+                    selected = selected == key,
+                    onClick = { selected = key },
+                    label = { Text(label, maxLines = 1) },
+                )
+            }
+        }
+        HorizontalDivider(Modifier.padding(top = 10.dp), color = GxOutlineSoft)
+        Box(Modifier.fillMaxWidth().weight(1f)) {
+            when (selected) {
+                "home06" -> ReferenceHomeScreen()
+                "leads07" -> ReferenceLeadsScreen()
+                "calls08" -> ReferenceCallsScreen()
+                "more09" -> ReferenceMoreDrawer()
+                "grab10" -> ReferenceGrabLeadsScreen()
+                "detail11" -> ReferenceLeadDetailScreen()
+                "complete12" -> ReferenceCompleteCallScreen()
+                "inbox13" -> ReferenceInboxScreen()
+                "chat14" -> ReferenceChatScreen()
+                "settings15" -> ReferenceLeadOverviewScreen()
+                "contact16" -> ReferenceAddContactScreen()
+                "pipeline17" -> ReferencePipelineScreen()
+                "contacts18" -> ReferenceContactsScreen()
+                "payments19" -> ReferencePaymentsScreen()
+            }
         }
     }
 }
@@ -2017,6 +2088,7 @@ private fun MoreScreen(
     edit: () -> Unit,
     inbox: () -> Unit,
     openSettings: () -> Unit,
+    openReferencePack: () -> Unit,
     close: () -> Unit,
     bottomBar: @Composable BoxScope.() -> Unit,
 ) {
@@ -2094,6 +2166,7 @@ private fun MoreScreen(
                 DrawerSectionLabel("WORKSPACE", Modifier.padding(top = 14.dp))
                 DrawerItem(Icons.Default.CreditCard, "Payments") { }
                 DrawerItem(Icons.Default.HelpOutline, "Help & support") { }
+                DrawerItem(Icons.Default.Visibility, "Reference screens") { openReferencePack() }
 
                 Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.LightMode, null, tint = GxText, modifier = Modifier.size(22.dp))
