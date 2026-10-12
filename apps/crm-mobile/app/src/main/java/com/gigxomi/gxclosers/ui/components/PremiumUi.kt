@@ -6,7 +6,13 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.runtime.remember
+import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -1403,6 +1409,100 @@ fun ActionOptionCard(
                     modifier = Modifier.size(19.dp),
                 )
             }
+        }
+    }
+}
+
+@Composable
+fun LoginGlassCard(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Surface(
+        color = Color(0xFF14171C).copy(alpha = 0.78f),
+        shape = RoundedCornerShape(26.dp),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+        shadowElevation = 10.dp,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 22.dp),
+            content = content,
+        )
+    }
+}
+
+@Composable
+fun LoginCtaButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    loading: Boolean = false,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed && enabled && !loading) 0.97f else 1.0f,
+        animationSpec = spring(
+            stiffness = Spring.StiffnessMediumLow,
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+        ),
+        label = "login-cta-scale",
+    )
+
+    val activeGradient = Brush.horizontalGradient(
+        listOf(
+            Color(0xFFFE6420),
+            Color(0xFFFF7A30),
+        )
+    )
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(54.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clip(RoundedCornerShape(99.dp))
+            .then(
+                if (enabled && !loading) {
+                    Modifier
+                        .background(activeGradient)
+                        .clickable(
+                            interactionSource = interactionSource,
+                            indication = null,
+                            onClick = onClick,
+                        )
+                } else {
+                    Modifier
+                        .background(Color(0xFF22252A))
+                        .border(BorderStroke(1.dp, Color.White.copy(alpha = 0.05f)), RoundedCornerShape(99.dp))
+                        .clickable(
+                            interactionSource = interactionSource,
+                            indication = null,
+                            onClick = onClick,
+                        )
+                }
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                strokeWidth = 2.dp,
+                color = Color.White,
+            )
+        } else {
+            Text(
+                text = text,
+                color = if (enabled) Color.White else Color.White.copy(alpha = 0.40f),
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = (-0.2).sp,
+            )
         }
     }
 }

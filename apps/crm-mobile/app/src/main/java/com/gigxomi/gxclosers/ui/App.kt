@@ -47,6 +47,13 @@ import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -273,12 +280,36 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
     var identifier by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
-    val backgroundMotion = rememberInfiniteTransition(label = "login-background-motion")
-    val backgroundDrift by backgroundMotion.animateFloat(
-        initialValue = -5f,
-        targetValue = 5f,
-        animationSpec = infiniteRepeatable(tween(7000, easing = LinearEasing), RepeatMode.Reverse),
-        label = "login-background-drift",
+    var identifierFocused by remember { mutableStateOf(false) }
+    var passwordFocused by remember { mutableStateOf(false) }
+
+    val mounted = remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { mounted.value = true }
+
+    val bgAlpha by animateFloatAsState(
+        targetValue = if (mounted.value) 1f else 0f,
+        animationSpec = tween(500, easing = FastOutSlowInEasing),
+        label = "login-bg-fade",
+    )
+    val headerAlpha by animateFloatAsState(
+        targetValue = if (mounted.value) 1f else 0f,
+        animationSpec = tween(400, delayMillis = 80, easing = FastOutSlowInEasing),
+        label = "login-header-alpha",
+    )
+    val headerOffsetY by animateFloatAsState(
+        targetValue = if (mounted.value) 0f else -14f,
+        animationSpec = tween(400, delayMillis = 80, easing = FastOutSlowInEasing),
+        label = "login-header-offset",
+    )
+    val cardAlpha by animateFloatAsState(
+        targetValue = if (mounted.value) 1f else 0f,
+        animationSpec = tween(450, delayMillis = 180, easing = FastOutSlowInEasing),
+        label = "login-card-alpha",
+    )
+    val cardOffsetY by animateFloatAsState(
+        targetValue = if (mounted.value) 0f else 16f,
+        animationSpec = tween(450, delayMillis = 180, easing = FastOutSlowInEasing),
+        label = "login-card-offset",
     )
 
     Box(
@@ -286,40 +317,43 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
             .fillMaxSize()
             .background(GxDarkBg)
     ) {
-        // Upper background microphone with smooth fade to GxDarkBg
-        Image(
-            painter = painterResource(com.gigxomi.gxclosers.R.drawable.login_telephony_background),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            alignment = androidx.compose.ui.BiasAlignment(0f, -0.2f),
+        // Upper background conference speaker with smooth continuous dark fade to GxDarkBg
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(490.dp)
-                .graphicsLayer {
-                    translationX = backgroundDrift * 0.4f
-                },
-            alpha = 0.82f,
-        )
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(510.dp)
-                .background(
-                    androidx.compose.ui.graphics.Brush.verticalGradient(
-                        listOf(
-                            GxDarkBg.copy(alpha = 0.10f),
-                            Color.Transparent,
-                            GxDarkBg.copy(alpha = 0.75f),
-                            GxDarkBg,
+                .graphicsLayer { alpha = bgAlpha }
+        ) {
+            Image(
+                painter = painterResource(com.gigxomi.gxclosers.R.drawable.login_telephony_background),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                alignment = Alignment.TopCenter,
+                modifier = Modifier.fillMaxSize(),
+                alpha = 0.52f,
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                            0.00f to Color(0xFF090B0D).copy(alpha = 0.35f),
+                            0.18f to Color.Transparent,
+                            0.45f to Color(0xFF090B0D).copy(alpha = 0.45f),
+                            0.70f to Color(0xFF090B0D).copy(alpha = 0.85f),
+                            0.86f to Color(0xFF090B0D),
+                            1.00f to Color(0xFF090B0D),
                         )
                     )
-                )
-        )
+            )
+        }
+
         // Floating soundwave bars in upper-right
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(290.dp)
+                .graphicsLayer { alpha = bgAlpha }
         ) {
             val waveRight = size.width - 24.dp.toPx()
             val waveCenterY = 195.dp.toPx()
@@ -343,150 +377,211 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                 .verticalScroll(rememberScrollState())
                 .imePadding()
                 .padding(horizontal = 24.dp, vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            AiCloserLogoHeader()
+            // Top Header: AI Closer Logo
+            AiCloserLogoHeader(
+                modifier = Modifier.graphicsLayer {
+                    alpha = headerAlpha
+                    translationY = headerOffsetY.dp.toPx()
+                }
+            )
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(36.dp))
 
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            // Title & Subtitle
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.graphicsLayer {
+                    alpha = headerAlpha
+                    translationY = headerOffsetY.dp.toPx()
+                }
+            ) {
                 Text(
                     "Sign in to AI Closer",
                     color = Color.White,
-                    fontSize = 28.sp,
-                    lineHeight = 34.sp,
+                    fontSize = 32.sp,
+                    lineHeight = 38.sp,
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = (-0.5).sp,
+                    letterSpacing = (-0.6).sp,
                 )
                 Text(
                     "Use the account provided by your business",
-                    color = GxMutedText,
-                    fontSize = 14.5.sp,
-                    lineHeight = 20.sp,
+                    color = Color(0xFFA0A6B2),
+                    fontSize = 15.sp,
+                    lineHeight = 22.sp,
                 )
             }
 
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(28.dp))
 
-            Surface(
-                color = Color(0xFF171A1E).copy(alpha = 0.88f),
-                shape = RoundedCornerShape(24.dp),
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
-                modifier = Modifier.fillMaxWidth(),
+            // Glass form card
+            LoginGlassCard(
+                modifier = Modifier.graphicsLayer {
+                    alpha = cardAlpha
+                    translationY = cardOffsetY.dp.toPx()
+                }
             ) {
-                Column(
-                    Modifier.padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    OutlinedTextField(
-                        value = identifier,
-                        onValueChange = { identifier = it },
-                        placeholder = { Text("Email or phone", color = GxMutedText, fontSize = 15.sp) },
-                        leadingIcon = { Icon(Icons.Outlined.Email, null, tint = GxMutedText, modifier = Modifier.size(20.dp)) },
-                        singleLine = true,
-                        shape = RoundedCornerShape(16.dp),
-                        textStyle = LocalTextStyle.current.copy(color = Color.White, fontSize = 15.sp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = Color(0xFF1E2126),
-                            unfocusedContainerColor = Color(0xFF1E2126),
-                            focusedBorderColor = GxOrange,
-                            unfocusedBorderColor = Color.White.copy(alpha = 0.12f),
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
-                            cursorColor = GxOrange,
-                        ),
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                    )
-                    OutlinedTextField(
-                        value = password,
-                        onValueChange = { password = it },
-                        placeholder = { Text("Password", color = GxMutedText, fontSize = 15.sp) },
-                        leadingIcon = { Icon(Icons.Outlined.Lock, null, tint = GxMutedText, modifier = Modifier.size(20.dp)) },
-                        trailingIcon = {
-                            IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                                Icon(
-                                    if (passwordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                                    contentDescription = if (passwordVisible) "Hide password" else "Show password",
-                                    tint = GxMutedText,
-                                    modifier = Modifier.size(20.dp),
-                                )
-                            }
-                        },
-                        singleLine = true,
-                        visualTransformation = if (passwordVisible) androidx.compose.ui.text.input.VisualTransformation.None else PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        shape = RoundedCornerShape(16.dp),
-                        textStyle = LocalTextStyle.current.copy(color = Color.White, fontSize = 15.sp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = Color(0xFF1E2126),
-                            unfocusedContainerColor = Color(0xFF1E2126),
-                            focusedBorderColor = GxOrange,
-                            unfocusedBorderColor = Color.White.copy(alpha = 0.12f),
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
-                            cursorColor = GxOrange,
-                        ),
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                    )
-                    GxPillButton(
-                        text = "Sign in",
-                        onClick = {
-                            if (identifier.isBlank() || password.isBlank()) {
-                                vm.showError("Enter your email or phone and password")
-                            } else {
-                                vm.login(identifier, password) {}
-                            }
-                        },
-                        loading = vm.busy,
-                    )
+                OutlinedTextField(
+                    value = identifier,
+                    onValueChange = { identifier = it },
+                    placeholder = { Text("Email or phone", color = Color(0xFF7E8694), fontSize = 15.sp) },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Outlined.Email,
+                            contentDescription = null,
+                            tint = if (identifierFocused) GxOrange else Color(0xFF7E8694),
+                            modifier = Modifier.size(20.dp),
+                        )
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp),
+                    textStyle = LocalTextStyle.current.copy(color = Color.White, fontSize = 15.sp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color(0xFF101317).copy(alpha = 0.85f),
+                        unfocusedContainerColor = Color(0xFF101317).copy(alpha = 0.85f),
+                        focusedBorderColor = GxOrange,
+                        unfocusedBorderColor = Color.White.copy(alpha = 0.11f),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        cursorColor = GxOrange,
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .onFocusChanged { identifierFocused = it.isFocused },
+                )
 
+                Spacer(Modifier.height(14.dp))
+
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    placeholder = { Text("Password", color = Color(0xFF7E8694), fontSize = 15.sp) },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Outlined.Lock,
+                            contentDescription = null,
+                            tint = if (passwordFocused) GxOrange else Color(0xFF7E8694),
+                            modifier = Modifier.size(20.dp),
+                        )
+                    },
+                    trailingIcon = {
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                            Icon(
+                                if (passwordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                contentDescription = if (passwordVisible) "Hide password" else "Show password",
+                                tint = if (passwordFocused) Color.White.copy(alpha = 0.85f) else Color(0xFF7E8694),
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    },
+                    singleLine = true,
+                    visualTransformation = if (passwordVisible) androidx.compose.ui.text.input.VisualTransformation.None else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    shape = RoundedCornerShape(16.dp),
+                    textStyle = LocalTextStyle.current.copy(color = Color.White, fontSize = 15.sp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color(0xFF101317).copy(alpha = 0.85f),
+                        unfocusedContainerColor = Color(0xFF101317).copy(alpha = 0.85f),
+                        focusedBorderColor = GxOrange,
+                        unfocusedBorderColor = Color.White.copy(alpha = 0.11f),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        cursorColor = GxOrange,
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .onFocusChanged { passwordFocused = it.isFocused },
+                )
+
+                Spacer(Modifier.height(20.dp))
+
+                val canSignIn = identifier.isNotBlank() && password.isNotBlank()
+                LoginCtaButton(
+                    text = "Sign in",
+                    enabled = canSignIn,
+                    loading = vm.busy,
+                    onClick = {
+                        if (canSignIn) {
+                            vm.login(identifier.trim(), password) {}
+                        } else {
+                            vm.showError("Enter your email or phone and password")
+                        }
+                    },
+                )
+
+                AnimatedVisibility(
+                    visible = vm.sessionConflict != null,
+                    enter = fadeIn(tween(260)) + expandVertically(tween(260)),
+                    exit = fadeOut(tween(200)) + shrinkVertically(tween(200)),
+                ) {
                     vm.sessionConflict?.let { conflict ->
-                        Surface(
-                            color = GxDanger.copy(alpha = 0.08f),
-                            shape = RoundedCornerShape(16.dp),
-                            border = BorderStroke(1.dp, GxDanger.copy(alpha = 0.40f)),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.Warning, null, tint = GxDanger, modifier = Modifier.size(18.dp))
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Active Session on Another Device", color = GxDanger, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                }
-                                Text(
-                                    conflict.message ?: "This user already has an active mobile session on another device.",
-                                    color = GxText,
-                                    fontSize = 12.sp,
-                                    lineHeight = 16.sp,
-                                )
-                                if (!conflict.deviceName.isNullOrBlank()) {
-                                    Text("Current device: ${conflict.deviceName}", color = GxMuted, fontSize = 11.sp)
-                                }
-                                Button(
-                                    onClick = { vm.login(identifier, password, forceReplace = true) {} },
-                                    enabled = !vm.busy,
-                                    colors = ButtonDefaults.buttonColors(containerColor = GxOrange, contentColor = Color.White),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.fillMaxWidth().height(42.dp),
+                        Column {
+                            Spacer(Modifier.height(16.dp))
+                            Surface(
+                                color = Color(0xFF261919),
+                                shape = RoundedCornerShape(16.dp),
+                                border = BorderStroke(1.dp, Color(0xFFFE4B4B).copy(alpha = 0.45f)),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Column(
+                                    Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
                                 ) {
-                                    if (vm.busy) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(16.dp),
-                                            strokeWidth = 2.dp,
-                                            color = Color.White,
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            Icons.Default.Warning,
+                                            contentDescription = null,
+                                            tint = Color(0xFFFE5B5B),
+                                            modifier = Modifier.size(18.dp),
                                         )
-                                    } else {
-                                        Icon(Icons.Default.Login, null, modifier = Modifier.size(16.dp))
-                                        Spacer(Modifier.width(6.dp))
-                                        Text("Login here", fontWeight = FontWeight.Black, fontSize = 13.sp)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            "Your account is active on another phone.",
+                                            color = Color(0xFFFE7B7B),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.5.sp,
+                                        )
+                                    }
+                                    Text(
+                                        "Login here to end the other mobile session and continue on this phone.",
+                                        color = Color.White.copy(alpha = 0.85f),
+                                        fontSize = 12.5.sp,
+                                        lineHeight = 17.sp,
+                                    )
+                                    if (!conflict.deviceName.isNullOrBlank()) {
+                                        Text(
+                                            "Current device: ${conflict.deviceName}",
+                                            color = GxMutedText,
+                                            fontSize = 11.5.sp,
+                                        )
+                                    }
+                                    Button(
+                                        onClick = { vm.login(identifier.trim(), password, forceReplace = true) {} },
+                                        enabled = !vm.busy,
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = GxOrange,
+                                            contentColor = Color.White,
+                                        ),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(44.dp),
+                                    ) {
+                                        if (vm.busy) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(16.dp),
+                                                strokeWidth = 2.dp,
+                                                color = Color.White,
+                                            )
+                                        } else {
+                                            Icon(Icons.AutoMirrored.Filled.Login, null, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(6.dp))
+                                            Text("Login here", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                                        }
                                     }
                                 }
-                                Text(
-                                    "“Login here” will end the session on your other mobile device and activate this phone.",
-                                    color = GxMuted,
-                                    fontSize = 10.sp,
-                                    lineHeight = 14.sp,
-                                )
                             }
                         }
                     }
@@ -496,13 +591,24 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
             Spacer(Modifier.weight(1f, fill = false))
 
             Row(
-                Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 12.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 28.dp, bottom = 16.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.Outlined.Lock, null, tint = GxMutedText, modifier = Modifier.size(15.dp))
+                Icon(
+                    Icons.Outlined.Lock,
+                    contentDescription = null,
+                    tint = GxMutedText.copy(alpha = 0.70f),
+                    modifier = Modifier.size(14.dp),
+                )
                 Spacer(Modifier.width(7.dp))
-                Text("Connected securely to app.aicloser.in", color = GxMutedText, fontSize = 12.sp)
+                Text(
+                    "Connected securely to aicloser.in",
+                    color = GxMutedText.copy(alpha = 0.75f),
+                    fontSize = 12.sp,
+                )
             }
         }
     }
