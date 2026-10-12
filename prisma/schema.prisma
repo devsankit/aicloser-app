@@ -1097,6 +1097,7 @@ model SalesMobileCall {
   assignmentId       String
   agentId            String
   deviceId           String?
+  clientCallId       String?
   phoneNumber        String
   direction          SalesMobileCallDirection   @default(OUTBOUND)
   status             SalesMobileCallStatus      @default(INITIATED)
@@ -1120,11 +1121,13 @@ model SalesMobileCall {
   agent              SalesAgentProfile          @relation(fields: [agentId], references: [id], onDelete: Cascade)
   device             SalesMobileDevice?         @relation(fields: [deviceId], references: [id], onDelete: SetNull)
 
+  @@unique([tenantId, agentId, clientCallId])
   @@index([tenantId, startedAt])
   @@index([tenantId, phoneNumber])
   @@index([assignmentId, startedAt])
   @@index([agentId, noteRequired, noteSubmitted])
   @@index([deviceId, startedAt])
+  @@index([clientCallId])
 }
 
 model CallRecordingUpload {

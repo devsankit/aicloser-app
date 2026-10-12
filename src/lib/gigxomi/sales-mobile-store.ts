@@ -214,6 +214,29 @@ export async function claimSalesMobileLeadPack(actor: SalesMobileActor, packId: 
 export async function startSalesMobileCall(actor: SalesMobileActor, input: Record<string, unknown>) {
   const agent = await getSalesMobileAgent(actor);
   if (!agent.tenantId) throw new Error("Your sales profile is not assigned to a workspace.");
+
+  const clientCallId = clean(input.clientCallId || input.callSessionId || input.idempotencyKey || input.callId);
+
+  // 1. Deterministic Idempotency check:
+  // If the client has already started this call session (or is retrying after a lost response),
+  // return the existing call immediately. This prevents duplicate rows and bypasses
+  // the pending-disposition guard for the same in-flight or retried call.
+  if (clientCallId) {
+    const existing = await prisma.salesMobileCall.findFirst({
+      where: {
+        tenantId: agent.tenantId,
+        agentId: agent.id,
+        OR: [
+          { clientCallId },
+          { id: clientCallId },
+        ],
+      },
+    });
+    if (existing) {
+      return existing;
+    }
+  }
+
   const pending = await prisma.salesMobileCall.count({ where: { agentId: agent.id, noteRequired: true, noteSubmitted: false } });
   // A call started from the CRM can keep the mandatory disposition guard.
   // Calls discovered from Android's real call log are already finished by the
@@ -264,17 +287,35 @@ export async function startSalesMobileCall(actor: SalesMobileActor, input: Recor
     device = await prisma.salesMobileDevice.findFirst({ where: { deviceId: clean(input.deviceId), agentId: agent.id, isActive: true } });
     if (!device) throw new Error("Registered device not found.");
   }
-  const call = await prisma.salesMobileCall.create({
-    data: {
-      tenantId: agent.tenantId,
-      assignmentId: resolvedAssignment.id,
-      agentId: agent.id,
-      deviceId: device?.id ?? null,
-      phoneNumber: clean(input.phoneNumber) || resolvedAssignment.customerPhone || "",
-      direction: clean(input.direction).toUpperCase() === "INBOUND" ? "INBOUND" : "OUTBOUND",
-      recordingStatus: clean(input.recordingStatus).toUpperCase() === "RECORDING_UNAVAILABLE" ? "RECORDING_UNAVAILABLE" : "NONE",
-    },
-  });
+
+  let call;
+  try {
+    call = await prisma.salesMobileCall.create({
+      data: {
+        tenantId: agent.tenantId,
+        assignmentId: resolvedAssignment.id,
+        agentId: agent.id,
+        deviceId: device?.id ?? null,
+        clientCallId: clientCallId || null,
+        phoneNumber: clean(input.phoneNumber) || resolvedAssignment.customerPhone || "",
+        direction: clean(input.direction).toUpperCase() === "INBOUND" ? "INBOUND" : "OUTBOUND",
+        recordingStatus: clean(input.recordingStatus).toUpperCase() === "RECORDING_UNAVAILABLE" ? "RECORDING_UNAVAILABLE" : "NONE",
+      },
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002" && clientCallId) {
+      const raced = await prisma.salesMobileCall.findFirst({
+        where: {
+          tenantId: agent.tenantId,
+          agentId: agent.id,
+          OR: [{ clientCallId }, { id: clientCallId }],
+        },
+      });
+      if (raced) return raced;
+    }
+    throw error;
+  }
+
   await prisma.salesActivityLog.create({
     data: {
       tenantId: agent.tenantId,
@@ -296,8 +337,14 @@ export async function startSalesMobileCall(actor: SalesMobileActor, input: Recor
 export async function endSalesMobileCall(actor: SalesMobileActor, input: Record<string, unknown>) {
   const agent = await getSalesMobileAgent(actor);
   if (!agent.tenantId) throw new Error("Your sales profile is not assigned to a workspace.");
-  const callId = clean(input.callSessionId || input.callId);
-  const existing = await prisma.salesMobileCall.findFirst({ where: { id: callId, agentId: agent.id } });
+  const callId = clean(input.clientCallId || input.callSessionId || input.idempotencyKey || input.callId);
+  const existing = await prisma.salesMobileCall.findFirst({
+    where: {
+      tenantId: agent.tenantId,
+      agentId: agent.id,
+      OR: [{ id: callId }, { clientCallId: callId }],
+    },
+  });
   if (!existing) throw new Error("Call session not found.");
   const statusInput = clean(input.status).toUpperCase();
   const status = (["MISSED", "FAILED", "CONNECTED", "RINGING"] as const).includes(statusInput as never) ? statusInput : "COMPLETED";
@@ -368,8 +415,15 @@ export async function endSalesMobileCall(actor: SalesMobileActor, input: Record<
 export async function submitSalesMobileDisposition(actor: SalesMobileActor, input: Record<string, unknown>) {
   const agent = await getSalesMobileAgent(actor);
   if (!agent.tenantId) throw new Error("Your sales profile is not assigned to a workspace.");
-  const callId = clean(input.callSessionId || input.callId);
-  const call = await prisma.salesMobileCall.findFirst({ where: { id: callId, agentId: agent.id }, include: { assignment: true } });
+  const callId = clean(input.clientCallId || input.callSessionId || input.idempotencyKey || input.callId);
+  const call = await prisma.salesMobileCall.findFirst({
+    where: {
+      tenantId: agent.tenantId,
+      agentId: agent.id,
+      OR: [{ id: callId }, { clientCallId: callId }],
+    },
+    include: { assignment: true },
+  });
   if (!call) throw new Error("Call session not found.");
   const customerName = clean(input.customerName);
   const note = clean(input.note);
@@ -457,28 +511,48 @@ export async function saveSalesMobileRecording(actor: SalesMobileActor, callId: 
   const agent = await getSalesMobileAgent(actor);
   const tenantId = agent.tenantId;
   if (!tenantId) throw new Error("Your sales profile is not assigned to a workspace.");
-  let call = await prisma.salesMobileCall.findFirst({ where: { id: callId, agentId: agent.id } });
+  let call = await prisma.salesMobileCall.findFirst({
+    where: {
+      tenantId,
+      agentId: agent.id,
+      OR: [{ id: callId }, { clientCallId: callId }],
+    },
+  });
   if (!call) {
     const assignment = await prisma.salesLeadAssignment.findFirst({
       where: { id: callId, tenantId, assignedAgentId: agent.id },
     });
     if (assignment) {
-      call = await prisma.salesMobileCall.create({
-        data: {
-          tenantId,
-          assignmentId: assignment.id,
-          agentId: agent.id,
-          phoneNumber: assignment.customerPhone ?? "Voice Note",
-          direction: "OUTBOUND",
-          status: "COMPLETED",
-          outcome: "VOICE_NOTE",
-          note: "Recorded voice note / objection memo",
-          durationSeconds: recordingDurationMs > 0 ? Math.round(recordingDurationMs / 1000) : 0,
-          recordingStatus: "NONE",
-          noteRequired: false,
-          noteSubmitted: true,
-        },
-      });
+      try {
+        call = await prisma.salesMobileCall.create({
+          data: {
+            tenantId,
+            assignmentId: assignment.id,
+            agentId: agent.id,
+            clientCallId: clean(callId) || null,
+            phoneNumber: assignment.customerPhone ?? "Voice Note",
+            direction: "OUTBOUND",
+            status: "COMPLETED",
+            outcome: "VOICE_NOTE",
+            note: "Recorded voice note / objection memo",
+            durationSeconds: recordingDurationMs > 0 ? Math.round(recordingDurationMs / 1000) : 0,
+            recordingStatus: "NONE",
+            noteRequired: false,
+            noteSubmitted: true,
+          },
+        });
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+          call = await prisma.salesMobileCall.findFirst({
+            where: {
+              tenantId,
+              agentId: agent.id,
+              OR: [{ id: callId }, { clientCallId: callId }],
+            },
+          });
+        }
+        if (!call) throw error;
+      }
       await prisma.salesActivityLog.create({
         data: {
           assignmentId: assignment.id,
@@ -778,16 +852,20 @@ export async function syncSalesMobileOfflineEvents(actor: SalesMobileActor, valu
 export async function discardSalesMobileCall(actor: SalesMobileActor, input: Record<string, unknown>) {
   const agent = await getSalesMobileAgent(actor);
   if (!agent.tenantId) throw new Error("Your sales profile is not assigned to a workspace.");
-  const callId = clean(input.callSessionId || input.callId);
+  const callId = clean(input.clientCallId || input.callSessionId || input.idempotencyKey || input.callId);
   if (!callId) return { discarded: false };
 
   const existing = await prisma.salesMobileCall.findFirst({
-    where: { id: callId, agentId: agent.id },
+    where: {
+      tenantId: agent.tenantId,
+      agentId: agent.id,
+      OR: [{ id: callId }, { clientCallId: callId }],
+    },
   });
   if (!existing) return { discarded: false };
 
   if (existing.status === "INITIATED" || existing.status === "RINGING" || existing.status === "MISSED") {
-    await prisma.salesMobileCall.delete({ where: { id: callId } });
+    await prisma.salesMobileCall.delete({ where: { id: existing.id } });
 
     await prisma.salesActivityLog.deleteMany({
       where: {

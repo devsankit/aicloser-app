@@ -197,13 +197,18 @@ open class CrmRepository(
         simSubscriptionId: String? = null,
         simSlotIndex: Int? = null,
         simLabel: String? = null,
+        callSessionId: String? = null,
     ): String {
+        val clientKey = callSessionId?.takeIf(String::isNotBlank) ?: "call-${java.util.UUID.randomUUID()}"
         val response = api.post("/sales/mobile/call/start", JSONObject()
             .put("leadId", lead.id)
             .put("phoneNumber", lead.customerPhone)
             .put("direction", "OUTBOUND")
             .put("deviceId", deviceId)
             .put("recordingStatus", "NONE")
+            .put("clientCallId", clientKey)
+            .put("callSessionId", clientKey)
+            .put("idempotencyKey", clientKey)
             // A freshly-created mobile lead can briefly still have the local
             // optimistic id. The server may safely create/resolve it for this
             // current agent without bypassing the pending-disposition guard.
@@ -223,8 +228,9 @@ open class CrmRepository(
         simSubscriptionId: String? = null,
         simSlotIndex: Int? = null,
         simLabel: String? = null,
+        callSessionId: String? = null,
     ): String {
-        return startUnmatchedCall(leadId, phone, "INBOUND", deviceId, contactName, simSubscriptionId, simSlotIndex, simLabel)
+        return startUnmatchedCall(leadId, phone, "INBOUND", deviceId, contactName, simSubscriptionId, simSlotIndex, simLabel, callSessionId)
     }
 
     fun startUnmatchedCall(
@@ -236,13 +242,18 @@ open class CrmRepository(
         simSubscriptionId: String? = null,
         simSlotIndex: Int? = null,
         simLabel: String? = null,
+        callSessionId: String? = null,
     ): String {
+        val clientKey = callSessionId?.takeIf(String::isNotBlank) ?: "call-${java.util.UUID.randomUUID()}"
         val payload = JSONObject()
             .put("phoneNumber", phone)
             .put("direction", direction)
             .put("deviceId", deviceId)
             .put("recordingStatus", "NONE")
             .put("allowUnmatched", true)
+            .put("clientCallId", clientKey)
+            .put("callSessionId", clientKey)
+            .put("idempotencyKey", clientKey)
         leadId?.takeIf(String::isNotBlank)?.let { payload.put("leadId", it) }
         contactName?.takeIf(String::isNotBlank)?.let { payload.put("contactName", it) }
         simSubscriptionId?.takeIf(String::isNotBlank)?.let { payload.put("simSubscriptionId", it) }

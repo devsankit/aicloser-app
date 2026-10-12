@@ -7,7 +7,7 @@ export async function POST(request: Request) {
   if (!auth.ok) return auth.response;
   try {
     const form = await request.formData();
-    const callId = String(form.get("callSessionId") ?? form.get("callId") ?? "");
+    const callId = String(form.get("clientCallId") ?? form.get("callSessionId") ?? form.get("callId") ?? "");
     const clientUploadId = String(form.get("clientUploadId") ?? "");
     const recordingDurationMs = Number(form.get("recordingDurationMs") ?? 0);
     const file = form.get("recording");
