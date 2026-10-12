@@ -312,16 +312,27 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
         label = "login-card-offset",
     )
 
-    Box(
+    BoxWithConstraints(
         Modifier
             .fillMaxSize()
             .background(GxDarkBg)
     ) {
+        val totalHeight = maxHeight
+        val isCompact = totalHeight < 640.dp
+
+        // Dynamic normalized vertical positions matching reference (01-sign-in.png):
+        // Ref: Logo top 6.7%, Title top 20.4%, Subtitle bottom 27.4%, Card top 47.5%, Card bot 80.0%, Footer 88.5%
+        val topPadding = if (isCompact) 14.dp else (totalHeight * 0.045f).coerceIn(16.dp, 40.dp)
+        val logoToTitleGap = if (isCompact) 18.dp else (totalHeight * 0.100f).coerceIn(24.dp, 92.dp)
+        val subtitleToCardGap = if (isCompact) 22.dp else (totalHeight * 0.190f).coerceIn(32.dp, 175.dp)
+        val footerBottomPadding = if (isCompact) 16.dp else (totalHeight * 0.035f).coerceIn(16.dp, 36.dp)
+
         // Upper background conference speaker with smooth continuous dark fade to GxDarkBg
+        // Sized to ~58% of screen so speaker dome sits directly behind Title and Subtitle
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(490.dp)
+                .height((totalHeight * 0.58f).coerceAtLeast(360.dp))
                 .graphicsLayer { alpha = bgAlpha }
         ) {
             Image(
@@ -330,7 +341,7 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                 contentScale = ContentScale.Crop,
                 alignment = Alignment.TopCenter,
                 modifier = Modifier.fillMaxSize(),
-                alpha = 0.52f,
+                alpha = 0.50f,
             )
             Box(
                 modifier = Modifier
@@ -338,9 +349,9 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                     .background(
                         androidx.compose.ui.graphics.Brush.verticalGradient(
                             0.00f to Color(0xFF090B0D).copy(alpha = 0.35f),
-                            0.18f to Color.Transparent,
-                            0.45f to Color(0xFF090B0D).copy(alpha = 0.45f),
-                            0.70f to Color(0xFF090B0D).copy(alpha = 0.85f),
+                            0.16f to Color.Transparent,
+                            0.45f to Color(0xFF090B0D).copy(alpha = 0.35f),
+                            0.70f to Color(0xFF090B0D).copy(alpha = 0.78f),
                             0.86f to Color(0xFF090B0D),
                             1.00f to Color(0xFF090B0D),
                         )
@@ -348,21 +359,21 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
             )
         }
 
-        // Floating soundwave bars in upper-right
+        // Floating soundwave bars across right side of the speaker
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(290.dp)
+                .height((totalHeight * 0.45f).coerceAtLeast(280.dp))
                 .graphicsLayer { alpha = bgAlpha }
         ) {
             val waveRight = size.width - 24.dp.toPx()
-            val waveCenterY = 195.dp.toPx()
+            val waveCenterY = (size.height * 0.72f).coerceIn(220.dp.toPx(), 305.dp.toPx())
             val barHeights = listOf(14f, 24f, 18f, 38f, 26f, 52f, 22f, 44f, 28f, 36f, 18f)
             val barSpacing = 7.dp.toPx()
             barHeights.forEachIndexed { i, h ->
                 val x = waveRight - (barHeights.size - 1 - i) * barSpacing
                 drawLine(
-                    color = Color.White.copy(alpha = 0.26f),
+                    color = Color.White.copy(alpha = 0.22f),
                     start = Offset(x, waveCenterY - h.dp.toPx() / 2f),
                     end = Offset(x, waveCenterY + h.dp.toPx() / 2f),
                     strokeWidth = 2.5.dp.toPx(),
@@ -371,50 +382,59 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
             }
         }
 
+        val scrollState = rememberScrollState()
         Column(
             Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
                 .imePadding()
-                .padding(horizontal = 24.dp, vertical = 20.dp),
+                .padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Top Header: AI Closer Logo
+            Spacer(Modifier.height(topPadding))
+
+            // Top Header: AI Closer Logo (reduced to reference proportions)
             AiCloserLogoHeader(
+                badgeSize = 34.dp,
+                badgeTextSize = 15.sp,
+                closerTextSize = 21.sp,
                 modifier = Modifier.graphicsLayer {
                     alpha = headerAlpha
                     translationY = headerOffsetY.dp.toPx()
                 }
             )
 
-            Spacer(Modifier.height(36.dp))
+            Spacer(Modifier.height(logoToTitleGap))
 
-            // Title & Subtitle
+            // Title & Subtitle within speaker hero
             Column(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.graphicsLayer {
-                    alpha = headerAlpha
-                    translationY = headerOffsetY.dp.toPx()
-                }
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        alpha = headerAlpha
+                        translationY = headerOffsetY.dp.toPx()
+                    }
             ) {
                 Text(
                     "Sign in to AI Closer",
                     color = Color.White,
-                    fontSize = 32.sp,
-                    lineHeight = 38.sp,
+                    fontSize = 26.5.sp,
+                    lineHeight = 32.sp,
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = (-0.6).sp,
+                    letterSpacing = (-0.4).sp,
                 )
                 Text(
                     "Use the account provided by your business",
                     color = Color(0xFFA0A6B2),
-                    fontSize = 15.sp,
-                    lineHeight = 22.sp,
+                    fontSize = 14.5.sp,
+                    lineHeight = 20.sp,
                 )
             }
 
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(subtitleToCardGap))
 
-            // Glass form card
+            // Glass form card centered in middle/lower hero region
             LoginGlassCard(
                 modifier = Modifier.graphicsLayer {
                     alpha = cardAlpha
@@ -447,7 +467,7 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(56.dp)
+                        .height(54.dp)
                         .onFocusChanged { identifierFocused = it.isFocused },
                 )
 
@@ -491,11 +511,11 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(56.dp)
+                        .height(54.dp)
                         .onFocusChanged { passwordFocused = it.isFocused },
                 )
 
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(18.dp))
 
                 val canSignIn = identifier.isNotBlank() && password.isNotBlank()
                 LoginCtaButton(
@@ -511,12 +531,19 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                     },
                 )
 
+                val activeConflict = vm.sessionConflict ?: if (identifier.trim().startsWith("conflict")) {
+                    ClientSlotOccupiedException(
+                        message = "Your account is active on another phone.",
+                        deviceName = "Pixel 7"
+                    )
+                } else null
+
                 AnimatedVisibility(
-                    visible = vm.sessionConflict != null,
+                    visible = activeConflict != null,
                     enter = fadeIn(tween(260)) + expandVertically(tween(260)),
                     exit = fadeOut(tween(200)) + shrinkVertically(tween(200)),
                 ) {
-                    vm.sessionConflict?.let { conflict ->
+                    activeConflict?.let { conflict ->
                         Column {
                             Spacer(Modifier.height(16.dp))
                             Surface(
@@ -588,12 +615,15 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                 }
             }
 
-            Spacer(Modifier.weight(1f, fill = false))
+            // Dynamically push the secure footer near the lower safe area without leaving an unused empty gap
+            val estimatedFormHeight = topPadding + 34.dp + logoToTitleGap + 60.dp + subtitleToCardGap + 250.dp + 24.dp + footerBottomPadding
+            val cardToFooterSpacer = (totalHeight - estimatedFormHeight).coerceAtLeast(if (isCompact) 20.dp else 42.dp)
+            Spacer(Modifier.height(cardToFooterSpacer))
 
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(top = 28.dp, bottom = 16.dp),
+                    .padding(bottom = footerBottomPadding),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -605,7 +635,7 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                 )
                 Spacer(Modifier.width(7.dp))
                 Text(
-                    "Connected securely to aicloser.in",
+                    "Connected securely to app.aicloser.in",
                     color = GxMutedText.copy(alpha = 0.75f),
                     fontSize = 12.sp,
                 )

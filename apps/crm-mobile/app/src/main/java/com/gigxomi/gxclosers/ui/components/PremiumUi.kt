@@ -558,6 +558,9 @@ fun GxIconAction(
 @Composable
 fun AiCloserLogoHeader(
     modifier: Modifier = Modifier,
+    badgeSize: androidx.compose.ui.unit.Dp = 34.dp,
+    badgeTextSize: androidx.compose.ui.unit.TextUnit = 15.sp,
+    closerTextSize: androidx.compose.ui.unit.TextUnit = 21.sp,
     rightContent: (@Composable () -> Unit)? = null,
 ) {
     Row(
@@ -570,14 +573,14 @@ fun AiCloserLogoHeader(
         ) {
             Surface(
                 color = GxOrange,
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.size(36.dp),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.size(badgeSize),
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(
                         "AI",
                         color = Color.White,
-                        fontSize = 17.sp,
+                        fontSize = badgeTextSize,
                         fontWeight = FontWeight.Black,
                         letterSpacing = (-0.5).sp,
                     )
@@ -587,7 +590,7 @@ fun AiCloserLogoHeader(
             Text(
                 "Closer",
                 color = Color.White,
-                fontSize = 24.sp,
+                fontSize = closerTextSize,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = (-0.5).sp,
             )
