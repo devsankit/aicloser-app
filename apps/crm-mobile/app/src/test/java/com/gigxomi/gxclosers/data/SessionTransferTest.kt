@@ -7,6 +7,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import java.util.concurrent.ConcurrentHashMap
@@ -15,34 +16,45 @@ class SessionTransferTest {
 
     private lateinit var inMemoryPrefs: InMemorySharedPreferences
     private lateinit var sessionStore: SessionStore
+    private lateinit var fakeApi: FakeApiClient
+    private lateinit var repository: CrmRepository
+
+    private val sampleUser = Session(
+        userId = "agent-101",
+        displayName = "Alex Carter",
+        email = "alex@gigxomi.com",
+        phone = "+919876543210"
+    )
 
     @Before
     fun setUp() {
         inMemoryPrefs = InMemorySharedPreferences()
         sessionStore = SessionStore(prefsOverride = inMemoryPrefs)
+        fakeApi = FakeApiClient(sessionStore)
+        repository = CrmRepository(sessionStore = sessionStore, api = fakeApi)
     }
 
     @Test
-    fun test1_ordinaryLogin_newDevice_requiresOnboarding() {
-        val testSession = Session(
-            userId = "agent-101",
-            displayName = "Alex Carter",
-            email = "alex@gigxomi.com",
-            phone = "+919876543210"
-        )
+    fun test1_ordinaryLogin_success_newDeviceRequiresOnboarding() {
         // Fresh sign in: user has never completed onboarding on this device
-        val isSetupComplete = sessionStore.saveLogin("tok-abc-123", testSession, setupComplete = null)
+        val isSetupComplete = sessionStore.saveLogin("tok-abc-123", sampleUser, setupComplete = null)
 
         assertFalse("New device sign-in must not assume onboarding is complete", isSetupComplete)
         assertFalse(sessionStore.setupComplete)
         assertEquals("tok-abc-123", sessionStore.token)
         assertEquals("agent-101", sessionStore.session?.userId)
         assertEquals("Alex Carter", sessionStore.session?.displayName)
+
+        // If the user already completed onboarding previously, ordinary login restores completion
+        sessionStore.markSetupComplete("agent-101")
+        val restoredComplete = sessionStore.saveLogin("tok-abc-456", sampleUser, setupComplete = null)
+        assertTrue("Subsequent login for the same user restores setupComplete", restoredComplete)
+        assertTrue(sessionStore.setupComplete)
     }
 
     @Test
-    fun test2_occupiedSession_returnsConflictState() {
-        // Simulate backend 409 conflict payload from acquireAppClientSession
+    fun test2_loginConflict_shownOnlyDuringLogin() {
+        // 409 conflict payload from acquireAppClientSession
         val conflictJson = JSONObject()
             .put("ok", false)
             .put("error", "ClientSlotOccupied")
@@ -50,34 +62,40 @@ class SessionTransferTest {
             .put("deviceName", "Pixel 7 Pro")
             .put("lastActiveAt", "2026-10-12T14:30:00.000Z")
 
-        val errorCode = conflictJson.optString("error")
-        val errorMsg = conflictJson.optString("message")
-        val devName = conflictJson.optString("deviceName").ifBlank { null }
-        val activeAt = conflictJson.optString("lastActiveAt").ifBlank { null }
+        // 1. Tested against REAL ApiClient.parseHttpError mapping for /mobile/auth/login
+        val loginEx = ApiClient.parseHttpError("/mobile/auth/login", 409, conflictJson)
+        assertTrue("Login 409 must produce ClientSlotOccupiedException", loginEx is ClientSlotOccupiedException)
+        val occupied = loginEx as ClientSlotOccupiedException
+        assertEquals(409, occupied.status)
+        assertEquals("ClientSlotOccupied", occupied.errorCode)
+        assertEquals("Pixel 7 Pro", occupied.deviceName)
+        assertEquals("2026-10-12T14:30:00.000Z", occupied.lastActiveAt)
+        assertEquals("Your mobile account is already active on another device.", occupied.message)
 
-        val ex = ClientSlotOccupiedException(
-            message = errorMsg,
-            deviceName = devName,
-            lastActiveAt = activeAt
-        )
+        // 2. Tested against REAL ApiClient.parseHttpError mapping for non-login endpoints:
+        // register-device 409 must NEVER produce ClientSlotOccupiedException
+        val regDevEx = ApiClient.parseHttpError("/sales/mobile/register-device", 409, conflictJson)
+        assertFalse("register-device 409 must NOT produce ClientSlotOccupiedException", regDevEx is ClientSlotOccupiedException)
+        assertTrue(regDevEx is ApiException)
+        assertEquals(409, regDevEx.status)
 
-        assertEquals(409, ex.status)
-        assertEquals("ClientSlotOccupied", ex.errorCode)
-        assertEquals("Pixel 7 Pro", ex.deviceName)
-        assertEquals("2026-10-12T14:30:00.000Z", ex.lastActiveAt)
-        assertEquals("Your mobile account is already active on another device.", ex.message)
+        // certification 409 must NEVER produce ClientSlotOccupiedException
+        val certEx = ApiClient.parseHttpError("/sales/mobile/certification", 409, conflictJson)
+        assertFalse("certification 409 must NOT produce ClientSlotOccupiedException", certEx is ClientSlotOccupiedException)
+        assertTrue(certEx is ApiException)
+        assertEquals(409, certEx.status)
     }
 
     @Test
-    fun test3_forcedTakeover_atomicallyRevokesAndMarksSetupComplete() {
-        val testSession = Session(
+    fun test3_forcedLoginTakeover_succeeds() {
+        val takeoverUser = Session(
             userId = "agent-202",
             displayName = "Sarah Connor",
             email = "sarah@gigxomi.com",
             phone = "+919876543211"
         )
         // User taps "Login here" (forceReplace = true): takeover atomically completes setup
-        val isSetupComplete = sessionStore.saveLogin("tok-takeover-999", testSession, setupComplete = true)
+        val isSetupComplete = sessionStore.saveLogin("tok-takeover-999", takeoverUser, setupComplete = true)
 
         assertTrue("Takeover must atomically mark setup complete", isSetupComplete)
         assertTrue(sessionStore.setupComplete)
@@ -87,184 +105,159 @@ class SessionTransferTest {
     }
 
     @Test
-    fun test4_appRestartAfterTakeover_preservesSetupCompleteAndSession() {
-        val testSession = Session(
-            userId = "agent-303",
-            displayName = "David Miller",
-            email = "david@gigxomi.com",
-            phone = "+919876543212"
-        )
-        sessionStore.saveLogin("tok-cold-restart-555", testSession, setupComplete = true)
+    fun test4_exactLegacyRegisterDeviceOwnershipConflict_handledAsDesigned() {
+        // 1. Boundary check: CrmRepository.isLegacyDeviceOwnershipConflict recognizes only legacy message/code
+        assertTrue(CrmRepository.isLegacyDeviceOwnershipConflict(400, "This company device is registered to another sales agent."))
+        assertTrue(CrmRepository.isLegacyDeviceOwnershipConflict(409, "This device is linked to another sales agent"))
+        assertTrue(CrmRepository.isLegacyDeviceOwnershipConflict(400, "Error", "DeviceRegisteredToAnother"))
+        assertTrue(CrmRepository.isLegacyDeviceOwnershipConflict(409, "Error", "RegisteredToAnotherAgent"))
 
-        // Simulate app kill and cold start: create a brand new SessionStore reading the same preferences
+        // Unrelated errors must NOT be matched
+        assertFalse(CrmRepository.isLegacyDeviceOwnershipConflict(400, "deviceId is required"))
+        assertFalse(CrmRepository.isLegacyDeviceOwnershipConflict(409, "ClientSlotOccupied"))
+        assertFalse(CrmRepository.isLegacyDeviceOwnershipConflict(401, "Session revoked"))
+        assertFalse(CrmRepository.isLegacyDeviceOwnershipConflict(500, "Internal Server Error"))
+
+        // 2. Real repository boundary: simulate backend returning legacy ownership 400
+        sessionStore.saveLogin("tok-legacy-test", sampleUser, setupComplete = false)
+        assertFalse(sessionStore.setupComplete)
+
+        fakeApi.postHandler = { path, _ ->
+            if (path == "/sales/mobile/register-device") {
+                throw ApiException("This company device is registered to another sales agent.", 400)
+            }
+            JSONObject().put("ok", true)
+        }
+
+        // registerDevice must absorb this exact legacy response and complete setup
+        repository.registerDevice("dev-1", "Pixel", "Google", "Pixel 7", "14", "1.0.22")
+
+        assertTrue("Setup must complete when legacy ownership conflict is encountered", sessionStore.setupComplete)
+        assertTrue("User setup history must be recorded", sessionStore.isSetupCompleteForUser("agent-101"))
+    }
+
+    @Test
+    fun test5_networkFailure_doesNotMarkSetupComplete() {
+        sessionStore.saveLogin("tok-net-test", sampleUser, setupComplete = false)
+        assertFalse(sessionStore.setupComplete)
+
+        fakeApi.postHandler = { _, _ ->
+            throw NetworkTimeoutException("Connection timed out. Please check your internet connection.")
+        }
+
+        try {
+            repository.registerDevice("dev-1", "Pixel", "Google", "Pixel 7", "14", "1.0.22")
+            fail("NetworkTimeoutException must be re-thrown")
+        } catch (e: NetworkTimeoutException) {
+            assertEquals(408, e.status)
+        }
+
+        assertFalse("Network failure must NOT mark setup complete", sessionStore.setupComplete)
+        assertFalse(sessionStore.isSetupCompleteForUser("agent-101"))
+    }
+
+    @Test
+    fun test6_unauthorizedOrForbidden_doesNotMarkSetupComplete() {
+        sessionStore.saveLogin("tok-auth-test", sampleUser, setupComplete = false)
+
+        // 401 SessionRevoked
+        fakeApi.postHandler = { _, _ -> throw SessionRevokedException("Your mobile session has expired.") }
+        try {
+            repository.registerDevice("dev-1", "Pixel", "Google", "Pixel 7", "14", "1.0.22")
+            fail("SessionRevokedException must be re-thrown")
+        } catch (e: SessionRevokedException) {
+            assertEquals(401, e.status)
+        }
+        assertFalse("401 must NOT mark setup complete", sessionStore.setupComplete)
+
+        // 403 Forbidden
+        fakeApi.postHandler = { _, _ -> throw ForbiddenException("Access denied. Insufficient permissions.") }
+        try {
+            repository.registerDevice("dev-1", "Pixel", "Google", "Pixel 7", "14", "1.0.22")
+            fail("ForbiddenException must be re-thrown")
+        } catch (e: ForbiddenException) {
+            assertEquals(403, e.status)
+        }
+        assertFalse("403 must NOT mark setup complete", sessionStore.setupComplete)
+    }
+
+    @Test
+    fun test7_unrelated400Or409_doesNotMarkSetupComplete() {
+        sessionStore.saveLogin("tok-validation-test", sampleUser, setupComplete = false)
+
+        // Unrelated 400 validation error
+        fakeApi.postHandler = { _, _ -> throw ApiException("deviceId is required", 400, "MissingField") }
+        try {
+            repository.registerDevice("dev-1", "Pixel", "Google", "Pixel 7", "14", "1.0.22")
+            fail("Unrelated 400 must be re-thrown")
+        } catch (e: ApiException) {
+            assertEquals(400, e.status)
+            assertEquals("MissingField", e.errorCode)
+        }
+        assertFalse("Unrelated 400 must NOT mark setup complete", sessionStore.setupComplete)
+
+        // Unrelated 409 conflict
+        fakeApi.postHandler = { _, _ -> throw ApiException("Database concurrency conflict", 409, "Conflict") }
+        try {
+            repository.registerDevice("dev-1", "Pixel", "Google", "Pixel 7", "14", "1.0.22")
+            fail("Unrelated 409 must be re-thrown")
+        } catch (e: ApiException) {
+            assertEquals(409, e.status)
+        }
+        assertFalse("Unrelated 409 must NOT mark setup complete", sessionStore.setupComplete)
+    }
+
+    @Test
+    fun test8_5xxServerError_doesNotMarkSetupComplete() {
+        sessionStore.saveLogin("tok-500-test", sampleUser, setupComplete = false)
+
+        fakeApi.postHandler = { _, _ -> throw ApiException("Internal Server Error", 500) }
+        try {
+            repository.registerDevice("dev-1", "Pixel", "Google", "Pixel 7", "14", "1.0.22")
+            fail("500 must be re-thrown")
+        } catch (e: ApiException) {
+            assertEquals(500, e.status)
+        }
+        assertFalse("500 must NOT mark setup complete", sessionStore.setupComplete)
+
+        fakeApi.postHandler = { _, _ -> throw ApiException("Bad Gateway", 502) }
+        try {
+            repository.registerDevice("dev-1", "Pixel", "Google", "Pixel 7", "14", "1.0.22")
+            fail("502 must be re-thrown")
+        } catch (e: ApiException) {
+            assertEquals(502, e.status)
+        }
+        assertFalse("502 must NOT mark setup complete", sessionStore.setupComplete)
+    }
+
+    @Test
+    fun test9_successfulRegistration_marksSetupCompleteOnce() {
+        sessionStore.saveLogin("tok-success-test", sampleUser, setupComplete = false)
+        assertFalse(sessionStore.setupComplete)
+
+        fakeApi.postHandler = { _, _ -> JSONObject().put("ok", true) }
+        repository.registerDevice("dev-1", "Pixel", "Google", "Pixel 7", "14", "1.0.22")
+
+        assertTrue("Setup must be marked complete on successful registration", sessionStore.setupComplete)
+        assertTrue("User setup history must be recorded", sessionStore.isSetupCompleteForUser("agent-101"))
+    }
+
+    @Test
+    fun test10_restart_preservesValidSessionAndSetupComplete() {
+        sessionStore.saveLogin("tok-cold-restart-555", sampleUser, setupComplete = true)
+
+        // Simulate cold restart: new SessionStore reading the same preferences
         val restartedStore = SessionStore(prefsOverride = inMemoryPrefs)
 
         assertNotNull("Token must persist across restart", restartedStore.token)
         assertEquals("tok-cold-restart-555", restartedStore.token)
-        assertEquals("agent-303", restartedStore.session?.userId)
+        assertEquals("agent-101", restartedStore.session?.userId)
         assertTrue("SetupComplete must persist reliably after app restart", restartedStore.setupComplete)
-        assertTrue(restartedStore.isSetupCompleteForUser("agent-303"))
+        assertTrue(restartedStore.isSetupCompleteForUser("agent-101"))
     }
 
     @Test
-    fun test5_logoutAndRelogin_preservesSetupCompleteForSameUser() {
-        val testSession = Session(
-            userId = "agent-404",
-            displayName = "Emma Watson",
-            email = "emma@gigxomi.com",
-            phone = "+919876543213"
-        )
-        // First login and completes setup
-        sessionStore.saveLogin("tok-emma-111", testSession, setupComplete = true)
-        assertTrue(sessionStore.setupComplete)
-        assertTrue(sessionStore.isSetupCompleteForUser("agent-404"))
-
-        // User logs out
-        sessionStore.clearSession()
-
-        // Active session is safely cleared
-        assertNull("Token must be cleared on logout", sessionStore.token)
-        assertNull("Session must be cleared on logout", sessionStore.session)
-        assertFalse("Current active setup complete should reset to false", sessionStore.setupComplete)
-
-        // Historical completion for Emma Watson is preserved!
-        assertTrue("Saved onboarding completion for agent-404 must not be corrupted", sessionStore.isSetupCompleteForUser("agent-404"))
-
-        // Same user logs in again (ordinary login without forceReplace)
-        val reloginComplete = sessionStore.saveLogin("tok-emma-222", testSession, setupComplete = null)
-        assertTrue("Re-login for the same user must restore setup complete", reloginComplete)
-        assertTrue(sessionStore.setupComplete)
-        assertEquals("tok-emma-222", sessionStore.token)
-    }
-
-    @Test
-    fun test6_revokedHeartbeat_clearsSessionSafelyWithoutCorruptingUserData() {
-        val testSession = Session(
-            userId = "agent-505",
-            displayName = "James Bond",
-            email = "james@gigxomi.com",
-            phone = "+919876543214"
-        )
-        sessionStore.saveLogin("tok-james-007", testSession, setupComplete = true)
-
-        // Simulate heartbeat returning 401 SessionRevoked
-        val revokedEx = SessionRevokedException("This client session is no longer active")
-        assertEquals("SessionRevoked", revokedEx.errorCode)
-        assertEquals(401, revokedEx.status)
-
-        // handleSessionRevoked calls clearSession()
-        sessionStore.clearSession()
-
-        assertNull("Revocation must clear active token", sessionStore.token)
-        assertNull("Revocation must clear active session", sessionStore.session)
-        assertFalse(sessionStore.setupComplete)
-
-        // User setup flag is still safe so future re-authentication won't repeat onboarding
-        assertTrue(sessionStore.isSetupCompleteForUser("agent-505"))
-    }
-
-    @Test
-    fun test7_regression_loginConflictAppearsOnlyAtLogin() {
-        val loginPath = "/mobile/auth/login"
-        val registerDevicePath = "/sales/mobile/register-device"
-        val certificationPath = "/sales/mobile/certification"
-
-        fun parse409(path: String, errorCode: String, errorMsg: String): Exception {
-            return if (path.contains("/login") && (errorCode == "ClientSlotOccupied" || errorMsg.contains("occupied", true) || errorMsg.contains("active on another device", true) || errorMsg.contains("already active", true))) {
-                ClientSlotOccupiedException(message = errorMsg)
-            } else {
-                ApiException(errorMsg, 409, errorCode)
-            }
-        }
-
-        // Login conflict correctly throws ClientSlotOccupiedException
-        val loginEx = parse409(loginPath, "ClientSlotOccupied", "Account active elsewhere")
-        assertTrue("Login conflict must produce ClientSlotOccupiedException", loginEx is ClientSlotOccupiedException)
-
-        // Non-login endpoints must NEVER produce ClientSlotOccupiedException
-        val regDevEx = parse409(registerDevicePath, "ClientSlotOccupied", "This company device is registered to another sales agent")
-        assertFalse("register-device 409 must NOT produce ClientSlotOccupiedException", regDevEx is ClientSlotOccupiedException)
-        assertTrue(regDevEx is ApiException)
-
-        val certEx = parse409(certificationPath, "ClientSlotOccupied", "already active")
-        assertFalse("certification 409 must NOT produce ClientSlotOccupiedException", certEx is ClientSlotOccupiedException)
-        assertTrue(certEx is ApiException)
-    }
-
-    @Test
-    fun test8_regression_forceTakeoverSucceedsAndMarksSetupComplete() {
-        val testSession = Session(
-            userId = "agent-takeover-777",
-            displayName = "Takeover Agent",
-            email = "agent777@gigxomi.com",
-            phone = "+919876543299"
-        )
-        val setupDone = sessionStore.saveLogin("tok-takeover-success", testSession, setupComplete = true)
-        assertTrue("Force takeover must succeed and mark setup complete", setupDone)
-        assertTrue(sessionStore.setupComplete)
-        assertEquals("tok-takeover-success", sessionStore.token)
-        assertEquals("agent-takeover-777", sessionStore.session?.userId)
-        assertTrue(sessionStore.isSetupCompleteForUser("agent-takeover-777"))
-    }
-
-    @Test
-    fun test9_regression_registerDeviceCannotCreateClientSlotOccupiedState() {
-        val testSession = Session(
-            userId = "agent-setup-step4",
-            displayName = "Step 4 User",
-            email = "step4@gigxomi.com",
-            phone = "+919876543200"
-        )
-        sessionStore.saveLogin("tok-step4-active", testSession, setupComplete = false)
-        assertFalse(sessionStore.setupComplete)
-
-        // Simulate register-device network failure or un-deployed 400 response from backend:
-        // CrmRepository wraps registerDevice in try-catch-finally so markSetupComplete is ALWAYS called.
-        var caughtSessionConflict = false
-        try {
-            // Emulate resilient registerDevice logic:
-            try {
-                // Backend call returns 400 "This company device is registered to another sales agent"
-                throw ApiException("This company device is registered to another sales agent.", 400)
-            } catch (_: Exception) {
-                // Absorbed without throwing or converting to ClientSlotOccupied
-            } finally {
-                sessionStore.markSetupComplete(sessionStore.session?.userId)
-            }
-        } catch (e: ClientSlotOccupiedException) {
-            caughtSessionConflict = true
-        }
-
-        assertFalse("registerDevice must never raise ClientSlotOccupiedException", caughtSessionConflict)
-        assertTrue("setupComplete must be marked true after registerDevice completes", sessionStore.setupComplete)
-        assertTrue("User setup history must be recorded", sessionStore.isSetupCompleteForUser("agent-setup-step4"))
-    }
-
-    @Test
-    fun test10_regression_setupCompletesAndSurvivesRestart() {
-        val testSession = Session(
-            userId = "agent-restart-proof",
-            displayName = "Restart Agent",
-            email = "restart@gigxomi.com",
-            phone = "+919876543218"
-        )
-        sessionStore.saveLogin("tok-restart-proof", testSession, setupComplete = false)
-        assertFalse(sessionStore.setupComplete)
-
-        // Mark setup complete on step 4
-        sessionStore.markSetupComplete("agent-restart-proof")
-        assertTrue(sessionStore.setupComplete)
-
-        // Simulate cold restart of application
-        val coldStartStore = SessionStore(prefsOverride = inMemoryPrefs)
-        assertEquals("tok-restart-proof", coldStartStore.token)
-        assertEquals("agent-restart-proof", coldStartStore.session?.userId)
-        assertTrue("Setup complete must persist after cold app restart", coldStartStore.setupComplete)
-        assertTrue(coldStartStore.isSetupCompleteForUser("agent-restart-proof"))
-    }
-
-    @Test
-    fun test11_regression_staleHeartbeatCannotRevokeReplacementSession() {
+    fun test11_staleHeartbeat_cannotClearReplacementSession() {
         val initialSession = Session(
             userId = "agent-heartbeat-race",
             displayName = "Race Agent",
@@ -291,6 +284,43 @@ class SessionTransferTest {
         assertFalse("Stale heartbeat must NOT revoke the replacement session", revokedActiveSession)
         assertEquals("tok-new-replacement-2", sessionStore.token)
         assertTrue(sessionStore.setupComplete)
+    }
+
+    @Test
+    fun test12_logoutAndRelogin_preservesSetupCompleteForSameUser() {
+        val user = Session(
+            userId = "agent-404",
+            displayName = "Emma Watson",
+            email = "emma@gigxomi.com",
+            phone = "+919876543213"
+        )
+        sessionStore.saveLogin("tok-emma-111", user, setupComplete = true)
+        assertTrue(sessionStore.setupComplete)
+        assertTrue(sessionStore.isSetupCompleteForUser("agent-404"))
+
+        // User logs out
+        sessionStore.clearSession()
+        assertNull("Token must be cleared on logout", sessionStore.token)
+        assertNull("Session must be cleared on logout", sessionStore.session)
+        assertFalse("Current active setup complete should reset to false", sessionStore.setupComplete)
+
+        // Historical completion for Emma Watson is preserved
+        assertTrue("Saved onboarding completion for agent-404 must not be corrupted", sessionStore.isSetupCompleteForUser("agent-404"))
+
+        // Same user logs in again (ordinary login without forceReplace)
+        val reloginComplete = sessionStore.saveLogin("tok-emma-222", user, setupComplete = null)
+        assertTrue("Re-login for the same user must restore setup complete", reloginComplete)
+        assertTrue(sessionStore.setupComplete)
+        assertEquals("tok-emma-222", sessionStore.token)
+    }
+}
+
+class FakeApiClient(sessionStore: SessionStore) : ApiClient(sessionStore) {
+    var postHandler: ((path: String, body: JSONObject) -> JSONObject)? = null
+
+    override fun post(path: String, body: JSONObject): JSONObject {
+        val handler = postHandler ?: return JSONObject().put("ok", true)
+        return handler(path, body)
     }
 }
 

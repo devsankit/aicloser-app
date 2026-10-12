@@ -7,11 +7,29 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
-class CrmRepository(context: Context) {
-    val sessionStore = SessionStore(context)
-    val api = ApiClient(sessionStore)
-    val offline = OfflineEventStore(context)
-    private val appContext = context.applicationContext
+open class CrmRepository(
+    context: Context? = null,
+    val sessionStore: SessionStore = SessionStore(context),
+    val api: ApiClient = ApiClient(sessionStore),
+    offlineStore: OfflineEventStore? = null
+) {
+    val offline: OfflineEventStore by lazy {
+        offlineStore ?: (context?.let { OfflineEventStore(it) } ?: error("Context required for OfflineEventStore"))
+    }
+    private val appContext: Context? = context?.applicationContext ?: context
+
+    companion object {
+        fun isLegacyDeviceOwnershipConflict(status: Int, message: String?, errorCode: String? = null): Boolean {
+            if (status != 400 && status != 409) return false
+            val msg = message.orEmpty()
+            val code = errorCode.orEmpty()
+            val hasLegacyMessage = msg.contains("registered to another", ignoreCase = true) ||
+                msg.contains("linked to another", ignoreCase = true)
+            val hasLegacyCode = code.contains("DeviceRegisteredToAnother", ignoreCase = true) ||
+                code.contains("RegisteredToAnotherAgent", ignoreCase = true)
+            return hasLegacyMessage || hasLegacyCode
+        }
+    }
 
     fun login(identifier: String, password: String, forceReplace: Boolean = false): Session {
         val installationId = sessionStore.installationId
@@ -41,15 +59,17 @@ class CrmRepository(context: Context) {
         // Queue the snapshot now, but sync it only after registerDevice has
         // created the server-side device row so the history is linked to the
         // correct device rather than becoming an orphaned login event.
-        DeviceDiagnostics.enqueueSnapshot(appContext, force = true)
-        RecordingUploadWorker.retryNow(appContext)
+        appContext?.let { ctx ->
+            DeviceDiagnostics.enqueueSnapshot(ctx, force = true)
+            RecordingUploadWorker.retryNow(ctx)
+        }
         return session
     }
 
     fun heartbeat(deviceId: String? = null): Boolean {
         if (sessionStore.token.isNullOrBlank()) return false
         val response = api.post("/auth/heartbeat", JSONObject())
-        if (sessionStore.setupComplete && !deviceId.isNullOrBlank()) {
+        if (sessionStore.setupComplete && !deviceId.isNullOrBlank() && appContext != null) {
             val capabilitySnapshot = DeviceDiagnostics.snapshot(appContext)
             val snapshotQueued = DeviceDiagnostics.enqueueSnapshot(appContext)
             runCatching {
@@ -79,7 +99,7 @@ class CrmRepository(context: Context) {
             ?.mapNotNull { runCatching { java.time.Instant.parse(it) }.getOrNull() }
             ?.filter { it.isAfter(java.time.Instant.now().plusSeconds(4 * 60)) }
             ?.minOrNull()
-        CallbackReminderWorker.scheduleNext(appContext, nextCallback)
+        appContext?.let { CallbackReminderWorker.scheduleNext(it, nextCallback) }
         return parseBootstrap(payload)
     }
     fun inbox(): List<InboxItem> = parseInbox(api.get("/sales/mobile/inbox"))
@@ -127,7 +147,7 @@ class CrmRepository(context: Context) {
     }
 
     fun registerDevice(deviceId: String, deviceName: String, manufacturer: String, model: String, androidVersion: String, appVersion: String, force: Boolean = true) {
-        val capabilitySnapshot = DeviceDiagnostics.snapshot(appContext)
+        val capabilitySnapshot = appContext?.let { runCatching { DeviceDiagnostics.snapshot(it) }.getOrNull() } ?: JSONObject()
         val payload = JSONObject()
             .put("deviceId", deviceId)
             .put("deviceName", deviceName)
@@ -140,20 +160,22 @@ class CrmRepository(context: Context) {
             .put("force", true)
             .put("forceReplace", true)
             .put("reassign", true)
+
         try {
             api.post("/sales/mobile/register-device", payload)
-        } catch (_: Exception) {
-            // An authenticated agent's device registration failure (e.g. undeployed server awaiting
-            // deployment or transient network drop) must never block onboarding or surface a takeover prompt.
-            // Enqueue diagnostics so device specs sync whenever the backend is reachable.
-            DeviceDiagnostics.enqueueSnapshot(appContext, force = true)
-        } finally {
-            sessionStore.markSetupComplete(sessionStore.session?.userId)
-            DeviceDiagnostics.enqueueSnapshot(appContext, force = true)
-            runCatching { syncOffline() }
-            RecordingUploadWorker.retryNow(appContext)
-            CallbackReminderWorker.enqueue(appContext)
+        } catch (e: ApiException) {
+            if (!isLegacyDeviceOwnershipConflict(e.status, e.message, e.errorCode)) {
+                throw e
+            }
         }
+
+        sessionStore.markSetupComplete(sessionStore.session?.userId)
+        appContext?.let { ctx ->
+            runCatching { DeviceDiagnostics.enqueueSnapshot(ctx, force = true) }
+            runCatching { RecordingUploadWorker.retryNow(ctx) }
+            runCatching { CallbackReminderWorker.enqueue(ctx) }
+        }
+        runCatching { if (appContext != null) syncOffline() }
     }
 
     fun requestLeadPack(size: Int) = parseLeadPack(api.post("/sales/mobile/lead-packs/request", JSONObject().put("size", size)))

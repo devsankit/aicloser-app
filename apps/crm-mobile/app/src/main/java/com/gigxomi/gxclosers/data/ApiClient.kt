@@ -25,9 +25,9 @@ class NotFoundException(message: String = "The requested resource was not found.
 class ValidationException(message: String = "Validation error.") : ApiException(message, 422, "ValidationError")
 class NetworkTimeoutException(message: String = "Connection timed out. Please check your internet connection.") : ApiException(message, 408, "NetworkTimeout")
 
-class ApiClient(private val sessionStore: SessionStore) {
-    fun get(path: String) = request(path, "GET")
-    fun post(path: String, body: JSONObject = JSONObject()) = request(path, "POST", body)
+open class ApiClient(protected val sessionStore: SessionStore) {
+    open fun get(path: String): JSONObject = request(path, "GET")
+    open fun post(path: String, body: JSONObject = JSONObject()): JSONObject = request(path, "POST", body)
 
     fun downloadRecording(callId: String, destination: File) {
         val connection = URL(endpoint("/sales/mobile/calls/$callId/recording")).openConnection() as HttpURLConnection
@@ -69,42 +69,7 @@ class ApiClient(private val sessionStore: SessionStore) {
             val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
             val payload = runCatching { JSONObject(text) }.getOrElse { JSONObject() }
             if (status !in 200..299) {
-                val errorCode = payload.optString("error", "").ifBlank { null }
-                val errorMsg = payload.optString("message", payload.optString("error", "Request failed ($status)"))
-                when (status) {
-                    401 -> {
-                        if (errorCode == "SessionRevoked" || errorMsg.contains("revoked", true)) {
-                            throw SessionRevokedException(errorMsg)
-                        }
-                        if (path.contains("/login") || errorCode == "InvalidCredentials" || errorMsg.contains("credentials", true) || errorMsg.contains("password", true)) {
-                            throw InvalidCredentialsException(errorMsg.ifBlank { "Invalid email/phone or password" })
-                        }
-                        // Non-login 401 means the stored mobile session can no longer
-                        // authenticate. Treat it as a revoked/expired session so the UI can
-                        // return to the login screen cleanly.
-                        throw SessionRevokedException(errorMsg.ifBlank { "Your mobile session has expired. Please sign in again." })
-                    }
-                    409 -> {
-                        // ClientSlotOccupiedException is strictly confined to login requests.
-                        // Non-login endpoints must never throw ClientSlotOccupiedException or trigger takeover prompts.
-                        if (path.contains("/login") && (errorCode == "ClientSlotOccupied" || errorMsg.contains("occupied", true) || errorMsg.contains("active on another device", true) || errorMsg.contains("already active", true))) {
-                            val dataObj = payload.optJSONObject("data")
-                            val devName = payload.optString("deviceName", dataObj?.optString("deviceName", "") ?: "").ifBlank { null }
-                            val activeAt = payload.optString("lastActiveAt", dataObj?.optString("lastActiveAt", "") ?: "").ifBlank { null }
-                            throw ClientSlotOccupiedException(
-                                message = errorMsg.ifBlank { "Your mobile account is already active on another device." },
-                                deviceName = devName,
-                                lastActiveAt = activeAt
-                            )
-                        }
-                        throw ApiException(errorMsg, 409, errorCode)
-                    }
-                    403 -> throw ForbiddenException(errorMsg)
-                    404 -> throw NotFoundException(errorMsg)
-                    422 -> throw ValidationException(errorMsg)
-                    400 -> throw ApiException(errorMsg, 400, errorCode)
-                    else -> throw ApiException(errorMsg, status, errorCode)
-                }
+                throw parseHttpError(path, status, payload)
             }
             return payload
         } catch (e: SocketTimeoutException) {
@@ -286,5 +251,45 @@ class ApiClient(private val sessionStore: SessionStore) {
 
     companion object {
         fun endpoint(path: String) = "${BuildConfig.GXCLOSERS_API_BASE.trimEnd('/')}/${path.trimStart('/')}"
+
+        fun parseHttpError(path: String, status: Int, payload: JSONObject): ApiException {
+            val errorCode = payload.optString("error", "").ifBlank { null }
+            val errorMsg = payload.optString("message", payload.optString("error", "Request failed ($status)"))
+            return when (status) {
+                401 -> {
+                    if (errorCode == "SessionRevoked" || errorMsg.contains("revoked", true)) {
+                        SessionRevokedException(errorMsg)
+                    } else if (path.contains("/login") || errorCode == "InvalidCredentials" || errorMsg.contains("credentials", true) || errorMsg.contains("password", true)) {
+                        InvalidCredentialsException(errorMsg.ifBlank { "Invalid email/phone or password" })
+                    } else {
+                        // Non-login 401 means the stored mobile session can no longer
+                        // authenticate. Treat it as a revoked/expired session so the UI can
+                        // return to the login screen cleanly.
+                        SessionRevokedException(errorMsg.ifBlank { "Your mobile session has expired. Please sign in again." })
+                    }
+                }
+                409 -> {
+                    // ClientSlotOccupiedException is strictly confined to login requests.
+                    // Non-login endpoints must never throw ClientSlotOccupiedException or trigger takeover prompts.
+                    if (path.contains("/login") && (errorCode == "ClientSlotOccupied" || errorMsg.contains("occupied", true) || errorMsg.contains("active on another device", true) || errorMsg.contains("already active", true))) {
+                        val dataObj = payload.optJSONObject("data")
+                        val devName = payload.optString("deviceName", dataObj?.optString("deviceName", "") ?: "").ifBlank { null }
+                        val activeAt = payload.optString("lastActiveAt", dataObj?.optString("lastActiveAt", "") ?: "").ifBlank { null }
+                        ClientSlotOccupiedException(
+                            message = errorMsg.ifBlank { "Your mobile account is already active on another device." },
+                            deviceName = devName,
+                            lastActiveAt = activeAt
+                        )
+                    } else {
+                        ApiException(errorMsg, 409, errorCode)
+                    }
+                }
+                403 -> ForbiddenException(errorMsg)
+                404 -> NotFoundException(errorMsg)
+                422 -> ValidationException(errorMsg)
+                400 -> ApiException(errorMsg, 400, errorCode)
+                else -> ApiException(errorMsg, status, errorCode)
+            }
+        }
     }
 }
