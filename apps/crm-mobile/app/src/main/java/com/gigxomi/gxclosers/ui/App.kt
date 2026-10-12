@@ -531,12 +531,7 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                     },
                 )
 
-                val activeConflict = vm.sessionConflict ?: if (identifier.trim().startsWith("conflict")) {
-                    ClientSlotOccupiedException(
-                        message = "Your account is active on another phone.",
-                        deviceName = "Pixel 7"
-                    )
-                } else null
+                val activeConflict = vm.sessionConflict
 
                 AnimatedVisibility(
                     visible = activeConflict != null,
@@ -635,7 +630,7 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                 )
                 Spacer(Modifier.width(7.dp))
                 Text(
-                    "Connected securely to app.aicloser.in",
+                    "Connected securely to aicloser.in",
                     color = GxMutedText.copy(alpha = 0.75f),
                     fontSize = 12.sp,
                 )
@@ -648,7 +643,6 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
     val context = LocalContext.current
     val deviceProfile = remember { recordingDeviceProfile() }
     var setupIssue by rememberSaveable { mutableStateOf<String?>(null) }
-    var takingOverDevice by rememberSaveable { mutableStateOf(false) }
     var setupStep by rememberSaveable { mutableIntStateOf(0) }
     var simOptions by remember { mutableStateOf<List<SimOption>>(emptyList()) }
     var selectedSimId by rememberSaveable { mutableStateOf("") }
@@ -772,7 +766,6 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
     }
     LaunchedEffect(vm.error) {
         vm.error?.let {
-            takingOverDevice = false
             setupIssue = it
         }
     }
@@ -1078,50 +1071,12 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                         Text("Phone setup needs attention", color = GxDanger, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                     Text(issue, color = GxText, fontSize = 12.sp, lineHeight = 16.sp)
-                    if (issue.contains("linked to another", ignoreCase = true) || issue.contains("registered to another", ignoreCase = true)) {
-                        Text(
-                            "“Login here” will end the other session and open your account on this phone.",
-                            color = GxMuted,
-                            fontSize = 11.sp,
-                            lineHeight = 15.sp
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Button(
-                            onClick = {
-                                takingOverDevice = true
-                                vm.registerDevice(force = true) {
-                                    takingOverDevice = false
-                                    setupIssue = null
-                                }
-                            },
-                            enabled = !vm.busy && !takingOverDevice,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = GxAccent,
-                                contentColor = Color.White
-                            ),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.fillMaxWidth().height(42.dp)
-                        ) {
-                            if (takingOverDevice || vm.busy) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
-                                    color = Color.White,
-                                )
-                            } else {
-                                Icon(Icons.Default.Login, null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Login here", fontWeight = FontWeight.Black, fontSize = 13.sp)
-                            }
-                        }
-                    } else {
-                        TextButton(
-                            onClick = { setupIssue = null; continueSetup() },
-                            enabled = !vm.busy,
-                            modifier = Modifier.align(Alignment.End)
-                        ) {
-                            Text("Retry setup", color = GxAccent, fontWeight = FontWeight.Bold)
-                        }
+                    TextButton(
+                        onClick = { setupIssue = null; continueSetup() },
+                        enabled = !vm.busy,
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text("Retry setup", color = GxAccent, fontWeight = FontWeight.Bold)
                     }
                 }
             }
