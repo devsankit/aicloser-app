@@ -26,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.time.Instant
+import java.util.UUID
 
 class PhoneStateReceiver : BroadcastReceiver() {
     private data class CallLogDetails(
@@ -89,6 +90,16 @@ class PhoneStateReceiver : BroadcastReceiver() {
                 phone.isNotBlank() && prefs.getString("activeCallId", null).isNullOrBlank() &&
                 prefs.getString("pendingInboundLeadId", null).isNullOrBlank() &&
                 !prefs.getBoolean("incomingSessionStarting", false)) {
+                // Persist one client key for the physical inbound call before
+                // the asynchronous request starts. Retries after a lost
+                // response must address the same CRM row, not create another.
+                prefs.edit()
+                    .putString(
+                        "incomingSessionKey",
+                        prefs.getString("incomingSessionKey", null)
+                            ?: "inbound-${System.currentTimeMillis()}-${UUID.randomUUID()}",
+                    )
+                    .apply()
                 startIncomingSession(context, phone, simSubscriptionId = detectedSubId)
             }
         }
@@ -382,6 +393,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
                     lead?.id,
                     phone,
                     deviceId,
+                    callSessionId = prefs.getString("incomingSessionKey", null),
                     contactName = contactName,
                     simSubscriptionId = simSubscriptionId,
                     simSlotIndex = sim?.simSlotIndex,
@@ -451,6 +463,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
                         .remove("incomingSessionEnded")
                         .remove("incomingEndedAt")
                         .remove("pendingInboundRecordingUploadId")
+                        .remove("incomingSessionKey")
                         .apply()
                 } else if (wasOffhook && CallAudioRecorder.currentCallId().isNullOrBlank()) {
                     startRecorder(context, callId)
@@ -466,6 +479,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
                     .remove("activePhone")
                     .remove("activeContactName")
                     .remove("phone")
+                    .remove("incomingSessionKey")
                     .remove("wasOffhook")
                     .apply()
             } finally {
@@ -620,6 +634,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
                         phone,
                         direction,
                         deviceId,
+                        callSessionId = "call-log-$id",
                         contactName = lead?.name?.takeUnless { it.startsWith("Unknown caller", ignoreCase = true) } ?: contactName,
                         simSubscriptionId = simSubscriptionId,
                         simSlotIndex = sim?.simSlotIndex,

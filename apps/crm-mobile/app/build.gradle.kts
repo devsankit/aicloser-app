@@ -1,5 +1,24 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
+val releaseKeystorePath = providers.gradleProperty("releaseKeystorePath")
+    .orElse(providers.environmentVariable("GXCLOSER_UPLOAD_KEYSTORE"))
+    .orNull
+val releaseStorePassword = providers.gradleProperty("releaseStorePassword")
+    .orElse(providers.environmentVariable("GXCLOSER_UPLOAD_STORE_PASSWORD"))
+    .orNull
+val releaseKeyAlias = providers.gradleProperty("releaseKeyAlias")
+    .orElse(providers.environmentVariable("GXCLOSER_UPLOAD_KEY_ALIAS"))
+    .orNull
+val releaseKeyPassword = providers.gradleProperty("releaseKeyPassword")
+    .orElse(providers.environmentVariable("GXCLOSER_UPLOAD_KEY_PASSWORD"))
+    .orNull
+val hasReleaseSigning = listOf(
+    releaseKeystorePath,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { !it.isNullOrBlank() }
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -28,11 +47,13 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            storeFile = file("C:/Users/hello/Downloads/gxcloser-upload-key.keystore")
-            storePassword = "gigxomi2026"
-            keyAlias = "gxcloser-key-alias"
-            keyPassword = "gigxomi2026"
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(requireNotNull(releaseKeystorePath))
+                storePassword = requireNotNull(releaseStorePassword)
+                keyAlias = requireNotNull(releaseKeyAlias)
+                keyPassword = requireNotNull(releaseKeyPassword)
+            }
         }
     }
 
@@ -40,11 +61,12 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("release")
+            if (hasReleaseSigning) signingConfig = signingConfigs.getByName("release")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
         debug {
-            signingConfig = signingConfigs.getByName("release")
+            // Use Android's default debug keystore. Release credentials must not
+            // be required to build or install a local/debug APK.
         }
     }
 
