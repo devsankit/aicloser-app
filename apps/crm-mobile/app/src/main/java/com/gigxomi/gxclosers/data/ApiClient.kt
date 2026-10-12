@@ -76,17 +76,16 @@ class ApiClient(private val sessionStore: SessionStore) {
                         if (errorCode == "SessionRevoked" || errorMsg.contains("revoked", true)) {
                             throw SessionRevokedException(errorMsg)
                         }
-                        if (errorCode == "InvalidCredentials" || errorMsg.contains("credentials", true) || errorMsg.contains("password", true)) {
-                            throw InvalidCredentialsException(errorMsg)
+                        if (path.contains("/login") || errorCode == "InvalidCredentials" || errorMsg.contains("credentials", true) || errorMsg.contains("password", true)) {
+                            throw InvalidCredentialsException(errorMsg.ifBlank { "Invalid email/phone or password" })
                         }
-                        // Every non-login 401 means the stored mobile session can no longer
+                        // Non-login 401 means the stored mobile session can no longer
                         // authenticate. Treat it as a revoked/expired session so the UI can
-                        // leave setup or the main app and return to the login screen instead
-                        // of leaving the user stuck on a setup card with a generic error.
+                        // return to the login screen cleanly.
                         throw SessionRevokedException(errorMsg.ifBlank { "Your mobile session has expired. Please sign in again." })
                     }
                     409 -> {
-                        if (errorCode == "ClientSlotOccupied" || errorMsg.contains("occupied", true) || errorMsg.contains("active on another device", true)) {
+                        if (errorCode == "ClientSlotOccupied" || errorMsg.contains("occupied", true) || errorMsg.contains("active on another device", true) || errorMsg.contains("already active", true)) {
                             val dataObj = payload.optJSONObject("data")
                             val devName = payload.optString("deviceName", dataObj?.optString("deviceName", "") ?: "").ifBlank { null }
                             val activeAt = payload.optString("lastActiveAt", dataObj?.optString("lastActiveAt", "") ?: "").ifBlank { null }
@@ -101,12 +100,7 @@ class ApiClient(private val sessionStore: SessionStore) {
                     403 -> throw ForbiddenException(errorMsg)
                     404 -> throw NotFoundException(errorMsg)
                     422 -> throw ValidationException(errorMsg)
-                    400 -> {
-                        if (path == "/sales/mobile/register-device" && (errorMsg.contains("linked to another", true) || errorMsg.contains("registered to another", true))) {
-                            throw ClientSlotOccupiedException(errorMsg)
-                        }
-                        throw ApiException(errorMsg, 400, errorCode)
-                    }
+                    400 -> throw ApiException(errorMsg, 400, errorCode)
                     else -> throw ApiException(errorMsg, status, errorCode)
                 }
             }

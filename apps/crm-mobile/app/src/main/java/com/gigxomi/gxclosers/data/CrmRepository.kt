@@ -34,7 +34,10 @@ class CrmRepository(context: Context) {
 
         val response = api.post("/mobile/auth/login", body)
         val session = parseSession(response.getJSONObject("session"))
-        sessionStore.saveLogin(response.getString("token"), session)
+        val isTakeover = forceReplace
+        val isPriorSetupComplete = sessionStore.isSetupCompleteForUser(session.userId)
+        val setupCompleteTarget = if (isTakeover || isPriorSetupComplete) true else null
+        sessionStore.saveLogin(response.getString("token"), session, setupComplete = setupCompleteTarget)
         // Queue the snapshot now, but sync it only after registerDevice has
         // created the server-side device row so the history is linked to the
         // correct device rather than becoming an orphaned login event.
@@ -66,7 +69,7 @@ class CrmRepository(context: Context) {
 
     fun logout() {
         runCatching { api.post("/auth/logout") }
-        sessionStore.clear()
+        sessionStore.clearSession()
     }
 
     fun bootstrap(): Bootstrap {
@@ -123,7 +126,7 @@ class CrmRepository(context: Context) {
         }
     }
 
-    fun registerDevice(deviceId: String, deviceName: String, manufacturer: String, model: String, androidVersion: String, appVersion: String, force: Boolean = false) {
+    fun registerDevice(deviceId: String, deviceName: String, manufacturer: String, model: String, androidVersion: String, appVersion: String, force: Boolean = true) {
         val capabilitySnapshot = DeviceDiagnostics.snapshot(appContext)
         api.post("/sales/mobile/register-device", JSONObject()
             .put("deviceId", deviceId)
@@ -134,9 +137,10 @@ class CrmRepository(context: Context) {
             .put("appVersion", appVersion)
             .put("recordingCapability", capabilitySnapshot.optString("recordingCapability", "UNKNOWN"))
             .put("recordingEnabled", capabilitySnapshot.optBoolean("recordingEnabled", false))
-            .put("force", force)
-            .put("forceReplace", force))
-        sessionStore.setupComplete = true
+            .put("force", true)
+            .put("forceReplace", true)
+            .put("reassign", true))
+        sessionStore.markSetupComplete(sessionStore.session?.userId)
         DeviceDiagnostics.enqueueSnapshot(appContext, force = true)
         runCatching { syncOffline() }
         RecordingUploadWorker.retryNow(appContext)

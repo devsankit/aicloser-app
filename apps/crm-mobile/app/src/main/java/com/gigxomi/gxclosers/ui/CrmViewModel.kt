@@ -67,9 +67,17 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
     private var mediaPlayer: MediaPlayer? = null
 
     init {
-        if (authenticated && setupComplete) {
-            refreshAll()
-            startRealtime()
+        if (authenticated) {
+            val uid = session?.userId
+            if (!setupComplete && !uid.isNullOrBlank() && repository.sessionStore.isSetupCompleteForUser(uid)) {
+                repository.sessionStore.markSetupComplete(uid)
+                setupComplete = true
+            }
+            if (setupComplete) {
+                refreshAll()
+                startRealtime()
+            }
+            startHeartbeat()
         }
     }
 
@@ -128,19 +136,22 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun startHeartbeat() {
         heartbeatJob?.cancel()
+        val currentToken = repository.sessionStore.token ?: return
         heartbeatJob = viewModelScope.launch(Dispatchers.IO) {
             while (isActive) {
-                if (authenticated) {
-                    try {
-                        repository.heartbeat(deviceId())
-                    } catch (_: SessionRevokedException) {
-                        withContext(Dispatchers.Main) { handleSessionRevoked() }
-                        break
-                    } catch (_: Exception) {
-                        // Network error during heartbeat, will retry next tick
-                    }
-                }
                 delay(60_000L)
+                if (!isActive || !authenticated) break
+                if (repository.sessionStore.token != currentToken) break
+                try {
+                    repository.heartbeat(deviceId())
+                } catch (e: SessionRevokedException) {
+                    if (repository.sessionStore.token == currentToken) {
+                        withContext(Dispatchers.Main) { handleSessionRevoked() }
+                    }
+                    break
+                } catch (_: Exception) {
+                    // Network error during heartbeat, will retry next tick
+                }
             }
         }
     }
@@ -151,12 +162,13 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun handleSessionRevoked() {
-        repository.sessionStore.clear()
+        stopHeartbeat()
+        stopRealtime()
+        repository.sessionStore.clearSession()
         authenticated = false
+        setupComplete = false
         session = null
         bootstrap = null
-        stopRealtime()
-        stopHeartbeat()
         error = "Your mobile session was revoked or expired. Please sign in again."
     }
 
@@ -218,27 +230,34 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
         syncCounts = repository.getSyncCounts()
     }
 
-    fun login(identifier: String, password: String, forceReplace: Boolean = false, done: () -> Unit) = launchWork {
+    fun login(identifier: String, password: String, forceReplace: Boolean = false, done: () -> Unit = {}) = launchWork {
         sessionConflict = null
+        stopHeartbeat()
+        stopRealtime()
         val result = withContext(Dispatchers.IO) { repository.login(identifier.trim(), password, forceReplace = forceReplace) }
         session = result
         authenticated = true
         if (forceReplace) {
-            // “Login here” takes over the user session only. It does not
-            // claim or register a physical device.
-            repository.sessionStore.setupComplete = true
+            repository.sessionStore.markSetupComplete(result.userId)
+            setupComplete = true
+        } else {
+            val userDone = repository.sessionStore.isSetupCompleteForUser(result.userId)
+            if (userDone) {
+                repository.sessionStore.markSetupComplete(result.userId)
+                setupComplete = true
+            } else {
+                setupComplete = repository.sessionStore.setupComplete
+            }
         }
-        setupComplete = repository.sessionStore.setupComplete
         if (setupComplete) {
             refreshAllInternal()
             startRealtime()
-        } else {
-            startHeartbeat()
         }
+        startHeartbeat()
         done()
     }
 
-fun startTestSession(): String {
+    fun startTestSession(): String {
         val id = DeviceCertificationManager.startTestSession(getApplication())
         testSessionId = id
         certificationStatus = DeviceCertificationManager.STATUS_TESTING
@@ -264,10 +283,6 @@ fun startTestSession(): String {
     }
 
     fun skipTestCertification(done: () -> Unit = {}) {
-        // Keep certification reporting and device registration in one job.
-        // The previous implementation called done(), which started a second
-        // registerDevice job while this one was still resetting busy. On a
-        // slow network that race could leave setup stuck on this screen.
         launchWork {
             withContext(Dispatchers.IO) {
                 DeviceCertificationManager.updateStatus(
@@ -277,22 +292,26 @@ fun startTestSession(): String {
                     null,
                     testSessionId,
                 )
-                registerDeviceOnIo(force = false)
+                registerDeviceOnIo(force = true)
             }
             certificationStatus = DeviceCertificationManager.STATUS_UNVERIFIED
             certificationFailureReason = null
+            repository.sessionStore.markSetupComplete(session?.userId)
             setupComplete = true
             refreshAllInternal()
             startRealtime()
+            startHeartbeat()
             done()
         }
     }
 
-        fun registerDevice(force: Boolean = false, done: () -> Unit = {}) = launchWork {
+    fun registerDevice(force: Boolean = true, done: () -> Unit = {}) = launchWork {
         withContext(Dispatchers.IO) { registerDeviceOnIo(force) }
+        repository.sessionStore.markSetupComplete(session?.userId)
         setupComplete = true
         refreshAllInternal()
         startRealtime()
+        startHeartbeat()
         done()
     }
 
@@ -705,7 +724,7 @@ fun startTestSession(): String {
         }
     }
 
-    fun logout(done: () -> Unit) {
+    fun logout(done: () -> Unit = {}) {
         stopHeartbeat()
         stopRealtime()
         repository.logout()

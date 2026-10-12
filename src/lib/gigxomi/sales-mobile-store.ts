@@ -51,9 +51,9 @@ export async function registerSalesMobileDevice(actor: SalesMobileActor, input: 
   const deviceId = clean(input.deviceId);
   if (!deviceId) throw new Error("deviceId is required.");
 
-  const force = input.force === true || input.forceReplace === true || input.reassign === true;
   const existing = await prisma.salesMobileDevice.findUnique({ where: { deviceId } });
-  if (existing && existing.agentId !== agent.id && !force) throw new Error("This company device is registered to another sales agent. Tap 'Login here' to activate this phone for your account.");
+  // Session ownership is user-login based. An authenticated mobile agent can register or
+  // reassign this phone without triggering a secondary device-conflict during onboarding.
 
   return prisma.salesMobileDevice.upsert({
     where: { deviceId },
