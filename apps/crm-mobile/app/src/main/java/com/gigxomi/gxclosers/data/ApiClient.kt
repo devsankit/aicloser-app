@@ -85,7 +85,9 @@ class ApiClient(private val sessionStore: SessionStore) {
                         throw SessionRevokedException(errorMsg.ifBlank { "Your mobile session has expired. Please sign in again." })
                     }
                     409 -> {
-                        if (errorCode == "ClientSlotOccupied" || errorMsg.contains("occupied", true) || errorMsg.contains("active on another device", true) || errorMsg.contains("already active", true)) {
+                        // ClientSlotOccupiedException is strictly confined to login requests.
+                        // Non-login endpoints must never throw ClientSlotOccupiedException or trigger takeover prompts.
+                        if (path.contains("/login") && (errorCode == "ClientSlotOccupied" || errorMsg.contains("occupied", true) || errorMsg.contains("active on another device", true) || errorMsg.contains("already active", true))) {
                             val dataObj = payload.optJSONObject("data")
                             val devName = payload.optString("deviceName", dataObj?.optString("deviceName", "") ?: "").ifBlank { null }
                             val activeAt = payload.optString("lastActiveAt", dataObj?.optString("lastActiveAt", "") ?: "").ifBlank { null }

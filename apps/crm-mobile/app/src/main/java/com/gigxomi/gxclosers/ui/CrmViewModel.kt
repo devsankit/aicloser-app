@@ -232,11 +232,14 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
 
     fun login(identifier: String, password: String, forceReplace: Boolean = false, done: () -> Unit = {}) = launchWork {
         sessionConflict = null
+        error = null
         stopHeartbeat()
         stopRealtime()
         val result = withContext(Dispatchers.IO) { repository.login(identifier.trim(), password, forceReplace = forceReplace) }
         session = result
         authenticated = true
+        sessionConflict = null
+        error = null
         if (forceReplace) {
             repository.sessionStore.markSetupComplete(result.userId)
             setupComplete = true
@@ -284,6 +287,8 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
 
     fun skipTestCertification(done: () -> Unit = {}) {
         launchWork {
+            sessionConflict = null
+            error = null
             withContext(Dispatchers.IO) {
                 DeviceCertificationManager.updateStatus(
                     getApplication(),
@@ -298,6 +303,8 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
             certificationFailureReason = null
             repository.sessionStore.markSetupComplete(session?.userId)
             setupComplete = true
+            sessionConflict = null
+            error = null
             refreshAllInternal()
             startRealtime()
             startHeartbeat()
@@ -306,9 +313,13 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun registerDevice(force: Boolean = true, done: () -> Unit = {}) = launchWork {
+        sessionConflict = null
+        error = null
         withContext(Dispatchers.IO) { registerDeviceOnIo(force) }
         repository.sessionStore.markSetupComplete(session?.userId)
         setupComplete = true
+        sessionConflict = null
+        error = null
         refreshAllInternal()
         startRealtime()
         startHeartbeat()
@@ -733,6 +744,8 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
         session = null
         bootstrap = null
         customer360 = null
+        sessionConflict = null
+        error = null
         done()
     }
 

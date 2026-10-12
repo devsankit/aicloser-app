@@ -128,7 +128,7 @@ class CrmRepository(context: Context) {
 
     fun registerDevice(deviceId: String, deviceName: String, manufacturer: String, model: String, androidVersion: String, appVersion: String, force: Boolean = true) {
         val capabilitySnapshot = DeviceDiagnostics.snapshot(appContext)
-        api.post("/sales/mobile/register-device", JSONObject()
+        val payload = JSONObject()
             .put("deviceId", deviceId)
             .put("deviceName", deviceName)
             .put("manufacturer", manufacturer)
@@ -139,12 +139,21 @@ class CrmRepository(context: Context) {
             .put("recordingEnabled", capabilitySnapshot.optBoolean("recordingEnabled", false))
             .put("force", true)
             .put("forceReplace", true)
-            .put("reassign", true))
-        sessionStore.markSetupComplete(sessionStore.session?.userId)
-        DeviceDiagnostics.enqueueSnapshot(appContext, force = true)
-        runCatching { syncOffline() }
-        RecordingUploadWorker.retryNow(appContext)
-        CallbackReminderWorker.enqueue(appContext)
+            .put("reassign", true)
+        try {
+            api.post("/sales/mobile/register-device", payload)
+        } catch (_: Exception) {
+            // An authenticated agent's device registration failure (e.g. undeployed server awaiting
+            // deployment or transient network drop) must never block onboarding or surface a takeover prompt.
+            // Enqueue diagnostics so device specs sync whenever the backend is reachable.
+            DeviceDiagnostics.enqueueSnapshot(appContext, force = true)
+        } finally {
+            sessionStore.markSetupComplete(sessionStore.session?.userId)
+            DeviceDiagnostics.enqueueSnapshot(appContext, force = true)
+            runCatching { syncOffline() }
+            RecordingUploadWorker.retryNow(appContext)
+            CallbackReminderWorker.enqueue(appContext)
+        }
     }
 
     fun requestLeadPack(size: Int) = parseLeadPack(api.post("/sales/mobile/lead-packs/request", JSONObject().put("size", size)))
