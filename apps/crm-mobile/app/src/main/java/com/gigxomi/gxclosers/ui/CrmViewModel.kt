@@ -223,7 +223,18 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
         val result = withContext(Dispatchers.IO) { repository.login(identifier.trim(), password, forceReplace = forceReplace) }
         session = result
         authenticated = true
-        startHeartbeat()
+        if (forceReplace) {
+            // “Login here” takes over the user session only. It does not
+            // claim or register a physical device.
+            repository.sessionStore.setupComplete = true
+        }
+        setupComplete = repository.sessionStore.setupComplete
+        if (setupComplete) {
+            refreshAllInternal()
+            startRealtime()
+        } else {
+            startHeartbeat()
+        }
         done()
     }
 
@@ -253,38 +264,54 @@ fun startTestSession(): String {
     }
 
     fun skipTestCertification(done: () -> Unit = {}) {
-        DeviceCertificationManager.updateStatus(
-            getApplication(),
-            repository,
-            DeviceCertificationManager.STATUS_UNVERIFIED,
-            null,
-            testSessionId
-        )
-        certificationStatus = DeviceCertificationManager.STATUS_UNVERIFIED
-        certificationFailureReason = null
-        done()
+        // Keep certification reporting and device registration in one job.
+        // The previous implementation called done(), which started a second
+        // registerDevice job while this one was still resetting busy. On a
+        // slow network that race could leave setup stuck on this screen.
+        launchWork {
+            withContext(Dispatchers.IO) {
+                DeviceCertificationManager.updateStatus(
+                    getApplication(),
+                    repository,
+                    DeviceCertificationManager.STATUS_UNVERIFIED,
+                    null,
+                    testSessionId,
+                )
+                registerDeviceOnIo(force = false)
+            }
+            certificationStatus = DeviceCertificationManager.STATUS_UNVERIFIED
+            certificationFailureReason = null
+            setupComplete = true
+            refreshAllInternal()
+            startRealtime()
+            done()
+        }
     }
 
         fun registerDevice(force: Boolean = false, done: () -> Unit = {}) = launchWork {
-        val id = deviceId()
-        withContext(Dispatchers.IO) {
-            repository.registerDevice(
-                id,
-                "${Build.MANUFACTURER} ${Build.MODEL}",
-                Build.MANUFACTURER,
-                Build.MODEL,
-                Build.VERSION.RELEASE,
-                BuildConfig.VERSION_NAME,
-                force = force
-            )
-        }
+        withContext(Dispatchers.IO) { registerDeviceOnIo(force) }
         setupComplete = true
-        refreshAll()
+        refreshAllInternal()
         startRealtime()
         done()
     }
 
-    fun refreshAll() = launchWork {
+    private fun registerDeviceOnIo(force: Boolean) {
+        val id = deviceId()
+        repository.registerDevice(
+            id,
+            "${Build.MANUFACTURER} ${Build.MODEL}",
+            Build.MANUFACTURER,
+            Build.MODEL,
+            Build.VERSION.RELEASE,
+            BuildConfig.VERSION_NAME,
+            force = force
+        )
+    }
+
+    fun refreshAll() = launchWork { refreshAllInternal() }
+
+    private suspend fun refreshAllInternal() {
         val data = withContext(Dispatchers.IO) {
             runCatching { repository.syncOffline() }
             runCatching { repository.uploadPendingRecording() }

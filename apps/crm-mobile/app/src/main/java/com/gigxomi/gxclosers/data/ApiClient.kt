@@ -101,6 +101,12 @@ class ApiClient(private val sessionStore: SessionStore) {
                     403 -> throw ForbiddenException(errorMsg)
                     404 -> throw NotFoundException(errorMsg)
                     422 -> throw ValidationException(errorMsg)
+                    400 -> {
+                        if (path == "/sales/mobile/register-device" && (errorMsg.contains("linked to another", true) || errorMsg.contains("registered to another", true))) {
+                            throw ClientSlotOccupiedException(errorMsg)
+                        }
+                        throw ApiException(errorMsg, 400, errorCode)
+                    }
                     else -> throw ApiException(errorMsg, status, errorCode)
                 }
             }

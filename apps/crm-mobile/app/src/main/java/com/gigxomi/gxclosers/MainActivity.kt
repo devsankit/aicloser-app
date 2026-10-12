@@ -9,23 +9,50 @@ import com.gigxomi.gxclosers.data.SharedRecordingStore
 import com.gigxomi.gxclosers.ui.CrmViewModel
 import com.gigxomi.gxclosers.ui.GXClosersApp
 import com.gigxomi.gxclosers.ui.theme.GXClosersTheme
+import com.gigxomi.gxclosers.ui.theme.ThemeMode
+import com.gigxomi.gxclosers.ui.theme.ThemePreferenceStore
 import com.gigxomi.gxclosers.call.CallStateMonitorService
 import androidx.core.content.ContextCompat
 
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.SideEffect
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.core.view.WindowCompat
 
 class MainActivity : ComponentActivity() {
     private val vm: CrmViewModel by viewModels()
     private val activeLink = mutableStateOf<Uri?>(null)
+    private val activeTheme = mutableStateOf(ThemeMode.DARK)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         activeLink.value = intent.data
+        activeTheme.value = ThemePreferenceStore.read(this)
         handleIncomingIntent(intent)
         enableEdgeToEdge()
-        setContent { GXClosersTheme { GXClosersApp(activeLink.value, vm) } }
+        setContent {
+            val darkSystemBars = when (activeTheme.value) {
+                ThemeMode.SYSTEM -> isSystemInDarkTheme()
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+            }
+            SideEffect {
+                val controller = WindowCompat.getInsetsController(window, window.decorView)
+                controller.isAppearanceLightStatusBars = !darkSystemBars
+                controller.isAppearanceLightNavigationBars = !darkSystemBars
+            }
+            GXClosersTheme(
+                themeMode = activeTheme.value,
+                onThemeModeChange = { mode ->
+                    ThemePreferenceStore.write(this, mode)
+                    activeTheme.value = mode
+                },
+            ) {
+                GXClosersApp(activeLink.value, vm)
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {

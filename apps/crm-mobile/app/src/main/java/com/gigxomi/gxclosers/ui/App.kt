@@ -21,6 +21,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,10 +29,21 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.tween
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -40,6 +52,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -70,6 +88,7 @@ import com.gigxomi.gxclosers.call.SimOption
 import com.gigxomi.gxclosers.call.SystemCallRecordingImporter
 import com.gigxomi.gxclosers.call.DialerShareAutomation
 import com.gigxomi.gxclosers.ui.theme.*
+import com.gigxomi.gxclosers.ui.components.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -180,8 +199,19 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
     val start = when { !vm.authenticated -> LOGIN; !vm.setupComplete -> SETUP; else -> MAIN }
 
     LaunchedEffect(vm.error, vm.status) {
-        (vm.error ?: vm.status)?.let { snackbar.showSnackbar(it) }
-        vm.clearMessage()
+        // Setup and login render actionable inline states. Keep the snackbar
+        // for the main workspace and generic login failures, but do not stack
+        // it under the setup conflict card or the login replacement card.
+        val route = nav.currentDestination?.route
+        val showSnackbar = vm.status != null ||
+            (route == LOGIN && vm.sessionConflict == null)
+        if (showSnackbar) {
+            (vm.error ?: vm.status)?.let { snackbar.showSnackbar(it) }
+        }
+        // Setup/login render their own inline recovery states. Keep the
+        // error available for those effects instead of clearing it before the
+        // conflict card can consume it.
+        if (showSnackbar) vm.clearMessage()
     }
     LaunchedEffect(vm.authenticated, vm.setupComplete) {
         val destination = when { !vm.authenticated -> LOGIN; !vm.setupComplete -> SETUP; else -> MAIN }
@@ -214,6 +244,7 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                     id = entry.arguments?.getString("id").orEmpty(),
                     back = { nav.popBackStack() },
                     openDisposition = { callId -> nav.navigate("disposition/$callId") },
+                    openChat = { conversationId, name -> nav.navigate("chat/$conversationId/${Uri.encode(name)}") },
                 )
             }
             composable("disposition/{id}", arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
@@ -240,80 +271,239 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
 @Composable private fun LoginScreen(vm: CrmViewModel) {
     var identifier by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
-    Page(vertical = true) {
-        Spacer(Modifier.height(44.dp))
-        BrandHeader("Welcome back", "Your calls, recordings, and CRM pipeline in one place.", fullLogo = true)
-        GxCard {
-            Text("Sign in to AI Closer", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
-            Text("Sign in to manage your calls, recordings, and assigned leads.", color = GxMuted)
-            OutlinedTextField(
-                identifier,
-                { identifier = it },
-                label = { Text("Email or phone") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                password,
-                { password = it },
-                label = { Text("Password") },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                modifier = Modifier.fillMaxWidth()
-            )
-            PrimaryButton("Sign in to AI Closer", vm.busy, enabled = identifier.isNotBlank() && password.isNotBlank()) {
-                vm.login(identifier, password) {}
+    var passwordVisible by rememberSaveable { mutableStateOf(false) }
+    val backgroundMotion = rememberInfiniteTransition(label = "login-background-motion")
+    val backgroundDrift by backgroundMotion.animateFloat(
+        initialValue = -5f,
+        targetValue = 5f,
+        animationSpec = infiniteRepeatable(tween(7000, easing = LinearEasing), RepeatMode.Reverse),
+        label = "login-background-drift",
+    )
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(GxDarkBg)
+    ) {
+        // Upper background microphone with smooth fade to GxDarkBg
+        Image(
+            painter = painterResource(com.gigxomi.gxclosers.R.drawable.login_telephony_background),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            alignment = androidx.compose.ui.BiasAlignment(0f, -0.2f),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(490.dp)
+                .graphicsLayer {
+                    translationX = backgroundDrift * 0.4f
+                },
+            alpha = 0.82f,
+        )
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(510.dp)
+                .background(
+                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                        listOf(
+                            GxDarkBg.copy(alpha = 0.10f),
+                            Color.Transparent,
+                            GxDarkBg.copy(alpha = 0.75f),
+                            GxDarkBg,
+                        )
+                    )
+                )
+        )
+        // Floating soundwave bars in upper-right
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(290.dp)
+        ) {
+            val waveRight = size.width - 24.dp.toPx()
+            val waveCenterY = 195.dp.toPx()
+            val barHeights = listOf(14f, 24f, 18f, 38f, 26f, 52f, 22f, 44f, 28f, 36f, 18f)
+            val barSpacing = 7.dp.toPx()
+            barHeights.forEachIndexed { i, h ->
+                val x = waveRight - (barHeights.size - 1 - i) * barSpacing
+                drawLine(
+                    color = Color.White.copy(alpha = 0.26f),
+                    start = Offset(x, waveCenterY - h.dp.toPx() / 2f),
+                    end = Offset(x, waveCenterY + h.dp.toPx() / 2f),
+                    strokeWidth = 2.5.dp.toPx(),
+                    cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                )
+            }
+        }
+
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .imePadding()
+                .padding(horizontal = 24.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            AiCloserLogoHeader()
+
+            Spacer(Modifier.height(12.dp))
+
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "Sign in to AI Closer",
+                    color = Color.White,
+                    fontSize = 28.sp,
+                    lineHeight = 34.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = (-0.5).sp,
+                )
+                Text(
+                    "Use the account provided by your business",
+                    color = GxMutedText,
+                    fontSize = 14.5.sp,
+                    lineHeight = 20.sp,
+                )
             }
 
-            vm.sessionConflict?.let { conflict ->
-                Surface(
-                    color = GxDanger.copy(alpha = 0.08f),
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, GxDanger.copy(alpha = 0.40f)),
-                    modifier = Modifier.fillMaxWidth()
+            Spacer(Modifier.height(10.dp))
+
+            Surface(
+                color = Color(0xFF171A1E).copy(alpha = 0.88f),
+                shape = RoundedCornerShape(24.dp),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Warning, null, tint = GxDanger, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Active Session on Another Device", color = GxDanger, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        }
-                        Text(
-                            conflict.message ?: "This user already has an active mobile session on another device.",
-                            color = GxText,
-                            fontSize = 12.sp,
-                            lineHeight = 16.sp
-                        )
-                        if (!conflict.deviceName.isNullOrBlank()) {
-                            Text("Current device: ${conflict.deviceName}", color = GxMuted, fontSize = 11.sp)
-                        }
-                        Spacer(Modifier.height(2.dp))
-                        Button(
-                            onClick = { vm.login(identifier, password, forceReplace = true) {} },
-                            enabled = !vm.busy,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = GxAccent,
-                                contentColor = Color.White
-                            ),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.fillMaxWidth().height(42.dp)
+                    OutlinedTextField(
+                        value = identifier,
+                        onValueChange = { identifier = it },
+                        placeholder = { Text("Email or phone", color = GxMutedText, fontSize = 15.sp) },
+                        leadingIcon = { Icon(Icons.Outlined.Email, null, tint = GxMutedText, modifier = Modifier.size(20.dp)) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(16.dp),
+                        textStyle = LocalTextStyle.current.copy(color = Color.White, fontSize = 15.sp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = Color(0xFF1E2126),
+                            unfocusedContainerColor = Color(0xFF1E2126),
+                            focusedBorderColor = GxOrange,
+                            unfocusedBorderColor = Color.White.copy(alpha = 0.12f),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            cursorColor = GxOrange,
+                        ),
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                    )
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        placeholder = { Text("Password", color = GxMutedText, fontSize = 15.sp) },
+                        leadingIcon = { Icon(Icons.Outlined.Lock, null, tint = GxMutedText, modifier = Modifier.size(20.dp)) },
+                        trailingIcon = {
+                            IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                Icon(
+                                    if (passwordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                    contentDescription = if (passwordVisible) "Hide password" else "Show password",
+                                    tint = GxMutedText,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        },
+                        singleLine = true,
+                        visualTransformation = if (passwordVisible) androidx.compose.ui.text.input.VisualTransformation.None else PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        shape = RoundedCornerShape(16.dp),
+                        textStyle = LocalTextStyle.current.copy(color = Color.White, fontSize = 15.sp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = Color(0xFF1E2126),
+                            unfocusedContainerColor = Color(0xFF1E2126),
+                            focusedBorderColor = GxOrange,
+                            unfocusedBorderColor = Color.White.copy(alpha = 0.12f),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            cursorColor = GxOrange,
+                        ),
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                    )
+                    GxPillButton(
+                        text = "Sign in",
+                        onClick = {
+                            if (identifier.isBlank() || password.isBlank()) {
+                                vm.showError("Enter your email or phone and password")
+                            } else {
+                                vm.login(identifier, password) {}
+                            }
+                        },
+                        loading = vm.busy,
+                    )
+
+                    vm.sessionConflict?.let { conflict ->
+                        Surface(
+                            color = GxDanger.copy(alpha = 0.08f),
+                            shape = RoundedCornerShape(16.dp),
+                            border = BorderStroke(1.dp, GxDanger.copy(alpha = 0.40f)),
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Icon(Icons.Default.Login, null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Login here", fontWeight = FontWeight.Black, fontSize = 13.sp)
+                            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Warning, null, tint = GxDanger, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Active Session on Another Device", color = GxDanger, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                }
+                                Text(
+                                    conflict.message ?: "This user already has an active mobile session on another device.",
+                                    color = GxText,
+                                    fontSize = 12.sp,
+                                    lineHeight = 16.sp,
+                                )
+                                if (!conflict.deviceName.isNullOrBlank()) {
+                                    Text("Current device: ${conflict.deviceName}", color = GxMuted, fontSize = 11.sp)
+                                }
+                                Button(
+                                    onClick = { vm.login(identifier, password, forceReplace = true) {} },
+                                    enabled = !vm.busy,
+                                    colors = ButtonDefaults.buttonColors(containerColor = GxOrange, contentColor = Color.White),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth().height(42.dp),
+                                ) {
+                                    if (vm.busy) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(16.dp),
+                                            strokeWidth = 2.dp,
+                                            color = Color.White,
+                                        )
+                                    } else {
+                                        Icon(Icons.Default.Login, null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Login here", fontWeight = FontWeight.Black, fontSize = 13.sp)
+                                    }
+                                }
+                                Text(
+                                    "“Login here” will end the session on your other mobile device and activate this phone.",
+                                    color = GxMuted,
+                                    fontSize = 10.sp,
+                                    lineHeight = 14.sp,
+                                )
+                            }
                         }
-                        Text(
-                            "“Login here” will end the session on your other mobile device and activate this phone.",
-                            color = GxMuted,
-                            fontSize = 10.sp,
-                            lineHeight = 14.sp
-                        )
                     }
                 }
             }
+
+            Spacer(Modifier.weight(1f, fill = false))
+
+            Row(
+                Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 12.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Outlined.Lock, null, tint = GxMutedText, modifier = Modifier.size(15.dp))
+                Spacer(Modifier.width(7.dp))
+                Text("Connected securely to app.aicloser.in", color = GxMutedText, fontSize = 12.sp)
+            }
         }
-        Text("Connected securely to app.aicloser.in", color = GxMuted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
     }
 }
 
@@ -321,6 +511,7 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
     val context = LocalContext.current
     val deviceProfile = remember { recordingDeviceProfile() }
     var setupIssue by rememberSaveable { mutableStateOf<String?>(null) }
+    var takingOverDevice by rememberSaveable { mutableStateOf(false) }
     var setupStep by rememberSaveable { mutableIntStateOf(0) }
     var simOptions by remember { mutableStateOf<List<SimOption>>(emptyList()) }
     var selectedSimId by rememberSaveable { mutableStateOf("") }
@@ -334,6 +525,7 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
     var folderCheckBusy by remember { mutableStateOf(false) }
     var folderCheckMessage by rememberSaveable { mutableStateOf<String?>(null) }
     val folderCheckScope = rememberCoroutineScope()
+    val setupScope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -366,10 +558,16 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
         if (!granted) setupIssue = "Microphone fallback permission was denied. System dialer folder/MediaStore sync can still be used."
     }
     fun prepareSimSelection() {
-        simOptions = CallManager.availableSims(context)
-        val saved = CallManager.simSelection(context)
-        selectedSimId = simOptions.firstOrNull { it.subscriptionId == saved }?.subscriptionId.orEmpty()
-        setupStep = 1
+        // Telecom/SubscriptionManager can block on emulator and OEM devices.
+        // Never run that discovery from a permission callback or Compose click
+        // handler; keep the setup screen responsive while it resolves.
+        setupScope.launch {
+            val options = withContext(Dispatchers.IO) { CallManager.availableSims(context) }
+            val saved = CallManager.simSelection(context)
+            simOptions = options
+            selectedSimId = options.firstOrNull { it.subscriptionId == saved }?.subscriptionId.orEmpty()
+            setupStep = 1
+        }
     }
     fun continueAfterRecordingSetup() {
         val hasRecordingRoute = accessibilityEnabled ||
@@ -444,304 +642,352 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
             .onFailure { vm.showError("Open the Phone app manually and enable Call recording from Phone app settings.") }
     }
     LaunchedEffect(vm.error) {
-        vm.error?.let { setupIssue = it }
+        vm.error?.let {
+            takingOverDevice = false
+            setupIssue = it
+        }
     }
-    Page(vertical = true) {
-        BrandHeader("Connect your work phone", "${deviceProfile.setupHeadline} · ${deviceProfile.deviceLabel}")
-        SetupProgress(step = setupStep)
-        GxCard(accent = setupStep == 2) {
-            when (setupStep) {
-                0 -> {
-                    SetupIntroHero()
-                    SetupStatusRow(Icons.Default.PhoneAndroid, deviceProfile.setupHeadline, deviceProfile.setupDetail, GxAccent)
-                    FeatureRow(Icons.Default.Phone, "Calls linked to your CRM", "Inbound and outbound calls stay connected to the right lead.")
-                    FeatureRow(Icons.Default.Mic, "Recordings synced securely", "Completed dialer recordings appear in your dashboard.")
-                    FeatureRow(Icons.Default.Sync, "Works with weak networks", "Events wait safely and sync when the connection returns.")
-                    Text("You’ll allow access, choose a SIM, then connect the recording flow available on this phone.", color = GxMuted, fontSize = 12.sp, lineHeight = 17.sp)
-                }
-                1 -> {
-                    SectionHeading(Icons.Default.SimCard, "Choose your calling SIM")
-                    Text("Select the SIM your team uses for work calls. AI Closer will use it to match call history and recordings.", color = GxMuted, fontSize = 12.sp, lineHeight = 17.sp)
-                    if (simOptions.isEmpty()) {
-                        SetupStatusRow(Icons.Default.Warning, "No active SIM found", "Insert or enable a SIM, then retry setup.", GxWarning)
-                    } else {
-                        simOptions.forEach { sim ->
-                            Surface(
-                                color = if (selectedSimId == sim.subscriptionId) GxAccent.copy(alpha = .10f) else GxSurface2,
-                                shape = RoundedCornerShape(14.dp),
-                                border = BorderStroke(1.dp, if (selectedSimId == sim.subscriptionId) GxAccent.copy(alpha = .55f) else GxOutlineSoft),
-                                modifier = Modifier.fillMaxWidth().clickable { selectedSimId = sim.subscriptionId },
-                            ) {
-                                Row(Modifier.padding(horizontal = 10.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    RadioButton(selected = selectedSimId == sim.subscriptionId, onClick = { selectedSimId = sim.subscriptionId })
-                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                        Text(sim.label, fontWeight = FontWeight.Bold)
-                                        sim.phoneNumber?.takeIf(String::isNotBlank)?.let { Text(it, color = GxMuted, fontSize = 11.sp) }
-                                    }
-                                    if (selectedSimId == sim.subscriptionId) Icon(Icons.Default.CheckCircle, "Selected", tint = GxSuccess, modifier = Modifier.size(20.dp))
-                                }
-                            }
+    val stageTitle = when (setupStep) {
+        1 -> "Choose your work SIM"
+        2 -> "Connect call recording"
+        3 -> "Test this phone"
+        else -> "Connect your work phone"
+    }
+    val stageSubtitle = when (setupStep) {
+        1 -> "We’ll sync calls, call history and notifications from your work SIM only."
+        2 -> "Enable call recording so AI Closer can analyze your calls and help you close more."
+        3 -> "Make a quick 10 second test call to verify recording and sync."
+        else -> "Link your work number to start capturing and syncing your calls with AI Closer."
+    }
+    Page(vertical = true, backdrop = GxBackdropKind.TELEPHONY) {
+        when (setupStep) {
+            0 -> AiCloserLogoHeader(rightContent = { SetupStepper(step = 0, total = 4) })
+            1 -> AiCloserLogoHeader(rightContent = { SetupStepper(step = 1, total = 4, textAbove = true) })
+            2 -> {
+                AiCloserLogoHeader(rightContent = {
+                    Surface(
+                        color = Color(0xFF1E2126),
+                        shape = CircleShape,
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+                        modifier = Modifier.size(42.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Outlined.NotificationsNone, "Notifications", tint = Color.White, modifier = Modifier.size(20.dp))
                         }
                     }
-                    PrimaryButton("Continue", vm.busy, simOptions.isNotEmpty() && selectedSimId.isNotBlank()) { continueWithSim() }
-                }
-                2 -> {
-                    SectionHeading(Icons.Default.SettingsPhone, "Connect call recording")
-                    Text(deviceProfile.setupDetail, color = GxMuted, fontSize = 12.sp, lineHeight = 17.sp)
-                    SetupStatusRow(
-                        icon = Icons.Default.SettingsPhone,
-                        title = "Phone recording",
-                        detail = if (recordingSettingsOpened) "Phone opened. Turn on Call recording, then return here." else deviceProfile.phoneRecordingDetail,
-                        color = if (recordingSettingsOpened) GxSuccess else GxAccent,
-                        actionLabel = "Open Phone settings",
-                        onAction = ::openPhoneRecordingSettings,
+                })
+                Text("Step 3 of 4", color = GxMutedText, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            }
+            else -> AiCloserLogoHeader()
+        }
+
+        Text(
+            stageTitle,
+            color = Color.White,
+            fontSize = 28.sp,
+            lineHeight = 34.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = (-0.5).sp,
+        )
+        Text(
+            stageSubtitle,
+            color = GxMutedText,
+            fontSize = 14.sp,
+            lineHeight = 20.sp,
+        )
+        when (setupStep) {
+            0 -> {
+                DialGaugeHero(step = 0)
+                ValuePropItem(
+                    icon = Icons.Outlined.SignalCellularAlt,
+                    title = "Calls linked to your CRM",
+                    subtitle = "Calls, notes and outcomes sync automatically.",
+                )
+                ValuePropItem(
+                    icon = Icons.Outlined.Cloud,
+                    title = "Recordings sync automatically",
+                    subtitle = "Call recordings are transcribed and synced to your CRM.",
+                )
+                ValuePropItem(
+                    icon = Icons.Outlined.SimCard,
+                    title = "Your work SIM stays separate",
+                    subtitle = "Keep your personal number private. Only your work calls are captured.",
+                )
+                Spacer(Modifier.height(8.dp))
+                GxPillButton(
+                    text = "Start setup",
+                    onClick = { continueSetup() },
+                    showArrow = true,
+                    loading = vm.busy,
+                )
+            }
+            1 -> {
+                SimTrayHero()
+                if (simOptions.isEmpty()) {
+                    SimCardOptionItem(
+                        label = "No active SIM found",
+                        phoneNumber = null,
+                        selected = false,
+                        onClick = { prepareSimSelection() },
                     )
-                    SetupStatusRow(
-                        icon = Icons.Default.Accessibility,
-                        title = "Share automation",
-                        detail = if (accessibilityEnabled) "Connected — AI Closer can receive the finished recording." else deviceProfile.shareDetail,
-                        color = if (accessibilityEnabled) GxSuccess else GxWarning,
-                        actionLabel = if (accessibilityEnabled) "Review access" else "Enable access",
-                        onAction = {
-                            runCatching { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
-                                .onFailure { vm.showError("Open Android Accessibility settings manually and enable AI Closer.") }
-                        },
-                    )
-                    if (!accessibilityEnabled) {
-                        Text("Android may turn this protected access off after an APK update. Check it once after updating.", color = GxWarning, fontSize = 11.sp, lineHeight = 15.sp)
-                    }
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp), color = GxMuted.copy(alpha = .18f))
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Microphone fallback", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            Text("Optional backup for phones that do not expose dialer recordings. It may capture one side only.", color = GxWarning, fontSize = 11.sp, lineHeight = 15.sp)
-                        }
-                        Switch(
-                            checked = micFallbackEnabled,
-                            onCheckedChange = { enabled ->
-                                if (!enabled) {
-                                    micFallbackEnabled = false
-                                    context.getSharedPreferences("gxclosers_calls", Context.MODE_PRIVATE).edit().putBoolean("micFallbackEnabled", false).apply()
-                                } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                                    micFallbackEnabled = true
-                                    context.getSharedPreferences("gxclosers_calls", Context.MODE_PRIVATE).edit().putBoolean("micFallbackEnabled", true).apply()
-                                } else {
-                                    micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                }
-                            }
+                } else {
+                    simOptions.forEach { sim ->
+                        SimCardOptionItem(
+                            label = sim.label,
+                            phoneNumber = sim.phoneNumber,
+                            selected = selectedSimId == sim.subscriptionId,
+                            onClick = { selectedSimId = sim.subscriptionId },
                         )
                     }
-                    if (micFallbackEnabled) {
-                        Text("Fallback enabled. A visible notification appears only while a call is being captured.", color = GxSuccess, fontSize = 11.sp, lineHeight = 15.sp)
-                    }
-                    SetupStatusRow(
-                        icon = Icons.Default.Folder,
-                        title = "Recording folder",
-                        detail = if (recordingFolderUri != null) "Folder linked. New audio can be matched automatically." else deviceProfile.folderDetail,
-                        color = if (recordingFolderUri != null) GxSuccess else GxMuted,
-                        actionLabel = if (recordingFolderUri == null) "Choose folder" else "Change folder",
-                        onAction = { recordingFolderPicker.launch(recordingFolderUri) },
-                    )
-                    if (recordingFolderUri != null) {
-                        Text("New Phone recordings will be matched to the call and uploaded to the dashboard.", color = GxSuccess, fontSize = 11.sp, lineHeight = 15.sp)
-                    } else {
-                        Text(deviceProfile.folderTip, color = GxMuted, fontSize = 11.sp, lineHeight = 15.sp)
-                    }
-                    SecondaryButton("Check selected folder", folderCheckBusy, recordingFolderUri != null) { checkRecordingFolder() }
-                    folderCheckMessage?.let { message ->
-                        Text(message, color = if (message.startsWith("Access confirmed")) GxSuccess else GxWarning, fontSize = 11.sp, lineHeight = 16.sp)
-                    }
-                    var isBatteryExempt by remember { mutableStateOf(DeviceCertificationManager.isBatteryOptimizationExempt(context)) }
-                    SetupStatusRow(
-                        icon = Icons.Default.BatteryChargingFull,
-                        title = "Battery optimization exemption",
-                        detail = if (isBatteryExempt) "Exempted. Background call recording won't be killed by Android." else "Recommended for Xiaomi/vivo/OPPO/Samsung so background recording stays running.",
-                        color = if (isBatteryExempt) GxSuccess else GxAccent,
-                        actionLabel = if (isBatteryExempt) "Exempted" else "Allow background",
-                        onAction = {
-                            if (!isBatteryExempt && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                                    data = Uri.parse("package:${context.packageName}")
-                                }
-                                runCatching { context.startActivity(intent) }
-                                    .onFailure {
-                                        runCatching { context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
-                                    }
-                            }
-                        },
-                    )
-                    PrimaryButton("Continue to phone verification", vm.busy, recordingSettingsOpened || micFallbackEnabled || recordingFolderUri != null || accessibilityEnabled) { continueAfterRecordingSetup() }
-                }
-                3 -> {
-                    SectionHeading(Icons.Default.Verified, "Verify recording on this device")
-                    Text("Make a 10-second test call to verify call logging, work SIM scoping, readable audio, and dashboard sync.", color = GxMuted, fontSize = 12.sp, lineHeight = 17.sp)
-
-                    Surface(
-                        color = if (vm.certificationStatus == DeviceCertificationManager.STATUS_VERIFIED) GxSuccess.copy(alpha = 0.08f) else GxSurface2,
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, if (vm.certificationStatus == DeviceCertificationManager.STATUS_VERIFIED) GxSuccess.copy(alpha = 0.45f) else GxOutlineSoft),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    if (vm.certificationStatus == DeviceCertificationManager.STATUS_VERIFIED) Icons.Default.CheckCircle else Icons.Default.PhoneCallback,
-                                    null,
-                                    tint = if (vm.certificationStatus == DeviceCertificationManager.STATUS_VERIFIED) GxSuccess else GxAccent,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text("Certification Status", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                Spacer(Modifier.weight(1f))
-                                StatusPill(
-                                    vm.certificationStatus,
-                                    when (vm.certificationStatus) {
-                                        DeviceCertificationManager.STATUS_VERIFIED -> GxSuccess
-                                        DeviceCertificationManager.STATUS_PARTIAL -> GxWarning
-                                        DeviceCertificationManager.STATUS_ACTION_REQUIRED -> GxDanger
-                                        else -> GxAccent
-                                    }
-                                )
-                            }
-
-                            val isVerified = vm.certificationStatus == DeviceCertificationManager.STATUS_VERIFIED
-                            CertificationCheckRow("1. Call state captured", isVerified || vm.certificationStatus == DeviceCertificationManager.STATUS_PARTIAL)
-                            CertificationCheckRow("2. Work SIM matched", isVerified || (vm.certificationStatus != DeviceCertificationManager.STATUS_UNVERIFIED && vm.certificationFailureReason != DeviceCertificationManager.REASON_WRONG_SIM))
-                            CertificationCheckRow("3. Readable audio file (> 1KB)", isVerified)
-                            CertificationCheckRow("4. Upload confirmed", isVerified)
-                            CertificationCheckRow("5. Synced to CRM dashboard", isVerified)
-
-                            vm.certificationFailureReason?.let { reason ->
-                                Surface(
-                                    color = GxDanger.copy(alpha = 0.08f),
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(
-                                        when (reason) {
-                                            DeviceCertificationManager.REASON_CALL_NOT_DETECTED -> "No completed call was detected after test session started. Dial a test number (e.g. 198) and stay connected for 10s."
-                                            DeviceCertificationManager.REASON_WRONG_SIM -> "Call was placed on personal or unconfigured SIM. Ensure phone dialer uses the configured work SIM."
-                                            DeviceCertificationManager.REASON_RECORDING_NOT_FOUND -> "Call captured, but audio was not found. Enable Phone app auto-recording or select the recording folder."
-                                            DeviceCertificationManager.REASON_AUDIO_UNREADABLE -> "Audio file was empty or unreadable (< 1KB). Check microphone and storage permissions."
-                                            DeviceCertificationManager.REASON_UPLOAD_FAILED -> "Recording saved on phone, but CRM upload failed. Check internet connection."
-                                            DeviceCertificationManager.REASON_DASHBOARD_SYNC_FAILED -> "Cloud sync could not link the recording to the CRM call session."
-                                            else -> "Issue: $reason"
-                                        },
-                                        color = GxDanger,
-                                        fontSize = 11.sp,
-                                        lineHeight = 15.sp,
-                                        modifier = Modifier.padding(8.dp)
-                                    )
-                                }
-                            }
-
-                            vm.testSessionMessage?.let { msg ->
-                                Text(msg, color = if (isVerified) GxSuccess else GxMuted, fontSize = 11.sp, lineHeight = 15.sp)
-                            }
-                        }
-                    }
-
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            onClick = {
-                                vm.startTestSession()
-                                runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:198"))) }
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.Phone, null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Dial test call", fontSize = 12.sp)
-                        }
-                        OutlinedButton(
-                            onClick = { vm.evaluateTestCall() },
-                            enabled = !vm.testSessionBusy,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            if (vm.testSessionBusy) {
-                                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = GxAccent)
-                            } else {
-                                Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Check result", fontSize = 12.sp)
-                            }
-                        }
-                    }
-
-                    if (vm.certificationStatus == DeviceCertificationManager.STATUS_VERIFIED) {
-                        PrimaryButton("Finish setup (Certified)", vm.busy) { finishSetup() }
-                    } else {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text("Test call optional to continue", color = GxMuted, fontSize = 11.sp)
-                            TextButton(
-                                onClick = { vm.skipTestCertification { finishSetup() } },
-                                enabled = !vm.busy
-                            ) {
-                                Text("Skip test for now", color = GxMuted, fontSize = 12.sp, textDecoration = TextDecoration.Underline)
-                            }
-                        }
+                    if (simOptions.size == 1) {
+                        SimCardOptionItem(
+                            label = "Personal SIM",
+                            phoneNumber = null,
+                            selected = false,
+                            onClick = {},
+                        )
                     }
                 }
-            }
-            if (setupStep < 3) Text("Your phone controls recording access. AI Closer reports the real sync status after every call.", color = GxMuted, fontSize = 11.sp, lineHeight = 15.sp)
-            setupIssue?.let { issue ->
-                Surface(
-                    color = GxDanger.copy(alpha = 0.08f),
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, GxDanger.copy(alpha = 0.40f)),
-                    modifier = Modifier.fillMaxWidth()
+
+                val phoneAllowed = ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED
+                val historyAllowed = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED
+                val notifAllowed = if (Build.VERSION.SDK_INT >= 33) ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED else true
+                SetupPermissionsCard(
+                    phoneAllowed = phoneAllowed,
+                    historyAllowed = historyAllowed,
+                    notificationsAllowed = notifAllowed,
+                    onRequestPermissions = { permissionLauncher.launch(permissions) },
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Warning, null, tint = GxDanger, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Phone setup needs attention", color = GxDanger, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        }
-                        Text(issue, color = GxText, fontSize = 12.sp, lineHeight = 16.sp)
-                        if (issue.contains("registered to another", ignoreCase = true)) {
-                            Text(
-                                "“Login here” will assign this company phone to your account and activate it immediately without admin approval.",
-                                color = GxMuted,
-                                fontSize = 11.sp,
-                                lineHeight = 15.sp
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            Button(
-                                onClick = {
+                    Icon(Icons.Outlined.Lock, null, tint = GxMutedText, modifier = Modifier.size(15.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Only calls on the selected work SIM are synced.", color = GxMutedText, fontSize = 12.sp)
+                }
+
+                GxPillButton(
+                    text = "Allow & continue",
+                    onClick = { continueWithSim() },
+                    showArrow = true,
+                    enabled = simOptions.isNotEmpty() && selectedSimId.isNotBlank(),
+                    loading = vm.busy,
+                )
+            }
+            2 -> {
+                MicRecordingHero()
+                var isBatteryExempt by remember { mutableStateOf(DeviceCertificationManager.isBatteryOptimizationExempt(context)) }
+                Surface(
+                    color = Color(0xFF171A1E),
+                    shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.fillMaxWidth()) {
+                        RecordingRowItem(
+                            icon = Icons.Outlined.Phone,
+                            title = "Phone recording",
+                            subtitle = "Allow call recording access",
+                            statusText = if (recordingSettingsOpened) "On" else "Off",
+                            isGreen = recordingSettingsOpened,
+                            onClick = ::openPhoneRecordingSettings,
+                        )
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+                        RecordingRowItem(
+                            icon = Icons.Outlined.Share,
+                            title = "Share automation",
+                            subtitle = "Send recordings to AI Closer",
+                            statusText = if (accessibilityEnabled) "Connected" else "Off",
+                            isGreen = accessibilityEnabled,
+                            onClick = {
+                                runCatching { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+                                    .onFailure { vm.showError("Open Android Accessibility settings manually and enable AI Closer.") }
+                            },
+                        )
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+                        RecordingRowItem(
+                            icon = Icons.Outlined.Folder,
+                            title = "Recording folder",
+                            subtitle = "Select storage location",
+                            statusText = if (recordingFolderUri != null) "Linked" else "Off",
+                            isGreen = recordingFolderUri != null,
+                            onClick = { recordingFolderPicker.launch(recordingFolderUri) },
+                        )
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+                        RecordingRowItem(
+                            icon = Icons.Outlined.BatteryChargingFull,
+                            title = "Battery access",
+                            subtitle = "Keep recording in background",
+                            statusText = if (isBatteryExempt) "Allowed" else "Off",
+                            isGreen = isBatteryExempt,
+                            onClick = {
+                                if (!isBatteryExempt && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                        data = Uri.parse("package:${context.packageName}")
+                                    }
+                                    runCatching { context.startActivity(intent) }
+                                        .onFailure {
+                                            runCatching { context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
+                                        }
+                                }
+                            },
+                        )
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+                        RecordingRowItem(
+                            icon = Icons.Outlined.Mic,
+                            title = "Microphone fallback",
+                            subtitle = "Use device mic if needed",
+                            statusText = if (micFallbackEnabled) "On" else "Off",
+                            isGreen = micFallbackEnabled,
+                            onClick = {
+                                if (!micFallbackEnabled) {
+                                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                                        micFallbackEnabled = true
+                                        context.getSharedPreferences("gxclosers_calls", Context.MODE_PRIVATE).edit().putBoolean("micFallbackEnabled", true).apply()
+                                    } else {
+                                        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                    }
+                                } else {
+                                    micFallbackEnabled = false
+                                    context.getSharedPreferences("gxclosers_calls", Context.MODE_PRIVATE).edit().putBoolean("micFallbackEnabled", false).apply()
+                                }
+                            },
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(4.dp))
+                GxPillButton(
+                    text = "Continue to phone verification",
+                    onClick = { continueAfterRecordingSetup() },
+                    showArrow = true,
+                    loading = vm.busy,
+                    enabled = recordingSettingsOpened || micFallbackEnabled || recordingFolderUri != null || accessibilityEnabled,
+                )
+            }
+            3 -> {
+                DialGaugeHero(step = 3, value = "10", label = "sec")
+                val isVerified = vm.certificationStatus == DeviceCertificationManager.STATUS_VERIFIED
+                val isPartial = vm.certificationStatus == DeviceCertificationManager.STATUS_PARTIAL
+
+                Surface(
+                    color = Color(0xFF171A1E),
+                    shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.fillMaxWidth()) {
+                        StatusChecklistRow("Call event captured", checked = isVerified || isPartial || vm.testSessionId != null)
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+                        StatusChecklistRow("Work SIM matched", checked = isVerified || (vm.certificationStatus != DeviceCertificationManager.STATUS_UNVERIFIED && vm.certificationFailureReason != DeviceCertificationManager.REASON_WRONG_SIM))
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+                        StatusChecklistRow("Recording detected", checked = isVerified)
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+                        StatusChecklistRow("Dashboard sync complete", checked = isVerified)
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+                        StatusChecklistRow("Ready — Recording & Sync Verified", isBold = true, checked = isVerified)
+                    }
+                }
+
+                ActionOptionCard(
+                    icon = Icons.Outlined.AddIcCall,
+                    title = "Dial test call",
+                    iconBgColor = GxOrange,
+                    onClick = {
+                        vm.startTestSession()
+                        runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:198"))) }
+                    },
+                )
+
+                ActionOptionCard(
+                    icon = Icons.Outlined.Description,
+                    title = "Check result",
+                    iconBgColor = Color(0xFF22252A),
+                    loading = vm.testSessionBusy,
+                    onClick = { vm.evaluateTestCall() },
+                )
+
+                GxPillButton(
+                    text = if (isVerified) "Finish setup (Certified)" else "Finish setup",
+                    onClick = { finishSetup() },
+                    loading = vm.busy,
+                )
+
+                Text(
+                    "Skip for now",
+                    color = GxMutedText,
+                    fontSize = 13.sp,
+                    textDecoration = TextDecoration.Underline,
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .clickable { vm.skipTestCertification() },
+                )
+            }
+        }
+
+        setupIssue?.let { issue ->
+            Surface(
+                color = GxDanger.copy(alpha = 0.08f),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, GxDanger.copy(alpha = 0.40f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Warning, null, tint = GxDanger, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Phone setup needs attention", color = GxDanger, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                    Text(issue, color = GxText, fontSize = 12.sp, lineHeight = 16.sp)
+                    if (issue.contains("linked to another", ignoreCase = true) || issue.contains("registered to another", ignoreCase = true)) {
+                        Text(
+                            "“Login here” will end the other session and open your account on this phone.",
+                            color = GxMuted,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Button(
+                            onClick = {
+                                takingOverDevice = true
+                                vm.registerDevice(force = true) {
+                                    takingOverDevice = false
                                     setupIssue = null
-                                    vm.registerDevice(force = true) {}
-                                },
-                                enabled = !vm.busy,
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = GxAccent,
-                                    contentColor = Color.White
-                                ),
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.fillMaxWidth().height(42.dp)
-                            ) {
+                                }
+                            },
+                            enabled = !vm.busy && !takingOverDevice,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = GxAccent,
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth().height(42.dp)
+                        ) {
+                            if (takingOverDevice || vm.busy) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = Color.White,
+                                )
+                            } else {
                                 Icon(Icons.Default.Login, null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(6.dp))
                                 Text("Login here", fontWeight = FontWeight.Black, fontSize = 13.sp)
                             }
-                        } else {
-                            TextButton(
-                                onClick = { setupIssue = null; continueSetup() },
-                                enabled = !vm.busy,
-                                modifier = Modifier.align(Alignment.End)
-                            ) {
-                                Text("Retry setup", color = GxAccent, fontWeight = FontWeight.Bold)
-                            }
+                        }
+                    } else {
+                        TextButton(
+                            onClick = { setupIssue = null; continueSetup() },
+                            enabled = !vm.busy,
+                            modifier = Modifier.align(Alignment.End)
+                        ) {
+                            Text("Retry setup", color = GxAccent, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
-            }
-            if (setupStep == 0) PrimaryButton("Grant permissions and continue", vm.busy) { setupIssue = null; continueSetup() }
-            Spacer(Modifier.height(8.dp))
-            TextButton(
-                onClick = { vm.logout {} },
-                modifier = Modifier.align(Alignment.CenterHorizontally)
-            ) {
-                Text("Sign in with different account", color = GxMuted, fontSize = 12.sp)
             }
         }
     }
@@ -751,6 +997,7 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
 
 @Composable private fun MainScreen(vm: CrmViewModel, nav: NavHostController) {
     var selected by rememberSaveable { mutableIntStateOf(0) }
+    var showMoreSettings by rememberSaveable { mutableStateOf(false) }
     val tabs = remember(vm.featurePermissions) {
         buildList {
             if (vm.hasFeature("dashboard")) add(Tab("home", "Home", Icons.Default.Home))
@@ -761,35 +1008,90 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
     }
     LaunchedEffect(tabs.size) { if (selected >= tabs.size) selected = 0 }
     val activeTab = tabs.getOrNull(selected)?.key ?: "more"
+    LaunchedEffect(activeTab) { if (activeTab != "more") showMoreSettings = false }
     LaunchedEffect(Unit) { if (vm.inbox.isEmpty()) vm.loadInbox(); if (vm.courses.isEmpty()) vm.loadCourses() }
     LaunchedEffect(activeTab) { if (activeTab == "inbox" && vm.inbox.isEmpty()) vm.loadInbox(); if (activeTab == "more" && vm.courses.isEmpty()) vm.loadCourses() }
-    Scaffold(
-        containerColor = GxBackground,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        bottomBar = {
-            GxBottomNav(tabs = tabs, selected = selected, onSelect = { selected = it })
-        },
-    ) { padding ->
-        Box(Modifier.padding(padding)) {
+    Box(Modifier.fillMaxSize().background(GxBackground)) {
+        if (activeTab == "more" && !showMoreSettings) {
+            MoreScreen(
+                vm = vm,
+                edit = { nav.navigate("edit-profile") },
+                inbox = { nav.navigate("inbox") },
+                openSettings = { showMoreSettings = true },
+                close = { selected = 0 },
+                bottomBar = {
+                    GxBottomNav(
+                        tabs = tabs,
+                        selected = selected,
+                        onSelect = { selected = it },
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                    )
+                },
+            )
+        } else {
             when (activeTab) {
-                "home" -> DashboardScreen(vm, { if (vm.hasFeature("crm")) nav.navigate("lead-grab") }, { tabs.indexOfFirst { it.key == "calls" }.takeIf { it >= 0 }?.let { selected = it } }, { selected = tabs.indexOfFirst { it.key == "more" }.coerceAtLeast(0) })
+                "home" -> DashboardScreen(
+                    vm = vm,
+                    grab = { if (vm.hasFeature("crm")) nav.navigate("lead-grab") },
+                    calls = { tabs.indexOfFirst { it.key == "calls" }.takeIf { it >= 0 }?.let { selected = it } },
+                    inbox = { nav.navigate("inbox") },
+                )
                 "leads" -> LeadsScreen(vm, { nav.navigate("lead-grab") }) { nav.navigate("lead/${it.id}") }
                 "calls" -> CallsScreen(vm) { nav.navigate("disposition/$it") }
                 "inbox" -> InboxScreen(vm, open = { item -> item.conversationId?.let { nav.navigate("chat/$it/${Uri.encode(item.lead.customerName)}") } })
-                else -> MoreScreen(vm, edit = { nav.navigate("edit-profile") }, inbox = { nav.navigate("inbox") }) { course, lesson -> nav.navigate("lesson/${course.id}/${lesson.id}") }
+                else -> {
+                    if (showMoreSettings) {
+                        SettingsScreen(
+                            vm = vm,
+                            edit = { nav.navigate("edit-profile") },
+                            inbox = { nav.navigate("inbox") },
+                            openLesson = { course, lesson -> nav.navigate("lesson/${course.id}/${lesson.id}") },
+                            back = { showMoreSettings = false },
+                        )
+                    }
+                }
             }
+            GxBottomNav(
+                tabs = tabs,
+                selected = selected,
+                onSelect = { selected = it },
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
         }
     }
 }
 
-@Composable private fun GxBottomNav(tabs: List<Tab>, selected: Int, onSelect: (Int) -> Unit) {
-    Box(Modifier.fillMaxWidth().background(Color.Transparent).padding(top = 4.dp, bottom = 4.dp).navigationBarsPadding(), contentAlignment = Alignment.Center) {
+@Composable private fun GxBottomNav(
+    tabs: List<Tab>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val navShape = RoundedCornerShape(30.dp)
+    Box(
+        modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp, bottom = 4.dp)
+            .navigationBarsPadding(),
+        contentAlignment = Alignment.Center,
+    ) {
         Surface(
             color = GxSurface,
-            shape = RoundedCornerShape(30.dp),
+            shape = navShape,
             border = BorderStroke(1.dp, GxOutlineSoft),
-            shadowElevation = 7.dp,
-            modifier = Modifier.fillMaxWidth(.88f).widthIn(min = 316.dp, max = 560.dp).heightIn(min = 68.dp),
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp,
+            modifier = Modifier
+                .fillMaxWidth(.88f)
+                .widthIn(min = 316.dp, max = 560.dp)
+                .height(68.dp)
+                .shadow(
+                    elevation = 12.dp,
+                    shape = navShape,
+                    clip = false,
+                    ambientColor = Color.Black.copy(alpha = .34f),
+                    spotColor = Color.Black.copy(alpha = .48f),
+                ),
         ) {
             Row(Modifier.padding(horizontal = 8.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 tabs.forEachIndexed { index, tab ->
@@ -799,13 +1101,23 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
                     ) {
-                        Surface(color = if (active) GxAccent.copy(alpha = .16f) else Color.Transparent, shape = androidx.compose.foundation.shape.CircleShape, border = BorderStroke(1.dp, if (active) GxAccent.copy(alpha = .42f) else Color.Transparent)) {
-                            Box(Modifier.size(30.dp), contentAlignment = Alignment.Center) {
+                        val indicatorSize by animateDpAsState(
+                            targetValue = if (active) 42.dp else 30.dp,
+                            animationSpec = tween(240),
+                            label = "bottom-nav-indicator",
+                        )
+                        Box(Modifier.size(42.dp), contentAlignment = Alignment.Center) {
+                            Box(
+                                Modifier
+                                    .size(indicatorSize)
+                                    .clip(CircleShape)
+                                    .background(if (active) GxAccent.copy(alpha = .14f) else Color.Transparent)
+                                    .border(BorderStroke(1.dp, if (active) GxAccent.copy(alpha = .42f) else Color.Transparent), CircleShape)
+                            )
                             Icon(tab.icon, tab.label, tint = if (active) GxAccent else GxMuted, modifier = Modifier.size(21.dp))
-                            }
                         }
                         Spacer(Modifier.height(1.dp))
-                        Text(tab.label, color = if (active) GxText else GxMuted, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                        Text(tab.label, color = if (active) GxText else GxMuted, fontSize = 10.sp, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1)
                     }
                 }
             }
@@ -813,34 +1125,109 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
     }
 }
 
-@Composable private fun DashboardScreen(vm: CrmViewModel, grab: () -> Unit, calls: () -> Unit, learning: () -> Unit) {
+@Composable private fun DashboardScreen(
+    vm: CrmViewModel,
+    grab: () -> Unit,
+    calls: () -> Unit,
+    inbox: () -> Unit,
+) {
     val data = vm.bootstrap
-    Page {
-        BrandHeader("Good day${data?.agent?.displayName?.substringBefore(' ')?.let { ", $it" } ?: ""}", "Your live GXClosers command centre")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            StatusPill("CRM live", GxSuccess); StatusPill(if ((data?.deviceCount ?: 0) > 0) "Phone linked" else "Phone setup", if ((data?.deviceCount ?: 0) > 0) GxSuccess else GxWarning)
+    val callsToday = data?.calls.orEmpty()
+    val talkSeconds = callsToday.sumOf { it.durationSeconds }
+    val talkTime = when {
+        talkSeconds >= 3600 -> "${talkSeconds / 3600}h ${(talkSeconds % 3600) / 60}m"
+        talkSeconds >= 60 -> "${talkSeconds / 60}m"
+        else -> "${talkSeconds}s"
+    }
+    val firstName = data?.agent?.displayName?.substringBefore(' ')?.takeIf(String::isNotBlank)
+        ?: vm.session?.displayName?.substringBefore(' ')?.takeIf(String::isNotBlank)
+        ?: "Closer"
+    val canGrab = data?.agent?.canClaimLeads == true && (data.pendingNotes) == 0
+    val recentLeads = data?.leads.orEmpty().take(3)
+
+    Page(backdrop = GxBackdropKind.TELEPHONY, reserveBottomBar = true) {
+        GxPremiumHeader(
+            greeting = "Good morning, $firstName",
+            headline = "Ready to close more today?",
+            notificationCount = data?.pendingNotes ?: 0,
+        )
+
+        Box(Modifier.fillMaxWidth().height(190.dp), contentAlignment = Alignment.Center) {
+            GxCommandDial(
+                value = callsToday.size,
+                label = "calls today",
+                progress = (callsToday.size / 30f).coerceIn(.06f, 1f),
+                icon = Icons.Default.Phone,
+            )
+            GxMetricBubble(talkTime, "talk time", Modifier.align(Alignment.CenterStart).offset(y = 42.dp))
+            GxMetricBubble("${data?.dashboard?.activeLeads ?: 0}", "leads", Modifier.align(Alignment.CenterEnd).offset(y = (-36).dp))
         }
-        GxCard(accent = true) {
-            Text("LIVE LEAD QUEUE", color = GxAccent, fontWeight = FontWeight.Black, fontSize = 11.sp)
-            Text("${data?.availableLeadCount ?: 0}", fontSize = 48.sp, fontWeight = FontWeight.Black)
-            Text("fresh opportunities ready to claim", color = GxMuted)
-            val canGrab = data?.agent?.canClaimLeads == true && data.pendingNotes == 0
-            Text(when { data?.agent?.canClaimLeads != true -> "Complete required training to unlock lead grabbing."; (data.pendingNotes) > 0 -> "Complete ${data.pendingNotes} call notes before claiming more."; else -> "Claim only the leads you can contact now." }, color = GxWarning)
-            PrimaryButton("Grab new leads", false, canGrab && (data?.availableLeadCount ?: 0) > 0) { grab() }
-            when {
-                (data?.pendingNotes ?: 0) > 0 -> SecondaryButton("Complete call notes to unlock", false) { calls() }
-                data?.agent?.canClaimLeads != true -> SecondaryButton("Complete learning to unlock", false) { learning() }
-                (data.availableLeadCount) == 0 -> SecondaryButton("Refresh new-lead pool", vm.busy) { vm.refreshAll() }
+
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Default.CloudDone, null, tint = GxSuccess, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(
+                if ((data?.pendingUploads ?: 0) == 0) "Synced just now" else "${data?.pendingUploads} uploads pending",
+                color = GxMuted,
+                fontSize = 11.sp,
+            )
+            IconButton(onClick = { vm.refreshAll() }, enabled = !vm.busy, modifier = Modifier.size(34.dp)) {
+                Icon(Icons.Default.Refresh, "Refresh", tint = GxMuted, modifier = Modifier.size(17.dp))
             }
         }
-        Text("Today at a glance", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Metric("${data?.dashboard?.activeLeads ?: 0}", "Active leads", Modifier.weight(1f)); Metric("${data?.calls?.size ?: 0}", "Calls logged", Modifier.weight(1f))
+
+        val availableLeads = data?.availableLeadCount ?: 0
+        val actionDetail = when {
+            (data?.pendingNotes ?: 0) > 0 -> "Complete ${data?.pendingNotes} call notes first"
+            availableLeads > 0 -> "$availableLeads leads available"
+            else -> "No leads available right now"
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Metric("${data?.dashboard?.closedWon ?: 0}", "Closed won", Modifier.weight(1f)); Metric("${data?.pendingNotes ?: 0}", "Notes due", Modifier.weight(1f))
+        GxPrimaryActionRow(
+            title = "Grab leads",
+            detail = actionDetail,
+            icon = Icons.Default.PhoneCallback,
+            enabled = canGrab && availableLeads > 0,
+            onClick = grab,
+        )
+
+        GxActionStrip(
+            actions = listOf(
+                GxStripAction(Icons.Default.Phone, "Calls", onClick = calls),
+                GxStripAction(Icons.Default.ChatBubbleOutline, "Chats", onClick = inbox),
+                GxStripAction(Icons.Default.Sync, "Sync", enabled = !vm.busy, onClick = { vm.refreshAll() }),
+            ),
+        )
+
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Recent leads", color = GxText, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text("View all", color = GxAccent, fontSize = 12.sp, fontWeight = FontWeight.Medium)
         }
-        SecondaryButton("Refresh CRM", vm.busy) { vm.refreshAll() }
+        if (recentLeads.isEmpty()) {
+            GxGlassSurface { Text("No assigned leads yet.", color = GxMuted, fontSize = 13.sp) }
+        } else {
+            GxGlassSurface(padding = 4.dp) {
+                recentLeads.forEachIndexed { index, lead ->
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Surface(color = GxAccent.copy(alpha = .14f), shape = CircleShape, modifier = Modifier.size(38.dp)) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(initials(lead.customerName), color = GxAccent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(lead.customerName, color = GxText, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1)
+                            Text(lead.serviceInterest.ifBlank { lead.customerPhone }, color = GxMuted, fontSize = 11.sp, maxLines = 1)
+                        }
+                        Icon(Icons.Default.Phone, "Open lead", tint = GxMuted, modifier = Modifier.size(19.dp))
+                    }
+                    if (index < recentLeads.lastIndex) HorizontalDivider(color = GxOutlineSoft.copy(alpha = .65f))
+                }
+            }
+        }
     }
 }
 
@@ -849,11 +1236,16 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
     var stageFilter by rememberSaveable { mutableStateOf("ALL") }
     var showAddContact by rememberSaveable { mutableStateOf(false) }
     val leads = vm.bootstrap?.leads.orEmpty()
-    val stages = remember(leads) { leads.map { it.stage }.filter(String::isNotBlank).distinct().sorted() }
     val filteredLeads = remember(leads, search, stageFilter) {
         val term = search.trim().lowercase()
         leads.filter { lead ->
-            val matchesStage = stageFilter == "ALL" || lead.stage == stageFilter
+            val matchesStage = when (stageFilter) {
+                "ALL" -> true
+                "NEW" -> lead.stage.equals("NEW", true)
+                "FOLLOW_UP" -> lead.stage.contains("FOLLOW", true)
+                "CONTACTED" -> lead.stage.contains("CONTACT", true)
+                else -> true
+            }
             val matchesSearch = term.isBlank() || listOf(lead.customerName, lead.customerPhone, lead.customerEmail, lead.source, lead.serviceInterest, lead.stage).any { it.lowercase().contains(term) }
             matchesStage && matchesSearch
         }
@@ -871,42 +1263,125 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
         )
     }
 
-    Page {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("AI CLOSER", color = GxAccent, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
-                Text("My Leads", fontSize = 26.sp, fontWeight = FontWeight.Black)
-                Text("Assigned opportunities and follow-ups", color = GxMuted, fontSize = 13.sp)
-            }
-            Button(
-                onClick = { showAddContact = true },
-                colors = ButtonDefaults.buttonColors(containerColor = GxAccent, contentColor = Color.White),
-                shape = RoundedCornerShape(12.dp),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+    Page(backdrop = GxBackdropKind.CRM, reserveBottomBar = true) {
+        GxWorkspaceHeader("Leads", "Manage and follow up with your leads", vm.bootstrap?.pendingNotes ?: 0)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = search,
+                onValueChange = { search = it },
+                leadingIcon = { Icon(Icons.Default.Search, null, tint = GxMuted, modifier = Modifier.size(20.dp)) },
+                placeholder = { Text("Search leads") },
+                singleLine = true,
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.weight(1f),
+            )
+            Box(
+                Modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(GxSurface)
+                    .border(BorderStroke(1.dp, GxOutlineSoft), RoundedCornerShape(18.dp)),
+                contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("Add Contact", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                IconButton(onClick = { stageFilter = if (stageFilter == "ALL") "FOLLOW_UP" else "ALL" }) {
+                    Icon(Icons.Default.FilterList, "Filter leads", tint = GxText, modifier = Modifier.size(21.dp))
+                }
             }
         }
-        GxCard(accent = true) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(color = GxAccent.copy(alpha = .14f), shape = RoundedCornerShape(16.dp)) { Icon(Icons.Default.Bolt, null, tint = GxAccent, modifier = Modifier.padding(12.dp).size(23.dp)) }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) { Text("NEW LEAD POOL", color = GxAccent, fontSize = 10.sp, fontWeight = FontWeight.Black); Text("${vm.bootstrap?.availableLeadCount ?: 0} available", fontSize = 22.sp, fontWeight = FontWeight.Black); Text("Unassigned leads appear here first", color = GxMuted, fontSize = 11.sp) }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            listOf("ALL" to "All", "NEW" to "New", "FOLLOW_UP" to "Follow-up", "CONTACTED" to "Contacted").forEach { (value, label) ->
+                FilterChip(
+                    selected = stageFilter == value,
+                    onClick = { stageFilter = value },
+                    label = { Text(label, fontSize = 11.sp, maxLines = 1) },
+                    shape = RoundedCornerShape(50),
+                    colors = FilterChipDefaults.filterChipColors(
+                        containerColor = GxSurface,
+                        labelColor = GxText,
+                        selectedContainerColor = GxAccent,
+                        selectedLabelColor = Color.White,
+                    ),
+                    border = FilterChipDefaults.filterChipBorder(
+                        enabled = true,
+                        selected = stageFilter == value,
+                        borderColor = if (stageFilter == value) GxAccent else GxOutlineSoft,
+                    ),
+                    modifier = Modifier.weight(1f),
+                )
             }
-            val canGrab = vm.bootstrap?.agent?.canClaimLeads == true && (vm.bootstrap?.pendingNotes ?: 0) == 0 && (vm.bootstrap?.availableLeadCount ?: 0) > 0
-            PrimaryButton("Grab new leads", false, canGrab) { grab() }
-            if (!canGrab) Text(when { (vm.bootstrap?.pendingNotes ?: 0) > 0 -> "Complete pending call notes before grabbing more."; vm.bootstrap?.agent?.canClaimLeads != true -> "Complete required lessons to unlock lead grabbing."; else -> "No unassigned leads right now. Refresh to check again." }, color = GxWarning, fontSize = 11.sp)
         }
-        OutlinedTextField(value = search, onValueChange = { search = it }, leadingIcon = { Icon(Icons.Default.Search, null, tint = GxMuted) }, placeholder = { Text("Search name, phone, source or status") }, singleLine = true, shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth())
-        Text("CRM STATUS", color = GxMuted, fontSize = 10.sp, fontWeight = FontWeight.Black)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            listOf("ALL") .plus(stages).forEach { value -> FilterChip(selected = stageFilter == value, onClick = { stageFilter = value }, label = { Text(if (value == "ALL") "All" else value.replace('_', ' '), fontSize = 10.sp) }) }
+        val availableLeads = vm.bootstrap?.availableLeadCount ?: 0
+        val canGrab = vm.bootstrap?.agent?.canClaimLeads == true && (vm.bootstrap?.pendingNotes ?: 0) == 0 && availableLeads > 0
+        val grabDetail = when {
+            (vm.bootstrap?.pendingNotes ?: 0) > 0 -> "Complete pending call notes first"
+            vm.bootstrap?.agent?.canClaimLeads != true -> "Complete required learning to unlock"
+            availableLeads > 0 -> "$availableLeads leads waiting to be claimed"
+            else -> "No unassigned leads right now"
         }
-        if (filteredLeads.isEmpty()) EmptyCard(if (leads.isEmpty()) "No leads assigned yet." else "No leads match this search and status.")
-        filteredLeads.forEach { lead -> LeadCard(lead) { open(lead) } }
-        TextButton(onClick = { vm.refreshAll() }, enabled = !vm.busy, modifier = Modifier.align(Alignment.CenterHorizontally)) { Icon(Icons.Default.Refresh, null, Modifier.size(17.dp)); Spacer(Modifier.width(7.dp)); Text(if (vm.busy) "Refreshing…" else "Refresh leads") }
+        GxPrimaryActionRow(
+            title = "Grab leads",
+            detail = grabDetail,
+            icon = Icons.Default.PhoneCallback,
+            enabled = canGrab,
+            onClick = grab,
+        )
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("${filteredLeads.size} leads", color = GxText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            TextButton(onClick = { showAddContact = true }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)) {
+                Box(
+                    Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .border(BorderStroke(1.dp, GxText.copy(alpha = .7f)), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) { Icon(Icons.Default.Add, null, tint = GxText, modifier = Modifier.size(18.dp)) }
+                Spacer(Modifier.width(7.dp))
+                Text("Add contact", color = GxText, fontSize = 12.sp)
+            }
+        }
+        if (filteredLeads.isEmpty()) {
+            EmptyCard(if (leads.isEmpty()) "No leads assigned yet." else "No leads match this search and status.")
+        } else {
+            Column(Modifier.fillMaxWidth()) {
+                filteredLeads.forEachIndexed { index, lead ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { open(lead) }.padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier.size(42.dp).clip(CircleShape).background(GxText.copy(alpha = .09f)),
+                            contentAlignment = Alignment.Center,
+                        ) { Text(initials(lead.customerName), color = GxText, fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(lead.customerName, color = GxText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(lead.serviceInterest.ifBlank { lead.customerPhone.ifBlank { "CRM lead" } }, color = GxMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            StatusPill(leadStageLabel(lead.stage), leadStageColor(lead.stage))
+                            if (lead.priority.equals("HIGH", true) || lead.priority.equals("URGENT", true)) {
+                                Text("🔥 ${lead.priority.replaceFirstChar { it.uppercase() }}", color = GxAccent, fontSize = 10.sp)
+                            }
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Box(
+                            Modifier
+                                .size(42.dp)
+                                .clip(CircleShape)
+                                .border(BorderStroke(1.dp, GxOutlineSoft), CircleShape)
+                                .clickable { open(lead) },
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(Icons.Default.Phone, "Open ${lead.customerName}", tint = GxText, modifier = Modifier.size(19.dp)) }
+                    }
+                    if (index < filteredLeads.lastIndex) HorizontalDivider(color = GxOutlineSoft.copy(alpha = .7f))
+                }
+            }
+        }
+        TextButton(onClick = { vm.refreshAll() }, enabled = !vm.busy, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+            Icon(Icons.Default.Refresh, null, Modifier.size(17.dp))
+            Spacer(Modifier.width(7.dp))
+            Text(if (vm.busy) "Refreshing…" else "Refresh leads")
+        }
     }
 }
 
@@ -924,8 +1399,8 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     val data = vm.bootstrap
-    Page {
-        BrandHeader("Calls & Recordings", "Outcomes, notes and secure audio sync")
+    Page(backdrop = GxBackdropKind.TELEPHONY, reserveBottomBar = true) {
+        GxWorkspaceHeader("Calls", "Recordings and call history", data?.pendingNotes ?: 0)
 
         if (vm.certificationStatus != DeviceCertificationManager.STATUS_VERIFIED) {
             GxCard(accent = true) {
@@ -999,6 +1474,8 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
             }
         }
 
+        CallHistoryPreview(data?.calls.orEmpty(), vm, disposition)
+
         if (!accessibilityEnabled) {
             GxCard(accent = true) {
                 Text("RECORDING BRIDGE NEEDS ATTENTION", color = GxWarning, fontSize = 10.sp, fontWeight = FontWeight.Black)
@@ -1049,30 +1526,10 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
         GxCard {
             Text("SYNC & QUEUE STATUS", color = GxAccent, fontSize = 10.sp, fontWeight = FontWeight.Black)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Surface(color = GxSurface2, shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) {
-                    Column(Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("${vm.syncCounts.pending}", fontWeight = FontWeight.Black, fontSize = 18.sp)
-                        Text("Pending", color = GxMuted, fontSize = 10.sp)
-                    }
-                }
-                Surface(color = GxSurface2, shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) {
-                    Column(Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("${vm.syncCounts.syncing}", fontWeight = FontWeight.Black, fontSize = 18.sp, color = GxWarning)
-                        Text("Syncing", color = GxMuted, fontSize = 10.sp)
-                    }
-                }
-                Surface(color = GxSurface2, shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) {
-                    Column(Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("${vm.syncCounts.synced}", fontWeight = FontWeight.Black, fontSize = 18.sp, color = GxSuccess)
-                        Text("Synced", color = GxMuted, fontSize = 10.sp)
-                    }
-                }
-                Surface(color = GxSurface2, shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) {
-                    Column(Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("${vm.syncCounts.failed}", fontWeight = FontWeight.Black, fontSize = 18.sp, color = if (vm.syncCounts.failed > 0) GxDanger else GxMuted)
-                        Text("Failed", color = GxMuted, fontSize = 10.sp)
-                    }
-                }
+                QueueMetric("${vm.syncCounts.pending}", "Pending", Modifier.weight(1f))
+                QueueMetric("${vm.syncCounts.syncing}", "Syncing", Modifier.weight(1f), GxWarning)
+                QueueMetric("${vm.syncCounts.synced}", "Synced", Modifier.weight(1f), GxSuccess)
+                QueueMetric("${vm.syncCounts.failed}", "Failed", Modifier.weight(1f), if (vm.syncCounts.failed > 0) GxDanger else GxMuted)
             }
             if (vm.syncCounts.failed > 0) {
                 SecondaryButton("Retry failed sync (${vm.syncCounts.failed})", vm.busy) {
@@ -1113,64 +1570,170 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
             }
         }
 
-        data?.calls.orEmpty().forEach { call ->
-            GxCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Phone, null, tint = GxAccent)
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(call.assignment?.customerName ?: call.phoneNumber, fontWeight = FontWeight.Black)
-                        Text(formatDate(call.startedAt), color = GxMuted, fontSize = 11.sp)
-                    }
-                    Text("${call.durationSeconds}s", color = GxMuted)
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        recordingStatusLabel(call.recordingStatus),
-                        modifier = Modifier.weight(1f),
-                        color = when (call.recordingStatus) {
-                            "UPLOADED" -> GxSuccess
-                            "UPLOADING" -> GxWarning
-                            "LOCAL_PENDING" -> GxWarning
-                            "FAILED" -> GxDanger
-                            else -> GxMuted
-                        },
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    if (call.recordingStatus == "UPLOADED") {
-                        Surface(color = GxAccent.copy(alpha = 0.15f), shape = RoundedCornerShape(99.dp)) {
-                            Text("Speed ${vm.playbackSpeed}x", color = GxAccent, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
-                        }
-                    }
-                }
-                if (call.recordingStatus == "UPLOADED") {
-                    SecondaryButton(
-                        when {
-                            vm.playbackLoadingCallId == call.id -> "Loading audio…"
-                            vm.playingCallId == call.id -> "Pause recording"
-                            else -> "Play recording"
-                        },
-                        vm.playbackLoadingCallId == call.id,
-                    ) { vm.playRecording(call.id) }
-                }
-                call.recordingError?.let { Text(it, color = GxDanger, fontSize = 11.sp) }
-                if (call.note.isNullOrBlank()) {
-                    PrimaryButton("Add call notes & outcome", false) { disposition(call.id) }
-                } else {
-                    Text(call.outcome.orEmpty().replace('_', ' '), color = GxAccent, fontWeight = FontWeight.Bold)
-                    Text(call.note, color = GxMuted)
-                }
-            }
-        }
         if (data?.calls.isNullOrEmpty()) EmptyCard("No sales calls logged yet. Open an assigned lead to start a tracked call.")
         SecondaryButton("Sync calls now", vm.busy) { vm.refreshAll() }
     }
 }
+
+@Composable
+private fun CallHistoryPreview(calls: List<MobileCall>, vm: CrmViewModel, disposition: (String) -> Unit) {
+    if (calls.isEmpty()) return
+    var filter by rememberSaveable { mutableStateOf("OUTBOUND") }
+    var expandedCallId by rememberSaveable { mutableStateOf<String?>(null) }
+    val featured = calls.first()
+    val secondary = calls.drop(1)
+    val featuredName = featured.assignment?.customerName ?: featured.phoneNumber
+    val featuredDuration = formatCallDuration(featured.durationSeconds)
+    val featuredStatus = if (featured.recordingStatus == "UPLOADED") "Recording synced" else recordingStatusLabel(featured.recordingStatus)
+    val mutedColor = GxMuted
+
+    GxGlassSurface(radius = 24.dp, padding = 16.dp) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(42.dp).clip(CircleShape).background(GxText.copy(alpha = .10f)),
+                contentAlignment = Alignment.Center,
+            ) { Text(initials(featuredName), color = GxText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(featuredName, color = GxText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("↗ Outgoing · $featuredDuration", color = GxMuted, fontSize = 11.sp)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                Icon(Icons.Default.CloudDone, null, tint = if (featured.recordingStatus == "UPLOADED") GxSuccess else GxMuted, modifier = Modifier.size(17.dp))
+                Text(featuredStatus, color = GxMuted, fontSize = 10.sp, maxLines = 1)
+            }
+        }
+        Canvas(Modifier.fillMaxWidth().height(46.dp).padding(top = 8.dp)) {
+            val bars = List(42) { index ->
+                val base = 0.18f + ((index * 17) % 9) / 24f
+                (base + if (index in 4..15) .28f else 0f).coerceIn(.16f, .90f)
+            }
+            val gap = size.width / (bars.size * 1.55f)
+            bars.forEachIndexed { index, value ->
+                val x = gap * (index + .75f)
+                val half = size.height * value / 2f
+                drawLine(
+                    color = if (index < bars.size * .30f) GxAccent else mutedColor.copy(alpha = .34f),
+                    start = Offset(x, size.height / 2f - half),
+                    end = Offset(x, size.height / 2f + half),
+                    strokeWidth = 3.2f,
+                )
+            }
+        }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("0:36", color = GxText, fontSize = 10.sp)
+            Spacer(Modifier.width(8.dp))
+            LinearProgressIndicator(
+                progress = { .27f },
+                modifier = Modifier.weight(1f).height(3.dp),
+                color = GxAccent,
+                trackColor = GxMuted.copy(alpha = .18f),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(featuredDuration, color = GxText, fontSize = 10.sp)
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = {}, modifier = Modifier.size(42.dp)) { Icon(Icons.Default.Replay10, "Rewind 10 seconds", tint = GxText) }
+            Box(
+                Modifier.size(56.dp).clip(CircleShape).background(GxAccent).clickable { vm.playRecording(featured.id) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(if (vm.playingCallId == featured.id) Icons.Default.Pause else Icons.Default.PlayArrow, "Play recording", tint = Color.White, modifier = Modifier.size(26.dp))
+            }
+            IconButton(onClick = {}, modifier = Modifier.size(42.dp)) { Icon(Icons.Default.Forward10, "Forward 10 seconds", tint = GxText) }
+        }
+    }
+
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(50)).background(GxSurface).border(BorderStroke(1.dp, GxOutlineSoft), RoundedCornerShape(50)).padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        listOf("INBOUND" to "Inbound", "OUTBOUND" to "Outbound", "MISSED" to "Missed").forEach { (value, label) ->
+            Box(
+                Modifier.weight(1f).clip(RoundedCornerShape(50)).background(if (filter == value) GxAccent.copy(alpha = .13f) else Color.Transparent).clickable { filter = value }.padding(vertical = 9.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text(label, color = if (filter == value) GxAccent else GxText, fontSize = 11.sp, fontWeight = if (filter == value) FontWeight.SemiBold else FontWeight.Normal) }
+        }
+    }
+
+    Column(Modifier.fillMaxWidth()) {
+        secondary.forEachIndexed { index, call ->
+            val name = call.assignment?.customerName ?: call.phoneNumber
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .clickable { expandedCallId = if (expandedCallId == call.id) null else call.id }
+                    .padding(vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(36.dp).clip(CircleShape).background(if (call.status.equals("MISSED", true)) GxDanger.copy(alpha = .10f) else GxSuccess.copy(alpha = .10f)), contentAlignment = Alignment.Center) {
+                    Icon(if (call.status.equals("MISSED", true)) Icons.Default.CallReceived else Icons.Default.CallMade, null, tint = if (call.status.equals("MISSED", true)) GxDanger else GxSuccess, modifier = Modifier.size(18.dp))
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(name, color = GxText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(formatDate(call.startedAt), color = GxMuted, fontSize = 10.sp)
+                }
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(formatCallDuration(call.durationSeconds), color = GxText, fontSize = 11.sp)
+                    Text(recordingStatusLabel(call.recordingStatus), color = if (call.recordingStatus == "UPLOADED") GxSuccess else GxMuted, fontSize = 10.sp)
+                }
+                Icon(Icons.Default.ChevronRight, null, tint = GxMuted, modifier = Modifier.size(18.dp))
+            }
+            if (expandedCallId == call.id) {
+                CallDetailActions(call, vm, disposition)
+            }
+            if (index < secondary.lastIndex) HorizontalDivider(color = GxOutlineSoft.copy(alpha = .65f))
+        }
+    }
+}
+
+@Composable
+private fun CallDetailActions(call: MobileCall, vm: CrmViewModel, disposition: (String) -> Unit) {
+    GxGlassSurface(
+        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+        radius = 18.dp,
+        padding = 12.dp,
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                recordingStatusLabel(call.recordingStatus),
+                modifier = Modifier.weight(1f),
+                color = when (call.recordingStatus) {
+                    "UPLOADED" -> GxSuccess
+                    "UPLOADING", "LOCAL_PENDING" -> GxWarning
+                    "FAILED" -> GxDanger
+                    else -> GxMuted
+                },
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            if (call.recordingStatus == "UPLOADED") {
+                Text("${vm.playbackSpeed}x", color = GxAccent, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        if (call.recordingStatus == "UPLOADED") {
+            SecondaryButton(
+                when {
+                    vm.playbackLoadingCallId == call.id -> "Loading audio…"
+                    vm.playingCallId == call.id -> "Pause recording"
+                    else -> "Play recording"
+                },
+                vm.playbackLoadingCallId == call.id,
+            ) { vm.playRecording(call.id) }
+        }
+        call.recordingError?.let { Text(it, color = GxDanger, fontSize = 11.sp) }
+        if (call.note.isNullOrBlank()) {
+            PrimaryButton("Add call notes & outcome", false) { disposition(call.id) }
+        } else {
+            Text(call.outcome.orEmpty().replace('_', ' '), color = GxAccent, fontWeight = FontWeight.Bold)
+            Text(call.note, color = GxMuted)
+        }
+    }
+}
+
+private fun formatCallDuration(seconds: Int): String = "%d:%02d".format(seconds / 60, seconds % 60)
 
 @Composable private fun InboxScreen(vm: CrmViewModel, open: (InboxItem) -> Unit, back: (() -> Unit)? = null) {
     var search by rememberSaveable { mutableStateOf("") }
@@ -1184,20 +1747,58 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
         }
     }
     Page {
-        if (back == null) BrandHeader("Inbox", "Only conversations linked to your assigned leads")
+        if (back == null) {
+            GxWorkspaceHeader(
+                "Inbox",
+                "Your conversations and follow-ups",
+                vm.bootstrap?.pendingNotes ?: 0,
+                action = {
+                    Box(
+                        Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(GxSurface)
+                            .border(BorderStroke(1.dp, GxOutlineSoft), CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        IconButton(onClick = { vm.loadInbox() }, enabled = !vm.inboxLoading) {
+                            Icon(Icons.Default.Refresh, "Refresh inbox", tint = GxText, modifier = Modifier.size(20.dp))
+                        }
+                    }
+                },
+            )
+        }
         else HeaderWithBack("Inbox", "Only conversations linked to your assigned leads", back)
         OutlinedTextField(
             value = search,
             onValueChange = { search = it },
             leadingIcon = { Icon(Icons.Default.Search, null, tint = GxMuted) },
-            placeholder = { Text("Search chats") },
+            placeholder = { Text("Search conversations") },
             singleLine = true,
             shape = RoundedCornerShape(24.dp),
             modifier = Modifier.fillMaxWidth(),
         )
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(50))
+                .background(GxSurface)
+                .border(BorderStroke(1.dp, GxOutlineSoft), RoundedCornerShape(50))
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
             listOf("ALL" to "All", "PRIORITY" to "Priority", "FOLLOW_UP" to "Follow-up").forEach { (value, title) ->
-                FilterChip(selected = filter == value, onClick = { filter = value }, label = { Text(title) })
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(50))
+                        .background(if (filter == value) GxAccent.copy(alpha = .13f) else Color.Transparent)
+                        .clickable { filter = value }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(title, color = if (filter == value) GxAccent else GxText, fontSize = 11.sp, fontWeight = if (filter == value) FontWeight.SemiBold else FontWeight.Normal)
+                }
             }
         }
         Column(Modifier.fillMaxWidth()) {
@@ -1206,7 +1807,13 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
                 if (index < 3) HorizontalDivider(Modifier.padding(start = 62.dp), color = GxMuted.copy(alpha = .10f))
             }
             filteredInbox.forEachIndexed { index, item ->
-                InboxConversationRow(item) { open(item) }
+                if (index == 0) {
+                    GxGlassSurface(modifier = Modifier.fillMaxWidth(), radius = 20.dp, padding = 0.dp) {
+                        InboxConversationRow(item, onClick = { open(item) }, featured = true)
+                    }
+                } else {
+                    InboxConversationRow(item, onClick = { open(item) })
+                }
                 if (index < filteredInbox.lastIndex) HorizontalDivider(Modifier.padding(start = 62.dp), color = GxMuted.copy(alpha = .14f))
             }
             if (!vm.inboxLoading && filteredInbox.isEmpty()) Text(vm.inboxMessage ?: if (search.isBlank() && filter == "ALL") "No assigned conversations yet." else "No chats match this search.", color = GxMuted, modifier = Modifier.padding(vertical = 28.dp).align(Alignment.CenterHorizontally))
@@ -1313,12 +1920,159 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
     }
 }
 
-@Composable private fun MoreScreen(vm: CrmViewModel, edit: () -> Unit, inbox: () -> Unit, openLesson: (Course, Lesson) -> Unit) {
+@Composable
+private fun MoreScreen(
+    vm: CrmViewModel,
+    edit: () -> Unit,
+    inbox: () -> Unit,
+    openSettings: () -> Unit,
+    close: () -> Unit,
+    bottomBar: @Composable BoxScope.() -> Unit,
+) {
+    val session = vm.session
+    val themeMode = LocalThemeMode.current
+    val setThemeMode = LocalThemeModeChange.current
+    val dark = MaterialTheme.colorScheme.background.luminance() < .5f
+    var drawerOpen by remember { mutableStateOf(false) }
+    val drawerProgress by animateFloatAsState(
+        targetValue = if (drawerOpen) .72f else 0f,
+        animationSpec = tween(320),
+        label = "more-drawer-progress",
+    )
+    LaunchedEffect(Unit) { drawerOpen = true }
+
+    Box(Modifier.fillMaxSize()) {
+        if (vm.hasFeature("dashboard")) {
+            DashboardScreen(vm = vm, grab = {}, calls = {}, inbox = inbox)
+        } else {
+            Page(backdrop = GxBackdropKind.NEUTRAL) {
+                GxWorkspaceHeader("More", "Your workspace and account")
+            }
+        }
+        bottomBar()
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = if (dark) .48f else .25f))
+                .clickable { close() },
+        )
+        Box(
+            Modifier
+                .fillMaxHeight()
+                .fillMaxWidth(drawerProgress)
+                .clip(RoundedCornerShape(topEnd = 30.dp, bottomEnd = 30.dp))
+                .background(if (dark) Color(0xFF24282D).copy(alpha = .98f) else Color(0xFFFFFEFC).copy(alpha = .98f))
+                .border(BorderStroke(1.dp, if (dark) Color.White.copy(alpha = .10f) else GxText.copy(alpha = .10f)), RoundedCornerShape(topEnd = 30.dp, bottomEnd = 30.dp)),
+        ) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 22.dp, vertical = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Image(
+                        painter = painterResource(com.gigxomi.gxclosers.R.drawable.ic_ai_closer_logo),
+                        contentDescription = "AI Closer",
+                        modifier = Modifier.size(38.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Closer", color = GxText, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier.size(52.dp).clip(CircleShape).background(GxText.copy(alpha = .10f)),
+                        contentAlignment = Alignment.Center,
+                    ) { Text(initials(session?.displayName ?: "Sales closer"), color = GxText, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+                    Spacer(Modifier.width(12.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(session?.displayName ?: "Sales closer", color = GxText, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Sales closer", color = GxMuted, fontSize = 12.sp)
+                    }
+                }
+                HorizontalDivider(Modifier.padding(vertical = 18.dp), color = GxOutlineSoft)
+
+                DrawerSectionLabel("WORK")
+                DrawerItem(Icons.Default.MailOutline, "Inbox") { inbox() }
+                DrawerItem(Icons.Default.PhoneAndroid, "Device diagnostics") { openSettings() }
+                DrawerSectionLabel("ACCOUNT", Modifier.padding(top = 14.dp))
+                DrawerItem(Icons.Default.PersonOutline, "Profile") { edit() }
+                DrawerItem(Icons.Default.Settings, "Settings") { openSettings() }
+                DrawerSectionLabel("WORKSPACE", Modifier.padding(top = 14.dp))
+                DrawerItem(Icons.Default.CreditCard, "Payments") { }
+                DrawerItem(Icons.Default.HelpOutline, "Help & support") { }
+
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.LightMode, null, tint = GxText, modifier = Modifier.size(22.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("Appearance", color = GxText, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                }
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(50))
+                        .background(GxSurface2)
+                        .border(BorderStroke(1.dp, GxOutlineSoft), RoundedCornerShape(50))
+                        .padding(3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    listOf(ThemeMode.LIGHT, ThemeMode.DARK, ThemeMode.SYSTEM).forEach { mode ->
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(50))
+                                .background(if (themeMode == mode) GxSurface else Color.Transparent)
+                                .clickable { setThemeMode(mode) }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center,
+                        ) { Text(mode.name.lowercase().replaceFirstChar(Char::uppercase), color = if (themeMode == mode) GxText else GxMuted, fontSize = 10.sp) }
+                    }
+                }
+                HorizontalDivider(Modifier.padding(vertical = 12.dp), color = GxOutlineSoft)
+                DrawerItem(Icons.Default.Logout, "Log out", danger = true) { vm.logout(close) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DrawerSectionLabel(label: String, modifier: Modifier = Modifier) {
+    Text(label, color = GxMuted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = .7.sp, modifier = modifier.padding(bottom = 3.dp))
+}
+
+@Composable
+private fun DrawerItem(icon: ImageVector, label: String, danger: Boolean = false, onClick: () -> Unit) {
+    val color = if (danger) GxDanger else GxText
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, label, tint = color, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(14.dp))
+        Text(label, color = color, fontSize = 14.sp, modifier = Modifier.weight(1f))
+        if (!danger) Icon(Icons.Default.ChevronRight, null, tint = GxMuted, modifier = Modifier.size(18.dp))
+    }
+}
+
+@Composable private fun SettingsScreen(
+    vm: CrmViewModel,
+    edit: () -> Unit,
+    inbox: () -> Unit,
+    openLesson: (Course, Lesson) -> Unit,
+    back: (() -> Unit)? = null,
+) {
     val context = LocalContext.current
     val session = vm.session
     val data = vm.bootstrap
     val agent = data?.agent
-    var selectedSection by rememberSaveable { mutableIntStateOf(0) }
+    val themeMode = LocalThemeMode.current
+    val setThemeMode = LocalThemeModeChange.current
     var simOptions by remember { mutableStateOf<List<SimOption>>(emptyList()) }
     var simSelection by rememberSaveable { mutableStateOf(CallManager.simSelection(context)) }
     var recordingFolderUri by remember { mutableStateOf(RecordingFolderStore.getTreeUri(context)) }
@@ -1345,32 +2099,27 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
         }
     }
     LaunchedEffect(Unit) { simOptions = CallManager.availableSims(context) }
-    val lessons = vm.courses.flatMap { it.lessons }
-    val learningScore = if (vm.courses.isEmpty()) 0 else vm.courses.map { it.completionPercent }.average().toInt()
-    val completedLessons = lessons.count { it.progressPercent >= it.completionThreshold }
-    Page {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f)) { BrandHeader("Profile", "Your sales workspace and academy") }
-            FilledIconButton(onClick = edit, colors = IconButtonDefaults.filledIconButtonColors(containerColor = GxSurface2, contentColor = GxAccent)) { Icon(Icons.Default.Edit, "Edit profile") }
+    Page(backdrop = GxBackdropKind.NEUTRAL) {
+        if (back != null) {
+            HeaderWithBack("Settings", "Your sales workspace and phone setup", back)
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) { BrandHeader("Profile & settings", "Your sales workspace and phone setup") }
+                FilledIconButton(onClick = edit, colors = IconButtonDefaults.filledIconButtonColors(containerColor = GxSurface2, contentColor = GxAccent)) { Icon(Icons.Default.Edit, "Edit profile") }
+            }
         }
         GxCard(accent = true) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.size(76.dp)) {
-                    CircularProgressIndicator(progress = { learningScore / 100f }, modifier = Modifier.fillMaxSize(), strokeWidth = 5.dp, color = GxAccent, trackColor = GxMuted.copy(alpha = .16f))
-                    Text(initials(session?.displayName ?: "Sales agent"), color = GxAccent, fontSize = 21.sp, fontWeight = FontWeight.Black)
+                    Surface(color = GxAccent.copy(alpha = .14f), shape = CircleShape, modifier = Modifier.fillMaxSize()) {}
+                    Text(initials(session?.displayName ?: "Sales agent"), color = GxAccent, fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
                 }
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(session?.displayName ?: "Sales agent", fontWeight = FontWeight.Black, fontSize = 21.sp)
+                    Text(session?.displayName ?: "Sales agent", fontWeight = FontWeight.SemiBold, fontSize = 21.sp)
                     Text("Sales executive", color = GxMuted, fontSize = 13.sp)
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { StatusPill("ACTIVE", GxSuccess); if (agent?.canClaimLeads == true) StatusPill("LEADS UNLOCKED", GxAccent) }
                 }
-            }
-            HorizontalDivider(color = GxMuted.copy(alpha = .15f))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.School, null, tint = GxAccent, modifier = Modifier.size(20.dp)); Spacer(Modifier.width(9.dp))
-                Column(Modifier.weight(1f)) { Text("Learning score", color = GxMuted, fontSize = 11.sp); Text("$learningScore%", color = GxAccent, fontSize = 20.sp, fontWeight = FontWeight.Black) }
-                Text("$completedLessons/${lessons.size} lessons", color = GxMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
         }
         if (vm.hasFeature("conversations")) GxCard {
@@ -1386,18 +2135,21 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
                 OutlinedButton(onClick = inbox, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) { Text("Open") }
             }
         }
-        Surface(color = GxSurface, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, GxMuted.copy(alpha = .14f)), modifier = Modifier.fillMaxWidth()) {
-            Row(Modifier.padding(5.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                listOf("Overview", "Lessons").forEachIndexed { index, label ->
-                    Surface(color = if (selectedSection == index) GxAccent.copy(alpha = .14f) else Color.Transparent, shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f).clickable { selectedSection = index }) {
-                        Row(Modifier.padding(vertical = 11.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                            Icon(if (index == 0) Icons.Default.Person else Icons.Default.School, null, tint = if (selectedSection == index) GxAccent else GxMuted, modifier = Modifier.size(17.dp)); Spacer(Modifier.width(7.dp)); Text(label, color = if (selectedSection == index) GxText else GxMuted, fontWeight = FontWeight.Black)
-                        }
-                    }
+        GxCard {
+            SectionHeading(Icons.Default.Palette, "Appearance")
+            Text("Choose how AI Closer looks on this phone.", color = GxMuted, fontSize = 12.sp)
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                listOf(ThemeMode.LIGHT, ThemeMode.DARK, ThemeMode.SYSTEM).forEachIndexed { index, mode ->
+                    SegmentedButton(
+                        selected = themeMode == mode,
+                        onClick = { setThemeMode(mode) },
+                        shape = SegmentedButtonDefaults.itemShape(index, ThemeMode.entries.size),
+                        label = { Text(mode.name.lowercase().replaceFirstChar(Char::uppercase), fontSize = 11.sp) },
+                    )
                 }
             }
         }
-        if (selectedSection == 0) {
+        Column(verticalArrangement = Arrangement.spacedBy(13.dp)) {
             GxCard {
                 SectionHeading(Icons.Default.Badge, "Sales identity")
                 CustomerFact(Icons.Default.AlternateEmail, "Email", session?.email ?: "Not added")
@@ -1594,8 +2346,6 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
             }
             SecondaryButton("Refresh profile", vm.busy) { vm.refreshAll() }
             TextButton(onClick = { vm.logout {} }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Icon(Icons.Default.Logout, null, Modifier.size(18.dp)); Spacer(Modifier.width(7.dp)); Text("Sign out", color = GxDanger, fontWeight = FontWeight.Bold) }
-        } else {
-            ProfileLearningContent(vm, openLesson)
         }
     }
 }
@@ -1662,6 +2412,8 @@ private fun parseLeadContext(raw: String): List<LeadContextEvent> {
 }
 
 @Composable private fun LeadContextTimeline(events: List<LeadContextEvent>) {
+    val timelineMuted = GxMuted
+    val timelineSurface = GxSurface
     Column(Modifier.fillMaxWidth()) {
         events.forEachIndexed { index, event ->
             val isLatest = index == 0
@@ -1671,10 +2423,10 @@ private fun parseLeadContext(raw: String): List<LeadContextEvent> {
                     val centerX = size.width / 2f
                     val dotY = 10.dp.toPx()
                     val stroke = 2.dp.toPx()
-                    if (index > 0) drawLine(GxMuted.copy(alpha = .28f), Offset(centerX, 0f), Offset(centerX, dotY), stroke)
-                    if (index < events.lastIndex) drawLine(GxMuted.copy(alpha = .28f), Offset(centerX, dotY), Offset(centerX, size.height), stroke)
+                    if (index > 0) drawLine(timelineMuted.copy(alpha = .28f), Offset(centerX, 0f), Offset(centerX, dotY), stroke)
+                    if (index < events.lastIndex) drawLine(timelineMuted.copy(alpha = .28f), Offset(centerX, dotY), Offset(centerX, size.height), stroke)
                     drawCircle(markerColor, radius = if (isLatest) 6.dp.toPx() else 5.dp.toPx(), center = Offset(centerX, dotY))
-                    drawCircle(GxSurface, radius = if (isLatest) 2.5.dp.toPx() else 2.dp.toPx(), center = Offset(centerX, dotY))
+                    drawCircle(timelineSurface, radius = if (isLatest) 2.5.dp.toPx() else 2.dp.toPx(), center = Offset(centerX, dotY))
                 }
                 Column(Modifier.weight(1f).padding(bottom = if (index == events.lastIndex) 2.dp else 20.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1692,7 +2444,13 @@ private fun parseLeadContext(raw: String): List<LeadContextEvent> {
     }
 }
 
-@Composable private fun LeadDetailScreen(vm: CrmViewModel, id: String, back: () -> Unit, openDisposition: (String) -> Unit) {
+@Composable private fun LeadDetailScreen(
+    vm: CrmViewModel,
+    id: String,
+    back: () -> Unit,
+    openDisposition: (String) -> Unit,
+    openChat: (conversationId: String, name: String) -> Unit,
+) {
     val context = LocalContext.current
     val keyboard = LocalSoftwareKeyboardController.current
     val lead = vm.bootstrap?.leads?.find { it.id == id }
@@ -1710,67 +2468,101 @@ private fun parseLeadContext(raw: String): List<LeadContextEvent> {
     val pendingCall = vm.bootstrap?.calls.orEmpty().firstOrNull { it.note.isNullOrBlank() }
     LaunchedEffect(id) { vm.clearCustomer360(); vm.loadCustomer360(id) }
     Page {
-        HeaderWithBack(lead?.customerName ?: "Lead unavailable", lead?.let { "${it.stage.replace('_', ' ')} · ${it.priority}" } ?: "This lead may have moved.", back)
+        HeaderWithBack("Lead details", lead?.customerName ?: "This lead may have moved.", back)
         if (lead == null) { EmptyCard("Refresh My Leads and try again."); return@Page }
-        GxCard(accent = true) {
+        val linkedConversation = vm.inbox.firstOrNull { it.lead.id == lead.id }?.conversationId
+        GxGlassSurface(radius = 24.dp, padding = 16.dp) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(color = GxAccent.copy(alpha = .14f), shape = RoundedCornerShape(18.dp)) {
-                    Text(lead.customerName.take(1).uppercase(), color = GxAccent, fontSize = 28.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp))
+                Box(Modifier.size(64.dp).clip(CircleShape).background(GxText.copy(alpha = .10f)), contentAlignment = Alignment.Center) {
+                    Text(initials(lead.customerName), color = GxText, fontSize = 25.sp, fontWeight = FontWeight.SemiBold)
                 }
                 Spacer(Modifier.width(13.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(lead.customerPhone.ifBlank { "No phone number" }, fontSize = 18.sp, fontWeight = FontWeight.Black)
-                    Text(lead.customerEmail.ifBlank { "No email address" }, color = GxMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-            if ((vm.bootstrap?.pendingNotes ?: 0) > 0) {
-                Surface(
-                    color = GxWarning.copy(alpha = .10f),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, GxWarning.copy(alpha = .28f)),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.EditNote, null, tint = GxWarning, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                "Complete ${vm.bootstrap?.pendingNotes} pending call note${if ((vm.bootstrap?.pendingNotes ?: 0) == 1) "" else "s"} before starting another call.",
-                                color = GxWarning,
-                                fontSize = 11.sp,
-                                lineHeight = 15.sp,
-                            )
-                        }
-                        if (pendingCall != null) {
-                            SecondaryButton("Open pending call notes", false) { openDisposition(pendingCall.id) }
-                        }
+                    Text(lead.customerName, color = GxText, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(lead.serviceInterest.ifBlank { "CRM implementation" }, color = GxText, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        StatusPill(leadStageLabel(lead.stage), leadStageColor(lead.stage))
+                        if (lead.priority.equals("HIGH", true) || lead.priority.equals("URGENT", true)) StatusPill("High", GxAccent)
                     }
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = {
-                        val activeSims = CallManager.availableSims(context)
-                        val preferredSim = CallManager.preferredSim(context, activeSims)
-                        if (activeSims.size > 1 && preferredSim == null) {
-                            simOptions = activeSims
-                            simChooserOpen = true
-                        } else {
-                            vm.startCall(lead, preferredSim ?: activeSims.firstOrNull())
-                        }
-                    },
-                    enabled = lead.customerPhone.isNotBlank() && !vm.busy && (vm.bootstrap?.pendingNotes ?: 0) == 0,
-                    colors = ButtonDefaults.buttonColors(containerColor = GxAccent, contentColor = Color.White),
-                    modifier = Modifier.weight(1f).height(48.dp),
-                    shape = RoundedCornerShape(14.dp)
-                ) {
-                    Icon(Icons.Default.Phone, null, tint = Color.White, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(7.dp))
-                    Text("Call", color = Color.White, fontWeight = FontWeight.Black)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                LeadQuickAction(Icons.Default.Phone, "Call", enabled = lead.customerPhone.isNotBlank() && (vm.bootstrap?.pendingNotes ?: 0) == 0 && !vm.busy) {
+                    val activeSims = CallManager.availableSims(context)
+                    val preferredSim = CallManager.preferredSim(context, activeSims)
+                    if (activeSims.size > 1 && preferredSim == null) {
+                        simOptions = activeSims
+                        simChooserOpen = true
+                    } else vm.startCall(lead, preferredSim ?: activeSims.firstOrNull())
                 }
-                OutlinedButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/${lead.customerPhone.filter(Char::isDigit)}"))) }, enabled = lead.customerPhone.isNotBlank(), modifier = Modifier.weight(1f).height(48.dp), shape = RoundedCornerShape(14.dp)) {
-                    Icon(Icons.Default.Chat, null, Modifier.size(18.dp)); Spacer(Modifier.width(7.dp)); Text("WhatsApp", fontWeight = FontWeight.Bold)
+                LeadQuickAction(Icons.Default.Chat, "WhatsApp", enabled = lead.customerPhone.isNotBlank()) {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/${lead.customerPhone.filter(Char::isDigit)}")))
                 }
+                LeadQuickAction(Icons.Default.ChatBubbleOutline, "Chat", enabled = linkedConversation != null) {
+                    linkedConversation?.let { openChat(it, lead.customerName) }
+                }
+            }
+        }
+        GxGlassSurface(radius = 20.dp, padding = 12.dp) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                LeadMetaFact(Icons.Default.PersonOutline, "Assigned to", vm.session?.displayName ?: "You")
+                VerticalDivider(Modifier.height(38.dp), color = GxOutlineSoft)
+                LeadMetaFact(Icons.Default.Link, "Source", lead.source.ifBlank { "Website" })
+                VerticalDivider(Modifier.height(38.dp), color = GxOutlineSoft)
+                LeadMetaFact(Icons.Default.Event, "Added", lead.lastTouchedAt?.let(::formatDate) ?: "Today")
+            }
+        }
+        Text("Stage", color = GxText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("NEW" to "New", "CONTACTED" to "Contacted", "FOLLOW_UP" to "Follow-up", "QUALIFIED" to "Qualified").forEach { (value, label) ->
+                val selected = when (value) {
+                    "FOLLOW_UP" -> lead.stage.contains("FOLLOW", true)
+                    "QUALIFIED" -> lead.stage.contains("QUAL", true)
+                    else -> lead.stage.equals(value, true)
+                }
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(50))
+                        .background(if (selected) GxAccent else GxSurface)
+                        .border(BorderStroke(1.dp, if (selected) GxAccent else GxOutlineSoft), RoundedCornerShape(50))
+                        .clickable { vm.updateLeadStage(lead.id, value) }
+                        .padding(vertical = 9.dp),
+                    contentAlignment = Alignment.Center,
+                ) { Text(label, color = if (selected) Color.White else GxText, fontSize = 10.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1) }
+            }
+        }
+        GxGlassSurface(radius = 18.dp, padding = 12.dp) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.CalendarMonth, null, tint = GxText, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(11.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("Next action", color = GxMuted, fontSize = 11.sp)
+                    Text(lead.followUpAt?.let { "Call · ${formatDate(it)}" } ?: "No follow-up scheduled", color = GxText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+                Icon(Icons.Default.ChevronRight, null, tint = GxMuted, modifier = Modifier.size(19.dp))
+            }
+        }
+        Text("Activity", color = GxText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        if (contextEvents.isEmpty()) {
+            GxGlassSurface(radius = 18.dp, padding = 12.dp) { Text("No activity recorded yet.", color = GxMuted, fontSize = 12.sp) }
+        } else {
+            GxGlassSurface(radius = 20.dp, padding = 12.dp) { LeadContextTimeline(contextEvents.take(3)) }
+        }
+        PrimaryButton("Update lead", false) { taskComposerOpen = true }
+        if ((vm.bootstrap?.pendingNotes ?: 0) > 0) {
+            GxGlassSurface(accent = true, radius = 18.dp, padding = 12.dp) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.EditNote, null, tint = GxWarning, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "Complete ${vm.bootstrap?.pendingNotes} pending call note${if ((vm.bootstrap?.pendingNotes ?: 0) == 1) "" else "s"} before starting another call.",
+                        color = GxWarning,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                    )
+                }
+                if (pendingCall != null) SecondaryButton("Open pending call notes", false) { openDisposition(pendingCall.id) }
             }
         }
         GxCard {
@@ -1914,6 +2706,31 @@ private fun parseLeadContext(raw: String): List<LeadContextEvent> {
     }
 }
 
+@Composable
+private fun LeadQuickAction(icon: ImageVector, label: String, enabled: Boolean = true, onClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Box(
+            Modifier
+                .size(52.dp)
+                .clip(CircleShape)
+                .background(if (enabled && label == "Call") GxAccent else GxSurface)
+                .border(BorderStroke(1.dp, if (enabled && label == "Call") GxAccent else GxOutlineSoft), CircleShape)
+                .clickable(enabled = enabled, onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) { Icon(icon, label, tint = if (enabled && label == "Call") Color.White else if (enabled) GxText else GxMuted.copy(alpha = .45f), modifier = Modifier.size(22.dp)) }
+        Text(label, color = if (enabled) GxText else GxMuted.copy(alpha = .45f), fontSize = 10.sp)
+    }
+}
+
+@Composable
+private fun RowScope.LeadMetaFact(icon: ImageVector, label: String, value: String) {
+    Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Icon(icon, null, tint = GxText, modifier = Modifier.size(18.dp))
+        Text(label, color = GxMuted, fontSize = 10.sp)
+        Text(value, color = GxText, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
 private fun persistRecordingFolder(context: Context, uri: Uri): Boolean {
     val resolver = context.contentResolver
     val read = Intent.FLAG_GRANT_READ_URI_PERMISSION
@@ -2003,17 +2820,95 @@ private val dispositionStages = listOf("NEW", "CONTACTED", "INTERESTED", "QUALIF
     var seconds by remember(pack?.expiresAt) { mutableLongStateOf(0) }
     LaunchedEffect(pack?.expiresAt) { while (pack != null) { seconds = ((runCatching { Instant.parse(pack.expiresAt).toEpochMilli() }.getOrDefault(0) - System.currentTimeMillis()) / 1000).coerceAtLeast(0); delay(1000) } }
     Page {
-        HeaderWithBack("Lead Grab", "Reserve fresh enquiries, then claim before expiry", done)
-        if (pack == null) GxCard(accent = true) {
-            Text("How many leads can you contact now?", fontWeight = FontWeight.Black, fontSize = 19.sp)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(3, 4, 5).forEach { value -> FilterChip(size == value, { size = value }, { Text("$value leads") }, modifier = Modifier.weight(1f)) } }
-            Text("Numbers stay hidden until claimed. Call notes must be completed before another pack unlocks.", color = GxMuted)
-            PrimaryButton("Reserve $size leads", vm.busy) { vm.requestPack(size) }
-        } else {
-            GxCard(accent = true) { Text("PACK RESERVED", color = GxAccent, fontSize = 11.sp, fontWeight = FontWeight.Black); Text("${seconds}s", fontSize = 44.sp, fontWeight = FontWeight.Black); LinearProgressIndicator(progress = { (seconds / 60f).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth()) }
-            pack.leads.forEach { lead -> GxCard { Text(lead.customerName, fontWeight = FontWeight.Black); Text(lead.serviceInterest, color = GxMuted); Text("${lead.source} · ${lead.priority}", color = GxAccent, fontSize = 11.sp) } }
-            if (seconds > 0) PrimaryButton("Claim ${pack.leadPoolIds.size} leads now", vm.busy) { vm.claimPack(done) } else PrimaryButton("Request another pack", false) { vm.clearPack() }
+        HeaderWithBack("Grab leads", "Reserve and claim fresh enquiries", done)
+        val availableCount = vm.bootstrap?.availableLeadCount ?: 0
+        val preview = pack?.leads?.firstOrNull() ?: vm.bootstrap?.availableLeads?.firstOrNull()
+        Box(Modifier.fillMaxWidth().height(214.dp), contentAlignment = Alignment.Center) {
+            GxCommandDial(
+                value = if (pack == null) availableCount else pack.leads.size,
+                label = "available",
+                progress = if (pack == null) (availableCount / 30f).coerceIn(.04f, 1f) else (seconds / 60f).coerceIn(.04f, 1f),
+            )
         }
+        Row(
+            Modifier
+                .align(Alignment.CenterHorizontally)
+                .clip(RoundedCornerShape(50))
+                .background(GxSurface)
+                .border(BorderStroke(1.dp, GxOutlineSoft), RoundedCornerShape(50))
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Default.CloudDone, null, tint = GxSuccess, modifier = Modifier.size(17.dp))
+            Spacer(Modifier.width(7.dp))
+            Text(if (pack == null) "Matched to your workspace" else "Reserved for your workspace", color = GxText, fontSize = 11.sp)
+        }
+        GxGlassSurface(radius = 22.dp, padding = 14.dp) {
+            Text("NEXT LEAD PREVIEW", color = GxMuted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = .6.sp)
+            if (preview == null) {
+                Text("No leads are available right now.", color = GxText, fontWeight = FontWeight.SemiBold)
+                Text("Refresh the workspace and try again when new enquiries arrive.", color = GxMuted, fontSize = 12.sp)
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(46.dp).clip(CircleShape).background(GxText.copy(alpha = .10f)), contentAlignment = Alignment.Center) {
+                        Text(initials(preview.customerName), color = GxText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    Spacer(Modifier.width(11.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(preview.customerName, color = GxText, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(preview.serviceInterest.ifBlank { "Interested in a CRM conversation" }, color = GxMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    StatusPill(preview.priority.replace('_', ' '), if (preview.priority.equals("HIGH", true) || preview.priority.equals("URGENT", true)) GxAccent else GxMuted)
+                }
+                HorizontalDivider(color = GxOutlineSoft)
+                LeadPreviewFact(Icons.Default.ChatBubbleOutline, "Source", preview.source.ifBlank { "Website enquiry" })
+                LeadPreviewFact(Icons.Default.Schedule, "Created", formatDate(preview.createdAt))
+            }
+        }
+        if (pack == null) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Pack size", color = GxMuted, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(3, 4, 5).forEach { value ->
+                        FilterChip(size == value, { size = value }, { Text("$value", fontSize = 11.sp) })
+                    }
+                }
+            }
+            GxPrimaryActionRow(
+                title = "Grab next lead",
+                detail = if (availableCount > 0) "Reserve $size matched leads" else "No unassigned leads right now",
+                icon = Icons.Default.PhoneCallback,
+                enabled = !vm.busy && availableCount > 0,
+                onClick = { vm.requestPack(size) },
+            )
+        } else {
+            GxGlassSurface(accent = true, radius = 20.dp, padding = 14.dp) {
+                Text("PACK RESERVED", color = GxAccent, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("${seconds}s", color = GxText, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Text("${pack.leads.size} leads ready", color = GxMuted, fontSize = 11.sp)
+                }
+                LinearProgressIndicator(progress = { (seconds / 60f).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth(), color = GxAccent, trackColor = GxMuted.copy(alpha = .16f))
+                GxPrimaryActionRow(
+                    title = if (seconds > 0) "Claim reserved leads" else "Request another pack",
+                    detail = if (seconds > 0) "Add ${pack.leadPoolIds.size} leads to your queue" else "This reservation has expired",
+                    icon = Icons.Default.CheckCircle,
+                    enabled = !vm.busy,
+                    onClick = { if (seconds > 0) vm.claimPack(done) else vm.clearPack() },
+                )
+            }
+        }
+        Text("Assignment is confirmed before the lead is added.", color = GxMuted, fontSize = 11.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
+    }
+}
+
+@Composable
+private fun LeadPreviewFact(icon: ImageVector, label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, tint = GxText, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(10.dp))
+        Text(label, color = GxMuted, fontSize = 11.sp, modifier = Modifier.weight(1f))
+        Text(value, color = GxText, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -2206,39 +3101,55 @@ private fun formatMessageDay(value: String): String {
     return when (date) { LocalDate.now() -> "Today"; LocalDate.now().minusDays(1) -> "Yesterday"; else -> DateTimeFormatter.ofPattern("dd MMM yyyy").format(date) }
 }
 
-@Composable private fun InboxConversationRow(item: InboxItem, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 13.dp), verticalAlignment = Alignment.Top) {
-        Surface(color = GxSurface2, shape = RoundedCornerShape(99.dp), border = BorderStroke(1.dp, GxMuted.copy(alpha = .14f)), modifier = Modifier.size(50.dp)) {
+@Composable private fun InboxConversationRow(item: InboxItem, onClick: () -> Unit, featured: Boolean = false) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = if (featured) 14.dp else 13.dp), verticalAlignment = Alignment.Top) {
+        Surface(color = GxSurface2, shape = RoundedCornerShape(99.dp), border = BorderStroke(1.dp, GxMuted.copy(alpha = .14f)), modifier = Modifier.size(if (featured) 50.dp else 42.dp)) {
             Box(contentAlignment = Alignment.Center) { Text(initials(item.lead.customerName), color = GxAccent, fontWeight = FontWeight.Black, fontSize = 14.sp) }
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(item.lead.customerName, fontWeight = FontWeight.Black, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(item.lead.serviceInterest.ifBlank { "Assigned sales conversation" }, color = GxText.copy(alpha = .72f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(item.lead.customerName, fontWeight = FontWeight.Black, fontSize = if (featured) 16.sp else 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (featured) Text(item.lead.serviceInterest.ifBlank { "Assigned sales conversation" }, color = GxText.copy(alpha = .72f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(item.latestMessage.ifBlank { if (item.conversationId != null) "Open conversation" else "Conversation is not connected" }, color = GxMuted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Surface(color = GxAccent.copy(alpha = .10f), shape = RoundedCornerShape(99.dp), border = BorderStroke(1.dp, GxAccent.copy(alpha = .20f))) { Text("CRM", color = GxAccent, fontSize = 9.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)) }
-                Surface(color = GxMuted.copy(alpha = .08f), shape = RoundedCornerShape(99.dp)) { Text(item.lead.stage.replace('_', ' '), color = GxText.copy(alpha = .76f), fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)) }
+            if (featured) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Surface(color = GxAccent.copy(alpha = .10f), shape = RoundedCornerShape(99.dp), border = BorderStroke(1.dp, GxAccent.copy(alpha = .20f))) { Text("CRM", color = GxAccent, fontSize = 9.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)) }
+                    Surface(color = GxMuted.copy(alpha = .08f), shape = RoundedCornerShape(99.dp)) { Text(item.lead.stage.replace('_', ' '), color = GxText.copy(alpha = .76f), fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)) }
+                }
             }
         }
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(formatInboxTime(item.latestMessageAt), color = GxMuted, fontSize = 10.sp)
-            if (item.lead.priority.equals("HIGH", true) || item.lead.priority.equals("URGENT", true)) StatusPill(item.lead.priority.uppercase(), GxWarning)
+            if (featured && (item.lead.priority.equals("HIGH", true) || item.lead.priority.equals("URGENT", true))) {
+                Box(Modifier.size(8.dp).clip(CircleShape).background(GxAccent))
+            }
+            Icon(Icons.Default.ChevronRight, null, tint = GxMuted, modifier = Modifier.size(18.dp))
         }
     }
 }
 
-@Composable private fun Page(vertical: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(GxBackground)
-            .verticalScroll(rememberScrollState())
-            .imePadding()
-            .padding(start = 16.dp, top = 10.dp, end = 16.dp, bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(13.dp),
-        content = content,
-    )
+@Composable private fun Page(
+    vertical: Boolean = false,
+    backdrop: GxBackdropKind = GxBackdropKind.NEUTRAL,
+    reserveBottomBar: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    GxScreenBackdrop(backdrop) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .imePadding()
+                .padding(
+                    start = 16.dp,
+                    top = 10.dp,
+                    end = 16.dp,
+                    bottom = if (reserveBottomBar) 104.dp else 16.dp,
+                ),
+            verticalArrangement = Arrangement.spacedBy(13.dp),
+            content = content,
+        )
+    }
 }
 @Composable private fun BrandHeader(title: String, subtitle: String, fullLogo: Boolean = false) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -2265,25 +3176,39 @@ private fun formatMessageDay(value: String): String {
                 Image(
                     painter = painterResource(com.gigxomi.gxclosers.R.drawable.ic_ai_closer_logo),
                     contentDescription = "AI Closer",
-                    modifier = Modifier.size(34.dp),
+                    modifier = Modifier.size(32.dp),
                 )
                 Spacer(Modifier.width(10.dp))
-                Text("AI CLOSER", color = GxAccent, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+                Text("AI CLOSER", color = GxAccent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.6.sp)
             }
         }
-        Text(title, fontSize = 26.sp, fontWeight = FontWeight.Black)
-        Text(subtitle, color = GxMuted, fontSize = 13.sp)
+        Text(title, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-.3).sp)
+        Text(subtitle, color = GxMuted, fontSize = 12.sp)
     }
 }
 @Composable private fun HeaderWithBack(title: String, subtitle: String, back: () -> Unit) { Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) { IconButton(back) { Icon(Icons.Default.ArrowBack, "Back") }; Column(Modifier.weight(1f)) { Text(title, fontSize = 22.sp, fontWeight = FontWeight.Black); Text(subtitle, color = GxMuted, fontSize = 12.sp) } } }
 @Composable private fun GxCard(accent: Boolean = false, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
-    Surface(
-        color = if (accent) GxSurface2 else GxSurface,
-        shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(1.dp, if (accent) GxAccent.copy(alpha = .30f) else GxOutlineSoft),
-        modifier = Modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+    GxGlassSurface(
+        modifier = Modifier.fillMaxWidth(),
+        radius = 22.dp,
+        accent = accent,
+        onClick = onClick,
+        content = content,
+    )
+}
+@Composable private fun QueueMetric(value: String, label: String, modifier: Modifier = Modifier, valueColor: Color = GxText) {
+    val shape = RoundedCornerShape(16.dp)
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(GxSurface)
+            .border(BorderStroke(1.dp, GxOutlineSoft), shape),
+        contentAlignment = Alignment.Center,
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(value, color = valueColor, fontWeight = FontWeight.Black, fontSize = 18.sp)
+            Text(label, color = GxMuted, fontSize = 10.sp)
+        }
     }
 }
 @Composable private fun PrimaryButton(label: String, loading: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
@@ -2334,6 +3259,129 @@ private fun formatMessageDay(value: String): String {
                 Text("Ready for your first synced call?", color = GxText, fontWeight = FontWeight.Black, fontSize = 14.sp)
                 Text("About 2 minutes · No overlay access", color = GxMuted, fontSize = 11.sp)
             }
+        }
+    }
+}
+
+@Composable
+private fun SetupReferenceHeader(step: Int) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Image(
+                painter = painterResource(com.gigxomi.gxclosers.R.drawable.ic_ai_closer_logo),
+                contentDescription = "AI Closer",
+                modifier = Modifier.size(36.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text("Closer", color = GxText, fontSize = 23.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                repeat(4) { index ->
+                    Box(
+                        modifier = Modifier
+                            .width(if (index == step) 24.dp else 8.dp)
+                            .height(5.dp)
+                            .clip(RoundedCornerShape(99.dp))
+                            .background(if (index == step) GxAccent else GxOutlineSoft),
+                    )
+                }
+            }
+            Text("${step + 1} of 4", color = GxMuted, fontSize = 10.sp)
+        }
+    }
+}
+
+@Composable
+private fun SetupWaveHero(icon: ImageVector, label: String) {
+    val pulse by rememberInfiniteTransition(label = "setupWave").animateFloat(
+        initialValue = .94f,
+        targetValue = 1.04f,
+        animationSpec = infiniteRepeatable(tween(1800, easing = LinearEasing), RepeatMode.Reverse),
+        label = "setupWaveScale",
+    )
+    val waveSurface = GxSurface
+    val waveAccent = GxAccent
+    val waveOutline = GxOutlineSoft
+    val waveMuted = GxMuted
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(184.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(178.dp).graphicsLayer { scaleX = pulse; scaleY = pulse }) {
+            drawCircle(color = waveSurface.copy(alpha = .18f))
+            drawArc(
+                color = waveAccent,
+                startAngle = -90f,
+                sweepAngle = 112f,
+                useCenter = false,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 7.dp.toPx()),
+            )
+            drawArc(
+                color = waveOutline,
+                startAngle = 25f,
+                sweepAngle = 245f,
+                useCenter = false,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx()),
+            )
+            val center = Offset(size.width / 2f, size.height / 2f)
+            val barHeights = listOf(22f, 40f, 30f, 62f, 36f, 78f, 32f, 54f, 28f, 44f, 22f)
+            barHeights.forEachIndexed { index, height ->
+                val x = center.x - 62.dp.toPx() + index * 12.dp.toPx()
+                drawLine(
+                    color = if (index == barHeights.lastIndex / 2) waveAccent else waveMuted.copy(alpha = .72f),
+                    start = Offset(x, center.y - height.dp.toPx() / 2f),
+                    end = Offset(x, center.y + height.dp.toPx() / 2f),
+                    strokeWidth = 3.dp.toPx(),
+                )
+            }
+        }
+        Surface(
+            color = GxSurface.copy(alpha = .90f),
+            shape = CircleShape,
+            border = BorderStroke(1.dp, GxOutlineSoft),
+            shadowElevation = 8.dp,
+            modifier = Modifier.size(108.dp),
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                Icon(icon, null, tint = GxAccent, modifier = Modifier.size(29.dp))
+                Spacer(Modifier.height(4.dp))
+                Text(label, color = GxText, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SetupReferenceFeature(icon: ImageVector, title: String, copy: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Surface(
+            color = GxSurface2,
+            shape = CircleShape,
+            border = BorderStroke(1.dp, GxOutlineSoft),
+            modifier = Modifier.size(48.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(icon, null, tint = GxText, modifier = Modifier.size(23.dp))
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, color = GxText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text(copy, color = GxMuted, fontSize = 12.sp, lineHeight = 16.sp)
         }
     }
 }
@@ -2424,6 +3472,18 @@ private fun formatMessageDay(value: String): String {
 }
 
 @Composable private fun StatusPill(label: String, color: androidx.compose.ui.graphics.Color) { Surface(color = color.copy(alpha = .12f), shape = RoundedCornerShape(99.dp), border = BorderStroke(1.dp, color.copy(alpha = .35f))) { Text(label, color = color, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) } }
+private fun leadStageLabel(stage: String): String = when {
+    stage.contains("FOLLOW", true) -> "Follow-up"
+    stage.contains("CONTACT", true) -> "Contacted"
+    stage.contains("QUAL", true) -> "Qualified"
+    else -> "New"
+}
+@Composable private fun leadStageColor(stage: String): androidx.compose.ui.graphics.Color = when {
+    stage.contains("FOLLOW", true) -> GxAccent
+    stage.contains("CONTACT", true) -> GxSuccess
+    stage.contains("QUAL", true) -> Color(0xFF7D6CCB)
+    else -> Color(0xFF4D7BAA)
+}
 @Composable private fun LeadCard(lead: SalesLead, open: () -> Unit) {
     GxCard(onClick = open) {
         Row(verticalAlignment = Alignment.CenterVertically) {
