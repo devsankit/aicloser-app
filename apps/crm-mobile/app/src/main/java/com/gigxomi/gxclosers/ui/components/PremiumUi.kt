@@ -87,7 +87,7 @@ import com.gigxomi.gxclosers.ui.theme.ThemeMode
 
 val GxOrange = Color(0xFFFE6420)
 val GxGreen = Color(0xFF3CB64D)
-val GxDarkBg = Color(0xFF0E1013)
+val GxDarkBg = Color(0xFF090B0D)
 val GxCardDark = Color(0xFF171A1E)
 val GxCardBorder = Color(0x1FFFFFFF)
 val GxMutedText = Color(0xFF8E95A2)
@@ -107,31 +107,34 @@ fun GxScreenBackdrop(
     val photoBackdrop = kind != GxBackdropKind.NEUTRAL
     Box(modifier.fillMaxSize().background(if (dark) GxDarkBg else MaterialTheme.colorScheme.background)) {
         if (photoBackdrop && kind == GxBackdropKind.TELEPHONY) {
-            Image(
-                painter = painterResource(R.drawable.login_telephony_background),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                alignment = Alignment.TopCenter,
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(440.dp),
-                alpha = if (dark) 0.58f else 0.38f,
-            )
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(460.dp)
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                Color(0xFF0E1013).copy(alpha = 0.35f),
-                                Color.Transparent,
-                                Color(0xFF0E1013).copy(alpha = 0.82f),
-                                Color(0xFF0E1013)
+                    .height(480.dp)
+            ) {
+                Image(
+                    painter = painterResource(R.drawable.login_telephony_background),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    alignment = Alignment.TopCenter,
+                    modifier = Modifier.fillMaxSize(),
+                    alpha = if (dark) 0.50f else 0.35f,
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                0.00f to Color(0xFF090B0D).copy(alpha = 0.40f),
+                                0.20f to Color.Transparent,
+                                0.50f to Color(0xFF090B0D).copy(alpha = 0.50f),
+                                0.72f to Color(0xFF090B0D).copy(alpha = 0.88f),
+                                0.88f to Color(0xFF090B0D),
+                                1.00f to Color(0xFF090B0D),
                             )
                         )
-                    )
-            )
+                )
+            }
         }
         if (!photoBackdrop) Canvas(Modifier.fillMaxSize()) {
             val driftX = size.width * .035f * wave
@@ -1075,7 +1078,7 @@ fun SimCardOptionItem(
             Spacer(Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = if (!phoneNumber.isNullOrBlank()) "$label ••••• ${phoneNumber.takeLast(4)}" else label,
+                    text = if (!phoneNumber.isNullOrBlank()) "$label \u2022\u2022\u2022\u2022\u2022 ${phoneNumber.takeLast(4)}" else label,
                     color = Color.White,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -1282,12 +1285,7 @@ fun RecordingRowItem(
                         modifier = Modifier.size(12.dp),
                     )
                 } else {
-                    Text(
-                        "—",
-                        color = GxMutedText,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
+                    Text("\u2014", color = GxMutedText, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
                 Text(
                     statusText,

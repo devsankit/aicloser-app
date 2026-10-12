@@ -39,7 +39,7 @@ val LocalThemeMode = compositionLocalOf { ThemeMode.SYSTEM }
 val LocalThemeModeChange = compositionLocalOf<(ThemeMode) -> Unit> { {} }
 
 private val BrandOrange = Color(0xFFFF6B2F)
-private val DarkBackground = Color(0xFF121417)
+private val DarkBackground = Color(0xFF090B0D)
 private val DarkSurface = Color(0xFF202429)
 private val DarkSurfaceRaised = Color(0xFF2B3036)
 private val DarkText = Color(0xFFF7F5F1)

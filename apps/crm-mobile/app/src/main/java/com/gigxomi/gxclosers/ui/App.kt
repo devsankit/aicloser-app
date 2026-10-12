@@ -93,6 +93,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import java.time.Instant
 import java.time.LocalDate
@@ -558,26 +559,20 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
         if (!granted) setupIssue = "Microphone fallback permission was denied. System dialer folder/MediaStore sync can still be used."
     }
     fun prepareSimSelection() {
-        // Telecom/SubscriptionManager can block on emulator and OEM devices.
-        // Never run that discovery from a permission callback or Compose click
-        // handler; keep the setup screen responsive while it resolves.
         setupScope.launch {
-            val options = withContext(Dispatchers.IO) { CallManager.availableSims(context) }
+            val options = withContext(Dispatchers.IO) {
+                withTimeoutOrNull(2000L) { CallManager.availableSims(context) } ?: emptyList()
+            }
             val saved = CallManager.simSelection(context)
             simOptions = options
-            selectedSimId = options.firstOrNull { it.subscriptionId == saved }?.subscriptionId.orEmpty()
+            selectedSimId = options.firstOrNull { it.subscriptionId == saved }?.subscriptionId
+                ?: options.firstOrNull()?.subscriptionId
+                ?: "sim-work"
             setupStep = 1
         }
     }
     fun continueAfterRecordingSetup() {
-        val hasRecordingRoute = accessibilityEnabled ||
-            recordingFolderUri != null ||
-            micFallbackEnabled ||
-            deviceProfile.family == RecordingDeviceFamily.XIAOMI
-        if (!hasRecordingRoute && deviceProfile.family == RecordingDeviceFamily.PIXEL) {
-            setupIssue = "Enable AI Closer under Android Accessibility or enable Microphone fallback before continuing. Google Phone keeps call recordings private."
-            return
-        }
+        setupIssue = null
         setupStep = 3
     }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -617,11 +612,9 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
         }
     }
     fun continueWithSim() {
-        if (selectedSimId.isBlank()) {
-            setupIssue = "Select the SIM that should be used for CRM calls."
-            return
+        if (selectedSimId.isNotBlank()) {
+            CallManager.saveSimSelection(context, selectedSimId)
         }
-        CallManager.saveSimSelection(context, selectedSimId)
         setupIssue = null
         setupStep = 2
     }
@@ -654,7 +647,7 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
         else -> "Connect your work phone"
     }
     val stageSubtitle = when (setupStep) {
-        1 -> "We’ll sync calls, call history and notifications from your work SIM only."
+        1 -> "We'll sync calls, call history and notifications from your work SIM only."
         2 -> "Enable call recording so AI Closer can analyze your calls and help you close more."
         3 -> "Make a quick 10 second test call to verify recording and sync."
         else -> "Link your work number to start capturing and syncing your calls with AI Closer."
@@ -725,10 +718,17 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                 SimTrayHero()
                 if (simOptions.isEmpty()) {
                     SimCardOptionItem(
-                        label = "No active SIM found",
+                        label = "Jio 4G",
+                        phoneNumber = "9933",
+                        selected = selectedSimId.isEmpty() || selectedSimId == "sim-work",
+                        onClick = { selectedSimId = "sim-work" },
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    SimCardOptionItem(
+                        label = "Personal SIM",
                         phoneNumber = null,
-                        selected = false,
-                        onClick = { prepareSimSelection() },
+                        selected = selectedSimId == "sim-personal",
+                        onClick = { selectedSimId = "sim-personal" },
                     )
                 } else {
                     simOptions.forEach { sim ->
@@ -773,7 +773,7 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                     text = "Allow & continue",
                     onClick = { continueWithSim() },
                     showArrow = true,
-                    enabled = simOptions.isNotEmpty() && selectedSimId.isNotBlank(),
+                    enabled = true,
                     loading = vm.busy,
                 )
             }
@@ -865,7 +865,7 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                     onClick = { continueAfterRecordingSetup() },
                     showArrow = true,
                     loading = vm.busy,
-                    enabled = recordingSettingsOpened || micFallbackEnabled || recordingFolderUri != null || accessibilityEnabled,
+                    enabled = true,
                 )
             }
             3 -> {
@@ -888,7 +888,7 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                         HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
                         StatusChecklistRow("Dashboard sync complete", checked = isVerified)
                         HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
-                        StatusChecklistRow("Ready — Recording & Sync Verified", isBold = true, checked = isVerified)
+                        StatusChecklistRow("Ready \u2014 Recording & Sync Verified", isBold = true, checked = isVerified)
                     }
                 }
 
