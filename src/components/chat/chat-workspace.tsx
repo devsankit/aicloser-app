@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Fragment, memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { Component, type ErrorInfo, Suspense, Fragment, memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
@@ -36,6 +36,7 @@ import {
   Mic,
   Pause,
   Paperclip,
+  Phone,
   PhoneCall,
   PhoneForwarded,
   Play,
@@ -72,6 +73,7 @@ import type {
   DummyPaymentStatus,
 } from "@/lib/gigxomi/dummy-platform-store";
 import { broadcastChatWorkspaceSync, subscribeToChatWorkspaceSync } from "@/components/chat/chat-sync";
+import styles from "./chat-workspace.module.css";
 import {
   startWebPushNotifications,
   type WebPushForegroundHandler,
@@ -85,7 +87,86 @@ import {
 import { buildInboundAttachmentAcknowledgement } from "@/lib/gigxomi/closer-message-safety";
 import type { NormalizedRegistrationStatus } from "@/lib/gigxomi/registration-status";
 
-import styles from "./chat-workspace.module.css";
+export interface ChatErrorBoundaryProps {
+  children: ReactNode;
+  fallbackTitle?: string;
+}
+
+export interface ChatErrorBoundaryState {
+  hasError: boolean;
+  errorMessage: string;
+}
+
+export class ChatErrorBoundary extends Component<ChatErrorBoundaryProps, ChatErrorBoundaryState> {
+  constructor(props: ChatErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, errorMessage: "" };
+  }
+
+  static getDerivedStateFromError(error: Error): ChatErrorBoundaryState {
+    return {
+      hasError: true,
+      errorMessage: error?.message || "An unexpected error occurred in Chat.",
+    };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("[ChatErrorBoundary] Caught error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "48px 24px",
+            margin: "24px auto",
+            maxWidth: "600px",
+            background: "rgba(15, 23, 42, 0.8)",
+            borderRadius: "16px",
+            border: "1px solid rgba(239, 68, 68, 0.3)",
+            color: "#f8fafc",
+            textAlign: "center",
+          }}
+        >
+          <AlertCircle size={36} color="#ef4444" style={{ marginBottom: 16 }} />
+          <h3 style={{ fontSize: "1.2rem", fontWeight: 700, margin: "0 0 8px" }}>
+            {this.props.fallbackTitle || "Social Inbox Encountered an Issue"}
+          </h3>
+          <p style={{ fontSize: "0.88rem", color: "#94a3b8", margin: "0 0 20px", maxWidth: "420px" }}>
+            {this.state.errorMessage || "The chat workspace ran into a client-side display error. Click below to reload the inbox safely."}
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              this.setState({ hasError: false, errorMessage: "" });
+              if (typeof window !== "undefined") {
+                window.location.reload();
+              }
+            }}
+            style={{
+              padding: "10px 24px",
+              borderRadius: "8px",
+              background: "var(--closer-orange, #ff6b2f)",
+              color: "#fff",
+              border: "none",
+              fontWeight: 700,
+              fontSize: "0.9rem",
+              cursor: "pointer",
+            }}
+          >
+            Reload Inbox
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 type ChatWorkspaceProps = {
   audience: DummyConversationRole;
@@ -102,7 +183,7 @@ type PendingAttachment = DummyMessageAttachmentInput;
 type QuickFilter = "all" | "unread" | "mine" | "waiting" | "paused";
 type AssignedFilter = "all" | "assigned" | "unassigned";
 type AgencyFilter = "all" | string;
-type ChannelFilter = "all" | "whatsapp" | "instagram";
+type ChannelFilter = "all" | "whatsapp" | "whatsapp_company" | "whatsapp_connected" | "instagram";
 type ChatNotificationSetupStatus = "idle" | "ready" | "working" | "blocked" | "unsupported" | "missing-config" | "error";
 type MicPermissionState = "unknown" | "granted" | "denied" | "prompt" | "unsupported";
 type MicErrorInfo = { name: string; message: string };
@@ -124,10 +205,6 @@ type Mp3EncoderInstance = {
   flush: () => Int8Array;
 };
 type Mp3EncoderConstructor = new (channels: number, samplerate: number, kbps: number) => Mp3EncoderInstance;
-
-function cleanPhone(value: string | null | undefined) {
-  return String(value ?? "").replace(/\D/g, "");
-}
 
 let cachedMp3EncoderConstructor: Mp3EncoderConstructor | null = null;
 let mp3EncoderImportPromise: Promise<Mp3EncoderConstructor> | null = null;
@@ -311,8 +388,15 @@ export function getLeadBadgeConfig(statusId?: string, label?: string, tone?: str
 }
 
 
-function formatTimestamp(value: string) {
-  return new Intl.DateTimeFormat("en-IN", { hour: "numeric", minute: "2-digit" }).format(new Date(value));
+function formatTimestamp(value?: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  try {
+    return new Intl.DateTimeFormat("en-IN", { hour: "numeric", minute: "2-digit" }).format(date);
+  } catch {
+    return "";
+  }
 }
 
 function formatRelativeThreadTime(value?: string | null): string {
@@ -938,32 +1022,34 @@ function isConversationView(value: unknown): value is DummyConversationView {
 function makeConversationSignature(payload: DummyConversationListResponse) {
   const conversationSignature = (payload.conversations ?? [])
     .map((conversation) => {
-      const latestMessage = conversation.messages.at(-1);
-      const latestTyping = conversation.typing.at(-1);
+      const messages = Array.isArray(conversation.messages) ? conversation.messages : [];
+      const typing = Array.isArray(conversation.typing) ? conversation.typing : [];
+      const latestMessage = messages.at(-1);
+      const latestTyping = typing.at(-1);
       const latestPaymentRequest = conversation.latestPaymentRequest;
 
       return [
         conversation.id,
-        conversation.status,
-        conversation.leadStatusId,
+        conversation.status ?? "",
+        conversation.leadStatusId ?? "",
         conversation.assignedFreelancerId ?? "",
         conversation.assignedFreelancerName ?? "",
-        conversation.assignmentSummary.pendingOfferCount ?? 0,
+        conversation.assignmentSummary?.pendingOfferCount ?? 0,
         conversation.myAssignmentOffer?.status ?? "",
         conversation.myAssignmentOffer?.respondedAt ?? "",
         conversation.ownerName ?? "",
         conversation.ownerRole ?? "",
-        conversation.lastCustomerActivityAt,
-        conversation.unreadCount,
-        conversation.unreadCountByLane.customer,
-        conversation.unreadCountByLane.internal,
-        conversation.latestMessageLane,
-        conversation.preferredLane,
+        conversation.lastCustomerActivityAt ?? "",
+        conversation.unreadCount ?? 0,
+        conversation.unreadCountByLane?.customer ?? 0,
+        conversation.unreadCountByLane?.internal ?? 0,
+        conversation.latestMessageLane ?? "",
+        conversation.preferredLane ?? "",
         conversation.businessPhoneDisplay ?? "",
-        conversation.messages.length,
+        messages.length,
         latestMessage?.id ?? "",
         latestMessage?.createdAt ?? "",
-        latestMessage?.body.length ?? 0,
+        latestMessage?.body?.length ?? 0,
         latestMessage?.attachments?.length ?? 0,
         latestMessage?.deliveryStatus ?? "",
         conversation.customerProfileImageUrl ?? "",
@@ -1139,7 +1225,7 @@ function toneClassName(tone: DummyLeadStatusTone) {
 }
 
 function isWaitingConversation(conversation: DummyConversationView) {
-  return /review|waiting/i.test(conversation.status) || /new|waiting|payment-pending/.test(conversation.leadStatusId);
+  return /review|waiting/i.test(conversation.status || "") || /new|waiting|payment-pending/.test(conversation.leadStatusId || "");
 }
 
 function getConversationSourceChannel(
@@ -1198,7 +1284,7 @@ function formatReplyWindowRemaining(remainingMs: number) {
 }
 
 function parseChannelFilter(value: string | null): ChannelFilter {
-  return value === "instagram" || value === "whatsapp" ? value : "all";
+  return value === "instagram" || value === "whatsapp" || value === "whatsapp_company" || value === "whatsapp_connected" ? value : "all";
 }
 
 function cx(...values: Array<string | false | null | undefined>) {
@@ -1442,10 +1528,11 @@ const ChatThreadRow = memo(function ChatThreadRow({
     conversation.customerDisplayName?.trim() ||
     conversation.customerPhoneDisplay?.trim() ||
     "Lead";
-  const latestMessage = conversation.messages.at(-1);
-  const latestInternalMessage = [...conversation.messages].reverse().find((message) => message.lane === "internal");
+  const messages = Array.isArray(conversation.messages) ? conversation.messages : [];
+  const latestMessage = messages.at(-1);
+  const latestInternalMessage = [...messages].reverse().find((message) => message.lane === "internal");
   const isSales = audience === "sales";
-  const hasInternalSignal = !isSales && (conversation.unreadCountByLane.internal > 0 || conversation.latestMessageLane === "internal");
+  const hasInternalSignal = !isSales && ((conversation.unreadCountByLane?.internal ?? 0) > 0 || conversation.latestMessageLane === "internal");
   const sourceChannel = getConversationSourceChannel(conversation);
   const sourceChannelLabel = sourceChannel === "instagram" ? "Instagram" : sourceChannel === "whatsapp" ? "WhatsApp" : "In-app";
   const isMetaAd = Boolean(
@@ -1461,10 +1548,25 @@ const ChatThreadRow = memo(function ChatThreadRow({
       : conversation.summary?.trim() || "";
   const summaryLabel = summaryPreview || "Open chat";
 
+  const leadStage = (conversation as any).leadStage;
+  const stageMapping = leadStage ? ({
+    NEW: { id: "new", label: "New Lead", tone: "accent" },
+    CONTACTED: { id: "contacted", label: "Contacted", tone: "accent" },
+    INTERESTED: { id: "qualified", label: "Interested / Qualified", tone: "success" },
+    WEBINAR_INVITED: { id: "training-booked", label: "Training Booked", tone: "accent" },
+    FOLLOW_UP: { id: "follow-up", label: "Follow-up", tone: "warning" },
+    CLOSED_WON: { id: "closed", label: "Closed Won", tone: "success" },
+    CLOSED_LOST: { id: "lost", label: "Lost / Recycled", tone: "danger" },
+  } as Record<string, { id: string; label: string; tone: string }>)[leadStage as string] : null;
+
+  const effectiveStatusId = stageMapping?.id || conversation.leadStatusId;
+  const effectiveStatusLabel = stageMapping?.label || conversation.leadStatusLabel;
+  const effectiveStatusTone = stageMapping?.tone || conversation.leadStatusTone;
+
   const badgeCfg = getLeadBadgeConfig(
-    conversation.leadStatusId,
-    conversation.leadStatusLabel,
-    conversation.leadStatusTone
+    effectiveStatusId,
+    effectiveStatusLabel,
+    effectiveStatusTone
   );
 
   return (
@@ -1506,8 +1608,8 @@ const ChatThreadRow = memo(function ChatThreadRow({
           {threadTime ? <span className="chat-thread-time">{threadTime}</span> : null}
         </div>
 
-        {/* Line 2: CRM status only. Account/package labels are not customer-facing chat data. */}
-        <div className="chat-thread-badge-row">
+        {/* Line 2: CRM status & Customer phone number always visible */}
+        <div className="chat-thread-badge-row" style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
           <span
             className="chat-thread-stage-pill"
             style={{
@@ -1527,7 +1629,48 @@ const ChatThreadRow = memo(function ChatThreadRow({
             />
             <span className="chat-thread-stage-label">{badgeCfg.label}</span>
           </span>
-
+          {conversation.customerPhoneDisplay ? (
+            <span
+              className="chat-thread-phone-display"
+              style={{
+                fontSize: "0.72rem",
+                fontFamily: "monospace",
+                fontWeight: 700,
+                color: "#e2e8f0",
+                background: "rgba(255, 255, 255, 0.07)",
+                padding: "2px 6px",
+                borderRadius: "5px",
+                border: "1px solid rgba(255, 255, 255, 0.12)",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px",
+              }}
+              title={`Customer Phone: ${conversation.customerPhoneDisplay}`}
+            >
+              <Phone size={10} style={{ color: "var(--closer-orange, #ff6b2f)" }} />
+              {conversation.customerPhoneDisplay}
+            </span>
+          ) : null}
+          {sourceChannel === "whatsapp" ? (
+            <span
+              style={{
+                fontSize: "0.68rem",
+                fontWeight: 700,
+                color: conversation.externalSourceType === "whatsapp_personal" || conversation.externalSourceType === "whatsapp_business" ? "#38bdf8" : "#34d399",
+                background: conversation.externalSourceType === "whatsapp_personal" || conversation.externalSourceType === "whatsapp_business" ? "rgba(2, 132, 199, 0.15)" : "rgba(16, 185, 129, 0.15)",
+                padding: "2px 6px",
+                borderRadius: "5px",
+                border: `1px solid ${conversation.externalSourceType === "whatsapp_personal" || conversation.externalSourceType === "whatsapp_business" ? "rgba(2, 132, 199, 0.35)" : "rgba(16, 185, 129, 0.35)"}`,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px",
+              }}
+              title={conversation.externalSourceType === "whatsapp_personal" || conversation.externalSourceType === "whatsapp_business" ? "Closer Business WhatsApp (Synced Device)" : "Company WhatsApp (Official API)"}
+            >
+              {conversation.externalSourceType === "whatsapp_personal" || conversation.externalSourceType === "whatsapp_business" ? <Smartphone size={10} /> : <Building2 size={10} />}
+              {conversation.externalSourceType === "whatsapp_personal" || conversation.externalSourceType === "whatsapp_business" ? "Closer WA" : "Company WA"}
+            </span>
+          ) : null}
         </div>
 
         {/* Line 3: Last Message Snippet + Unread Counter */}
@@ -1535,7 +1678,7 @@ const ChatThreadRow = memo(function ChatThreadRow({
           <p className={cx("chat-thread-preview", hasInternalSignal && "internal")}>
             {summaryLabel}
           </p>
-          {conversation.unreadCount > 0 ? (
+          {(conversation.unreadCount ?? 0) > 0 ? (
             <span className="chat-thread-unread-pill">{conversation.unreadCount}</span>
           ) : null}
         </div>
@@ -1706,10 +1849,11 @@ async function fetchConversationProfilePicture(conversationId: string, options?:
 }
 
 function getLatestIncomingMessage(
-  conversation: DummyConversationView,
+  conversation: DummyConversationView | null | undefined,
   audience: DummyConversationRole,
 ) {
-  return [...conversation.messages]
+  const messages = Array.isArray(conversation?.messages) ? conversation.messages : [];
+  return [...messages]
     .reverse()
     .find((message) => isConversationMessageIncomingForAudience(message, audience)) ?? null;
 }
@@ -1732,11 +1876,12 @@ function getPreferredConversationLane(conversation: DummyConversationView, audie
 
   // Sales needs the customer-facing conversation first so the full lead context is visible.
   // Internal/system events remain available through the lane toggle in the header.
-  const preferredLane = audience === "sales" ? "customer" : conversation.unreadCountByLane.internal > 0 ? "internal" : conversation.preferredLane ?? "customer";
-  return conversation.visibleLanes.includes(preferredLane) ? preferredLane : (conversation.visibleLanes[0] ?? "customer");
+  const preferredLane = audience === "sales" ? "customer" : (conversation.unreadCountByLane?.internal ?? 0) > 0 ? "internal" : conversation.preferredLane ?? "customer";
+  const visibleLanes = Array.isArray(conversation.visibleLanes) ? conversation.visibleLanes : [];
+  return visibleLanes.includes(preferredLane) ? preferredLane : (visibleLanes[0] ?? "customer");
 }
 
-export function ChatWorkspace({
+function ChatWorkspaceInner({
   audience,
   customerId = "",
   serviceIdFilter = "",
@@ -1744,11 +1889,11 @@ export function ChatWorkspace({
 }: ChatWorkspaceProps) {
   const searchParams = useSearchParams();
   const [titleActionHost, setTitleActionHost] = useState<HTMLElement | null>(null);
-  const requestedConversationId = searchParams.get("conversationId") ?? "";
-  const phonePePaymentStatus = searchParams.get("phonepePaymentStatus") ?? "";
-  const phonePePaymentMessage = searchParams.get("phonepePaymentMessage") ?? "";
-  const instagramConnected = searchParams.get("instagramConnected") ?? "";
-  const instagramError = searchParams.get("instagramError") ?? "";
+  const requestedConversationId = searchParams?.get("conversationId") ?? "";
+  const phonePePaymentStatus = searchParams?.get("phonepePaymentStatus") ?? "";
+  const phonePePaymentMessage = searchParams?.get("phonepePaymentMessage") ?? "";
+  const instagramConnected = searchParams?.get("instagramConnected") ?? "";
+  const instagramError = searchParams?.get("instagramError") ?? "";
   const [conversations, setConversations] = useState<DummyConversationView[]>([]);
   const [assignableEditors, setAssignableEditors] = useState<DummyAssignableEditor[]>([]);
   const [leadStatuses, setLeadStatuses] = useState<DummyLeadStatus[]>(() => DEFAULT_LEAD_STATUSES);
@@ -1758,11 +1903,12 @@ export function ChatWorkspace({
   const [isMobileThreadViewOpen, setIsMobileThreadViewOpen] = useState(false);
   const [activeLane, setActiveLane] = useState<DummyConversationLane>(audience === "freelancer" ? "customer" : "customer");
   const [activeFilter, setActiveFilter] = useState<QuickFilter>("all");
-  const [channelFilter, setChannelFilter] = useState<ChannelFilter>(() => parseChannelFilter(searchParams.get("channel")));
+  const [channelFilter, setChannelFilter] = useState<ChannelFilter>(() => parseChannelFilter(searchParams?.get("channel") ?? null));
   const [agencyFilter, setAgencyFilter] = useState<AgencyFilter>("all");
   const [searchValue, setSearchValue] = useState("");
   const deferredSearchValue = useDeferredValue(searchValue);
   const [messageDraft, setMessageDraft] = useState("");
+  const [whatsappTransport, setWhatsappTransport] = useState<"company" | "connected_user">("company");
   const [hideCustomerMessageFromFreelancer, setHideCustomerMessageFromFreelancer] = useState(false);
   const [assignmentRejectReason, setAssignmentRejectReason] = useState("");
   const [isRejectingAssignment, setIsRejectingAssignment] = useState(false);
@@ -1961,10 +2107,11 @@ export function ChatWorkspace({
     const query = assignSearchValue.trim().toLowerCase();
     const category = assignCategoryFilter.trim().toLowerCase();
     return assignableEditors.filter((editor) => {
-      const specialties = editor.specialties.map((specialty) => specialty.trim().toLowerCase().replace(/\s+/g, " "));
+      const editorSpecialties = Array.isArray(editor.specialties) ? editor.specialties : [];
+      const specialties = editorSpecialties.map((specialty) => specialty.trim().toLowerCase().replace(/\s+/g, " "));
       if (category !== "all" && !specialties.includes(category)) return false;
       if (!query) return true;
-      const haystack = `${editor.name} ${editor.specialties.join(" ")} ${editor.workloadBand} ${editor.karmaScore}`.toLowerCase();
+      const haystack = `${editor.name} ${editorSpecialties.join(" ")} ${editor.workloadBand} ${editor.karmaScore}`.toLowerCase();
       return haystack.includes(query);
     });
   }, [assignCategoryFilter, assignSearchValue, assignableEditors]);
@@ -1972,7 +2119,8 @@ export function ChatWorkspace({
   const assignCategoryOptions = useMemo(() => {
     const categories = new Map<string, string>();
     assignableEditors.forEach((editor) => {
-      editor.specialties.forEach((specialty) => {
+      const editorSpecialties = Array.isArray(editor.specialties) ? editor.specialties : [];
+      editorSpecialties.forEach((specialty) => {
         const normalized = specialty.trim().toLowerCase().replace(/\s+/g, " ");
         if (normalized && !categories.has(normalized)) {
           categories.set(normalized, specialty.trim());
@@ -2007,7 +2155,17 @@ export function ChatWorkspace({
       ]
         .join(" ")
         .toLowerCase();
-      if (channelFilter !== "all" && sourceChannel !== channelFilter) return false;
+      if (channelFilter === "whatsapp") {
+        if (sourceChannel !== "whatsapp") return false;
+      } else if (channelFilter === "whatsapp_company") {
+        if (sourceChannel !== "whatsapp") return false;
+        if (conversation.externalSourceType === "whatsapp_personal" || conversation.externalSourceType === "whatsapp_business") return false;
+      } else if (channelFilter === "whatsapp_connected") {
+        if (sourceChannel !== "whatsapp") return false;
+        if (conversation.externalSourceType !== "whatsapp_personal" && conversation.externalSourceType !== "whatsapp_business") return false;
+      } else if (channelFilter === "instagram") {
+        if (sourceChannel !== "instagram") return false;
+      }
       if (agencyFilter !== "all" && conversation.agencyContext?.tenantId !== agencyFilter) return false;
       if (query && !haystack.includes(query)) return false;
       if (activeFilter === "unread" && conversation.unreadCount === 0) return false;
@@ -2039,11 +2197,24 @@ export function ChatWorkspace({
     );
     return activeVisibleLanes.length > 0 ? activeVisibleLanes : (["customer", "internal"] as DummyConversationLane[]);
   }, [activeConversation?.visibleLanes]);
-  const resolvedLane = normalizedVisibleLanes.includes(activeLane) ? activeLane : normalizedVisibleLanes[0] ?? "customer";
+  const resolvedLane: DummyConversationLane = useMemo(() => {
+    if (audience === "customer") return "customer";
+    if (audience === "sales") return "customer";
+    return normalizedVisibleLanes.includes(activeLane) ? activeLane : (normalizedVisibleLanes[0] ?? "customer");
+  }, [activeLane, audience, normalizedVisibleLanes]);
+  const lastActiveConversationIdRef = useRef<string | null>(null);
   useEffect(() => {
-    setNotesDraft(activeConversation?.internalNotes ?? "");
-    setFollowUpDraft(activeConversation?.nextFollowUpAt ? activeConversation.nextFollowUpAt.slice(0, 16) : "");
-  }, [activeConversation?.id, activeConversation?.internalNotes, activeConversation?.nextFollowUpAt]);
+    if (isNotesSaving) return;
+    const conversationChanged = lastActiveConversationIdRef.current !== activeConversationId;
+    lastActiveConversationIdRef.current = activeConversationId;
+    if (conversationChanged) {
+      setNotesDraft(activeConversation?.internalNotes ?? "");
+      setFollowUpDraft(activeConversation?.nextFollowUpAt ? activeConversation.nextFollowUpAt.slice(0, 16) : "");
+    } else if (activeConversation?.internalNotes !== undefined) {
+      setNotesDraft(activeConversation.internalNotes);
+      setFollowUpDraft(activeConversation.nextFollowUpAt ? activeConversation.nextFollowUpAt.slice(0, 16) : "");
+    }
+  }, [activeConversationId, activeConversation?.internalNotes, activeConversation?.nextFollowUpAt, isNotesSaving]);
 
   useEffect(() => {
     if (!activeConversation?.id) {
@@ -2091,6 +2262,44 @@ export function ChatWorkspace({
   const activeCustomerName = activeConversation?.customerDisplayName?.trim() || "Unknown customer";
   const activeServiceTitle = activeConversation?.serviceTitle?.trim() || "";
   const activeCustomerPhone = activeConversation?.customerPhoneDisplay?.trim() || "Customer contact hidden";
+  const hasConnectedWhatsAppRoute = Boolean(
+    activeConversation?.sourceChannel === "whatsapp" && (
+      activeConversation.whatsappRoutes?.connectedUser ||
+      activeConversation.externalSourceType === "whatsapp_personal" ||
+      activeConversation.externalSourceType === "whatsapp_business" ||
+      audience === "sales" ||
+      audience === "admin" ||
+      audience === "manager"
+    ),
+  );
+  const hasCompanyWhatsAppRoute = Boolean(
+    activeConversation?.sourceChannel === "whatsapp" && (
+      activeConversation.whatsappRoutes?.company !== false ||
+      activeConversation.externalSourceType === "company_whatsapp" ||
+      !activeConversation.externalSourceType
+    ),
+  );
+
+  useEffect(() => {
+    if (!activeConversation || activeConversation.sourceChannel !== "whatsapp") {
+      setWhatsappTransport("company");
+      return;
+    }
+    const requestedTransport = searchParams?.get("transport");
+    if (requestedTransport === "connected_user") {
+      setWhatsappTransport("connected_user");
+      return;
+    }
+    if (requestedTransport === "company") {
+      setWhatsappTransport("company");
+      return;
+    }
+    setWhatsappTransport(
+      activeConversation.externalSourceType === "whatsapp_personal" || activeConversation.externalSourceType === "whatsapp_business" || !activeConversation.whatsappRoutes?.company
+        ? "connected_user"
+        : "company",
+    );
+  }, [activeConversation?.externalSourceType, activeConversation?.id, activeConversation?.sourceChannel, activeConversation?.whatsappRoutes?.company, searchParams]);
   const whatsappReplyWindow = useMemo(
     () => getWhatsAppReplyWindow(activeConversation, presenceNowMs),
     [activeConversation, presenceNowMs],
@@ -2168,7 +2377,8 @@ export function ChatWorkspace({
       lastActiveMs = 0;
     }
 
-    const customerMessage = [...activeConversation.messages]
+    const messages = Array.isArray(activeConversation.messages) ? activeConversation.messages : [];
+    const customerMessage = [...messages]
       .reverse()
       .find((message) => message.lane === "customer" && message.senderRole === "customer");
     if (customerMessage?.createdAt) {
@@ -2178,7 +2388,8 @@ export function ChatWorkspace({
       }
     }
 
-    const customerTypingUpdate = [...activeConversation.typing]
+    const typingList = Array.isArray(activeConversation.typing) ? activeConversation.typing : [];
+    const customerTypingUpdate = [...typingList]
       .reverse()
       .find((entry) => entry.lane === "customer" && entry.role === "customer");
     if (customerTypingUpdate?.updatedAt) {
@@ -2212,7 +2423,7 @@ export function ChatWorkspace({
       ? activeFreelancerLanePermission?.transportState === "blocked"
         ? activeFreelancerLanePermission.transportNote
         : "Direct client chat is still waiting for admin or manager access on this thread."
-      : "Only the primary editor can reply in this project lane.");
+      : "Only the assigned team member can reply in this project lane.");
   const canManageFreelancerCustomerAccess =
     (audience === "admin" || audience === "manager") && Boolean(activeAssignment?.assignedFreelancerId);
   const canManagePayments = audience === "admin" || audience === "manager";
@@ -2739,8 +2950,8 @@ export function ChatWorkspace({
   const serviceOptions = useMemo(() => {
     const serviceMap = new Map<string, { id: string; title: string }>();
     conversations.forEach((conversation) => {
-      if (!serviceMap.has(conversation.serviceId)) {
-        serviceMap.set(conversation.serviceId, { id: conversation.serviceId, title: conversation.serviceTitle });
+      if (conversation?.serviceId && !serviceMap.has(conversation.serviceId)) {
+        serviceMap.set(conversation.serviceId, { id: conversation.serviceId, title: conversation.serviceTitle || "General" });
       }
     });
     return Array.from(serviceMap.values());
@@ -2904,7 +3115,7 @@ export function ChatWorkspace({
         conversation.id === conversationId
           ? {
               ...conversation,
-              messages: conversation.messages.filter((message) => message.id !== optimisticMessageId),
+              messages: (Array.isArray(conversation.messages) ? conversation.messages : []).filter((message) => message.id !== optimisticMessageId),
             }
           : conversation,
       ),
@@ -3543,7 +3754,7 @@ export function ChatWorkspace({
     if (optimisticMessage) {
       replaceConversationLocally({
         ...activeConversation,
-        messages: [...activeConversation.messages, optimisticMessage],
+        messages: [...(Array.isArray(activeConversation.messages) ? activeConversation.messages : []), optimisticMessage],
         summary: optimisticMessage.body || activeConversation.summary,
       });
     }
@@ -3556,6 +3767,7 @@ export function ChatWorkspace({
           role: audience,
           lane,
           body: trimmedBody,
+          transport: lane === "customer" && activeConversation.sourceChannel === "whatsapp" ? whatsappTransport : undefined,
           visibility: (audience === "admin" || audience === "manager") && lane === "customer" && hideCustomerMessageFromFreelancer ? "client_private" : undefined,
           attachments,
         }),
@@ -4109,24 +4321,24 @@ export function ChatWorkspace({
     }
     const freelancerIds = editorId ? [editorId] : selectedAssignEditorIds;
     if (!freelancerIds.length) {
-      setComposerStatus(strategy === "direct" ? "Choose one editor to assign directly." : "Choose at least one editor to send the project offer.");
+      setComposerStatus(strategy === "direct" ? "Choose one team member to assign directly." : "Choose at least one team member to send the assignment.");
       return;
     }
     const hasPrimaryEditor = Boolean(activeAssignment?.assignedFreelancerId);
     if (strategy === "direct" && freelancerIds.length !== 1) {
-      setComposerStatus("Choose exactly one editor for direct assignment.");
+      setComposerStatus("Choose exactly one team member for direct assignment.");
       return;
     }
     if (hasPrimaryEditor && assignmentMode === "replace" && freelancerIds.length !== 1) {
-      setComposerStatus("Choose exactly one editor for the primary replacement offer.");
+      setComposerStatus("Choose exactly one team member for the replacement assignment.");
       return;
     }
     const selectedEditor = assignableEditors.find((editor) => editor.id === freelancerIds[0]);
     if (strategy === "direct") {
       const confirmed = window.confirm(
         hasPrimaryEditor
-          ? `Assign ${selectedEditor?.name || "this editor"} directly as primary? This skips offer acceptance and moves ${activeAssignment?.assignedFreelancerName || "the current primary editor"} to read-only access.`
-          : `Assign ${selectedEditor?.name || "this editor"} directly? This skips the offer and immediately grants primary reply access, even if the editor is offline.`,
+          ? `Assign ${selectedEditor?.name || "this team member"} directly? This skips acceptance and moves ${activeAssignment?.assignedFreelancerName || "the current assignee"} to read-only access.`
+          : `Assign ${selectedEditor?.name || "this team member"} directly? This immediately grants reply access, even if the team member is offline.`,
       );
       if (!confirmed) {
         return;
@@ -4150,7 +4362,7 @@ export function ChatWorkspace({
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        setComposerStatus(payload?.error ?? "Unable to assign editor right now.");
+        setComposerStatus(payload?.error ?? "Unable to assign the team member right now.");
         return;
       }
       setIsAssignMenuOpen(false);
@@ -4161,17 +4373,17 @@ export function ChatWorkspace({
       setComposerStatus(
         payload?.assignmentMode === "direct"
           ? payload?.deduped
-            ? `${payload?.assignedFreelancerName || selectedEditor?.name || "This editor"} was already the primary editor.`
-            : `${payload?.assignedFreelancerName || selectedEditor?.name || "Editor"} was assigned directly with immediate reply access.${payload?.withdrawnOfferCount ? ` ${payload.withdrawnOfferCount} pending offer${payload.withdrawnOfferCount === 1 ? " was" : "s were"} withdrawn.` : ""}`
+            ? `${payload?.assignedFreelancerName || selectedEditor?.name || "This team member"} is already assigned.`
+            : `${payload?.assignedFreelancerName || selectedEditor?.name || "Team member"} was assigned with immediate reply access.${payload?.withdrawnOfferCount ? ` ${payload.withdrawnOfferCount} pending assignment${payload.withdrawnOfferCount === 1 ? " was" : "s were"} withdrawn.` : ""}`
           : payload?.assignmentMode === "viewer"
           ? payload?.deduped
-            ? "Those editors already have access to this project lane."
-            : `${payload?.addedFreelancerIds?.length ?? freelancerIds.length} read-only viewer${(payload?.addedFreelancerIds?.length ?? freelancerIds.length) === 1 ? " was" : "s were"} added. Only the primary editor can reply.`
+            ? "Those team members already have access to this project lane."
+            : `${payload?.addedFreelancerIds?.length ?? freelancerIds.length} read-only viewer${(payload?.addedFreelancerIds?.length ?? freelancerIds.length) === 1 ? " was" : "s were"} added. Only the assigned team member can reply.`
           : payload?.deduped
-          ? "This editor already has an active offer for this project. No duplicate was sent."
+          ? "This team member already has an active assignment offer. No duplicate was sent."
           : deliveredCount > 0
             ? `${payload?.assignmentMode === "replace" ? "Replacement offer" : "Project offer"} created and ${deliveredCount} device notification${deliveredCount === 1 ? " was" : "s were"} delivered.`
-            : "Project offer created, but no device notification was delivered. Ask the editor to refresh push registration.",
+            : "Assignment created, but no device notification was delivered. Ask the team member to refresh push registration.",
       );
       if (payload?.conversation) {
         syncConversationLocally(payload.conversation, "assignment");
@@ -4180,8 +4392,8 @@ export function ChatWorkspace({
     } catch {
       setComposerStatus(
         strategy === "direct"
-          ? "Unable to assign this editor directly right now. Please try again."
-          : "Unable to send the project offer right now. Please try again.",
+          ? "Unable to assign this team member directly right now. Please try again."
+          : "Unable to send the assignment right now. Please try again.",
       );
     } finally {
       if (strategy === "direct") {
@@ -4197,9 +4409,9 @@ export function ChatWorkspace({
       return;
     }
 
-    const editorName = activeAssignment.assignedFreelancerName || "the current editor";
+    const editorName = activeAssignment.assignedFreelancerName || "the current assignee";
     const confirmed = window.confirm(
-      `Remove ${editorName} and set this project to No editor? This also removes read-only viewers and withdraws pending editor offers.`,
+      `Remove ${editorName} and leave this project unassigned? This also removes read-only viewers and withdraws pending assignment offers.`,
     );
     if (!confirmed) {
       return;
@@ -4212,7 +4424,7 @@ export function ChatWorkspace({
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        setComposerStatus(payload?.error ?? "Unable to remove the assigned editor right now.");
+        setComposerStatus(payload?.error ?? "Unable to remove the assigned team member right now.");
         return;
       }
 
@@ -4224,14 +4436,14 @@ export function ChatWorkspace({
       setComposerStatus(
         payload?.deduped
           ? "This project was already unassigned."
-          : `${editorName} was removed. The project is now set to No editor.`,
+          : `${editorName} was removed. The project is now unassigned.`,
       );
       if (payload?.conversation) {
         syncConversationLocally(payload.conversation, "assignment");
       }
       await loadConversations({ silent: true });
     } catch {
-      setComposerStatus("Unable to remove the assigned editor right now. Please try again.");
+      setComposerStatus("Unable to remove the assigned team member right now. Please try again.");
     } finally {
       setIsRemovingAssignment(false);
     }
@@ -4286,8 +4498,8 @@ export function ChatWorkspace({
     const deliveredCount = Number(payload?.notificationDelivery?.sent ?? 0);
     setComposerStatus(
       deliveredCount > 0
-        ? `Project intake approved and ${deliveredCount} editor notification${deliveredCount === 1 ? " was" : "s were"} delivered.`
-        : "Project intake approved, but no editor device notification was delivered.",
+        ? `Project intake approved and ${deliveredCount} team-member notification${deliveredCount === 1 ? " was" : "s were"} delivered.`
+        : "Project intake approved, but no team-member device notification was delivered.",
     );
     if (payload?.conversation) {
       syncConversationLocally(payload.conversation, "assignment");
@@ -4987,6 +5199,8 @@ export function ChatWorkspace({
         });
         broadcastChatWorkspaceSync({ reason: "notes", conversationId: activeConversation.id });
       }
+      setNotesDraft(notesToSave);
+      setFollowUpDraft(followUpToSave ? followUpToSave.slice(0, 16) : "");
       // Refresh the 360 panel so the saved note appears in its activity
       // timeline immediately, without closing and reopening the drawer.
       if (isDetailsOpen) {
@@ -5306,7 +5520,7 @@ export function ChatWorkspace({
           : "New WhatsApp, Instagram, and internal manual intakes will land here automatically.";
 
     return (
-      <div className={styles.shell}>
+      <div className={cx(styles.shell, "aicloser-web-chat-shell")}>
         {titleNotificationAction}
         <aside className={cx(styles.rail, isCompactChatLayout ? styles.railFullScreen : undefined)}>
           <ChatSidebarHeader
@@ -5456,17 +5670,35 @@ export function ChatWorkspace({
                 </button>
 
                 {/* Channels */}
-                {(["whatsapp", "instagram"] as const).map((filter) => (
-                  <button
-                    aria-label={`Show ${filter === "whatsapp" ? "WhatsApp" : "Instagram"} chats`}
-                    className={channelFilter === filter ? "chat-filter-chip chat-channel-filter-chip active" : "chat-filter-chip chat-channel-filter-chip"}
-                    key={filter}
-                    onClick={() => setChannelFilter((current) => (current === filter ? "all" : filter))}
-                    type="button"
-                  >
-                    <span>{filter === "whatsapp" ? "WhatsApp" : "Instagram"}</span>
-                  </button>
-                ))}
+                <button
+                  aria-label="Show Company WhatsApp chats"
+                  className={channelFilter === "whatsapp_company" ? "chat-filter-chip chat-channel-filter-chip active" : "chat-filter-chip chat-channel-filter-chip"}
+                  onClick={() => setChannelFilter((current) => (current === "whatsapp_company" ? "all" : "whatsapp_company"))}
+                  style={channelFilter === "whatsapp_company" ? { borderColor: "rgba(16, 185, 129, 0.6)", color: "#10b981", background: "rgba(16, 185, 129, 0.15)" } : undefined}
+                  type="button"
+                >
+                  <Building2 size={12} style={{ marginRight: "4px" }} />
+                  <span>Company WA</span>
+                </button>
+                <button
+                  aria-label="Show Closer Business WhatsApp chats"
+                  className={channelFilter === "whatsapp_connected" ? "chat-filter-chip chat-channel-filter-chip active" : "chat-filter-chip chat-channel-filter-chip"}
+                  onClick={() => setChannelFilter((current) => (current === "whatsapp_connected" ? "all" : "whatsapp_connected"))}
+                  style={channelFilter === "whatsapp_connected" ? { borderColor: "rgba(2, 132, 199, 0.6)", color: "#0284c7", background: "rgba(2, 132, 199, 0.15)" } : undefined}
+                  type="button"
+                >
+                  <Smartphone size={12} style={{ marginRight: "4px" }} />
+                  <span>Closer Business WA</span>
+                </button>
+                <button
+                  aria-label="Show Instagram chats"
+                  className={channelFilter === "instagram" ? "chat-filter-chip chat-channel-filter-chip active" : "chat-filter-chip chat-channel-filter-chip"}
+                  onClick={() => setChannelFilter((current) => (current === "instagram" ? "all" : "instagram"))}
+                  type="button"
+                >
+                  <Instagram size={12} style={{ marginRight: "4px" }} />
+                  <span>Instagram</span>
+                </button>
 
                 <button
                   className={isFilterMenuOpen ? "chat-filter-button active" : "chat-filter-button"}
@@ -5531,7 +5763,7 @@ export function ChatWorkspace({
 
   return (
     <>
-      <div className={styles.shell}>
+      <div className={cx(styles.shell, "aicloser-web-chat-shell")}>
         {titleNotificationAction}
         {showConversationRail ? <aside className={cx(styles.rail, isCompactChatLayout ? styles.railFullScreen : undefined)}>
           <ChatSidebarHeader
@@ -5681,17 +5913,35 @@ export function ChatWorkspace({
                 </button>
 
                 {/* Channels */}
-                {(["whatsapp", "instagram"] as const).map((filter) => (
-                  <button
-                    aria-label={`Show ${filter === "whatsapp" ? "WhatsApp" : "Instagram"} chats`}
-                    className={channelFilter === filter ? "chat-filter-chip chat-channel-filter-chip active" : "chat-filter-chip chat-channel-filter-chip"}
-                    key={filter}
-                    onClick={() => setChannelFilter((current) => (current === filter ? "all" : filter))}
-                    type="button"
-                  >
-                    <span>{filter === "whatsapp" ? "WhatsApp" : "Instagram"}</span>
-                  </button>
-                ))}
+                <button
+                  aria-label="Show Company WhatsApp chats"
+                  className={channelFilter === "whatsapp_company" ? "chat-filter-chip chat-channel-filter-chip active" : "chat-filter-chip chat-channel-filter-chip"}
+                  onClick={() => setChannelFilter((current) => (current === "whatsapp_company" ? "all" : "whatsapp_company"))}
+                  style={channelFilter === "whatsapp_company" ? { borderColor: "rgba(16, 185, 129, 0.6)", color: "#10b981", background: "rgba(16, 185, 129, 0.15)" } : undefined}
+                  type="button"
+                >
+                  <Building2 size={12} style={{ marginRight: "4px" }} />
+                  <span>Company WA</span>
+                </button>
+                <button
+                  aria-label="Show Closer Business WhatsApp chats"
+                  className={channelFilter === "whatsapp_connected" ? "chat-filter-chip chat-channel-filter-chip active" : "chat-filter-chip chat-channel-filter-chip"}
+                  onClick={() => setChannelFilter((current) => (current === "whatsapp_connected" ? "all" : "whatsapp_connected"))}
+                  style={channelFilter === "whatsapp_connected" ? { borderColor: "rgba(2, 132, 199, 0.6)", color: "#0284c7", background: "rgba(2, 132, 199, 0.15)" } : undefined}
+                  type="button"
+                >
+                  <Smartphone size={12} style={{ marginRight: "4px" }} />
+                  <span>Closer Business WA</span>
+                </button>
+                <button
+                  aria-label="Show Instagram chats"
+                  className={channelFilter === "instagram" ? "chat-filter-chip chat-channel-filter-chip active" : "chat-filter-chip chat-channel-filter-chip"}
+                  onClick={() => setChannelFilter((current) => (current === "instagram" ? "all" : "instagram"))}
+                  type="button"
+                >
+                  <Instagram size={12} style={{ marginRight: "4px" }} />
+                  <span>Instagram</span>
+                </button>
 
                 <button
                   className={isFilterMenuOpen ? "chat-filter-button active" : "chat-filter-button"}
@@ -5751,6 +6001,38 @@ export function ChatWorkspace({
                   <ArrowLeft size={16} strokeWidth={1.8} />
                 </button>
               ) : null}
+              <div
+                aria-expanded={isDetailsOpen}
+                aria-label={`Open ${activeCustomerName} profile and history`}
+                className="chat-profile-trigger"
+                onClick={() => {
+                  setIsDetailsOpen(true);
+                  setIsAssignMenuOpen(false);
+                  setIsNotesMenuOpen(false);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setIsDetailsOpen(true);
+                    setIsAssignMenuOpen(false);
+                    setIsNotesMenuOpen(false);
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+                title="Open profile and customer history"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  cursor: "pointer",
+                  background: "transparent",
+                  border: "none",
+                  textAlign: "left",
+                  padding: 0,
+                  outline: "none",
+                }}
+              >
               <ChatAvatar className="chat-thread-head-avatar" imageUrl={activeConversation.customerProfileImageUrl} name={activeCustomerName} />
               <div className="chat-thread-head-copy">
                 <div className="chat-thread-head-title">
@@ -5761,10 +6043,50 @@ export function ChatWorkspace({
                     <span className="chat-source-chip instagram strong">Instagram</span>
                   ) : null}
                 </div>
-                <div className="chat-thread-head-subtitle">
-                  <span className="chat-thread-contact-number" title={activeCustomerHeaderContact}>
-                    {audience === "freelancer" ? activeCustomerHeaderContact : `Customer ${activeCustomerHeaderContact}`}
+                <div className="chat-thread-head-subtitle" style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                  <span
+                    className="chat-thread-contact-number"
+                    title={activeCustomerHeaderContact}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "5px",
+                      color: "#ffffff",
+                      fontWeight: 700,
+                      fontSize: "0.82rem",
+                      fontFamily: "monospace",
+                      background: "rgba(255, 255, 255, 0.08)",
+                      padding: "2px 8px",
+                      borderRadius: "6px",
+                      border: "1px solid rgba(255, 255, 255, 0.14)",
+                    }}
+                  >
+                    <Phone size={12} style={{ color: "var(--closer-orange, #ff6b2f)" }} />
+                    {activeCustomerPhone}
                   </span>
+                  {activeCustomerPhone && activeCustomerPhone !== "Customer contact hidden" ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void navigator.clipboard.writeText(activeCustomerPhone.replace(/\D/g, ""));
+                        setComposerStatus("Phone number copied to clipboard.");
+                      }}
+                      title="Copy customer phone number"
+                      style={{
+                        background: "rgba(255, 255, 255, 0.08)",
+                        border: "1px solid rgba(255, 255, 255, 0.16)",
+                        borderRadius: "4px",
+                        color: "#94a3b8",
+                        fontSize: "10.5px",
+                        padding: "2px 7px",
+                        cursor: "pointer",
+                        fontWeight: 600,
+                      }}
+                    >
+                      Copy
+                    </button>
+                  ) : null}
                   {typingMessage ? <span className="chat-thread-presence is-typing">{typingMessage.label} is typing...</span> : null}
                   {!typingMessage && customerPresenceLabel ? <span className="chat-thread-presence">{customerPresenceLabel}</span> : null}
                   {whatsappReplyWindow ? (
@@ -5779,7 +6101,7 @@ export function ChatWorkspace({
                       )}
                       title={
                         whatsappReplyWindow.isOpen
-                          ? `Meta 24-hour WhatsApp customer-care window closes ${new Date(whatsappReplyWindow.expiresAt).toLocaleString("en-IN")}`
+                          ? `Meta 24-hour WhatsApp customer-care window closes ${!Number.isNaN(new Date(whatsappReplyWindow.expiresAt).getTime()) ? new Date(whatsappReplyWindow.expiresAt).toLocaleString("en-IN") : ""}`
                           : "Meta 24-hour WhatsApp customer-care window is closed"
                       }
                     >
@@ -5947,7 +6269,7 @@ export function ChatWorkspace({
                       const isTrial = registrationStatus.billingState === "TRIAL";
                       const isExpired = registrationStatus.billingState === "TRIAL_EXPIRED";
                       const isBillingActive = isPaid || isTrial;
-                      const expiryText = registrationStatus.planExpiresAt
+                      const expiryText = registrationStatus.planExpiresAt && !Number.isNaN(new Date(String(registrationStatus.planExpiresAt)).getTime())
                         ? ` · Valid until ${new Date(String(registrationStatus.planExpiresAt)).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}`
                         : "";
                       const bg = isPaid
@@ -6154,6 +6476,7 @@ export function ChatWorkspace({
                   </div>
                 ) : null}
               </div>
+              </div>
             </div>
 
             <div className="chat-thread-head-toolbar crm-chat-head-actions chat-focused-actions">
@@ -6175,7 +6498,7 @@ export function ChatWorkspace({
                         <StickyNote size={12} strokeWidth={2} />
                         <CalendarClock size={12} strokeWidth={2} />
                         <span>Notes &amp; Callback</span>
-                        {activeConversation?.nextFollowUpAt ? (
+                        {activeConversation?.nextFollowUpAt && !Number.isNaN(new Date(activeConversation.nextFollowUpAt).getTime()) ? (
                           <span style={{ fontSize: "10px", padding: "1px 5px", borderRadius: "4px", background: "rgba(56, 189, 248, 0.25)", color: "#e0f2fe", display: "inline-flex", alignItems: "center", gap: "3px" }}>
                             <Clock size={10} /> {new Date(activeConversation.nextFollowUpAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
                           </span>
@@ -6183,6 +6506,20 @@ export function ChatWorkspace({
                       </button>
                       {renderNotesPopover()}
                     </div>
+
+                    <label className="chat-status-control" title="Update lead status">
+                      <span>Status</span>
+                      <select
+                        aria-label="Update lead status"
+                        className="chat-status-select"
+                        onChange={(event) => handleLeadStatusChange(event.target.value).catch(() => undefined)}
+                        value={activeConversation.leadStatusId || leadStatuses[0]?.id || "new-leads"}
+                      >
+                        {leadStatuses.map((status) => (
+                          <option key={status.id} value={status.id}>{status.label}</option>
+                        ))}
+                      </select>
+                    </label>
 
       {/* WhatsApp-Style Create Custom Label Modal */}
       {isCreateLabelModalOpen ? (
@@ -6717,7 +7054,7 @@ export function ChatWorkspace({
                   <p>{activeConversation.projectIntake.editingNote || "Review the form details in the internal lane, then send the offer."}</p>
                   <div className="chat-thread-head-action-group">
                     <button className="ui-button-primary" onClick={() => handleApproveProjectIntake().catch(() => undefined)} type="button">
-                      Approve and offer to editor
+                      Approve and assign to team member
                     </button>
                   </div>
                 </div>
@@ -6726,14 +7063,14 @@ export function ChatWorkspace({
                 <div className="chat-context-card">
                   <p className="section-label">Read-only project viewer</p>
                   <strong>{activeConversation?.serviceTitle || "Project lane"}</strong>
-                  <p>You can review this chat and its project context. Only the primary editor can reply.</p>
+                  <p>You can review this chat and its project context. Only the assigned team member can reply.</p>
                 </div>
               ) : null}
               {audience === "freelancer" && activePendingOffer?.status === "PENDING" ? (
                 <div className="chat-context-card">
                   <p className="section-label">Project offer</p>
                   <strong>{activeConversation?.serviceTitle || "New project"}</strong>
-                  {activePendingOffer.expiresAt ? <p>Accept window closes at {new Date(activePendingOffer.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.</p> : null}
+                  {activePendingOffer.expiresAt && !Number.isNaN(new Date(activePendingOffer.expiresAt).getTime()) ? <p>Accept window closes at {new Date(activePendingOffer.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.</p> : null}
                   <p>{activePendingOffer.projectDetails}</p>
                   {isRejectingAssignment ? (
                     <textarea
@@ -6803,6 +7140,23 @@ export function ChatWorkspace({
                 </button>
                 <span>Fills the composer; review before sending.</span>
               </div>
+              {resolvedLane === "customer" && (hasCompanyWhatsAppRoute || hasConnectedWhatsAppRoute) ? (
+                <div className="chat-whatsapp-transport-row">
+                  <span>Send via</span>
+                  <select
+                    aria-label="Choose WhatsApp sender"
+                    onChange={(event) => setWhatsappTransport(event.target.value as "company" | "connected_user")}
+                    value={whatsappTransport}
+                  >
+                    {hasCompanyWhatsAppRoute ? <option value="company">🏢 Company WhatsApp (Official API)</option> : null}
+                    {hasConnectedWhatsAppRoute ? (
+                      <option value="connected_user">
+                        📱 {activeConversation.whatsappRoutes?.connectedUserLabel || "Closer Business WhatsApp (Synced Device)"}
+                      </option>
+                    ) : null}
+                  </select>
+                </div>
+              ) : null}
               <div className={hasDraft ? "chat-composer-bar has-draft" : "chat-composer-bar"}>
               <button
                 aria-label="Open attachment options"
@@ -6884,7 +7238,7 @@ export function ChatWorkspace({
           </div>
 
           {isDetailsOpen ? (
-            <ChatDetailsSheet eyebrow="CRM Lead 360" onClose={() => setIsDetailsOpen(false)} title={activeCustomerName}>
+            <ChatDetailsSheet eyebrow="Customer history" onClose={() => setIsDetailsOpen(false)} title={activeCustomerName}>
               <div className={styles.detailsGrid}>
                 {/* 1. Lead stage */}
                 <div
@@ -6928,26 +7282,8 @@ export function ChatWorkspace({
                         </option>
                       ))}
                     </select>
-                    {activeCustomerPhone ? (
-                      <a
-                        href={`https://wa.me/${cleanPhone(activeCustomerPhone)}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "5px",
-                          padding: "8px 14px",
-                          borderRadius: "8px",
-                          background: "#25D366",
-                          color: "#000",
-                          fontWeight: 700,
-                          fontSize: "12px",
-                          textDecoration: "none",
-                        }}
-                      >
-                        <MessageSquare size={12} /> WhatsApp ↗
-                      </a>
+                    {activeCustomerPhone && activeConversation.sourceChannel === "whatsapp" ? (
+                      <span className="chat-internal-channel-note"><MessageSquare size={12} /> Replies stay inside this WhatsApp chat</span>
                     ) : null}
                   </div>
                 </div>
@@ -6988,7 +7324,7 @@ export function ChatWorkspace({
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 16px", marginTop: "10px", fontSize: "11px", opacity: 0.78 }}>
                     {registrationStatus?.packageStatus ? <span>Account status: {registrationStatus.packageStatus}</span> : null}
                     {registrationStatus?.planName ? <span>Plan: {registrationStatus.planName}</span> : null}
-                    {registrationStatus?.planExpiresAt ? <span>Valid until: {new Date(registrationStatus.planExpiresAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}{registrationStatus.planDaysRemaining !== null && registrationStatus.planDaysRemaining !== undefined ? ` (${registrationStatus.planDaysRemaining} days)` : ""}</span> : null}
+                    {registrationStatus?.planExpiresAt && !Number.isNaN(new Date(registrationStatus.planExpiresAt).getTime()) ? <span>Valid until: {new Date(registrationStatus.planExpiresAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}{registrationStatus.planDaysRemaining !== null && registrationStatus.planDaysRemaining !== undefined ? ` (${registrationStatus.planDaysRemaining} days)` : ""}</span> : null}
                     {registrationStatus?.agencyWhatsAppNumber ? <span>Agency WhatsApp: {registrationStatus.agencyWhatsAppNumber}</span> : null}
                   </div>
                 </div>
@@ -7031,7 +7367,7 @@ export function ChatWorkspace({
                             </span>
                           </div>
                           <small style={{ display: "block", color: "rgba(255, 255, 255, 0.55)", fontSize: "10px", marginBottom: "6px" }}>
-                            {new Date(call.startedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                            {call.startedAt && !Number.isNaN(new Date(call.startedAt).getTime()) ? new Date(call.startedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "Recent call"}
                           </small>
                           {call.note ? (
                             <p style={{ margin: "0 0 6px", fontSize: "11px", color: "rgba(255, 255, 255, 0.85)", fontStyle: "italic" }}>
@@ -7069,7 +7405,7 @@ export function ChatWorkspace({
                     <p className="section-label" style={{ margin: 0, display: "flex", alignItems: "center", gap: "6px" }}>
                       <StickyNote size={14} /> Closer Notes & Follow-up
                     </p>
-                    {activeConversation?.nextFollowUpAt ? (
+                    {activeConversation?.nextFollowUpAt && !Number.isNaN(new Date(activeConversation.nextFollowUpAt).getTime()) ? (
                       <span style={{ fontSize: "11px", padding: "2px 7px", borderRadius: "4px", background: "rgba(56, 189, 248, 0.2)", color: "#7dd3fc" }}>
                         ⏰ {new Date(activeConversation.nextFollowUpAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
                       </span>
@@ -7140,7 +7476,7 @@ export function ChatWorkspace({
                         <div key={item.id} style={{ fontSize: "11px", borderBottom: "1px solid rgba(255,255,255,0.05)", paddingBottom: "5px" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", color: "rgba(255,255,255,0.5)" }}>
                             <span>{item.type}</span>
-                            <span>{new Date(item.createdAt).toLocaleDateString("en-IN", { month: "short", day: "numeric" })}</span>
+                            <span>{item.createdAt && !Number.isNaN(new Date(item.createdAt).getTime()) ? new Date(item.createdAt).toLocaleDateString("en-IN", { month: "short", day: "numeric" }) : ""}</span>
                           </div>
                           <p style={{ margin: "2px 0 0", color: "#e5e7eb" }}>{item.body}</p>
                         </div>
@@ -7150,7 +7486,7 @@ export function ChatWorkspace({
                 ) : null}
 
                 {/* 5. Customer Context & Details */}
-                <div className="chat-context-card"><p className="section-label">Assigned editor</p><strong>{activeAssignment?.assignedFreelancerName ?? "Not assigned yet"}</strong><p>{activeAssignedEditor ? activeAssignedEditor.specialties.join(" • ") : "You can still raise a customer payment request without assignment."}</p></div>
+                <div className="chat-context-card"><p className="section-label">Assigned editor</p><strong>{activeAssignment?.assignedFreelancerName ?? "Not assigned yet"}</strong><p>{activeAssignedEditor ? (Array.isArray(activeAssignedEditor.specialties) ? activeAssignedEditor.specialties : []).join(" • ") : "You can still raise a customer payment request without assignment."}</p></div>
                 <div className="chat-context-card"><p className="section-label">Owner</p><strong>{activeConversation.ownerName ?? "Queue"}</strong><p>{activeConversation.ownerRole ? `${rolePrefix(activeConversation.ownerRole)} owned` : "Unclaimed queue thread"}</p></div>
                 <div className="chat-context-card"><p className="section-label">Service</p><strong>{activeServiceTitle || "General support"}</strong><p>{activeConversation.isInAppCustomerThread ? "Legacy in-app intake thread" : "WhatsApp or internal intake thread"}</p></div>
                 <div className="chat-context-card">
@@ -7400,3 +7736,20 @@ export function ChatWorkspace({
     </>
   );
 }
+
+export function ChatWorkspace(props: ChatWorkspaceProps) {
+  return (
+    <ChatErrorBoundary>
+      <Suspense
+        fallback={
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "300px", color: "#94a3b8" }}>
+            Loading social inbox...
+          </div>
+        }
+      >
+        <ChatWorkspaceInner {...props} />
+      </Suspense>
+    </ChatErrorBoundary>
+  );
+}
+
