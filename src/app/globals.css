@@ -41880,6 +41880,99 @@ body .sales-theme-scope .sales-crm-card .sales-recording-speed-btn.is-active {
   color: var(--closer-orange, #ff6b2f) !important;
 }
 
+/* Quick Note & Follow-up Forms inside Card */
+body .sales-theme-scope .sales-crm-card .sales-crm-card-note-form,
+body .sales-theme-scope .sales-crm-card .sales-crm-card-followup-form {
+  display: grid !important;
+  gap: 6px !important;
+  margin-top: 6px !important;
+  padding: 8px !important;
+  border-radius: 10px !important;
+  background: rgba(0, 0, 0, 0.03) !important;
+  border: 1px solid rgba(0, 0, 0, 0.07) !important;
+  box-sizing: border-box !important;
+}
+
+[data-theme="dark"] body .sales-theme-scope .sales-crm-card .sales-crm-card-note-form,
+.dark body .sales-theme-scope .sales-crm-card .sales-crm-card-note-form,
+[data-theme="dark"] body .sales-theme-scope .sales-crm-card .sales-crm-card-followup-form,
+.dark body .sales-theme-scope .sales-crm-card .sales-crm-card-followup-form {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Inline Calendar inside Card (completely eliminates popover overlapping adjacent cards) */
+body .sales-theme-scope .sales-crm-card .sales-calendar-picker {
+  position: relative !important;
+  width: 100% !important;
+}
+
+body .sales-theme-scope .sales-crm-card .sales-calendar-trigger {
+  min-height: 38px !important;
+  padding: 6px 10px !important;
+  border-radius: 9px !important;
+}
+
+body .sales-theme-scope .sales-crm-card .sales-calendar-popover {
+  position: relative !important;
+  top: auto !important;
+  bottom: auto !important;
+  left: auto !important;
+  right: auto !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  margin: 6px 0 0 !important;
+  padding: 10px 11px !important;
+  border-radius: 12px !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08) !important;
+  z-index: 1 !important;
+}
+
+body .sales-theme-scope .sales-crm-card .sales-calendar-grid {
+  gap: 3px !important;
+}
+
+body .sales-theme-scope .sales-crm-card .sales-calendar-grid button {
+  min-height: 28px !important;
+  font-size: 0.70rem !important;
+  padding: 0 !important;
+}
+
+body .sales-theme-scope .sales-crm-card .sales-calendar-weekdays {
+  padding: 8px 0 4px !important;
+}
+
+body .sales-theme-scope .sales-crm-card .sales-calendar-time-row {
+  margin: 8px 0 6px !important;
+  padding: 6px 8px !important;
+  border-radius: 8px !important;
+}
+
+body .sales-theme-scope .sales-crm-card .sales-calendar-popover-footer {
+  margin-top: 6px !important;
+  padding-top: 6px !important;
+  border-top: 1px solid rgba(0, 0, 0, 0.08) !important;
+}
+
+[data-theme="light"] body .sales-theme-scope .sales-crm-card .sales-calendar-popover,
+.light body .sales-theme-scope .sales-crm-card .sales-calendar-popover,
+body:not(.dark) .sales-theme-scope .sales-crm-card .sales-calendar-popover {
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+}
+
+[data-theme="dark"] body .sales-theme-scope .sales-crm-card .sales-calendar-popover,
+.dark body .sales-theme-scope .sales-crm-card .sales-calendar-popover {
+  background: #1e222d !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+}
+
+[data-theme="dark"] body .sales-theme-scope .sales-crm-card .sales-calendar-popover-footer,
+.dark body .sales-theme-scope .sales-crm-card .sales-calendar-popover-footer {
+  border-top-color: rgba(255, 255, 255, 0.08) !important;
+}
+
 /* ==========================================================================
    THEME PALETTE OVERRIDES: LIGHT THEME (Default)
    ========================================================================== */

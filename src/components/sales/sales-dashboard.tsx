@@ -408,10 +408,12 @@ function calendarTime(value: string) {
 }
 
 function LeadFollowUpPicker({
+  initialOpen = false,
   labelText = "Next follow-up",
   onChange,
   value,
 }: {
+  initialOpen?: boolean;
   labelText?: string;
   onChange: (value: string) => void;
   value: string;
@@ -419,7 +421,7 @@ function LeadFollowUpPicker({
   const pickerRef = useRef<HTMLDivElement | null>(null);
   const selectedDate = value ? new Date(value) : null;
   const hasSelectedDate = Boolean(selectedDate && !Number.isNaN(selectedDate.getTime()));
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(initialOpen);
   const [viewMonth, setViewMonth] = useState(() => {
     const initial = selectedDate && !Number.isNaN(selectedDate.getTime()) ? selectedDate : new Date();
     return new Date(initial.getFullYear(), initial.getMonth(), 1);
@@ -3559,6 +3561,8 @@ function LeadCrmCard({
       </div>
       {quickAction === "note" ? (
         <form
+          className="sales-crm-card-note-form"
+          onPointerDown={(event) => event.stopPropagation()}
           onSubmit={async (event) => {
             event.preventDefault();
             if (!quickNote.trim()) return;
@@ -3570,14 +3574,19 @@ function LeadCrmCard({
               setQuickAction(null);
             }
           }}
-          style={{ display: "grid", gap: "5px", marginTop: "6px" }}
+          style={{ display: "grid", gap: "6px", marginTop: "6px" }}
         >
           <textarea aria-label={`Quick note for ${lead.customerName}`} onChange={(event) => setQuickNote(event.target.value)} placeholder="Add a note..." rows={2} value={quickNote} />
-          <button className="sales-primary-button compact" disabled={quickSaving || !quickNote.trim()} type="submit">{quickSaving ? "Saving..." : "Save note"}</button>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+            <button className="sales-secondary-button compact" onClick={() => setQuickAction(null)} type="button">Cancel</button>
+            <button className="sales-primary-button compact" disabled={quickSaving || !quickNote.trim()} type="submit">{quickSaving ? "Saving..." : "Save note"}</button>
+          </div>
         </form>
       ) : null}
       {quickAction === "follow-up" ? (
         <form
+          className="sales-crm-card-followup-form"
+          onPointerDown={(event) => event.stopPropagation()}
           onSubmit={async (event) => {
             event.preventDefault();
             if (!quickFollowUp) return;
@@ -3586,14 +3595,18 @@ function LeadCrmCard({
             setQuickSaving(false);
             if (ok) setQuickAction(null);
           }}
-          style={{ display: "grid", gap: "5px", marginTop: "6px" }}
+          style={{ display: "grid", gap: "6px", marginTop: "6px" }}
         >
           <LeadFollowUpPicker
+            initialOpen={true}
             labelText="Next follow-up"
             onChange={setQuickFollowUp}
             value={quickFollowUp}
           />
-          <button className="sales-primary-button compact" disabled={quickSaving || !quickFollowUp} type="submit">{quickSaving ? "Saving..." : "Save follow-up"}</button>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+            <button className="sales-secondary-button compact" onClick={() => setQuickAction(null)} type="button">Cancel</button>
+            <button className="sales-primary-button compact" disabled={quickSaving || !quickFollowUp} type="submit">{quickSaving ? "Saving..." : "Save follow-up"}</button>
+          </div>
         </form>
       ) : null}
       {call?.recordingStatus === "UPLOADED" ? <div onPointerDown={(event) => event.stopPropagation()}><CallRecordingPlayer callId={call.id} expectedDurationSeconds={call.durationSeconds} labelText={`${lead.customerName} recording`} /></div> : null}
