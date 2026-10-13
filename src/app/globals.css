@@ -2674,6 +2674,540 @@ select option:focus {
   color: var(--color-text-secondary) !important;
 }
 
+/* End-of-file admin parity precedence marker. */
+
+/* Final precedence for the admin/mobile parity layer. Keep this compact
+   because legacy module styles are declared throughout this stylesheet. */
+.internal-theme-root .sales-internal-content:not(.sales-internal-content-chat) {
+  gap: 0 !important;
+  padding: 18px 22px 32px !important;
+  background: var(--color-bg) !important;
+}
+
+.internal-theme-root .sales-theme-scope > .sales-tool-workspace:not(.sales-chat-workspace),
+.internal-theme-root .sales-theme-scope > .sales-automation-workspace {
+  width: 100% !important;
+  max-width: 1440px !important;
+  min-height: 100% !important;
+  height: auto !important;
+  margin: 0 auto !important;
+  padding: 18px 0 30px !important;
+  overflow: visible !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-dashboard-overview {
+  max-width: 1440px !important;
+  gap: 18px !important;
+  padding: 0 0 30px !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-dashboard-hero,
+.internal-theme-root .sales-theme-scope .sales-kpi-card,
+.internal-theme-root .sales-theme-scope .sales-action-card,
+.internal-theme-root .sales-theme-scope .sales-goal-card,
+.internal-theme-root .sales-theme-scope .sales-panel,
+.internal-theme-root .sales-theme-scope .sales-card,
+.internal-theme-root .sales-theme-scope .sales-wallet-card,
+.internal-theme-root .sales-theme-scope .crm-panel,
+.internal-theme-root .sales-theme-scope .responsibility-panel,
+.internal-theme-root .sales-theme-scope .app-panel.board-card {
+  border-radius: 20px !important;
+  border-color: var(--color-border) !important;
+  background: var(--color-surface) !important;
+  box-shadow: var(--crm-shadow-card) !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-dashboard-hero {
+  padding: 22px 24px !important;
+  background: linear-gradient(135deg, var(--color-primary-soft), transparent 58%), var(--color-surface) !important;
+  border-color: var(--color-primary-border) !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-panel-title,
+.internal-theme-root .sales-theme-scope .crm-panel h2,
+.internal-theme-root .sales-theme-scope .crm-panel h3,
+.internal-theme-root .sales-theme-scope .responsibility-panel h2,
+.internal-theme-root .sales-theme-scope .responsibility-panel h3 {
+  color: var(--color-text-primary) !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-primary-button,
+.internal-theme-root .sales-theme-scope .sales-secondary-button,
+.internal-theme-root .sales-theme-scope .sales-small-button,
+.internal-theme-root .sales-theme-scope .sales-icon-button,
+.internal-theme-root .sales-theme-scope .crm-panel button,
+.internal-theme-root .sales-theme-scope .responsibility-panel button {
+  min-height: 38px;
+  border-radius: 12px !important;
+  box-shadow: none !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-primary-button {
+  background: var(--color-primary) !important;
+  border-color: var(--color-primary) !important;
+  color: #fff !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-secondary-button,
+.internal-theme-root .sales-theme-scope .sales-small-button,
+.internal-theme-root .sales-theme-scope .sales-icon-button {
+  border-color: var(--color-border-strong) !important;
+  background: var(--color-surface-soft) !important;
+  color: var(--color-text-primary) !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-form-grid input,
+.internal-theme-root .sales-theme-scope .sales-form-grid select,
+.internal-theme-root .sales-theme-scope .sales-form-grid textarea,
+.internal-theme-root .sales-theme-scope .crm-panel input:not([type="checkbox"]):not([type="radio"]),
+.internal-theme-root .sales-theme-scope .crm-panel select,
+.internal-theme-root .sales-theme-scope .crm-panel textarea,
+.internal-theme-root .sales-theme-scope .sales-tool-workspace input:not([type="checkbox"]):not([type="radio"]),
+.internal-theme-root .sales-theme-scope .sales-tool-workspace select,
+.internal-theme-root .sales-theme-scope .sales-tool-workspace textarea {
+  min-height: 40px;
+  border-radius: 12px !important;
+  border-color: var(--color-border) !important;
+  background: var(--color-surface-soft) !important;
+  color: var(--color-text-primary) !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-table,
+.internal-theme-root .sales-theme-scope .crm-table-shell,
+.internal-theme-root .sales-theme-scope .responsibility-table-scroll,
+.internal-theme-root .sales-theme-scope .crm-table-scroll-region {
+  overflow-x: auto !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: 14px !important;
+  background: var(--color-surface-soft) !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-table-row,
+.internal-theme-root .sales-theme-scope .crm-data-table tbody tr,
+.internal-theme-root .sales-theme-scope .responsibility-table tbody tr {
+  border-color: var(--color-border) !important;
+  background: var(--color-surface) !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-table-row:hover,
+.internal-theme-root .sales-theme-scope .crm-data-table tbody tr:hover,
+.internal-theme-root .sales-theme-scope .responsibility-table tbody tr:hover {
+  background: var(--color-primary-soft) !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-team-users-workspace [role="tablist"],
+.internal-theme-root .sales-theme-scope .responsibility-filters,
+.internal-theme-root .sales-theme-scope .crm-directory-toolbar,
+.internal-theme-root .sales-theme-scope .sales-crm-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px !important;
+  padding: 10px !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: 16px !important;
+  background: var(--color-surface-soft) !important;
+}
+
+.internal-theme-root .sales-theme-scope .upi-create-form,
+.internal-theme-root .sales-theme-scope .upi-main-grid > section,
+.internal-theme-root .sales-theme-scope .upi-main-grid + section,
+.internal-theme-root .sales-theme-scope .upi-kpis > div {
+  border-color: var(--color-border) !important;
+  background: var(--color-surface) !important;
+  color: var(--color-text-primary) !important;
+  box-shadow: var(--crm-shadow-card) !important;
+}
+
+.internal-theme-root .sales-theme-scope .upi-create-form input,
+.internal-theme-root .sales-theme-scope .upi-create-form select,
+.internal-theme-root .sales-theme-scope .upi-create-form textarea,
+.internal-theme-root .sales-theme-scope .upi-main-grid input,
+.internal-theme-root .sales-theme-scope .upi-main-grid select,
+.internal-theme-root .sales-theme-scope .upi-main-grid textarea {
+  border-color: var(--color-border) !important;
+  background: var(--color-surface-soft) !important;
+  color: var(--color-text-primary) !important;
+}
+
+.internal-theme-root .sales-theme-scope .upi-create-form label,
+.internal-theme-root .sales-theme-scope .upi-section-heading,
+.internal-theme-root .sales-theme-scope .upi-create-form h2,
+.internal-theme-root .sales-theme-scope .upi-main-grid h2,
+.internal-theme-root .sales-theme-scope .upi-main-grid strong {
+  color: var(--color-text-primary) !important;
+}
+
+.internal-theme-root .sales-theme-scope .upi-helper,
+.internal-theme-root .sales-theme-scope .upi-create-form p,
+.internal-theme-root .sales-theme-scope .upi-main-grid p,
+.internal-theme-root .sales-theme-scope .upi-main-grid small {
+  color: var(--color-text-secondary) !important;
+}
+
+.internal-theme-root .sales-theme-scope .upi-rule-summary,
+.internal-theme-root .sales-theme-scope .upi-preview-validity,
+.internal-theme-root .sales-theme-scope .upi-settings-divider {
+  border-color: var(--color-border) !important;
+  background: var(--color-surface-soft) !important;
+  color: var(--color-text-secondary) !important;
+}
+
+.internal-theme-root .sales-theme-scope .upi-total-card {
+  border-color: var(--color-primary-border) !important;
+  background: var(--color-primary-soft) !important;
+}
+
+.internal-theme-root .internal-sidebar-footer {
+  border-top-color: var(--color-border) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+@media (max-width: 900px) {
+  .internal-theme-root .sales-internal-content:not(.sales-internal-content-chat) {
+    padding: 14px 14px 26px !important;
+  }
+
+  .internal-theme-root .sales-theme-scope > .sales-tool-workspace:not(.sales-chat-workspace),
+  .internal-theme-root .sales-theme-scope > .sales-automation-workspace {
+    padding-top: 12px !important;
+  }
+}
+
+/* ========================================================================
+   Admin workspace parity layer
+
+   The mobile reference screens use one clear visual language: a quiet canvas,
+   rounded surfaces, orange as the action color, and compact controls. The web
+   admin panel keeps its team/reporting capabilities, but uses the same visual
+   rhythm so an admin can move between phone and browser without relearning the
+   product. This layer is intentionally presentation-only; interaction and API
+   ownership remain in the existing components.
+   ======================================================================== */
+
+.internal-theme-root .sales-internal-content:not(.sales-internal-content-chat) {
+  gap: 0 !important;
+  padding: 18px 22px 32px !important;
+  background: var(--color-bg) !important;
+}
+
+.internal-theme-root .sales-theme-scope > .sales-tool-workspace:not(.sales-chat-workspace),
+.internal-theme-root .sales-theme-scope > .sales-automation-workspace {
+  width: 100% !important;
+  max-width: 1440px !important;
+  min-height: 100% !important;
+  height: auto !important;
+  margin: 0 auto !important;
+  padding: 18px 0 30px !important;
+  overflow: visible !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.internal-theme-root .sales-theme-scope > .sales-automation-workspace {
+  display: grid;
+  gap: 16px;
+}
+
+.internal-theme-root .sales-theme-scope .sales-dashboard-overview {
+  max-width: 1440px !important;
+  gap: 18px !important;
+  padding: 0 0 30px !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-dashboard-hero,
+.internal-theme-root .sales-theme-scope .sales-kpi-card,
+.internal-theme-root .sales-theme-scope .sales-action-card,
+.internal-theme-root .sales-theme-scope .sales-goal-card,
+.internal-theme-root .sales-theme-scope .sales-panel,
+.internal-theme-root .sales-theme-scope .sales-card,
+.internal-theme-root .sales-theme-scope .sales-wallet-card,
+.internal-theme-root .sales-theme-scope .crm-panel,
+.internal-theme-root .sales-theme-scope .responsibility-panel,
+.internal-theme-root .sales-theme-scope .app-panel.board-card {
+  border-radius: 20px !important;
+  border-color: var(--color-border) !important;
+  background: var(--color-surface) !important;
+  box-shadow: var(--crm-shadow-card) !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-dashboard-hero {
+  padding: 22px 24px !important;
+  background:
+    linear-gradient(135deg, var(--color-primary-soft), transparent 58%),
+    var(--color-surface) !important;
+  border-color: var(--color-primary-border) !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-kpi-card,
+.internal-theme-root .sales-theme-scope .sales-action-card {
+  padding: 16px !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-panel-title,
+.internal-theme-root .sales-theme-scope .crm-panel > header,
+.internal-theme-root .sales-theme-scope .crm-panel > [class*="header"],
+.internal-theme-root .sales-theme-scope .responsibility-panel-heading {
+  gap: 10px !important;
+  color: var(--color-text-primary) !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-panel-title h2,
+.internal-theme-root .sales-theme-scope .sales-panel-title h3,
+.internal-theme-root .sales-theme-scope .crm-panel h2,
+.internal-theme-root .sales-theme-scope .crm-panel h3,
+.internal-theme-root .sales-theme-scope .responsibility-panel h2,
+.internal-theme-root .sales-theme-scope .responsibility-panel h3 {
+  color: var(--color-text-primary) !important;
+  letter-spacing: -0.015em;
+}
+
+.internal-theme-root .sales-theme-scope .sales-section-eyebrow,
+.internal-theme-root .sales-theme-scope .crm-eyebrow,
+.internal-theme-root .sales-theme-scope .upi-eyebrow {
+  color: var(--color-primary) !important;
+  letter-spacing: 0.1em;
+}
+
+.internal-theme-root .sales-theme-scope .sales-primary-button,
+.internal-theme-root .sales-theme-scope .sales-secondary-button,
+.internal-theme-root .sales-theme-scope .sales-small-button,
+.internal-theme-root .sales-theme-scope .sales-icon-button,
+.internal-theme-root .sales-theme-scope .crm-panel button,
+.internal-theme-root .sales-theme-scope .responsibility-panel button {
+  min-height: 38px;
+  border-radius: 12px !important;
+  box-shadow: none !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-primary-button {
+  background: var(--color-primary) !important;
+  border: 1px solid var(--color-primary) !important;
+  color: #fff !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-primary-button:hover,
+.internal-theme-root .sales-theme-scope .sales-primary-button:focus-visible {
+  background: var(--color-primary-hover) !important;
+  border-color: var(--color-primary-hover) !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-secondary-button,
+.internal-theme-root .sales-theme-scope .sales-small-button,
+.internal-theme-root .sales-theme-scope .sales-icon-button {
+  border-color: var(--color-border-strong) !important;
+  background: var(--color-surface-soft) !important;
+  color: var(--color-text-primary) !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-secondary-button:hover,
+.internal-theme-root .sales-theme-scope .sales-small-button:hover,
+.internal-theme-root .sales-theme-scope .sales-icon-button:hover,
+.internal-theme-root .sales-theme-scope .sales-secondary-button:focus-visible,
+.internal-theme-root .sales-theme-scope .sales-small-button:focus-visible,
+.internal-theme-root .sales-theme-scope .sales-icon-button:focus-visible {
+  border-color: var(--color-primary-border) !important;
+  background: var(--color-primary-soft) !important;
+  color: var(--color-primary) !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-form-grid input,
+.internal-theme-root .sales-theme-scope .sales-form-grid select,
+.internal-theme-root .sales-theme-scope .sales-form-grid textarea,
+.internal-theme-root .sales-theme-scope .crm-panel input:not([type="checkbox"]):not([type="radio"]),
+.internal-theme-root .sales-theme-scope .crm-panel select,
+.internal-theme-root .sales-theme-scope .crm-panel textarea,
+.internal-theme-root .sales-theme-scope .responsibility-panel input,
+.internal-theme-root .sales-theme-scope .responsibility-panel select,
+.internal-theme-root .sales-theme-scope .sales-tool-workspace input:not([type="checkbox"]):not([type="radio"]),
+.internal-theme-root .sales-theme-scope .sales-tool-workspace select,
+.internal-theme-root .sales-theme-scope .sales-tool-workspace textarea {
+  min-height: 40px;
+  border-radius: 12px !important;
+  border-color: var(--color-border) !important;
+  background: var(--color-surface-soft) !important;
+  color: var(--color-text-primary) !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-form-grid input:focus,
+.internal-theme-root .sales-theme-scope .sales-form-grid select:focus,
+.internal-theme-root .sales-theme-scope .sales-form-grid textarea:focus,
+.internal-theme-root .sales-theme-scope .crm-panel input:focus,
+.internal-theme-root .sales-theme-scope .crm-panel select:focus,
+.internal-theme-root .sales-theme-scope .crm-panel textarea:focus,
+.internal-theme-root .sales-theme-scope .responsibility-panel input:focus,
+.internal-theme-root .sales-theme-scope .responsibility-panel select:focus,
+.internal-theme-root .sales-theme-scope .sales-tool-workspace input:focus,
+.internal-theme-root .sales-theme-scope .sales-tool-workspace select:focus,
+.internal-theme-root .sales-theme-scope .sales-tool-workspace textarea:focus {
+  border-color: var(--color-primary) !important;
+  box-shadow: var(--crm-shadow-focus) !important;
+  outline: 0 !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-table,
+.internal-theme-root .sales-theme-scope .crm-table-shell,
+.internal-theme-root .sales-theme-scope .responsibility-table-scroll,
+.internal-theme-root .sales-theme-scope .crm-table-scroll-region {
+  overflow-x: auto !important;
+  border-radius: 14px;
+  border: 1px solid var(--color-border) !important;
+  background: var(--color-surface-soft) !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-table-row,
+.internal-theme-root .sales-theme-scope .crm-data-table tbody tr,
+.internal-theme-root .sales-theme-scope .responsibility-table tbody tr {
+  border-color: var(--color-border) !important;
+  background: var(--color-surface) !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-table-row:hover,
+.internal-theme-root .sales-theme-scope .crm-data-table tbody tr:hover,
+.internal-theme-root .sales-theme-scope .responsibility-table tbody tr:hover {
+  background: var(--color-primary-soft) !important;
+}
+
+.internal-theme-root .sales-theme-scope .crm-data-table th,
+.internal-theme-root .sales-theme-scope .responsibility-table th {
+  background: var(--color-surface-soft) !important;
+  color: var(--color-text-secondary) !important;
+  border-color: var(--color-border) !important;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.internal-theme-root .sales-theme-scope .crm-data-table td,
+.internal-theme-root .sales-theme-scope .responsibility-table td {
+  border-color: var(--color-border) !important;
+  color: var(--color-text-primary) !important;
+}
+
+/* Team administration keeps its scope and assignment controls visible, but
+   presents them as a compact filter strip like the mobile Leads screen. */
+.internal-theme-root .sales-theme-scope .sales-team-users-workspace .crm-panel,
+.internal-theme-root .sales-theme-scope .sales-team-users-workspace .sales-panel {
+  box-shadow: var(--crm-shadow-card) !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-team-users-workspace [role="tablist"],
+.internal-theme-root .sales-theme-scope .responsibility-filters,
+.internal-theme-root .sales-theme-scope .crm-directory-toolbar,
+.internal-theme-root .sales-theme-scope .sales-crm-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px !important;
+  padding: 10px !important;
+  border-radius: 16px;
+  border: 1px solid var(--color-border) !important;
+  background: var(--color-surface-soft) !important;
+}
+
+.internal-theme-root .sales-theme-scope .sales-team-users-workspace [role="tab"],
+.internal-theme-root .sales-theme-scope .responsibility-filters button,
+.internal-theme-root .sales-theme-scope .crm-directory-toolbar button {
+  min-height: 34px;
+  border-radius: 999px !important;
+}
+
+/* Payment settings previously carried a dark inline card into light mode.
+   Rebind that legacy surface to the shared tokens in both themes. */
+.internal-theme-root .sales-theme-scope .upi-create-form,
+.internal-theme-root .sales-theme-scope .upi-main-grid > section,
+.internal-theme-root .sales-theme-scope .upi-main-grid + section,
+.internal-theme-root .sales-theme-scope .upi-kpis > div {
+  border-color: var(--color-border) !important;
+  background: var(--color-surface) !important;
+  color: var(--color-text-primary) !important;
+  box-shadow: var(--crm-shadow-card) !important;
+}
+
+.internal-theme-root .sales-theme-scope .upi-create-form input,
+.internal-theme-root .sales-theme-scope .upi-create-form select,
+.internal-theme-root .sales-theme-scope .upi-create-form textarea,
+.internal-theme-root .sales-theme-scope .upi-main-grid input,
+.internal-theme-root .sales-theme-scope .upi-main-grid select,
+.internal-theme-root .sales-theme-scope .upi-main-grid textarea {
+  border-color: var(--color-border) !important;
+  background: var(--color-surface-soft) !important;
+  color: var(--color-text-primary) !important;
+}
+
+.internal-theme-root .sales-theme-scope .upi-create-form label,
+.internal-theme-root .sales-theme-scope .upi-section-heading,
+.internal-theme-root .sales-theme-scope .upi-create-form h2,
+.internal-theme-root .sales-theme-scope .upi-main-grid h2,
+.internal-theme-root .sales-theme-scope .upi-main-grid strong {
+  color: var(--color-text-primary) !important;
+}
+
+.internal-theme-root .sales-theme-scope .upi-helper,
+.internal-theme-root .sales-theme-scope .upi-create-form p,
+.internal-theme-root .sales-theme-scope .upi-main-grid p,
+.internal-theme-root .sales-theme-scope .upi-main-grid small {
+  color: var(--color-text-secondary) !important;
+}
+
+.internal-theme-root .sales-theme-scope .upi-rule-summary,
+.internal-theme-root .sales-theme-scope .upi-preview-validity,
+.internal-theme-root .sales-theme-scope .upi-settings-divider {
+  border-color: var(--color-border) !important;
+  background: var(--color-surface-soft) !important;
+  color: var(--color-text-secondary) !important;
+}
+
+.internal-theme-root .sales-theme-scope .upi-total-card {
+  border-color: var(--color-primary-border) !important;
+  background: var(--color-primary-soft) !important;
+}
+
+.internal-theme-root .internal-sidebar-footer {
+  border-top-color: var(--color-border) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+@media (max-width: 900px) {
+  .internal-theme-root .sales-internal-content:not(.sales-internal-content-chat) {
+    padding: 14px 14px 26px !important;
+  }
+
+  .internal-theme-root .sales-theme-scope > .sales-tool-workspace:not(.sales-chat-workspace),
+  .internal-theme-root .sales-theme-scope > .sales-automation-workspace {
+    padding-top: 12px !important;
+  }
+
+  .internal-theme-root .sales-theme-scope .sales-dashboard-hero {
+    padding: 18px !important;
+  }
+
+  .internal-theme-root .sales-theme-scope .crm-panel,
+  .internal-theme-root .sales-theme-scope .sales-panel,
+  .internal-theme-root .sales-theme-scope .sales-action-card {
+    border-radius: 16px !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .internal-theme-root .sales-theme-scope *,
+  .internal-theme-root .sales-theme-scope *::before,
+  .internal-theme-root .sales-theme-scope *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
 [data-theme="light"] .sales-theme-scope > div > header h1,
 [data-theme="light"] .sales-theme-scope > div > header p,
 [data-theme="light"] .sales-theme-scope .upi-kpis > div > div,
@@ -4063,6 +4597,17 @@ select option:focus {
   background: rgba(0, 0, 0, 0.54);
 }
 
+.sales-drawer-backdrop-hit-area {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: default;
+}
+
 .sales-drawer-backdrop.is-fullscreen {
   align-items: stretch;
   justify-content: center;
@@ -4071,6 +4616,8 @@ select option:focus {
 }
 
 .sales-side-drawer {
+  position: relative;
+  z-index: 1;
   display: grid;
   align-content: start;
   gap: 16px;
@@ -17803,6 +18350,114 @@ video.player-controls-on-hover:hover::-webkit-media-controls {
   .registration-app-showcase-badge {
     right: 8px;
     bottom: 12px;
+  }
+}
+
+/* The CRM content column is narrower than the full browser window because it
+   shares space with the app sidebar. Keep the control chrome inside that
+   column; only the seven-lane board itself is allowed to scroll. */
+body .sales-theme-scope .sales-crm-workspace {
+  width: 100% !important;
+  overflow: hidden !important;
+}
+
+body .sales-theme-scope .sales-crm-toolbar {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr) auto !important;
+  width: 100% !important;
+  overflow: hidden !important;
+}
+
+body .sales-theme-scope .sales-crm-toolbar > div:nth-child(1) {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+body .sales-theme-scope .sales-crm-toolbar > div:nth-child(2) {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0 !important;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+body .sales-theme-scope .sales-crm-toolbar > div:nth-child(3) {
+  grid-column: 3;
+  grid-row: 1;
+  min-width: 0 !important;
+}
+
+body .sales-theme-scope .sales-crm-toolbar > div:nth-child(4),
+body .sales-theme-scope .sales-crm-toolbar > div:nth-child(5) {
+  grid-column: 1 / -1;
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+body .sales-theme-scope .sales-crm-toolbar > .sales-saved-view-control {
+  display: grid !important;
+  grid-template-columns: minmax(150px, 0.7fr) minmax(180px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0 !important;
+}
+
+body .sales-theme-scope .sales-crm-toolbar > div:last-child {
+  display: flex !important;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0 !important;
+  overflow: hidden;
+}
+
+body .sales-theme-scope .sales-crm-filter-bar {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  width: 100% !important;
+  overflow: hidden !important;
+}
+
+body .sales-theme-scope .sales-crm-filter-bar .sales-crm-search-field {
+  grid-column: 1 / -1 !important;
+}
+
+body .sales-theme-scope .sales-crm-filter-bar > button {
+  justify-self: start;
+  max-width: 100%;
+}
+
+body .sales-theme-scope .sales-crm-stage-summary {
+  grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
+  min-width: 0 !important;
+  width: 100% !important;
+  overflow: hidden !important;
+}
+
+@media (max-width: 900px) {
+  body .sales-theme-scope .sales-crm-toolbar {
+    grid-template-columns: auto minmax(0, 1fr) !important;
+  }
+
+  body .sales-theme-scope .sales-crm-toolbar > div:nth-child(3) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: start;
+  }
+
+  body .sales-theme-scope .sales-crm-toolbar > .sales-saved-view-control {
+    grid-template-columns: 1fr;
+  }
+
+  body .sales-theme-scope .sales-crm-filter-bar,
+  body .sales-theme-scope .sales-crm-stage-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 560px) {
+  body .sales-theme-scope .sales-crm-filter-bar,
+  body .sales-theme-scope .sales-crm-stage-summary {
+    grid-template-columns: minmax(0, 1fr) !important;
   }
 }
 
@@ -39148,6 +39803,217 @@ body,
   background: var(--crm-surface) !important;
 }
 
+/* Conversation chrome: keep the web workspace focused on the same compact
+   customer-chat hierarchy as the mobile reference screens. These controls
+   still exist in the component so their state and APIs remain intact; they
+   are intentionally not part of the primary web chat header. */
+.sales-theme-scope-chat .chat-thread-head .chat-status-notes-actions,
+.sales-theme-scope-chat .chat-thread-head .chat-lane-actions,
+.sales-theme-scope-chat .chat-thread-head .chat-legacy-actions,
+.sales-theme-scope-chat .chat-thread-head button[aria-label="Toggle WhatsApp Lead Drip"] {
+  display: none !important;
+}
+
+.sales-theme-scope-chat .chat-thread-head {
+  display: flex !important;
+  align-items: center !important;
+  gap: 14px !important;
+  min-width: 0;
+}
+
+.sales-theme-scope-chat .chat-thread-head > *:first-child {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.sales-theme-scope-chat .chat-thread-head-toolbar {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(48%, 430px) !important;
+  overflow: visible !important;
+}
+
+.sales-theme-scope-chat .chat-thread-head-toolbar .chat-automation-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.sales-theme-scope-chat .chat-thread-head-toolbar .chat-ai-toggle,
+.sales-theme-scope-chat .chat-thread-head-toolbar .chat-assignment-actions .chat-head-icon {
+  min-height: 34px !important;
+  border-radius: 999px !important;
+  box-shadow: none !important;
+}
+
+.sales-theme-scope-chat .chat-thread-head-toolbar .chat-assignment-actions .chat-head-icon {
+  min-width: 90px !important;
+  padding: 0 12px !important;
+  gap: 7px !important;
+}
+
+.sales-theme-scope-chat .chat-thread-head-toolbar .chat-assignment-actions {
+  display: flex !important;
+  align-items: center !important;
+  flex: 0 0 auto;
+}
+
+.sales-theme-scope-chat .chat-thread-head-toolbar .chat-control-inline {
+  position: relative;
+}
+
+.sales-theme-scope-chat .chat-thread-head [class*="customer"],
+.sales-theme-scope-chat .chat-thread-head .chat-thread-customer-phone {
+  color: var(--crm-text-muted) !important;
+  font-size: 0.74rem !important;
+}
+
+.sales-theme-scope-chat .chat-message-scroll {
+  background: var(--crm-canvas) !important;
+}
+
+.sales-theme-scope-chat .chat-bubble {
+  box-shadow: none !important;
+}
+
+@media (max-width: 1080px) {
+  .sales-theme-scope-chat .chat-thread-head-toolbar {
+    max-width: 42% !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .sales-theme-scope-chat .chat-thread-head {
+    align-items: flex-start !important;
+  }
+
+  .sales-theme-scope-chat .chat-thread-head-toolbar {
+    max-width: 100% !important;
+    overflow-x: auto !important;
+    justify-content: flex-start !important;
+  }
+}
+
+/* Kanban presentation: a single calm workspace with real horizontal lanes.
+   All controls and drag/drop behavior remain owned by the existing React
+   components; this only removes the stacked-card/patched-surface feeling. */
+.sales-theme-scope .sales-crm-workspace {
+  gap: 12px !important;
+}
+
+.sales-theme-scope .sales-crm-toolbar {
+  align-items: center !important;
+  padding: 12px 14px !important;
+  border: 1px solid var(--crm-border) !important;
+  border-radius: var(--crm-radius-card) !important;
+  background: var(--crm-surface) !important;
+  box-shadow: var(--crm-shadow-card) !important;
+}
+
+.sales-theme-scope .sales-crm-toolbar .sales-icon-button,
+.sales-theme-scope .sales-crm-toolbar .sales-filter-pill,
+.sales-theme-scope .sales-crm-toolbar select,
+.sales-theme-scope .sales-crm-toolbar button {
+  min-height: 34px;
+  border-radius: var(--crm-radius-control) !important;
+  box-shadow: none !important;
+}
+
+.sales-theme-scope .sales-crm-toolbar .sales-saved-view-control {
+  min-width: 180px;
+  padding-inline: 2px;
+}
+
+.sales-theme-scope .sales-crm-surface {
+  overflow: hidden !important;
+  border: 1px solid var(--crm-border) !important;
+  border-radius: var(--crm-radius-card) !important;
+  background: var(--crm-canvas) !important;
+  box-shadow: var(--crm-shadow-card) !important;
+}
+
+.sales-theme-scope .sales-kanban {
+  display: grid !important;
+  grid-template-columns: repeat(7, minmax(236px, 1fr));
+  gap: 10px !important;
+  min-width: 1680px;
+  min-height: 560px;
+  padding: 12px !important;
+  overflow-x: auto !important;
+  background: var(--crm-canvas) !important;
+}
+
+.sales-theme-scope .sales-kanban-column {
+  min-width: 0;
+  min-height: 520px;
+  padding: 10px !important;
+  border: 1px solid var(--crm-border) !important;
+  border-radius: var(--crm-radius-card) !important;
+  background: var(--crm-surface-soft) !important;
+  box-shadow: none !important;
+}
+
+.sales-theme-scope .sales-kanban-column header,
+.sales-theme-scope .sales-kanban-column-header {
+  margin: 0 0 8px !important;
+  padding: 2px 2px 9px !important;
+  border-bottom: 1px solid var(--crm-border) !important;
+}
+
+.sales-theme-scope .sales-kanban-empty {
+  display: grid;
+  min-height: 112px;
+  place-items: center;
+  margin: 0 !important;
+  border: 1px dashed var(--crm-border-strong) !important;
+  border-radius: var(--crm-radius-control) !important;
+  color: var(--crm-text-muted) !important;
+  background: transparent !important;
+  font-size: 0.72rem !important;
+  letter-spacing: 0.02em;
+}
+
+.sales-theme-scope .sales-crm-card.compact {
+  margin: 0 0 8px !important;
+  border: 1px solid var(--crm-border) !important;
+  border-left: 2px solid var(--crm-primary) !important;
+  border-radius: var(--crm-radius-control) !important;
+  background: var(--crm-surface) !important;
+  box-shadow: var(--crm-shadow-card) !important;
+}
+
+.sales-theme-scope .sales-crm-card.compact:hover,
+.sales-theme-scope .sales-crm-card.compact:focus-within {
+  border-color: var(--crm-primary-border) !important;
+  box-shadow: var(--crm-shadow-focus) !important;
+  transform: translateY(-1px);
+}
+
+.sales-theme-scope .sales-crm-card-main {
+  background: transparent !important;
+}
+
+.sales-theme-scope .sales-crm-card-note-preview {
+  min-height: 34px;
+  border-color: var(--crm-border) !important;
+  background: var(--crm-surface-soft) !important;
+}
+
+.sales-theme-scope .sales-crm-card-signal {
+  border-color: var(--crm-border) !important;
+  background: var(--crm-surface-soft) !important;
+}
+
+@media (max-width: 900px) {
+  .sales-theme-scope .sales-kanban {
+    min-width: 1680px;
+  }
+}
+
 @media (max-width: 860px) {
   .sales-theme-scope-chat .sales-chat-workspace > div:first-child {
     margin: 8px 10px 0 !important;
@@ -40296,4 +41162,932 @@ body,
   background: var(--color-primary-soft) !important;
   border-color: var(--color-primary-border) !important;
   color: var(--color-text-secondary) !important;
+}
+
+/* Final mobile-parity pass for the live sales pipeline. Keep the board
+   operationally dense, but make the lane/card hierarchy calm and readable. */
+.sales-theme-scope .sales-crm-workspace {
+  --pipeline-accent: var(--crm-primary, var(--color-primary));
+  --pipeline-canvas: var(--crm-canvas, var(--color-bg));
+  --pipeline-surface: var(--crm-surface, var(--color-surface));
+  --pipeline-soft: var(--crm-surface-soft, var(--color-surface-soft));
+}
+
+.sales-theme-scope .sales-crm-surface {
+  background: var(--pipeline-canvas) !important;
+  border-color: var(--crm-border, var(--color-border)) !important;
+}
+
+.sales-theme-scope .sales-kanban {
+  scrollbar-color: var(--crm-border-strong, var(--color-border-strong)) transparent;
+  scrollbar-width: thin;
+}
+
+.sales-theme-scope .sales-kanban-column {
+  background: color-mix(in srgb, var(--pipeline-soft) 92%, var(--pipeline-canvas)) !important;
+  border-color: var(--crm-border, var(--color-border)) !important;
+}
+
+.sales-theme-scope .sales-kanban-column-header strong {
+  color: var(--crm-text, var(--color-text-primary)) !important;
+  letter-spacing: -0.01em;
+}
+
+.sales-theme-scope .sales-kanban-column-header small,
+.sales-theme-scope .sales-kanban-column-header span:last-child {
+  color: var(--crm-text-muted, var(--color-text-secondary)) !important;
+}
+
+.sales-theme-scope .sales-crm-card.compact {
+  background: color-mix(in srgb, var(--pipeline-surface) 96%, var(--pipeline-accent) 4%) !important;
+  border-left-color: var(--pipeline-accent) !important;
+}
+
+.sales-theme-scope .sales-crm-card.compact .sales-crm-card-main,
+.sales-theme-scope .sales-crm-card.compact .sales-crm-card-main:hover {
+  color: var(--crm-text, var(--color-text-primary)) !important;
+}
+
+.sales-theme-scope .sales-crm-card.compact .sales-crm-card-quick-actions {
+  border-top-color: var(--crm-border, var(--color-border)) !important;
+}
+
+.sales-theme-scope .sales-crm-card.compact button,
+.sales-theme-scope .sales-crm-card.compact select {
+  min-height: 30px;
+}
+
+[data-theme="light"] .sales-theme-scope .sales-kanban-column,
+.light .sales-theme-scope .sales-kanban-column {
+  background: color-mix(in srgb, var(--color-surface-soft) 90%, var(--color-bg)) !important;
+}
+
+[data-theme="light"] .sales-theme-scope .sales-crm-card.compact,
+.light .sales-theme-scope .sales-crm-card.compact {
+  background: var(--color-surface) !important;
+}
+
+/* Final live-chat chrome contract. Some earlier compatibility rules use
+   higher-specificity toolbar selectors, so this last layer is intentionally
+   explicit: the web header keeps the customer identity, notes/callback,
+   status and assignment actions only. */
+body .sales-theme-scope-chat .aicloser-web-chat-shell .chat-thread-head-toolbar {
+  max-width: min(72%, 760px) !important;
+  flex-wrap: wrap !important;
+}
+
+body .sales-theme-scope-chat .aicloser-web-chat-shell .chat-thread-head-toolbar .chat-status-notes-actions {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+body .sales-theme-scope-chat .aicloser-web-chat-shell .chat-thread-head-toolbar .chat-automation-actions,
+body .sales-theme-scope-chat .aicloser-web-chat-shell .chat-thread-head-toolbar .chat-lane-actions,
+body .sales-theme-scope-chat .aicloser-web-chat-shell .chat-thread-head-toolbar .chat-legacy-actions,
+body .sales-theme-scope-chat .aicloser-web-chat-shell .chat-thread-head-toolbar button[aria-label="Toggle WhatsApp Lead Drip"] {
+  display: none !important;
+}
+
+body .sales-theme-scope-chat .aicloser-web-chat-shell .chat-thread-head-toolbar .chat-assignment-actions {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+body .sales-theme-scope-chat .aicloser-web-chat-shell .chat-status-control {
+  display: inline-flex !important;
+  min-height: 34px !important;
+  border-radius: 999px !important;
+}
+
+/* Reassert the mobile-parity pipeline treatment after the legacy dashboard
+   theme blocks. It keeps real controls intact while giving the board a clear
+   canvas, calm columns and compact cards in both themes. */
+body .sales-theme-scope .sales-crm-workspace {
+  gap: 14px !important;
+  color: var(--crm-text, var(--color-text-primary)) !important;
+}
+
+body .sales-theme-scope .sales-crm-toolbar {
+  padding: 12px !important;
+  border: 1px solid var(--crm-border, var(--color-border)) !important;
+  border-radius: 18px !important;
+  background: color-mix(in srgb, var(--crm-surface, var(--color-surface)) 92%, var(--crm-primary, var(--color-primary)) 8%) !important;
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--crm-shadow, #000) 10%, transparent) !important;
+}
+
+body .sales-theme-scope .sales-crm-toolbar > div {
+  min-height: 36px;
+}
+
+body .sales-theme-scope .sales-crm-filter-bar {
+  padding: 12px !important;
+  border: 1px solid var(--crm-border, var(--color-border)) !important;
+  border-radius: 16px !important;
+  background: var(--crm-surface, var(--color-surface)) !important;
+}
+
+body .sales-theme-scope .sales-crm-stage-summary {
+  gap: 8px !important;
+  padding: 0 !important;
+}
+
+body .sales-theme-scope .sales-stage-summary-item {
+  min-height: 44px !important;
+  padding: 8px 12px !important;
+  border-radius: 14px !important;
+  border-color: var(--crm-border, var(--color-border)) !important;
+  background: var(--crm-surface, var(--color-surface)) !important;
+}
+
+body .sales-theme-scope .sales-crm-surface {
+  padding: 10px !important;
+  border: 1px solid var(--crm-border, var(--color-border)) !important;
+  border-radius: 20px !important;
+  background: color-mix(in srgb, var(--crm-canvas, var(--color-bg)) 94%, var(--crm-primary, var(--color-primary)) 6%) !important;
+}
+
+body .sales-theme-scope .sales-kanban {
+  gap: 12px !important;
+  padding: 2px !important;
+}
+
+body .sales-theme-scope .sales-kanban-column {
+  flex: 0 0 min(300px, 29vw) !important;
+  min-width: 260px !important;
+  border-radius: 16px !important;
+  border: 1px solid var(--crm-border, var(--color-border)) !important;
+  background: color-mix(in srgb, var(--crm-surface-soft, var(--color-surface-soft)) 88%, var(--crm-canvas, var(--color-bg))) !important;
+}
+
+body .sales-theme-scope .sales-kanban-column-header {
+  min-height: 48px !important;
+  padding: 12px 14px !important;
+  border-bottom: 1px solid var(--crm-border, var(--color-border)) !important;
+  background: color-mix(in srgb, var(--crm-surface, var(--color-surface)) 92%, var(--crm-primary, var(--color-primary)) 8%) !important;
+}
+
+body .sales-theme-scope .sales-crm-card.compact {
+  margin: 10px !important;
+  border-radius: 14px !important;
+  border: 1px solid var(--crm-border, var(--color-border)) !important;
+  border-left: 3px solid var(--crm-primary, var(--color-primary)) !important;
+  background: var(--crm-surface, var(--color-surface)) !important;
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--crm-shadow, #000) 9%, transparent) !important;
+}
+
+body .sales-theme-scope .sales-crm-card.compact .sales-crm-card-main {
+  padding: 12px !important;
+}
+
+body .sales-theme-scope .sales-crm-card.compact .sales-crm-card-quick-actions {
+  gap: 7px !important;
+  padding: 9px 10px !important;
+}
+
+@media (max-width: 900px) {
+  body .sales-theme-scope-chat .aicloser-web-chat-shell .chat-thread-head-toolbar {
+    max-width: 100% !important;
+  }
+
+  body .sales-theme-scope .sales-kanban-column {
+    flex-basis: min(86vw, 310px) !important;
+  }
+}
+/* ==========================================================================
+   21st UI Polish: Universal B2B SaaS Kanban Board & Card System
+   - Column Width: 330px locked (prevents column crushing across 7 stages)
+   - Layout: Non-clipped topbar with generous expand/new-tab button ([↗])
+   - Theme Support: High-contrast Dark (#0f172a / #334155) text in Light Theme,
+     and crisp (#f8fafc / #cbd5e1) in Dark Theme.
+   ========================================================================== */
+
+body .sales-theme-scope .sales-crm-surface {
+  position: relative !important;
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  height: calc(100vh - 280px) !important;
+  min-height: 540px !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin !important;
+  scrollbar-color: var(--closer-orange, #ff6b2f) rgba(0, 0, 0, 0.08) !important;
+  padding-bottom: 10px !important;
+  box-sizing: border-box !important;
+}
+
+body .sales-theme-scope .sales-crm-surface::-webkit-scrollbar {
+  height: 10px !important;
+  width: 10px !important;
+}
+
+body .sales-theme-scope .sales-crm-surface::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05) !important;
+  border-radius: 999px !important;
+}
+
+body .sales-theme-scope .sales-crm-surface::-webkit-scrollbar-thumb {
+  background: var(--closer-orange, #ff6b2f) !important;
+  border-radius: 999px !important;
+}
+
+body .sales-theme-scope .sales-crm-surface::-webkit-scrollbar-thumb:hover {
+  background: #ff854d !important;
+}
+
+/* Kanban board container: wide layout spanning all columns */
+body .sales-theme-scope .sales-kanban {
+  display: grid !important;
+  grid-template-columns: repeat(7, 330px) !important;
+  grid-auto-columns: unset !important;
+  grid-auto-flow: column !important;
+  width: max-content !important;
+  min-width: max-content !important;
+  max-width: none !important;
+  height: 100% !important;
+  min-height: 100% !important;
+  overflow-x: visible !important;
+  overflow-y: hidden !important;
+  gap: 16px !important;
+  padding: 8px 10px 14px !important;
+  align-items: stretch !important;
+  box-sizing: border-box !important;
+}
+
+/* Kanban columns: 330px width locked with clean vertical scroll */
+body .sales-theme-scope .sales-kanban-column {
+  width: 330px !important;
+  min-width: 330px !important;
+  max-width: 330px !important;
+  flex: 0 0 330px !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  padding: 12px 10px !important;
+  gap: 10px !important;
+  border-radius: 16px !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  scrollbar-width: thin !important;
+  box-sizing: border-box !important;
+}
+
+body .sales-theme-scope .sales-kanban-column::-webkit-scrollbar {
+  width: 6px !important;
+}
+
+body .sales-theme-scope .sales-kanban-column::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+body .sales-theme-scope .sales-kanban-column::-webkit-scrollbar-thumb {
+  background: rgba(120, 120, 120, 0.25) !important;
+  border-radius: 999px !important;
+}
+
+/* Sticky Column Header */
+body .sales-theme-scope .sales-kanban-column-header {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 5 !important;
+  display: flex !important;
+  min-height: 42px !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+  margin: 0 0 4px !important;
+  padding: 6px 8px 8px !important;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08) !important;
+}
+
+body .sales-theme-scope .sales-kanban-column-title {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-width: 0 !important;
+}
+
+body .sales-theme-scope .sales-kanban-column-title > span {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  font-size: 0.88rem !important;
+  font-weight: 700 !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+body .sales-theme-scope .sales-kanban-column-title > strong {
+  flex: 0 0 auto !important;
+  border-radius: 999px !important;
+  font-size: 0.72rem !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+  padding: 3px 8px !important;
+}
+
+body .sales-theme-scope .sales-kanban-column-value {
+  flex: 0 0 auto !important;
+  border: 1px solid rgba(255, 107, 47, 0.3) !important;
+  border-radius: 999px !important;
+  background: rgba(255, 107, 47, 0.1) !important;
+  color: var(--closer-orange, #ff6b2f) !important;
+  font-size: 0.72rem !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+  padding: 3px 8px !important;
+}
+
+/* 21st Card Container: strictly prevents shrinking/compression so all details remain fully visible */
+body .sales-theme-scope .sales-crm-card.compact {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 0 0 auto !important;
+  flex-shrink: 0 !important;
+  min-width: 0 !important;
+  width: 100% !important;
+  height: auto !important;
+  min-height: min-content !important;
+  max-height: none !important;
+  box-sizing: border-box !important;
+  gap: 10px !important;
+  margin: 0 0 10px !important;
+  padding: 13px 14px !important;
+  overflow: visible !important;
+  border-radius: 14px !important;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease !important;
+}
+
+body .sales-theme-scope .sales-crm-card.compact:hover {
+  border-color: rgba(255, 107, 47, 0.4) !important;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12) !important;
+  transform: translateY(-1px) !important;
+}
+
+/* Topbar: stage select on left, badges + expand/new-tab button on right */
+body .sales-theme-scope .sales-crm-card-topbar {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+  min-height: 30px !important;
+  margin: 0 !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+body .sales-theme-scope .sales-crm-card-controls {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+
+body .sales-theme-scope .sales-crm-drag-handle {
+  flex-shrink: 0 !important;
+  width: 24px !important;
+  height: 28px !important;
+  border-radius: 6px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: grab !important;
+  padding: 0 !important;
+}
+
+body .sales-theme-scope .sales-crm-card-stage-select {
+  flex: 0 1 auto !important;
+  min-width: 80px !important;
+  max-width: 150px !important;
+  height: 28px !important;
+  padding: 2px 22px 2px 8px !important;
+  overflow: hidden !important;
+  border: 1px solid rgba(255, 107, 47, 0.4) !important;
+  border-radius: 7px !important;
+  background: rgba(255, 107, 47, 0.08) !important;
+  color: var(--closer-orange, #ff6b2f) !important;
+  font-size: 0.74rem !important;
+  font-weight: 700 !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  cursor: pointer !important;
+}
+
+body .sales-theme-scope .sales-crm-card-topbar-actions {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  flex: 0 0 auto !important;
+  justify-content: flex-end !important;
+}
+
+/* Expand / Open In New Tab Button: clean 28px icon button pinned to top-right */
+body .sales-theme-scope .sales-crm-card-expand-button {
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  flex-shrink: 0 !important;
+  border-radius: 7px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+  padding: 0 !important;
+  border: 1px solid rgba(0, 0, 0, 0.12) !important;
+  background: rgba(0, 0, 0, 0.04) !important;
+  color: #64748b !important;
+}
+
+body .sales-theme-scope .sales-crm-card-expand-button:hover {
+  background: var(--closer-orange, #ff6b2f) !important;
+  color: #ffffff !important;
+  border-color: var(--closer-orange, #ff6b2f) !important;
+}
+
+body .sales-theme-scope .sales-crm-card-status-badge {
+  display: inline-flex !important;
+  height: 24px !important;
+  min-height: 24px !important;
+  align-items: center !important;
+  gap: 4px !important;
+  padding: 2px 8px !important;
+  border-radius: 999px !important;
+  font-size: 0.70rem !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+}
+
+body .sales-theme-scope .sales-crm-card-status-badge.is-today {
+  border: 1px solid rgba(255, 107, 47, 0.4) !important;
+  background: rgba(255, 107, 47, 0.12) !important;
+  color: #ff6b2f !important;
+}
+
+body .sales-theme-scope .sales-crm-card-status-badge.is-due {
+  border: 1px solid rgba(14, 165, 233, 0.4) !important;
+  background: rgba(14, 165, 233, 0.12) !important;
+  color: #0284c7 !important;
+}
+
+/* Card Main Area: natural auto-height button container */
+body .sales-theme-scope .sales-crm-card.compact .sales-crm-card-main,
+body .sales-theme-scope .sales-crm-card-main {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 0 0 auto !important;
+  flex-shrink: 0 !important;
+  gap: 8px !important;
+  min-width: 0 !important;
+  width: 100% !important;
+  height: auto !important;
+  min-height: min-content !important;
+  max-height: none !important;
+  overflow: visible !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  text-align: left !important;
+  cursor: pointer !important;
+}
+
+body .sales-theme-scope .sales-crm-card-head {
+  min-width: 0 !important;
+  width: 100% !important;
+}
+
+body .sales-theme-scope .sales-crm-card-identity {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 3px !important;
+  min-width: 0 !important;
+  width: 100% !important;
+}
+
+body .sales-theme-scope .sales-crm-card-identity-title {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+  min-width: 0 !important;
+  width: 100% !important;
+}
+
+body .sales-theme-scope .sales-crm-card-identity-title > strong {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+  font-size: 0.94rem !important;
+  font-weight: 700 !important;
+  line-height: 1.3 !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+body .sales-theme-scope .sales-crm-card-identity > span {
+  display: block !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  font-size: 0.78rem !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  font-weight: 500 !important;
+}
+
+/* Signal Grid: 2 equal columns with full content visibility */
+body .sales-theme-scope .sales-crm-card.compact .sales-crm-card-signal-grid,
+body .sales-theme-scope .sales-crm-card-signal-grid {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  min-width: 0 !important;
+  width: 100% !important;
+  height: auto !important;
+  min-height: 52px !important;
+  box-sizing: border-box !important;
+  gap: 8px !important;
+  margin-top: 2px !important;
+  overflow: visible !important;
+}
+
+body .sales-theme-scope .sales-crm-card-signal {
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+  min-height: 50px !important;
+  height: auto !important;
+  padding: 7px 9px !important;
+  border-radius: 9px !important;
+}
+
+body .sales-theme-scope .sales-crm-card-signal > span {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  font-size: 0.65rem !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.03em !important;
+  margin-bottom: 2px !important;
+}
+
+body .sales-theme-scope .sales-crm-card-signal > strong {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  font-size: 0.78rem !important;
+  font-weight: 700 !important;
+  line-height: 1.25 !important;
+}
+
+body .sales-theme-scope .sales-crm-card-signal.due {
+  border-color: rgba(245, 158, 11, 0.4) !important;
+  background: rgba(245, 158, 11, 0.08) !important;
+}
+
+body .sales-theme-scope .sales-crm-card-signal.due > strong {
+  color: #d97706 !important;
+}
+
+/* Quick Actions: Note and Follow-up */
+body .sales-theme-scope .sales-crm-card.compact .sales-crm-card-quick-actions,
+body .sales-theme-scope .sales-crm-card-quick-actions {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  min-width: 0 !important;
+  width: 100% !important;
+  height: auto !important;
+  min-height: 32px !important;
+  box-sizing: border-box !important;
+  gap: 8px !important;
+  padding: 8px 0 0 !important;
+  border-top: 1px solid rgba(0, 0, 0, 0.08) !important;
+  overflow: visible !important;
+}
+
+body .sales-theme-scope .sales-crm-card-quick-actions .sales-secondary-button {
+  min-width: 0 !important;
+  height: 32px !important;
+  overflow: hidden !important;
+  padding: 0 10px !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  font-size: 0.76rem !important;
+  font-weight: 600 !important;
+  border-radius: 8px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+}
+
+/* Open WhatsApp chat CTA */
+body .sales-theme-scope .sales-crm-card > .sales-secondary-button {
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 34px !important;
+  min-height: 34px !important;
+  flex-shrink: 0 !important;
+  padding: 0 12px !important;
+  font-size: 0.78rem !important;
+  font-weight: 700 !important;
+  border-radius: 8px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 7px !important;
+  background: rgba(37, 211, 102, 0.1) !important;
+  border: 1px solid rgba(37, 211, 102, 0.3) !important;
+  color: #16a34a !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+}
+
+body .sales-theme-scope .sales-crm-card > .sales-secondary-button:hover {
+  background: rgba(37, 211, 102, 0.18) !important;
+  border-color: rgba(37, 211, 102, 0.5) !important;
+  color: #15803d !important;
+}
+
+/* Recording Player in Card */
+body .sales-theme-scope .sales-crm-card .sales-recording-player {
+  width: 100% !important;
+  padding: 8px 10px !important;
+  border-radius: 10px !important;
+  box-sizing: border-box !important;
+  gap: 8px !important;
+  margin: 2px 0 !important;
+  flex-shrink: 0 !important;
+}
+
+body .sales-theme-scope .sales-crm-card .sales-recording-controls {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  width: 100% !important;
+  gap: 8px !important;
+}
+
+body .sales-theme-scope .sales-crm-card .sales-recording-toggle {
+  height: 28px !important;
+  padding: 0 12px !important;
+  font-size: 0.74rem !important;
+  font-weight: 700 !important;
+  border-radius: 6px !important;
+  background: var(--closer-orange, #ff6b2f) !important;
+  color: #ffffff !important;
+  border: none !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+}
+
+body .sales-theme-scope .sales-crm-card .sales-recording-speed {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 3px !important;
+}
+
+body .sales-theme-scope .sales-crm-card .sales-recording-speed-btn {
+  padding: 2px 6px !important;
+  font-size: 0.68rem !important;
+  font-weight: 700 !important;
+  border-radius: 5px !important;
+  background: rgba(0, 0, 0, 0.05) !important;
+  border: 1px solid rgba(0, 0, 0, 0.1) !important;
+  color: #475569 !important;
+  cursor: pointer !important;
+}
+
+body .sales-theme-scope .sales-crm-card .sales-recording-speed-btn.is-active {
+  background: rgba(255, 107, 47, 0.2) !important;
+  border-color: rgba(255, 107, 47, 0.45) !important;
+  color: var(--closer-orange, #ff6b2f) !important;
+}
+
+/* ==========================================================================
+   THEME PALETTE OVERRIDES: LIGHT THEME (Default)
+   ========================================================================== */
+[data-theme="light"] body .sales-theme-scope .sales-kanban-column,
+.light body .sales-theme-scope .sales-kanban-column,
+body:not(.dark) .sales-theme-scope .sales-kanban-column {
+  background: #f1f3f7 !important;
+  border: 1px solid #e2e8f0 !important;
+}
+
+[data-theme="light"] body .sales-theme-scope .sales-kanban-column-header,
+.light body .sales-theme-scope .sales-kanban-column-header,
+body:not(.dark) .sales-theme-scope .sales-kanban-column-header {
+  background: #f1f3f7 !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+
+[data-theme="light"] body .sales-theme-scope .sales-kanban-column-title > span,
+.light body .sales-theme-scope .sales-kanban-column-title > span,
+body:not(.dark) .sales-theme-scope .sales-kanban-column-title > span {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] body .sales-theme-scope .sales-kanban-column-title > strong,
+.light body .sales-theme-scope .sales-kanban-column-title > strong,
+body:not(.dark) .sales-theme-scope .sales-kanban-column-title > strong {
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #334155 !important;
+}
+
+[data-theme="light"] body .sales-theme-scope .sales-crm-card.compact,
+.light body .sales-theme-scope .sales-crm-card.compact,
+body:not(.dark) .sales-theme-scope .sales-crm-card.compact {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05) !important;
+}
+
+[data-theme="light"] body .sales-theme-scope .sales-crm-drag-handle,
+.light body .sales-theme-scope .sales-crm-drag-handle,
+body:not(.dark) .sales-theme-scope .sales-crm-drag-handle {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #64748b !important;
+}
+
+[data-theme="light"] body .sales-theme-scope .sales-crm-card-identity-title > strong,
+.light body .sales-theme-scope .sales-crm-card-identity-title > strong,
+body:not(.dark) .sales-theme-scope .sales-crm-card-identity-title > strong {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] body .sales-theme-scope .sales-crm-card-identity > span,
+.light body .sales-theme-scope .sales-crm-card-identity > span,
+body:not(.dark) .sales-theme-scope .sales-crm-card-identity > span {
+  color: #475569 !important;
+}
+
+[data-theme="light"] body .sales-theme-scope .sales-crm-card-signal,
+.light body .sales-theme-scope .sales-crm-card-signal,
+body:not(.dark) .sales-theme-scope .sales-crm-card-signal {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+}
+
+[data-theme="light"] body .sales-theme-scope .sales-crm-card-signal > span,
+.light body .sales-theme-scope .sales-crm-card-signal > span,
+body:not(.dark) .sales-theme-scope .sales-crm-card-signal > span {
+  color: #64748b !important;
+}
+
+[data-theme="light"] body .sales-theme-scope .sales-crm-card-signal > strong,
+.light body .sales-theme-scope .sales-crm-card-signal > strong,
+body:not(.dark) .sales-theme-scope .sales-crm-card-signal > strong {
+  color: #1e293b !important;
+}
+
+[data-theme="light"] body .sales-theme-scope .sales-crm-card-signal.empty > strong,
+.light body .sales-theme-scope .sales-crm-card-signal.empty > strong,
+body:not(.dark) .sales-theme-scope .sales-crm-card-signal.empty > strong {
+  color: #94a3b8 !important;
+}
+
+[data-theme="light"] body .sales-theme-scope .sales-crm-card-quick-actions,
+.light body .sales-theme-scope .sales-crm-card-quick-actions,
+body:not(.dark) .sales-theme-scope .sales-crm-card-quick-actions {
+  border-top: 1px solid #f1f5f9 !important;
+}
+
+[data-theme="light"] body .sales-theme-scope .sales-crm-card-quick-actions .sales-secondary-button,
+.light body .sales-theme-scope .sales-crm-card-quick-actions .sales-secondary-button,
+body:not(.dark) .sales-theme-scope .sales-crm-card-quick-actions .sales-secondary-button {
+  background: #f8fafc !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #334155 !important;
+}
+
+[data-theme="light"] body .sales-theme-scope .sales-crm-card-quick-actions .sales-secondary-button:hover,
+.light body .sales-theme-scope .sales-crm-card-quick-actions .sales-secondary-button:hover,
+body:not(.dark) .sales-theme-scope .sales-crm-card-quick-actions .sales-secondary-button:hover {
+  background: #f1f5f9 !important;
+  color: #0f172a !important;
+  border-color: #94a3b8 !important;
+}
+
+[data-theme="light"] body .sales-theme-scope .sales-crm-card .sales-recording-player,
+.light body .sales-theme-scope .sales-crm-card .sales-recording-player,
+body:not(.dark) .sales-theme-scope .sales-crm-card .sales-recording-player {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+}
+
+/* ==========================================================================
+   THEME PALETTE OVERRIDES: DARK THEME
+   ========================================================================== */
+[data-theme="dark"] body .sales-theme-scope .sales-kanban-column,
+.dark body .sales-theme-scope .sales-kanban-column {
+  background: rgba(255, 255, 255, 0.02) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+
+[data-theme="dark"] body .sales-theme-scope .sales-kanban-column-header,
+.dark body .sales-theme-scope .sales-kanban-column-header {
+  background: rgba(18, 20, 26, 0.92) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+
+[data-theme="dark"] body .sales-theme-scope .sales-kanban-column-title > span,
+.dark body .sales-theme-scope .sales-kanban-column-title > span {
+  color: #f1f5f9 !important;
+}
+
+[data-theme="dark"] body .sales-theme-scope .sales-kanban-column-title > strong,
+.dark body .sales-theme-scope .sales-kanban-column-title > strong {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: #94a3b8 !important;
+}
+
+[data-theme="dark"] body .sales-theme-scope .sales-crm-card.compact,
+.dark body .sales-theme-scope .sales-crm-card.compact {
+  background: #171a22 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22) !important;
+}
+
+[data-theme="dark"] body .sales-theme-scope .sales-crm-drag-handle,
+.dark body .sales-theme-scope .sales-crm-drag-handle {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.07) !important;
+  color: #64748b !important;
+}
+
+[data-theme="dark"] body .sales-theme-scope .sales-crm-card-expand-button,
+.dark body .sales-theme-scope .sales-crm-card-expand-button {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  color: #94a3b8 !important;
+}
+
+[data-theme="dark"] body .sales-theme-scope .sales-crm-card-identity-title > strong,
+.dark body .sales-theme-scope .sales-crm-card-identity-title > strong {
+  color: #f8fafc !important;
+}
+
+[data-theme="dark"] body .sales-theme-scope .sales-crm-card-identity > span,
+.dark body .sales-theme-scope .sales-crm-card-identity > span {
+  color: #94a3b8 !important;
+}
+
+[data-theme="dark"] body .sales-theme-scope .sales-crm-card-signal,
+.dark body .sales-theme-scope .sales-crm-card-signal {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border: 1px solid rgba(255, 255, 255, 0.07) !important;
+}
+
+[data-theme="dark"] body .sales-theme-scope .sales-crm-card-signal > span,
+.dark body .sales-theme-scope .sales-crm-card-signal > span {
+  color: #64748b !important;
+}
+
+[data-theme="dark"] body .sales-theme-scope .sales-crm-card-signal > strong,
+.dark body .sales-theme-scope .sales-crm-card-signal > strong {
+  color: #e2e8f0 !important;
+}
+
+[data-theme="dark"] body .sales-theme-scope .sales-crm-card-quick-actions,
+.dark body .sales-theme-scope .sales-crm-card-quick-actions {
+  border-top: 1px solid rgba(255, 255, 255, 0.07) !important;
+}
+
+[data-theme="dark"] body .sales-theme-scope .sales-crm-card-quick-actions .sales-secondary-button,
+.dark body .sales-theme-scope .sales-crm-card-quick-actions .sales-secondary-button {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  color: #cbd5e1 !important;
+}
+
+[data-theme="dark"] body .sales-theme-scope .sales-crm-card .sales-recording-player,
+.dark body .sales-theme-scope .sales-crm-card .sales-recording-player {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border: 1px solid rgba(255, 255, 255, 0.07) !important;
+}
+
+[data-theme="dark"] body .sales-theme-scope .sales-crm-card .sales-recording-speed-btn,
+.dark body .sales-theme-scope .sales-crm-card .sales-recording-speed-btn {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  color: #94a3b8 !important;
 }

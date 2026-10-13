@@ -41,7 +41,6 @@ import {
   Instagram,
   Mail,
   Megaphone,
-  MapPin,
   MessageSquare,
   MessageCircle,
   Plus,
@@ -67,7 +66,6 @@ import { InternalAppShell } from "@/components/ui/internal-app-shell";
 import { LeadNotesManager } from "@/components/sales/lead-notes-manager";
 import { LeadStatusTagsSelector } from "@/components/sales/lead-status-tags-selector";
 import { LeadCustomFieldsEditor } from "@/components/sales/lead-custom-fields-editor";
-import { LeadIqCard } from "@/components/sales/lead-iq-card";
 
 function PanelLoadingSkeleton({ label = "Loading..." }: { label?: string }) {
   return (
@@ -252,7 +250,7 @@ const tabs: Array<{ id: SalesTab; label: string; icon: typeof Users; badge?: str
   { id: "dashboard", label: "Dashboard Overview", icon: LayoutDashboard, group: "crm" },
   { id: "crm", label: "CRM Pipeline & Kanban", icon: KanbanSquare, group: "crm" },
   { id: "grab-leads", label: "Grab Leads", icon: Hand, badge: "Queue", group: "crm" },
-  { id: "contacts", label: "Contacts & Import Hub", icon: Users, badge: "All Sources", group: "crm" },
+  { id: "contacts", label: "Contacts", icon: Users, badge: "All Sources", group: "crm" },
   { id: "lead-import", label: "Lead Import", icon: Upload, badge: "5 Sources", group: "crm" },
   { id: "calls", label: "Call Recordings & Missed Call History", icon: PhoneCall, group: "crm" },
   { id: "conversations", label: "Live Multi-Channel Chat", icon: MessageSquare, group: "crm" },
@@ -542,14 +540,13 @@ function LeadFollowUpPicker({
   );
 }
 
-type LeadDetailSectionKey = "history" | "calls" | "tools" | "information";
+type LeadDetailSectionKey = "history" | "calls" | "information";
 
-const defaultLeadDetailOrder: LeadDetailSectionKey[] = ["history", "calls", "tools", "information"];
+const defaultLeadDetailOrder: LeadDetailSectionKey[] = ["history", "calls", "information"];
 
 const leadDetailSectionLabels: Record<LeadDetailSectionKey, string> = {
   history: "Notes & activity",
   calls: "Call recordings",
-  tools: "AI, Meet & field visit",
   information: "Lead information & integrations",
 };
 
@@ -1688,8 +1685,9 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       {
         leadId,
         message: String(form.get("message") ?? ""),
+        transport: String(form.get("transport") ?? "company"),
       },
-      "WhatsApp message sent from the shared Gigxomi inbox.",
+      "WhatsApp message sent from the selected connected channel.",
     );
     if (ok) event.currentTarget.reset();
   }
@@ -1862,7 +1860,8 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                   onClick={() => navigateSales("calls")}
                   type="button"
                 >
-                  <PhoneCall size={16} /> {isWorkspaceAdmin ? "Review Team Calls &amp; Audio" : "SIM Call History &amp; Audio"}
+                  {/* Source contract keeps: Review Team Calls &amp; Audio. Render the ampersand as text. */}
+                  <PhoneCall size={16} /> {isWorkspaceAdmin ? "Review Team Calls & Audio" : "SIM Call History & Audio"}
                 </button>
               )}
               <button
@@ -1877,7 +1876,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                 onClick={() => navigateSales("payments")}
                 type="button"
               >
-                <CreditCard size={16} /> Open Payments &amp; Confirmations
+                <CreditCard size={16} /> Open Payments & Confirmations
               </button>
             </div>
           </div>
@@ -2246,7 +2245,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                 </div>
                 <div>
                   <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "var(--closer-ink, #0f172a)" }}>
-                    Closer Personal Goal &amp; Target Tracker
+                    Closer Personal Goal & Target Tracker
                   </h3>
                   <p style={{ margin: "2px 0 0", fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>
                     Set your own daily targets to track your personal conversion velocity and stay on track.
@@ -2750,8 +2749,15 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
               <button
                 className={crmView === "list" ? "sales-stage-summary-item" : "sales-stage-summary-item is-kanban"}
                 key={column.key}
-                onClick={() => setSegmentFilter("all")}
+                onClick={() => {
+                  setSegmentFilter("all");
+                  if (crmView === "kanban") {
+                    const el = document.querySelector(`.sales-kanban-column-${column.stage.toLowerCase()}`);
+                    el?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "start" });
+                  }
+                }}
                 type="button"
+                title={crmView === "kanban" ? `Jump to ${column.label} column` : undefined}
               >
                 <span>{column.label}</span>
                 <strong>{filteredLeads.filter((lead) => column.matchingStages.includes(lead.stage)).length}</strong>
@@ -2759,7 +2765,53 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
             ))}
           </div>
 
-          <div className="sales-crm-surface">
+          {crmView === "kanban" ? (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", background: "rgba(255, 255, 255, 0.02)", borderRadius: "8px", border: "1px solid rgba(255, 255, 255, 0.06)", margin: "0 0 8px 0", fontSize: "12px", color: "var(--closer-muted, #94a3b8)" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                <KanbanSquare size={14} style={{ color: "var(--closer-orange, #ff6b2f)" }} />
+                <span>All 7 pipeline stages • Scroll horizontally or click any stage above to jump</span>
+              </span>
+              <div style={{ display: "inline-flex", gap: "6px" }}>
+                <button
+                  type="button"
+                  className="sales-secondary-button compact"
+                  onClick={() => {
+                    const surface = document.querySelector(".sales-crm-surface");
+                    surface?.scrollBy({ left: -340, behavior: "smooth" });
+                  }}
+                  title="Scroll Kanban left"
+                  style={{ padding: "3px 10px", fontSize: "11px", fontWeight: 700 }}
+                >
+                  ← Left
+                </button>
+                <button
+                  type="button"
+                  className="sales-secondary-button compact"
+                  onClick={() => {
+                    const surface = document.querySelector(".sales-crm-surface");
+                    surface?.scrollBy({ left: 340, behavior: "smooth" });
+                  }}
+                  title="Scroll Kanban right"
+                  style={{ padding: "3px 10px", fontSize: "11px", fontWeight: 700 }}
+                >
+                  Right →
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          <div
+            className="sales-crm-surface"
+            onWheel={(event) => {
+              if (crmView === "kanban" && event.deltaY && !event.shiftKey) {
+                const target = event.target as HTMLElement;
+                const isColumn = target.closest(".sales-kanban-column");
+                if (!isColumn) {
+                  event.currentTarget.scrollLeft += event.deltaY;
+                }
+              }
+            }}
+          >
             {crmView === "kanban" ? (
       <DndContext collisionDetection={closestCorners} onDragEnd={handleLeadDragEnd} sensors={kanbanSensors}>
                 <div className="sales-kanban">
@@ -2811,7 +2863,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                     </select>
                     <div className="sales-crm-list-actions">
                       {lead.customerEmail ? <a aria-label={`Email ${lead.customerName}`} className="sales-secondary-button compact crm-list-action" href={`mailto:${lead.customerEmail}`} onClick={(event) => event.stopPropagation()} title={`Email ${lead.customerEmail}`}><Mail size={13} /> Email</a> : null}
-                      {lead.customerPhone ? <a aria-label={`WhatsApp ${lead.customerName}`} className="sales-secondary-button compact crm-list-action" href={`https://wa.me/${cleanPhone(lead.customerPhone)}`} onClick={(event) => event.stopPropagation()} rel="noreferrer" target="_blank" title={`Open WhatsApp for ${lead.customerPhone}`}><MessageCircle size={13} /> WhatsApp</a> : null}
+                      {lead.customerPhone ? <button aria-label={`Open WhatsApp chat for ${lead.customerName}`} className="sales-secondary-button compact crm-list-action" onClick={() => setSelectedLeadId(lead.id)} title="Open WhatsApp chat" type="button"><MessageCircle size={13} /> WhatsApp</button> : null}
                       <button aria-label={`Add note to ${lead.customerName}`} className="sales-secondary-button compact crm-list-action" onClick={() => setSelectedLeadId(lead.id)} title="Open notes and activity" type="button"><FileText size={13} /> Notes</button>
                       <button aria-label={`Schedule follow-up for ${lead.customerName}`} className="sales-secondary-button compact crm-list-action" onClick={() => setSelectedLeadId(lead.id)} title="Open follow-up and lead details" type="button"><CalendarPlus size={13} /> Follow-up</button>
                       <button aria-label={`Open details for ${lead.customerName}`} className="sales-secondary-button compact crm-list-action" onClick={() => setSelectedLeadId(lead.id)} title="Open full lead details" type="button"><ExternalLink size={13} /> Details</button>
@@ -2864,7 +2916,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       ) : null}
 
       {activeTab === "automations" || activeTab === "ai-beta" || activeTab === "developer" ? (
-        <div style={{ display: "grid", gap: "20px", width: "100%", maxWidth: "1280px", margin: "0 auto", padding: "16px 20px" }}>
+        <div className="sales-automation-workspace" style={{ display: "grid", gap: "20px", width: "100%", maxWidth: "1280px", margin: "0 auto", padding: "16px 20px" }}>
           <div
             style={{
               display: "flex",
@@ -2880,7 +2932,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
           >
             <div>
               <strong style={{ display: "block", fontSize: "15px", color: "var(--closer-ink, #0f172a)" }}>
-                {activeTab === "developer" ? "Developer Integrations &amp; API Access" : "AI Bot &amp; Workflow Automations Hub"}
+                {activeTab === "developer" ? "Developer Integrations & API Access" : "AI Bot & Workflow Automations Hub"}
               </strong>
               <span style={{ fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>
                 {activeTab === "developer"
@@ -3209,7 +3261,8 @@ function PanelTitle({ icon: Icon, title }: { icon: typeof Users; title: string }
 
 function SalesSideDrawer({ children, fullScreen = false, onClose, title }: { children: ReactNode; fullScreen?: boolean; onClose: () => void; title: string }) {
   return (
-    <div className={`sales-drawer-backdrop${fullScreen ? " is-fullscreen" : ""}`} onClick={onClose} role="presentation">
+    <div className={`sales-drawer-backdrop${fullScreen ? " is-fullscreen" : ""}`} role="presentation">
+      <button aria-label="Close drawer backdrop" className="sales-drawer-backdrop-hit-area" onClick={onClose} type="button" />
       <aside aria-label={`${title} details`} aria-modal="true" className={`sales-side-drawer${fullScreen ? " is-fullscreen" : ""}`} onClick={(event) => event.stopPropagation()} role="dialog">
         <div className="sales-drawer-head">
           <div>
@@ -3350,13 +3403,13 @@ function LeadKanbanColumn({
       data-stage={stage}
       ref={setNodeRef}
     >
-      <header className="sales-kanban-column-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <span style={{ fontWeight: 600, fontSize: "13px", color: "var(--closer-ink, #0f172a)" }}>{columnLabel || label(stage)}</span>
-          <strong style={{ background: "var(--closer-soft, rgba(148, 163, 184, 0.16))", border: "1px solid var(--closer-line, #cbd5e1)", padding: "2px 7px", borderRadius: "10px", fontSize: "11px", color: "var(--closer-ink, #0f172a)" }}>{leads.length}</strong>
+      <header className="sales-kanban-column-header">
+        <div className="sales-kanban-column-title">
+          <span>{columnLabel || label(stage)}</span>
+          <strong>{leads.length}</strong>
         </div>
         {totalValue > 0 ? (
-          <small style={{ color: "var(--closer-orange, #ff6b2f)", fontSize: "11px", fontWeight: 700 }}>{money(totalValue)}</small>
+          <small className="sales-kanban-column-value">{money(totalValue)}</small>
         ) : null}
       </header>
       <SortableContext items={leads.map((lead) => lead.id)} strategy={verticalListSortingStrategy}>
@@ -3413,53 +3466,51 @@ function LeadCrmCard({
       role="group"
       style={style}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-        <div style={{ display: "flex", gap: "5px", alignItems: "center" }}>
+      <div className="sales-crm-card-topbar">
+        <div className="sales-crm-card-controls">
           <span aria-hidden="true" className="sales-crm-drag-handle" title="Drag anywhere on the card">
             <GripVertical size={13} />
           </span>
           <select
             aria-label={`Change ${lead.customerName} stage`}
+            className="sales-crm-card-stage-select"
             disabled={!canModifyLeads}
             onChange={(event) => onStage(lead.id, event.target.value as SalesLeadStage)}
             onClick={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
             value={lead.stage}
-            style={{
-              maxWidth: "118px",
-              padding: "3px 5px",
-              borderRadius: "6px",
-              background: "var(--closer-surface, #ffffff)",
-              border: "1px solid var(--closer-orange-border, rgba(255, 107, 47, 0.35))",
-              color: "var(--closer-orange, #ff6b2f)",
-              fontSize: "10px",
-              fontWeight: 600,
-            }}
           >
             {leadStages.map((stage) => <option key={stage} value={stage}>{label(stage)}</option>)}
           </select>
         </div>
-        <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
-          <button
-            aria-label={`Open full details for ${lead.customerName}`}
-            className="sales-crm-card-expand-button"
-            onClick={(event) => { event.stopPropagation(); onOpen(lead.id); }}
-            onPointerDown={(event) => event.stopPropagation()}
-            title="Open full lead details"
-            type="button"
-          >
-            <ExternalLink size={11} />
-          </button>
+        <div className="sales-crm-card-topbar-actions">
           {isCreatedToday ? (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: "2px", fontSize: "10px", fontWeight: 700, padding: "1px 5px", borderRadius: "4px", background: "rgba(249, 115, 22, 0.18)", color: "var(--closer-orange, #ea580c)", border: "1px solid var(--closer-orange-border, rgba(249, 115, 22, 0.4))" }}>
+            <span className="sales-crm-card-status-badge is-today">
               <Flame size={10} /> Today
             </span>
           ) : null}
           {isDueToday ? (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: "2px", fontSize: "10px", fontWeight: 700, padding: "1px 5px", borderRadius: "4px", background: "rgba(56, 189, 248, 0.18)", color: "#0284c7", border: "1px solid rgba(56, 189, 248, 0.4)" }}>
+            <span className="sales-crm-card-status-badge is-due">
               <Clock size={10} /> Due
             </span>
           ) : null}
+          <button
+            aria-label={`Open full details for ${lead.customerName}`}
+            className="sales-crm-card-expand-button"
+            onClick={(event) => {
+              event.stopPropagation();
+              if (event.ctrlKey || event.metaKey) {
+                window.open(`/leads?selected=${encodeURIComponent(lead.id)}`, "_blank");
+              } else {
+                onOpen(lead.id);
+              }
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+            title="Open lead details (or Ctrl+Click for new tab)"
+            type="button"
+          >
+            <ExternalLink size={13} />
+          </button>
         </div>
       </div>
       <button className="sales-crm-card-main" onClick={() => onOpen(lead.id)} type="button">
@@ -3472,19 +3523,6 @@ function LeadCrmCard({
             <span>{lead.customerPhone || lead.customerEmail || "No contact details"}</span>
           </div>
         </div>
-        <div className="sales-crm-card-note-preview">
-          <FileText size={13} aria-hidden="true" />
-          <p>{lead.notes || call?.note || "No activity note yet."}</p>
-        </div>
-        {lead.lastTouch ? (
-          <div
-            className="sales-crm-card-team-touch"
-            title={`${lead.lastTouch.by}: ${lead.lastTouch.summary}`}
-          >
-            <Users2 size={12} aria-hidden="true" />
-            <span>Previously handled by <strong>{lead.lastTouch.by}</strong></span>
-          </div>
-        ) : null}
         <div className="sales-crm-card-signal-grid">
           <div className={`sales-crm-card-signal ${followUpState}`}>
             <span><CalendarClock size={13} /> Next follow-up</span>
@@ -3560,7 +3598,7 @@ function LeadCrmCard({
       ) : null}
       {call?.recordingStatus === "UPLOADED" ? <div onPointerDown={(event) => event.stopPropagation()}><CallRecordingPlayer callId={call.id} expectedDurationSeconds={call.durationSeconds} labelText={`${lead.customerName} recording`} /></div> : null}
       {lead.customerPhone ? (
-        <a className="sales-secondary-button compact" href={`https://wa.me/${cleanPhone(lead.customerPhone)}`} onPointerDown={(event) => event.stopPropagation()} rel="noreferrer" target="_blank">WhatsApp</a>
+        <button className="sales-secondary-button compact" onClick={() => onOpen(lead.id)} onPointerDown={(event) => event.stopPropagation()} type="button"><MessageCircle size={12} /> Open WhatsApp chat</button>
       ) : null}
     </article>
   );
@@ -3588,10 +3626,10 @@ function LeadSourceBadge({ iconOnly = false, source }: { iconOnly?: boolean; sou
             label: "Meta Ads",
             Icon: Megaphone,
           }
-      : normalized.includes("google") || normalized.includes("ads")
-        ? { key: "google", label: "Google Ads", Icon: Search }
-        : normalized.includes("sheet") || normalized.includes("excel") || normalized.includes("csv")
-          ? { key: "import", label: "Import", Icon: Upload }
+      : normalized.includes("sheet") || normalized.includes("spreadsheet") || normalized.includes("excel") || normalized.includes("csv") || normalized.includes("import")
+        ? { key: "import", label: normalized.includes("sheet") || normalized.includes("spreadsheet") ? "Google Sheets" : "Import", Icon: FileSpreadsheet }
+        : normalized.includes("google") || normalized.includes("ads")
+          ? { key: "google", label: "Google Ads", Icon: Search }
           : normalized.includes("web") || normalized.includes("form")
             ? { key: "web", label: "Web form", Icon: Video }
             : { key: "manual", label: normalized.replace(/[-_]/g, " ") || "Manual", Icon: User };
@@ -3652,17 +3690,6 @@ function LeadDetailForm({
   const leadCalls = calls.filter(
     (c) => c.assignmentId === lead.id || (lead.customerPhone && cleanPhone(c.phoneNumber) === cleanPhone(lead.customerPhone))
   );
-  const [meetDateTime, setMeetDateTime] = useState(() => {
-    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    tomorrow.setHours(15, 0, 0, 0);
-    return tomorrow.toISOString().slice(0, 16);
-  });
-  const [meetLink, setMeetLink] = useState(
-    () => `https://meet.google.com/aic-${lead.id.replace(/[^a-z0-9]/gi, "").slice(0, 4).toLowerCase() || "demo"}-live`
-  );
-  const [fieldVisitNote, setFieldVisitNote] = useState("");
-  const [fieldVisitGpsLog, setFieldVisitGpsLog] = useState<string | null>(null);
-  const [actionBanner, setActionBanner] = useState<string | null>(null);
   const [quickNote, setQuickNote] = useState("");
   const [followUpDate, setFollowUpDate] = useState(() => toDateTimeLocal(lead.followUpAt).slice(0, 10));
   const [followUpTime, setFollowUpTime] = useState(() => toDateTimeLocal(lead.followUpAt).slice(11, 16));
@@ -3670,6 +3697,9 @@ function LeadDetailForm({
   const [detailOrder, setDetailOrder] = useState<LeadDetailSectionKey[]>(defaultLeadDetailOrder);
   const [isArrangeOpen, setIsArrangeOpen] = useState(false);
   const arrangeControlRef = useRef<HTMLDivElement | null>(null);
+  const leadSource = String(lead.source ?? "").toLowerCase();
+  const isLinkedWhatsAppLead = leadSource.includes("qr_scanner") || leadSource.includes("whatsapp_personal") || leadSource.includes("whatsapp_business");
+  const isCompanyWhatsAppLead = leadSource.includes("whatsapp") && !isLinkedWhatsAppLead;
 
   useEffect(() => {
     const nextFollowUp = toDateTimeLocal(lead.followUpAt);
@@ -3749,52 +3779,6 @@ function LeadDetailForm({
     ? new Intl.DateTimeFormat("en-IN", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(followUpPreviewDate)
     : "No follow-up scheduled";
 
-  const handleScheduleGoogleMeet = async () => {
-    const formattedWhen = meetDateTime ? new Date(meetDateTime).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "Upcoming";
-    const summaryText = `Google Meet Demo Scheduled for ${formattedWhen} — Link: ${meetLink}`;
-    try {
-      await fetch(`/api/sales/leads/${encodeURIComponent(lead.id)}/notes`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ note: summaryText }),
-      });
-    } catch {}
-    if (typeof navigator !== "undefined" && navigator.clipboard) {
-      navigator.clipboard.writeText(meetLink).catch(() => null);
-    }
-    setActionBanner(`Google Meet scheduled (${formattedWhen}) & link copied to clipboard!`);
-  };
-
-  const handleFieldVisitGpsCheckIn = () => {
-    const recordVisit = async (coordsLabel: string) => {
-      const stamp = new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
-      const logEntry = `Field Visit Check-In (${stamp}) • GPS: ${coordsLabel}${fieldVisitNote ? ` • Note: ${fieldVisitNote}` : ""}`;
-      setFieldVisitGpsLog(logEntry);
-      setActionBanner(`Verified Field Visit GPS Check-In logged (${coordsLabel}).`);
-      try {
-        await fetch(`/api/sales/leads/${encodeURIComponent(lead.id)}/notes`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ note: logEntry }),
-        });
-      } catch {}
-    };
-
-    if (typeof navigator !== "undefined" && navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          void recordVisit(`${pos.coords.latitude.toFixed(5)}° N, ${pos.coords.longitude.toFixed(5)}° E (±${Math.round(pos.coords.accuracy)}m)`);
-        },
-        () => {
-          void recordVisit("19.07609° N, 72.87742° E (BKC Mumbai Verified)");
-        },
-        { timeout: 4000 }
-      );
-    } else {
-      void recordVisit("19.07609° N, 72.87742° E (BKC Mumbai Verified)");
-    }
-  };
-
   return (
     <div className="sales-drawer-stack">
       {/* 1. Top Prominent Stage & Lead Header Card */}
@@ -3868,11 +3852,6 @@ function LeadDetailForm({
             <button className="sales-primary-button compact" onClick={() => onOpenChat(lead.id)} type="button">
               <MessageSquare size={13} style={{ marginRight: "4px" }} /> Open Chat
             </button>
-          ) : null}
-          {lead.customerPhone ? (
-            <a className="sales-secondary-button compact" href={`https://wa.me/${cleanPhone(lead.customerPhone)}`} rel="noreferrer" target="_blank">
-              WhatsApp ↗
-            </a>
           ) : null}
         </div>
 
@@ -3981,82 +3960,6 @@ function LeadDetailForm({
         </div>
       </div>
 
-      <div className="sales-lead-detail-section" style={{ order: detailOrder.indexOf("tools") + 1 }}>
-      <details className="sales-lead-advanced-details">
-        <summary>More tools: AI guidance, Meet and field visit</summary>
-        {/* TeleCRM Lead-IQ Next-Best-Action Script & Objection Matrix */}
-        <LeadIqCard leadId={lead.id} />
-
-      {/* TeleCRM Audit Item #8: Google Meet Scheduling & Field Visit GPS Geo-Check-In */}
-      <div className="sales-panel nested" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-        <PanelTitle icon={CalendarClock} title="Google Meet Demo & Field Visit Geo Check-In" />
-        {actionBanner ? (
-          <div style={{ padding: "8px 10px", borderRadius: "8px", background: "rgba(16, 185, 129, 0.14)", border: "1px solid rgba(16, 185, 129, 0.35)", color: "#10b981", fontSize: "12px", fontWeight: 600 }}>
-            {actionBanner}
-          </div>
-        ) : null}
-
-        {/* Google Meet Row */}
-        <div style={{ padding: "10px", borderRadius: "8px", background: "var(--closer-surface, #ffffff)", border: "1px solid var(--closer-line, #cbd5e1)", display: "grid", gap: "8px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px" }}>
-            <strong style={{ fontSize: "12px", color: "var(--closer-ink, #0f172a)", display: "inline-flex", alignItems: "center", gap: "5px" }}>
-              <Video size={13} /> Google Meet Video Consultation
-            </strong>
-            <span style={{ fontSize: "11px", color: "var(--closer-orange, #ff6b2f)", fontFamily: "monospace" }}>{meetLink}</span>
-          </div>
-          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
-            <input
-              type="datetime-local"
-              value={meetDateTime}
-              onChange={(e) => setMeetDateTime(e.target.value)}
-              style={{ flex: 1, minWidth: "170px", padding: "6px 8px", borderRadius: "6px", fontSize: "12px" }}
-            />
-            <button type="button" className="sales-primary-button compact" onClick={handleScheduleGoogleMeet}>
-              Schedule &amp; Copy Meet
-            </button>
-            {lead.customerPhone ? (
-              <a
-                className="sales-secondary-button compact"
-                href={`https://wa.me/${cleanPhone(lead.customerPhone)}?text=${encodeURIComponent(`Hi ${lead.customerName}, your video consultation is scheduled! Join via Google Meet: ${meetLink}`)}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Send Meet on WA ↗
-              </a>
-            ) : null}
-          </div>
-        </div>
-
-        {/* Field Visit & GPS Check-In Row */}
-        <div style={{ padding: "10px", borderRadius: "8px", background: "var(--closer-surface, #ffffff)", border: "1px solid var(--closer-line, #cbd5e1)", display: "grid", gap: "8px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <strong style={{ fontSize: "12px", color: "var(--closer-ink, #0f172a)", display: "inline-flex", alignItems: "center", gap: "5px" }}>
-              <MapPin size={13} /> In-Person Field Visit &amp; Live GPS Tracking
-            </strong>
-            <span style={{ fontSize: "10px", padding: "2px 6px", borderRadius: "4px", background: "rgba(255, 107, 47, 0.14)", color: "#ff6b2f", fontWeight: 700 }}>
-              GEO-VERIFIED
-            </span>
-          </div>
-          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-            <input
-              type="text"
-              value={fieldVisitNote}
-              onChange={(e) => setFieldVisitNote(e.target.value)}
-              placeholder="Client office address or visit summary..."
-              style={{ flex: 1, minWidth: "170px", padding: "6px 8px", borderRadius: "6px", fontSize: "12px" }}
-            />
-            <button type="button" className="sales-secondary-button compact" onClick={handleFieldVisitGpsCheckIn} style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
-              <MapPin size={12} /> Log GPS Check-In
-            </button>
-          </div>
-          {fieldVisitGpsLog ? (
-            <small style={{ color: "var(--closer-muted, #64748b)", fontSize: "11px" }}>{fieldVisitGpsLog}</small>
-          ) : null}
-        </div>
-      </div>
-      </details>
-      </div>
-
       {/* 2. Call Recordings & Outcome History */}
       <div className="sales-lead-detail-section" style={{ order: detailOrder.indexOf("calls") + 1 }}>
       <div className="sales-panel nested">
@@ -4158,11 +4061,16 @@ function LeadDetailForm({
         {lead.customerPhone ? (
           <form className="sales-form-grid" onSubmit={(event) => onWhatsApp(event, lead.id)}>
           <PanelTitle icon={MessageCircle} title="Send WhatsApp Message" />
+          <label htmlFor="lead-whatsapp-transport">Send from</label>
+          <select defaultValue={isLinkedWhatsAppLead ? "connected_user" : "company"} id="lead-whatsapp-transport" name="transport">
+            {isCompanyWhatsAppLead ? <option value="company">Company WhatsApp</option> : null}
+            {isLinkedWhatsAppLead ? <option value="connected_user">Connected WhatsApp ({leadSource.includes("business") ? "Business" : "Personal"})</option> : null}
+            {!isCompanyWhatsAppLead && !isLinkedWhatsAppLead ? <option value="company">Company WhatsApp</option> : null}
+          </select>
           <textarea name="message" placeholder="Message customer through shared WhatsApp inbox" required />
           <div className="sales-button-row">
             <button className="sales-primary-button" type="submit">Send WhatsApp</button>
             <button className="sales-secondary-button" onClick={() => onOpenChat(lead.id)} type="button">Open full chat</button>
-            <a className="sales-secondary-button" href={`https://wa.me/${cleanPhone(lead.customerPhone)}`} rel="noreferrer" target="_blank">Open WhatsApp Web</a>
           </div>
           </form>
         ) : null}
