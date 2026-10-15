@@ -167,21 +167,66 @@ object CallManager {
     }
 
     /**
-     * Checks if a given call account identifier (from CallLog PHONE_ACCOUNT_ID,
-     * PhoneAccountHandle ID, or Intent extra) matches the configured Work SIM.
+     * Checks if a given call account identifier reliably matches a configured Personal SIM.
+     * Returns false if account identifier is null or blank (identity unavailable).
+     */
+    fun isPersonalSim(context: Context, rawAccountId: String?): Boolean {
+        if (rawAccountId.isNullOrBlank()) return false
+        val sims = availableSims(context)
+        if (sims.size <= 1) return false
+
+        val configuredSimId = simSelection(context)
+        if (configuredSimId == SIM_SELECTION_ASK || configuredSimId == "ALL" || configuredSimId == "ALL_SIMS" || configuredSimId.isBlank()) return false
+
+        val cleanAccount = rawAccountId.trim()
+        val otherSims = sims.filter { it.subscriptionId != configuredSimId }
+
+        for (other in otherSims) {
+            if (cleanAccount == other.subscriptionId) return true
+            other.phoneAccountHandle?.id?.let { handleId ->
+                if (cleanAccount == handleId || cleanAccount.contains(handleId) || handleId.contains(cleanAccount)) return true
+            }
+            if (cleanAccount == other.slotIndex.toString()) return true
+            if (cleanAccount.equals("SIM${other.slotIndex + 1}", ignoreCase = true)) return true
+        }
+
+        val subscriptions = runCatching {
+            context.getSystemService(SubscriptionManager::class.java)?.activeSubscriptionInfoList.orEmpty()
+        }.getOrElse { emptyList() }
+        val otherSubs = subscriptions.filter { it.subscriptionId.toString() != configuredSimId }
+
+        for (other in otherSubs) {
+            val otherIccId = runCatching { other.iccId }.getOrNull()?.takeIf(String::isNotBlank)
+            if (otherIccId != null && (cleanAccount == otherIccId || cleanAccount.contains(otherIccId) || otherIccId.contains(cleanAccount))) return true
+        }
+
+        if (otherSims.any { cleanAccount.contains(it.subscriptionId) }) return true
+
+        return false
+    }
+
+    /**
+     * Checks if a given call account identifier matches the configured Work SIM.
+     * If SIM identity is unavailable (null or blank), do NOT discard unless reliably
+     * identified as a personal-SIM call.
      */
     fun isWorkSim(context: Context, rawAccountId: String?): Boolean {
         val sims = availableSims(context)
         if (sims.size <= 1) return true
 
         val configuredSimId = simSelection(context)
-        if (configuredSimId == SIM_SELECTION_ASK || configuredSimId.isBlank()) return true
+        if (configuredSimId == SIM_SELECTION_ASK || configuredSimId == "ALL" || configuredSimId == "ALL_SIMS" || configuredSimId.isBlank()) return true
 
-        val workSim = sims.firstOrNull { it.subscriptionId == configuredSimId } ?: return true
         if (rawAccountId.isNullOrBlank()) {
-            // Personal privacy safety: unconfirmed SIM calls on configured dual-SIM devices must not sync.
+            // Identity unavailable: do not discard unconfirmed SIM call unless reliably identified as personal SIM
+            return true
+        }
+
+        if (isPersonalSim(context, rawAccountId)) {
             return false
         }
+
+        val workSim = sims.firstOrNull { it.subscriptionId == configuredSimId } ?: return true
         val cleanAccount = rawAccountId.trim()
 
         // 1. Direct match with configured subscriptionId
@@ -192,52 +237,30 @@ object CallManager {
             if (cleanAccount == handleId || cleanAccount.contains(handleId) || handleId.contains(cleanAccount)) return true
         }
 
-        val otherSims = sims.filter { it.subscriptionId != configuredSimId }
-
-        // 3. Reject first if it matches any other SIM's ID, handle, or exact 0-based slot
-        for (other in otherSims) {
-            if (cleanAccount == other.subscriptionId) return false
-            other.phoneAccountHandle?.id?.let { handleId ->
-                if (cleanAccount == handleId || cleanAccount.contains(handleId) || handleId.contains(cleanAccount)) return false
-            }
-            if (cleanAccount == other.slotIndex.toString()) return false
-            if (cleanAccount.equals("SIM${other.slotIndex + 1}", ignoreCase = true)) return false
-        }
-
-        // 4. Match with work SIM exact slot (0-indexed) or label ("SIM 1")
+        // 3. Match with work SIM exact slot (0-indexed) or label ("SIM 1")
         val workSlot0 = workSim.slotIndex.toString()
         if (cleanAccount == workSlot0 || cleanAccount.equals("SIM${workSim.slotIndex + 1}", ignoreCase = true)) {
             return true
         }
 
-        // 5. Fallback 1-based slot index ONLY if no other SIM owns that slot index
+        // 4. Fallback 1-based slot index ONLY if no other SIM owns that slot index
         val workSlot1 = (workSim.slotIndex + 1).toString()
+        val otherSims = sims.filter { it.subscriptionId != configuredSimId }
         if (cleanAccount == workSlot1 && otherSims.none { it.slotIndex.toString() == cleanAccount }) {
             return true
         }
 
-        // 6. Check SubscriptionInfo directly for ICCID
         val subscriptions = runCatching {
             context.getSystemService(SubscriptionManager::class.java)?.activeSubscriptionInfoList.orEmpty()
         }.getOrElse { emptyList() }
-
         val workSub = subscriptions.firstOrNull { it.subscriptionId.toString() == configuredSimId }
-        val otherSubs = subscriptions.filter { it.subscriptionId.toString() != configuredSimId }
-
-        for (other in otherSubs) {
-            val otherIccId = runCatching { other.iccId }.getOrNull()?.takeIf(String::isNotBlank)
-            if (otherIccId != null && (cleanAccount == otherIccId || cleanAccount.contains(otherIccId) || otherIccId.contains(cleanAccount))) return false
-        }
-
         val workIccId = runCatching { workSub?.iccId }.getOrNull()?.takeIf(String::isNotBlank)
         if (workIccId != null && (cleanAccount == workIccId || cleanAccount.contains(workIccId) || workIccId.contains(cleanAccount))) return true
 
-        // 6. Substring match for subscriptionId
-        if (otherSims.any { cleanAccount.contains(it.subscriptionId) }) return false
         if (cleanAccount.contains(workSim.subscriptionId)) return true
 
-        // Strict default: if not verified as work SIM, reject
-        return false
+        // Not identified as personal SIM: default to allow
+        return true
     }
 
     fun extractSubscriptionId(context: Context, intent: Intent): String? {

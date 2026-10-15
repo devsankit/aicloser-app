@@ -12,6 +12,9 @@ import android.provider.DocumentsContract
 import android.provider.MediaStore
 import com.gigxomi.gxclosers.data.RecordingFolderStore
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 import kotlin.math.abs
 
 /**
@@ -50,6 +53,7 @@ object SystemCallRecordingImporter {
 
     fun importLatest(
         context: Context,
+        callId: String,
         callStartedAt: Long,
         callEndedAt: Long,
         expectedDurationSeconds: Long,
@@ -65,15 +69,17 @@ object SystemCallRecordingImporter {
             expectedDurationMs,
             phoneNumber,
         )
-        val candidate = selectedFolderCandidate
-            ?: findInKnownDeviceFolders(callStartedAt, callEndedAt, expectedDurationMs, phoneNumber)
-            ?: findInMediaStore(context, callStartedAt, callEndedAt, expectedDurationMs, phoneNumber)
+        val knownFolderCandidate = findInKnownDeviceFolders(callStartedAt, callEndedAt, expectedDurationMs, phoneNumber)
+        val mediaStoreCandidate = findInMediaStore(context, callStartedAt, callEndedAt, expectedDurationMs, phoneNumber)
+
+        // Select the candidate with the highest match score across all sources
+        val candidate = listOfNotNull(selectedFolderCandidate, knownFolderCandidate, mediaStoreCandidate)
+            .maxByOrNull { it.score }
             ?: return null
 
         val extension = extensionFor(candidate.name, candidate.mimeType)
         val directory = File(context.filesDir, "crm-recordings").apply { mkdirs() }
-        val safeId = candidate.sourceId.hashCode().toUInt().toString(16)
-        val destination = File(directory, "system-$safeId-${candidate.modifiedAt}$extension")
+        val destination = File(directory, "$callId-system-${candidate.modifiedAt}$extension")
         if (!destination.exists() || destination.length() == 0L) {
             val copied = runCatching {
                 if (candidate.sourceFile != null) {
@@ -219,7 +225,9 @@ object SystemCallRecordingImporter {
                     // call-session match: accepting it could select an older
                     // file from the same folder. Require a real modified time
                     // just like the MediaStore and known-folder paths.
-                    val timeMatches = isWithinCallWindow(modifiedAt, callStartedAt, callEndedAt)
+                    val parsedTime = extractTimestampFromFilename(name)
+                    val effectiveModifiedAt = parsedTime ?: modifiedAt
+                    val timeMatches = isWithinCallWindow(effectiveModifiedAt, callStartedAt, callEndedAt)
                     val durationDistance = abs(durationMs - expectedDurationMs)
                     val allowedDistance = maxOf(20_000L, expectedDurationMs / 2L)
                     if (timeMatches && durationDistance <= allowedDistance) {
@@ -260,6 +268,13 @@ object SystemCallRecordingImporter {
             File(Environment.getExternalStorageDirectory(), "Audio/Call"),
             File(Environment.getExternalStorageDirectory(), "VoiceRecorder/Call"),
             File(Environment.getExternalStorageDirectory(), "Recorder/Call"),
+            // Reference CallManager folders
+            File(Environment.getExternalStorageDirectory(), "Music/Recordings/Call Recordings"),
+            File(Environment.getExternalStorageDirectory(), "Sounds/Call"),
+            File(Environment.getExternalStorageDirectory(), "CallRecordings"),
+            File(Environment.getExternalStorageDirectory(), "Recorder"),
+            File(Environment.getExternalStorageDirectory(), "Voice Recorder"),
+            File(Environment.getExternalStorageDirectory(), "VoiceRecorder"),
         ).distinctBy { it.absolutePath }
         val phoneDigits = phoneNumber.orEmpty().filter(Char::isDigit).takeLast(10)
         val candidates = mutableListOf<Candidate>()
@@ -275,7 +290,9 @@ object SystemCallRecordingImporter {
             }.getOrDefault(emptyList())
             files.forEach { file ->
                 val modifiedAt = file.lastModified()
-                if (!isWithinCallWindow(modifiedAt, callStartedAt, callEndedAt)) return@forEach
+                val parsedTime = extractTimestampFromFilename(file.name)
+                val effectiveModifiedAt = parsedTime ?: modifiedAt
+                if (!isWithinCallWindow(effectiveModifiedAt, callStartedAt, callEndedAt)) return@forEach
                 val durationMs = duration(file)
                 if (durationMs <= 0L) return@forEach
                 val durationDistance = abs(durationMs - expectedDurationMs)
@@ -349,7 +366,9 @@ object SystemCallRecordingImporter {
                 val uri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
                 val durationMs = it.getLong(durationIndex).takeIf { d -> d > 0L } ?: duration(context, uri)
                 val relativePath = if (pathIndex >= 0) it.getString(pathIndex).orEmpty() else ""
-                if (size <= 0L || durationMs <= 0L || !isWithinCallWindow(modifiedAt, callStartedAt, callEndedAt) || !isAudio(mimeType, name)) continue
+                val parsedTime = extractTimestampFromFilename(name)
+                val effectiveModifiedAt = parsedTime ?: modifiedAt
+                if (size <= 0L || durationMs <= 0L || !isWithinCallWindow(effectiveModifiedAt, callStartedAt, callEndedAt) || !isAudio(mimeType, name)) continue
                 val durationDistance = abs(durationMs - expectedDurationMs)
                 val allowedDistance = maxOf(20_000L, expectedDurationMs / 2L)
                 if (durationDistance > allowedDistance) continue
@@ -367,6 +386,45 @@ object SystemCallRecordingImporter {
             }
         }
         return candidates.maxByOrNull { it.score }
+    }
+
+    fun extractTimestampFromFilename(name: String): Long? {
+        val clean = name.substringBeforeLast('.')
+        // 1. yyyyMMddHHmmss (14 digits)
+        val m1 = Regex("(?<!\\d)(20\\d{12})(?!\\d)").find(clean)
+        if (m1 != null) {
+            runCatching {
+                val sdf = SimpleDateFormat("yyyyMMddHHmmss", Locale.ENGLISH).apply {
+                    timeZone = TimeZone.getDefault()
+                    isLenient = false
+                }
+                sdf.parse(m1.groupValues[1])?.time?.let { return it }
+            }
+        }
+        // 2. yyyyMMdd_HHmmss or yyyyMMdd-HHmmss
+        val m2 = Regex("(?<!\\d)(20\\d{6})[_-](\\d{6})(?!\\d)").find(clean)
+        if (m2 != null) {
+            runCatching {
+                val sdf = SimpleDateFormat("yyyyMMddHHmmss", Locale.ENGLISH).apply {
+                    timeZone = TimeZone.getDefault()
+                    isLenient = false
+                }
+                sdf.parse(m2.groupValues[1] + m2.groupValues[2])?.time?.let { return it }
+            }
+        }
+        // 3. yyyy-MM-dd[-_ ]HH[-.]mm[-.]ss
+        val m3 = Regex("(?<!\\d)(20\\d{2})[-_](\\d{2})[-_](\\d{2})[-_ ](\\d{2})[-_.](\\d{2})[-_.](\\d{2})(?!\\d)").find(clean)
+        if (m3 != null) {
+            runCatching {
+                val g = m3.groupValues
+                val sdf = SimpleDateFormat("yyyyMMddHHmmss", Locale.ENGLISH).apply {
+                    timeZone = TimeZone.getDefault()
+                    isLenient = false
+                }
+                sdf.parse("${g[1]}${g[2]}${g[3]}${g[4]}${g[5]}${g[6]}")?.time?.let { return it }
+            }
+        }
+        return null
     }
 
     private fun score(
@@ -456,9 +514,9 @@ object SystemCallRecordingImporter {
 
     private const val MAX_TREE_ENTRIES = 500
     private const val MAX_TREE_DEPTH = 4
-    private const val MAX_KNOWN_FOLDER_DEPTH = 2
-    private const val MAX_KNOWN_FOLDER_FILES = 250
+    private const val MAX_KNOWN_FOLDER_DEPTH = 3
+    private const val MAX_KNOWN_FOLDER_FILES = 500
     private const val MAX_MEDIASTORE_CANDIDATES = 250
     private const val SEARCH_PADDING_MS = 5 * 60 * 1000L
-    private const val START_TIME_TOLERANCE_MS = 15_000L
+    private const val START_TIME_TOLERANCE_MS = 60_000L
 }

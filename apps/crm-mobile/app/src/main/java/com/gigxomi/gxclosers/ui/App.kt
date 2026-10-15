@@ -2,8 +2,6 @@ package com.gigxomi.gxclosers.ui
 
 import android.annotation.SuppressLint
 import android.Manifest
-import android.app.DatePickerDialog
-import android.app.TimePickerDialog
 import android.content.Context
 import android.content.pm.PackageManager
 import android.content.Intent
@@ -16,7 +14,10 @@ import android.os.Looper
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -85,10 +86,12 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.gigxomi.gxclosers.data.*
+import com.gigxomi.gxclosers.device.DeviceIdentity
 import com.gigxomi.gxclosers.call.CallManager
 import com.gigxomi.gxclosers.call.DeviceCertificationManager
 import androidx.compose.ui.text.style.TextDecoration
@@ -108,13 +111,47 @@ import org.json.JSONObject
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 private const val LOGIN = "login"
 private const val SETUP = "setup"
 private const val MAIN = "main"
+
+private fun mainFooterTabs(vm: CrmViewModel): List<Tab> = buildList {
+    if (vm.hasFeature("dashboard")) add(Tab("home", "Home", Icons.Default.Home))
+    if (vm.hasFeature("crm")) add(Tab("leads", "Leads", Icons.Default.Groups))
+    if (vm.hasFeature("calls")) add(Tab("calls", "Calls", Icons.Default.Phone))
+    add(Tab("more", "More", Icons.Default.MoreHoriz))
+}
+
+private data class WhatsAppTarget(
+    val packageName: String,
+    val label: String,
+)
+
+private data class WhatsAppRequest(
+    val phone: String,
+    val targets: List<WhatsAppTarget>,
+)
+
+private fun installedWhatsAppTargets(context: Context): List<WhatsAppTarget> = listOf(
+    WhatsAppTarget("com.whatsapp", "WhatsApp"),
+    WhatsAppTarget("com.whatsapp.w4b", "WhatsApp Business"),
+).filter { target ->
+    runCatching { context.packageManager.getApplicationInfo(target.packageName, 0) }.isSuccess
+}
+
+private fun openWhatsAppTarget(context: Context, target: WhatsAppTarget, phone: String) {
+    val normalized = phone.filter(Char::isDigit)
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$normalized")).apply {
+        setPackage(target.packageName)
+    }
+    context.startActivity(intent)
+}
 
 private enum class RecordingDeviceFamily {
     PIXEL,
@@ -141,6 +178,7 @@ private fun recordingDeviceProfile(): RecordingDeviceProfile {
     val manufacturer = Build.MANUFACTURER.trim().lowercase()
     val brand = Build.BRAND.trim().lowercase()
     val model = Build.MODEL.trim().ifBlank { "Android phone" }
+    val identity = DeviceIdentity.current()
     val family = when {
         manufacturer.contains("google") || brand.contains("google") || model.lowercase().contains("pixel") -> RecordingDeviceFamily.PIXEL
         manufacturer.contains("xiaomi") || manufacturer.contains("poco") || manufacturer.contains("redmi") || brand.contains("xiaomi") || brand.contains("poco") || brand.contains("redmi") -> RecordingDeviceFamily.XIAOMI
@@ -152,37 +190,37 @@ private fun recordingDeviceProfile(): RecordingDeviceProfile {
     }
     return when (family) {
         RecordingDeviceFamily.PIXEL -> RecordingDeviceProfile(
-            family, "Google $model", "Guided for Google Phone", "Google Phone keeps recordings private on many Pixel builds, so the visible Share flow is the primary connection.",
+            family, identity.displayName, "Guided for Google Phone", "Google Phone keeps recordings private on many Pixel builds, so the visible Share flow is the primary connection.",
             "Enable Call recording in Google Phone, then make one short test call.",
-            "Primary path — AI Closer watches the visible Phone share flow and imports the finished audio.",
+            "Open the completed call in Phone, tap Share recording, and choose AI Closer.",
             "Optional on Pixel. Use it only if Google Phone exposes a readable recording folder.",
-            "If no folder is visible, leave this optional and use Share automation instead."
+            "If no folder is visible, use the manual Phone Share action instead."
         )
         RecordingDeviceFamily.XIAOMI -> RecordingDeviceProfile(
-            family, "Xiaomi/Redmi/POCO $model", "Guided for Xiaomi dialer", "Xiaomi-family phones commonly publish recordings through a shared folder; AI Closer will prefer that exact folder and use Share as backup.",
+            family, identity.displayName, "Guided for Xiaomi dialer", "Xiaomi-family phones commonly publish recordings through a shared folder; AI Closer will prefer that exact folder and use Share as backup.",
             "Enable recording in the active Phone app and confirm the newest call is saved.",
-            "Backup path — allows AI Closer to select Share if the dialer exposes the recording there.",
+            "Manual path — share the completed recording from the dialer to AI Closer.",
             "Recommended. Choose the folder containing the newest Xiaomi/Recorder call file.",
             "Make one test call first, then choose the folder from Files so the app can match new files by call time."
         )
         RecordingDeviceFamily.OPPO -> RecordingDeviceProfile(
             family, "OPPO/realme $model", "Guided for OPPO Phone", "OPPO-family dialers vary by region and ColorOS version, so AI Closer checks both the visible Share route and an approved recording folder.",
             "Turn on call recording in the active Phone app, then return here.",
-            "Recommended fallback — lets AI Closer receive a recording when the Phone app offers Share.",
-            "Recommended if the Recorder app shows a normal folder. Otherwise use Share automation.",
+            "Manual path — share the completed recording when the Phone app offers Share.",
+            "Recommended if the Recorder app shows a normal folder. Otherwise share from Phone manually.",
             "Do not select a generic Music folder; choose the folder where the newest call recording appears."
         )
         RecordingDeviceFamily.VIVO -> RecordingDeviceProfile(
             family, "vivo $model", "Guided for vivo Phone", "vivo recording locations depend on Funtouch OS and region; the app keeps both approved paths available without changing the phone dialer.",
             "Enable recording in the active Phone app and complete one short test call.",
-            "Recommended fallback — imports the recording through the Phone app's visible Share action.",
-            "Recommended when Recorder exposes call files to Files; otherwise use Share automation.",
+            "Manual path — share the recording through the Phone app's visible Share action.",
+            "Recommended when Recorder exposes call files to Files; otherwise share from Phone manually.",
             "After the test call, select the folder containing the newest audio file."
         )
         RecordingDeviceFamily.SAMSUNG -> RecordingDeviceProfile(
             family, "Samsung $model", "Guided for Samsung Phone", "Samsung recording availability varies by region and Phone version; AI Closer uses only the recording access the device exposes.",
             "Enable call recording in Samsung Phone, then make one test call.",
-            "Backup path for a Phone app that offers Share after recording.",
+            "Manual path for a Phone app that offers Share after recording.",
             "Choose it if Samsung Voice Recorder or Files exposes the call recording folder.",
             "If the device does not expose recordings, the setup screen will keep Share as the safer route."
         )
@@ -191,7 +229,7 @@ private fun recordingDeviceProfile(): RecordingDeviceProfile {
             "Enable call recording in the active Phone app, then make one test call.",
             "Recommended when the Phone app exposes a finished recording through Share.",
             "Choose a folder only if the Phone/Recorder app exposes one through Files.",
-            "The folder is optional; do not grant access to a private app folder that Android cannot share."
+            "The folder is optional; share the recording from Phone if no folder is visible."
         )
         RecordingDeviceFamily.OTHER -> RecordingDeviceProfile(
             family, model, "Guided for this Android phone", "AI Closer will detect the recording path available on this device and keep the setup reversible.",
@@ -206,8 +244,37 @@ private fun recordingDeviceProfile(): RecordingDeviceProfile {
 @Composable
 fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
     val nav = rememberNavController()
+    val currentBackStackEntry by nav.currentBackStackEntryAsState()
+    val currentRoute = currentBackStackEntry?.destination?.route
+    val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
+    var whatsAppRequest by remember { mutableStateOf<WhatsAppRequest?>(null) }
+    var selectedMainTab by rememberSaveable { mutableStateOf("home") }
     val start = when { !vm.authenticated -> LOGIN; !vm.setupComplete -> SETUP; else -> MAIN }
+
+    fun requestWhatsApp(phone: String) {
+        val normalized = phone.filter(Char::isDigit)
+        if (normalized.isBlank()) {
+            vm.showError("No lead phone number is available for WhatsApp yet.")
+            return
+        }
+        val targets = installedWhatsAppTargets(context)
+        when {
+            targets.size == 1 -> runCatching { openWhatsAppTarget(context, targets.single(), normalized) }
+                .onFailure { vm.showError("${targets.single().label} could not be opened on this phone.") }
+            targets.size > 1 -> whatsAppRequest = WhatsAppRequest(normalized, targets)
+            else -> runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$normalized"))) }
+                .onFailure { vm.showError("WhatsApp is not installed on this phone.") }
+        }
+    }
+
+    fun openMainTab(key: String) {
+        selectedMainTab = key
+        nav.navigate(MAIN) {
+            launchSingleTop = true
+            popUpTo(MAIN) { saveState = true }
+        }
+    }
 
     LaunchedEffect(vm.error, vm.status) {
         // Setup and login render actionable inline states. Keep the snackbar
@@ -243,40 +310,212 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
         }
     }
 
-    Scaffold(snackbarHost = { SnackbarHost(snackbar) }, containerColor = GxBackground) { padding ->
-        NavHost(navController = nav, startDestination = start, modifier = Modifier.padding(padding)) {
+    val shellBackground = if (MaterialTheme.colorScheme.background.red < 0.5f) {
+        Color(0xFF0D0E12)
+    } else {
+        Color(0xFFF7F8FA)
+    }
+
+    Scaffold(snackbarHost = { SnackbarHost(snackbar) }, containerColor = shellBackground) { _ ->
+        Box(Modifier.fillMaxSize().background(shellBackground)) {
+            NavHost(
+                navController = nav,
+                startDestination = start,
+                // Child screens own their system-bar insets. Applying the
+                // shell inset here as well double-spaced every authenticated
+                // header and created a persistent empty block above content.
+                modifier = Modifier.fillMaxSize(),
+            ) {
             composable(LOGIN) { LoginScreen(vm) }
             composable(SETUP) { SetupScreen(vm) }
-            composable(MAIN) { MainScreen(vm, nav) }
-            composable("lead-grab") { LeadGrabScreen(vm) { nav.popBackStack() } }
-            composable("lead/{id}", arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
-                LeadDetailScreen(
+            composable(MAIN) {
+                MainScreen(
                     vm = vm,
-                    id = entry.arguments?.getString("id").orEmpty(),
-                    back = { nav.popBackStack() },
-                    openDisposition = { callId -> nav.navigate("disposition/$callId") },
-                    openChat = { conversationId, name -> nav.navigate("chat/$conversationId/${Uri.encode(name)}") },
+                    nav = nav,
+                    onOpenWhatsApp = ::requestWhatsApp,
+                    selectedTab = selectedMainTab,
+                    onTabSelected = { selectedMainTab = it },
                 )
             }
+            composable("lead-grab") {
+                Box(Modifier.fillMaxSize()) {
+                    ReferencePhotoBackdrop()
+                    LiveGrabLeadsScreenAdapter(
+                        vm = vm,
+                        onBackClick = { nav.popBackStack() },
+                        onClaimCompleted = { nav.popBackStack() },
+                    )
+                }
+            }
+            composable("lead/{id}", arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
+                Box(Modifier.fillMaxSize()) {
+                    ReferencePhotoBackdrop()
+                    LiveLeadDetailScreenAdapter(
+                        vm = vm,
+                        leadId = entry.arguments?.getString("id").orEmpty(),
+                        onBackClick = { nav.popBackStack() },
+                        onMenuClick = { vm.refreshAll() },
+                        onOpenDisposition = { callId -> nav.navigate("disposition/$callId") },
+                        onChatClick = { leadId -> nav.navigate("chat/$leadId/${Uri.encode(vm.bootstrap?.leads?.find { it.id == leadId }?.customerName.orEmpty())}") },
+                        onWhatsAppClick = ::requestWhatsApp,
+                    )
+                }
+            }
             composable("disposition/{id}", arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
-                DispositionScreen(vm, entry.arguments?.getString("id").orEmpty()) { nav.navigate(MAIN) { popUpTo(MAIN) { inclusive = true } } }
+                Box(Modifier.fillMaxSize()) {
+                    ReferencePhotoBackdrop()
+                    LiveCompleteCallScreenAdapter(
+                        vm = vm,
+                        callId = entry.arguments?.getString("id").orEmpty(),
+                        onBackClick = { nav.popBackStack() },
+                        onSaved = { nav.popBackStack() },
+                    )
+                }
             }
             composable("chat/{id}/{name}", arguments = listOf(navArgument("id") { type = NavType.StringType }, navArgument("name") { type = NavType.StringType })) { entry ->
-                ChatScreen(vm, entry.arguments?.getString("id").orEmpty(), Uri.decode(entry.arguments?.getString("name").orEmpty())) { nav.popBackStack() }
+                val requestedId = entry.arguments?.getString("id").orEmpty()
+                val leadId = vm.bootstrap?.leads?.find { it.id == requestedId }?.id
+                    ?: vm.inbox.find { it.conversationId == requestedId || it.lead.id == requestedId }?.lead?.id
+                    ?: requestedId
+                Box(Modifier.fillMaxSize().background(GxBackground)) {
+                    LiveChatScreen(vm, leadId = leadId, onBackClick = { nav.popBackStack() })
+                }
             }
             composable("inbox") {
-                InboxScreen(
-                    vm = vm,
-                    open = { item -> item.conversationId?.let { nav.navigate("chat/$it/${Uri.encode(item.lead.customerName)}") } },
-                    back = { nav.popBackStack() },
+                LiveInboxScreen(
+                    viewModel = vm,
+                    onNavigateToChat = { leadId ->
+                        val name = vm.bootstrap?.leads?.find { it.id == leadId }?.customerName
+                            ?: vm.inbox.find { it.lead.id == leadId }?.lead?.customerName.orEmpty()
+                        nav.navigate("chat/$leadId/${Uri.encode(name)}")
+                    },
+                    onNavTabSelect = { tab ->
+                        when (tab) {
+                            1 -> { selectedMainTab = "leads"; nav.navigate(MAIN) }
+                            2, 3 -> nav.navigate("profile")
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            composable("pipeline") {
+                LivePipelineScreen(
+                    viewModel = vm,
+                    onAddLeadClick = { nav.navigate("contact") },
+                    onLeadCardClick = { lead -> nav.navigate("lead/${lead.id}") },
+                    onNotificationsClick = { vm.loadInbox(); nav.navigate("inbox") },
+                    onNavTabSelect = { tab ->
+                        when (tab) {
+                            0 -> { selectedMainTab = "home"; nav.navigate(MAIN) }
+                            2 -> { selectedMainTab = "calls"; nav.navigate(MAIN) }
+                            3 -> nav.popBackStack()
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            composable("contacts") {
+                LiveContactsScreen(
+                    viewModel = vm,
+                    onContactClick = { lead -> nav.navigate("lead/${lead.id}") },
+                    onNotificationsClick = { vm.loadInbox(); nav.navigate("inbox") },
+                    onNavTabSelect = { tab ->
+                        when (tab) {
+                            0 -> { selectedMainTab = "home"; nav.navigate(MAIN) }
+                            2 -> { selectedMainTab = "calls"; nav.navigate(MAIN) }
+                            3 -> nav.popBackStack()
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            composable("contact") {
+                LiveAddContactScreen(
+                    viewModel = vm,
+                    onContactSaved = { nav.popBackStack() },
+                    onCancel = { nav.popBackStack() },
+                    modifier = Modifier.fillMaxSize(),
                 )
             }
             composable("lesson/{courseId}/{lessonId}", arguments = listOf(navArgument("courseId") { type = NavType.StringType }, navArgument("lessonId") { type = NavType.StringType })) { entry ->
-                LessonScreen(vm, entry.arguments?.getString("courseId").orEmpty(), entry.arguments?.getString("lessonId").orEmpty()) { nav.popBackStack() }
+                Box(Modifier.fillMaxSize().background(GxBackground)) {
+                    LessonScreen(vm, entry.arguments?.getString("courseId").orEmpty(), entry.arguments?.getString("lessonId").orEmpty()) { nav.popBackStack() }
+                }
             }
-            composable("edit-profile") { EditProfileScreen(vm) { nav.popBackStack() } }
-            composable("reference-pack") { ReferenceScreenGallery(vm = vm) { nav.popBackStack() } }
+            composable("profile") {
+                Box(Modifier.fillMaxSize().background(GxBackground)) {
+                    LiveSettingsScreen(
+                        viewModel = vm,
+                        onBackClick = { nav.popBackStack() },
+                        onLogout = { nav.navigate(LOGIN) },
+                        onEditProfileClick = { nav.navigate("edit-profile") },
+                        onOpenSettingsClick = { nav.navigate("settings") },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+            composable("edit-profile") {
+                Box(Modifier.fillMaxSize().background(GxBackground)) {
+                    EditProfileScreen(vm) { nav.popBackStack() }
+                }
+            }
+            composable("settings") {
+                Box(Modifier.fillMaxSize().background(GxBackground)) {
+                    SettingsScreen(
+                        vm = vm,
+                        edit = { nav.navigate("edit-profile") },
+                        inbox = { vm.loadInbox(); nav.navigate("inbox") },
+                        openLesson = { course, lesson -> nav.navigate("lesson/${course.id}/${lesson.id}") },
+                        back = { nav.popBackStack() },
+                    )
+                }
+            }
+            composable("payments") {
+                Box(Modifier.fillMaxSize().background(GxBackground)) {
+                    LivePaymentsScreen(viewModel = vm, onBackClick = { nav.popBackStack() }, modifier = Modifier.fillMaxSize())
+                }
+            }
+            composable("reference-pack") { ReferenceScreenGallery(vm = vm, onOpenWhatsApp = ::requestWhatsApp) { nav.popBackStack() } }
+            composable(
+                "reference-pack/{initialScreen}",
+                arguments = listOf(navArgument("initialScreen") { type = NavType.StringType }),
+            ) { entry ->
+                ReferenceScreenGallery(
+                    vm = vm,
+                    initialScreen = entry.arguments?.getString("initialScreen").orEmpty(),
+                    onOpenWhatsApp = ::requestWhatsApp,
+                    onBack = { nav.popBackStack() },
+                )
+            }
+            }
         }
+    }
+
+    whatsAppRequest?.let { request ->
+        AlertDialog(
+            onDismissRequest = { whatsAppRequest = null },
+            title = { Text("Choose WhatsApp") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Select which WhatsApp account should open for this contact.")
+                    request.targets.forEach { target ->
+                        OutlinedButton(
+                            onClick = {
+                                whatsAppRequest = null
+                                runCatching { openWhatsAppTarget(context, target, request.phone) }
+                                    .onFailure { vm.showError("${target.label} could not be opened on this phone.") }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(target.label)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { whatsAppRequest = null }) { Text("Cancel") }
+            },
+        )
     }
 }
 
@@ -392,6 +631,7 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                 .fillMaxSize()
                 .verticalScroll(scrollState)
                 .imePadding()
+                .statusBarsPadding()
                 .padding(horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -654,8 +894,7 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
     var recordingSettingsOpened by rememberSaveable {
         mutableStateOf(setupPrefs.getBoolean("phoneRecordingSettingsOpened", false))
     }
-    var accessibilityEnabled by remember { mutableStateOf(DialerShareAutomation.isAccessibilityEnabled(context)) }
-    var micFallbackEnabled by remember { mutableStateOf(context.getSharedPreferences("gxclosers_calls", Context.MODE_PRIVATE).getBoolean("micFallbackEnabled", false)) }
+    var micFallbackEnabled by remember { mutableStateOf(DialerShareAutomation.isMicrophoneFallbackEnabled(context)) }
     var recordingFolderUri by remember { mutableStateOf(RecordingFolderStore.getTreeUri(context)) }
     var folderCheckBusy by remember { mutableStateOf(false) }
     var folderCheckMessage by rememberSaveable { mutableStateOf<String?>(null) }
@@ -665,22 +904,14 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                accessibilityEnabled = DialerShareAutomation.isAccessibilityEnabled(context)
+                micFallbackEnabled = DialerShareAutomation.isMicrophoneFallbackEnabled(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    LaunchedEffect(setupStep) {
-        if (setupStep == 2) {
-            repeat(6) {
-                accessibilityEnabled = DialerShareAutomation.isAccessibilityEnabled(context)
-                if (accessibilityEnabled) return@LaunchedEffect
-                delay(500L)
-            }
-        }
-    }
     val finishSetup = { vm.registerDevice {} }
+    val isVerified = vm.certificationStatus == DeviceCertificationManager.STATUS_VERIFIED
     val permissions = buildList {
         add(Manifest.permission.CALL_PHONE); add(Manifest.permission.READ_PHONE_STATE); add(Manifest.permission.READ_PHONE_NUMBERS); add(Manifest.permission.READ_CALL_LOG)
         add(Manifest.permission.READ_CONTACTS)
@@ -689,42 +920,39 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
     }.toTypedArray()
     val micPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         micFallbackEnabled = granted
-        context.getSharedPreferences("gxclosers_calls", Context.MODE_PRIVATE).edit().putBoolean("micFallbackEnabled", granted).apply()
+        DialerShareAutomation.setMicrophoneFallbackEnabled(context, granted)
         if (!granted) setupIssue = "Microphone fallback permission was denied. System dialer folder/MediaStore sync can still be used."
     }
-    fun prepareSimSelection() {
+    fun prepareSimSelection(targetStep: Int = 1) {
         setupScope.launch {
-            val options = withContext(Dispatchers.IO) {
+            val rawOptions = withContext(Dispatchers.IO) {
                 withTimeoutOrNull(2000L) { CallManager.availableSims(context) } ?: emptyList()
+            }
+            val options = buildList {
+                if (rawOptions.size > 1) {
+                    add(SimOption(
+                        subscriptionId = "ALL",
+                        slotIndex = -1,
+                        label = "All SIM Cards (Track all calls)",
+                        phoneNumber = null,
+                        phoneAccountHandle = null,
+                    ))
+                }
+                addAll(rawOptions)
             }
             val saved = CallManager.simSelection(context)
             simOptions = options
             selectedSimId = options.firstOrNull { it.subscriptionId == saved }?.subscriptionId
                 ?: options.firstOrNull()?.subscriptionId
-                ?: "sim-work"
-            setupStep = 1
+                ?: ""
+            if (setupStep < targetStep) {
+                setupStep = targetStep
+            }
         }
     }
     fun continueAfterRecordingSetup() {
         setupIssue = null
         setupStep = 3
-    }
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-        if (!permissions.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }) {
-            vm.showError("Allow phone, call history, recording-file, contacts, and notification access to continue setup.")
-        } else {
-            prepareSimSelection()
-        }
-    }
-    val recordingFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        if (persistRecordingFolder(context, uri)) {
-            recordingFolderUri = uri
-            folderCheckMessage = null
-            setupIssue = null
-        } else {
-            setupIssue = "Android did not allow persistent access to that folder. Choose the Phone app's recording folder again."
-        }
     }
     fun checkRecordingFolder() {
         if (recordingFolderUri == null || folderCheckBusy) return
@@ -737,20 +965,6 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                 "Access confirmed: ${it.fileName}${if (it.durationMs > 0L) " · ${it.durationMs / 1000}s audio" else ""}"
             } ?: "No readable audio file found. Make one test call with recording enabled, then check this folder again."
         }
-    }
-    fun continueSetup() {
-        if (permissions.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }) {
-            prepareSimSelection()
-        } else {
-            permissionLauncher.launch(permissions)
-        }
-    }
-    fun continueWithSim() {
-        if (selectedSimId.isNotBlank()) {
-            CallManager.saveSimSelection(context, selectedSimId)
-        }
-        setupIssue = null
-        setupStep = 2
     }
     fun openPhoneRecordingSettings() {
         val defaultDialerPackage = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -765,8 +979,62 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
             recordingSettingsOpened = true
             setupPrefs.edit().putBoolean("phoneRecordingSettingsOpened", true).apply()
             setupIssue = null
+        }.onFailure { vm.showError("Open the Phone app manually and enable Call recording from Phone app settings.") }
+    }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        if (!permissions.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }) {
+            vm.showError("Allow phone, call history, recording-file, contacts, and notification access to continue setup.")
+        } else {
+            when (setupStep) {
+                0 -> prepareSimSelection(targetStep = 1)
+                1 -> prepareSimSelection(targetStep = 1)
+                2 -> if (recordingFolderUri != null) checkRecordingFolder() else openPhoneRecordingSettings()
+                3 -> if (isVerified) finishSetup() else vm.evaluateTestCall()
+            }
         }
-            .onFailure { vm.showError("Open the Phone app manually and enable Call recording from Phone app settings.") }
+    }
+    val recordingFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        if (persistRecordingFolder(context, uri)) {
+            recordingFolderUri = uri
+            folderCheckMessage = null
+            setupIssue = null
+        } else {
+            setupIssue = "Android did not allow persistent access to that folder. Choose the Phone app's recording folder again."
+        }
+    }
+    fun continueSetup() {
+        if (permissions.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }) {
+            prepareSimSelection()
+        } else {
+            permissionLauncher.launch(permissions)
+        }
+    }
+    fun continueWithSim() {
+        if (selectedSimId.isBlank()) {
+            setupIssue = "No active SIM is available yet. Refresh the SIM list after granting phone access or inserting your work SIM."
+            return
+        }
+        CallManager.saveSimSelection(context, selectedSimId)
+        setupIssue = null
+        setupStep = 2
+    }
+    fun retrySetup() {
+        setupIssue = null
+        when (setupStep) {
+            0 -> continueSetup()
+            1 -> if (permissions.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }) {
+                if (selectedSimId.isNotBlank()) continueWithSim() else prepareSimSelection(targetStep = 1)
+            } else {
+                permissionLauncher.launch(permissions)
+            }
+            2 -> {
+                if (recordingFolderUri != null) checkRecordingFolder() else openPhoneRecordingSettings()
+            }
+            3 -> {
+                if (isVerified) finishSetup() else vm.evaluateTestCall()
+            }
+        }
     }
     LaunchedEffect(vm.error) {
         vm.error?.let {
@@ -850,19 +1118,16 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
             1 -> {
                 SimTrayHero()
                 if (simOptions.isEmpty()) {
-                    SimCardOptionItem(
-                        label = "Jio 4G",
-                        phoneNumber = "9933",
-                        selected = selectedSimId.isEmpty() || selectedSimId == "sim-work",
-                        onClick = { selectedSimId = "sim-work" },
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    SimCardOptionItem(
-                        label = "Personal SIM",
-                        phoneNumber = null,
-                        selected = selectedSimId == "sim-personal",
-                        onClick = { selectedSimId = "sim-personal" },
-                    )
+                    GxCard {
+                        Text("No active SIM detected", color = GxText, fontWeight = FontWeight.Bold)
+                        Text(
+                            "AI Closer needs Android to expose your work SIM before calls can be linked. Check phone access, insert the SIM, then refresh.",
+                            color = GxMuted,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                        )
+                        SecondaryButton("Refresh SIM list", vm.busy) { prepareSimSelection() }
+                    }
                 } else {
                     simOptions.forEach { sim ->
                         SimCardOptionItem(
@@ -870,14 +1135,6 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                             phoneNumber = sim.phoneNumber,
                             selected = selectedSimId == sim.subscriptionId,
                             onClick = { selectedSimId = sim.subscriptionId },
-                        )
-                    }
-                    if (simOptions.size == 1) {
-                        SimCardOptionItem(
-                            label = "Personal SIM",
-                            phoneNumber = null,
-                            selected = false,
-                            onClick = {},
                         )
                     }
                 }
@@ -889,7 +1146,13 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                     phoneAllowed = phoneAllowed,
                     historyAllowed = historyAllowed,
                     notificationsAllowed = notifAllowed,
-                    onRequestPermissions = { permissionLauncher.launch(permissions) },
+                    onRequestPermissions = {
+                        if (permissions.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }) {
+                            setupIssue = "Phone, call history, recording-file, contacts, and notification access are already allowed."
+                        } else {
+                            permissionLauncher.launch(permissions)
+                        }
+                    },
                 )
 
                 Row(
@@ -906,7 +1169,7 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                     text = "Allow & continue",
                     onClick = { continueWithSim() },
                     showArrow = true,
-                    enabled = true,
+                    enabled = selectedSimId.isNotBlank(),
                     loading = vm.busy,
                 )
             }
@@ -931,14 +1194,11 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                         HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
                         RecordingRowItem(
                             icon = Icons.Outlined.Share,
-                            title = "Share automation",
-                            subtitle = "Send recordings to AI Closer",
-                            statusText = if (accessibilityEnabled) "Connected" else "Off",
-                            isGreen = accessibilityEnabled,
-                            onClick = {
-                                runCatching { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
-                                    .onFailure { vm.showError("Open Android Accessibility settings manually and enable AI Closer.") }
-                            },
+                            title = "Manual recording share",
+                            subtitle = "Phone → tap number → Share recording → AI Closer",
+                            statusText = "Ready",
+                            isGreen = true,
+                            onClick = ::openPhoneRecordingSettings,
                         )
                         HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
                         RecordingRowItem(
@@ -966,6 +1226,9 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                                             runCatching { context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
                                         }
                                 }
+                                if (isBatteryExempt) {
+                                    setupIssue = "Battery access is already allowed for AI Closer."
+                                }
                             },
                         )
                         HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
@@ -976,16 +1239,17 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                             statusText = if (micFallbackEnabled) "On" else "Off",
                             isGreen = micFallbackEnabled,
                             onClick = {
+
                                 if (!micFallbackEnabled) {
                                     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
                                         micFallbackEnabled = true
-                                        context.getSharedPreferences("gxclosers_calls", Context.MODE_PRIVATE).edit().putBoolean("micFallbackEnabled", true).apply()
+                                        DialerShareAutomation.setMicrophoneFallbackEnabled(context, true)
                                     } else {
                                         micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                     }
                                 } else {
                                     micFallbackEnabled = false
-                                    context.getSharedPreferences("gxclosers_calls", Context.MODE_PRIVATE).edit().putBoolean("micFallbackEnabled", false).apply()
+                                    DialerShareAutomation.setMicrophoneFallbackEnabled(context, false)
                                 }
                             },
                         )
@@ -1076,7 +1340,7 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                     }
                     Text(issue, color = GxText, fontSize = 12.sp, lineHeight = 16.sp)
                     TextButton(
-                        onClick = { setupIssue = null; continueSetup() },
+                        onClick = { retrySetup() },
                         enabled = !vm.busy,
                         modifier = Modifier.align(Alignment.End)
                     ) {
@@ -1090,67 +1354,191 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
 
 private data class Tab(val key: String, val label: String, val icon: ImageVector)
 
-@Composable private fun MainScreen(vm: CrmViewModel, nav: NavHostController) {
-    var selected by rememberSaveable { mutableIntStateOf(0) }
-    var showMoreSettings by rememberSaveable { mutableStateOf(false) }
-    val tabs = remember(vm.featurePermissions) {
-        buildList {
-            if (vm.hasFeature("dashboard")) add(Tab("home", "Home", Icons.Default.Home))
-            if (vm.hasFeature("crm")) add(Tab("leads", "Leads", Icons.Default.Groups))
-            if (vm.hasFeature("calls")) add(Tab("calls", "Calls", Icons.Default.Phone))
-            add(Tab("more", "More", Icons.Default.MoreHoriz))
+@Composable
+private fun AuthenticatedRouteWithFooter(
+    vm: CrmViewModel,
+    selectedKey: String,
+    onMainTabSelected: (String) -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val tabs = remember(vm.featurePermissions) { mainFooterTabs(vm) }
+    val selected = tabs.indexOfFirst { it.key == selectedKey }.coerceAtLeast(0)
+    Box(Modifier.fillMaxSize()) {
+        ReferencePhotoBackdrop()
+        Box(
+            Modifier
+                .fillMaxSize()
+                .padding(bottom = 108.dp),
+        ) {
+            content()
         }
+        GxAppFooter(
+            items = tabs.map { GxFooterItem(it.label, it.icon) },
+            selected = selected,
+            onSelect = { index -> tabs.getOrNull(index)?.let { onMainTabSelected(it.key) } },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
-    LaunchedEffect(tabs.size) { if (selected >= tabs.size) selected = 0 }
-    val activeTab = tabs.getOrNull(selected)?.key ?: "more"
-    LaunchedEffect(activeTab) { if (activeTab != "more") showMoreSettings = false }
+}
+
+@Composable
+private fun AuthenticatedChatRouteWithFooter(
+    vm: CrmViewModel,
+    onChatsSelected: () -> Unit,
+    onContactsSelected: () -> Unit,
+    onSettingsSelected: () -> Unit,
+    onProfileSelected: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    Box(Modifier.fillMaxSize()) {
+        ReferencePhotoBackdrop()
+        Box(
+            Modifier
+                .fillMaxSize()
+                .padding(bottom = 108.dp),
+        ) {
+            content()
+        }
+        GxAppFooter(
+            items = listOf(
+                GxFooterItem("Chats", Icons.Default.ChatBubble),
+                GxFooterItem("Contacts", Icons.Default.Person),
+                GxFooterItem("Settings", Icons.Default.Settings),
+                GxFooterItem("Profile", Icons.Default.AccountCircle),
+            ),
+            selected = 0,
+            onSelect = { index ->
+                when (index) {
+                    0 -> onChatsSelected()
+                    1 -> onContactsSelected()
+                    2 -> onSettingsSelected()
+                    3 -> onProfileSelected()
+                }
+            },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
+    }
+}
+
+@Composable private fun MainScreen(
+    vm: CrmViewModel,
+    nav: NavHostController,
+    onOpenWhatsApp: (String) -> Unit,
+    selectedTab: String,
+    onTabSelected: (String) -> Unit,
+) {
+    var showMoreSettings by rememberSaveable { mutableStateOf(false) }
+    var modalBlocksFooter by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
+    val setThemeMode = LocalThemeModeChange.current
+    val tabs = remember(vm.featurePermissions) { mainFooterTabs(vm) }
+    val activeTab = selectedTab.takeIf { key -> tabs.any { it.key == key } } ?: tabs.firstOrNull()?.key ?: "more"
+    val footerVisible = !(activeTab == "more" && !showMoreSettings) && !modalBlocksFooter
+    LaunchedEffect(activeTab) {
+        if (activeTab != "more") showMoreSettings = false
+        modalBlocksFooter = false
+    }
     LaunchedEffect(Unit) { if (vm.inbox.isEmpty()) vm.loadInbox(); if (vm.courses.isEmpty()) vm.loadCourses() }
     LaunchedEffect(activeTab) { if (activeTab == "inbox" && vm.inbox.isEmpty()) vm.loadInbox(); if (activeTab == "more" && vm.courses.isEmpty()) vm.loadCourses() }
-    Box(Modifier.fillMaxSize().background(GxBackground)) {
-        if (activeTab == "more" && !showMoreSettings) {
-            MoreScreen(
-                vm = vm,
-                edit = { nav.navigate("edit-profile") },
-                inbox = { nav.navigate("inbox") },
-                openSettings = { showMoreSettings = true },
-                openReferencePack = { nav.navigate("reference-pack") },
-                close = { selected = 0 },
-                bottomBar = {
-                    GxBottomNav(
-                        tabs = tabs,
-                        selected = selected,
-                        onSelect = { selected = it },
-                        modifier = Modifier.align(Alignment.BottomCenter),
-                    )
-                },
-            )
+    fun selectTab(key: String) {
+        modalBlocksFooter = false
+        tabs.indexOfFirst { it.key == key }.takeIf { it >= 0 }?.let { onTabSelected(key) }
+    }
+    BackHandler(enabled = activeTab == "more") {
+        if (showMoreSettings) {
+            showMoreSettings = false
         } else {
-            when (activeTab) {
-                "home" -> DashboardScreen(
+            selectTab("home")
+        }
+    }
+    Box(Modifier.fillMaxSize()) {
+        ReferencePhotoBackdrop()
+        Box(
+            Modifier.fillMaxSize(),
+        ) {
+            if (activeTab == "more" && !showMoreSettings) {
+                LiveHomeScreenAdapter(
                     vm = vm,
-                    grab = { if (vm.hasFeature("crm")) nav.navigate("lead-grab") },
-                    calls = { tabs.indexOfFirst { it.key == "calls" }.takeIf { it >= 0 }?.let { selected = it } },
-                    inbox = { nav.navigate("inbox") },
+                    onNavigateToTab = ::selectTab,
+                    onOpenLead = { nav.navigate("lead/${it.id}") },
+                    onGrabLeads = { nav.navigate("lead-grab") },
+                    onOpenChats = { nav.navigate("inbox") },
+                    onOpenPayments = { nav.navigate("payments") },
+                    onOpenWhatsApp = { onOpenWhatsApp(vm.bootstrap?.leads?.firstOrNull()?.customerPhone.orEmpty()) },
+                    onOpenNotifications = { nav.navigate("inbox") },
                 )
-                "leads" -> LeadsScreen(vm, { nav.navigate("lead-grab") }) { nav.navigate("lead/${it.id}") }
-                "calls" -> CallsScreen(vm) { nav.navigate("disposition/$it") }
-                "inbox" -> InboxScreen(vm, open = { item -> item.conversationId?.let { nav.navigate("chat/$it/${Uri.encode(item.lead.customerName)}") } })
-                else -> {
-                    if (showMoreSettings) {
-                        SettingsScreen(
-                            vm = vm,
-                            edit = { nav.navigate("edit-profile") },
-                            inbox = { nav.navigate("inbox") },
-                            openLesson = { course, lesson -> nav.navigate("lesson/${course.id}/${lesson.id}") },
-                            back = { showMoreSettings = false },
-                        )
+                LiveMoreDrawerAdapter(
+                    vm = vm,
+                    onClose = { selectTab("home") },
+                    onInboxClick = { nav.navigate("inbox") },
+                    onDiagnosticsClick = { showMoreSettings = true },
+                    onProfileClick = { nav.navigate("profile") },
+                    onSettingsClick = { nav.navigate("settings") },
+                    onPaymentsClick = { nav.navigate("payments") },
+                    onHelpClick = {
+                        val helpIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://aicloser.in/contact"))
+                        runCatching { context.startActivity(helpIntent) }
+                            .onFailure { vm.showError("Contact your workspace admin or support@aicloser.in for help.") }
+                    },
+                    onThemeChange = { mode ->
+                        runCatching { setThemeMode(ThemeMode.valueOf(mode.uppercase())) }
+                    },
+                    onLogoutClick = {
+                        vm.logout {
+                            nav.navigate(LOGIN) {
+                                popUpTo(0) { inclusive = true }
+                            }
+                        }
+                    },
+                )
+            } else {
+                when (activeTab) {
+                    "home" -> LiveHomeScreenAdapter(
+                        vm = vm,
+                        onNavigateToTab = ::selectTab,
+                        onOpenLead = { nav.navigate("lead/${it.id}") },
+                        onGrabLeads = { if (vm.hasFeature("crm")) nav.navigate("lead-grab") },
+                        onOpenChats = { nav.navigate("inbox") },
+                        onOpenPayments = { nav.navigate("payments") },
+                        onOpenWhatsApp = { onOpenWhatsApp(vm.bootstrap?.leads?.firstOrNull()?.customerPhone.orEmpty()) },
+                        onOpenNotifications = { nav.navigate("inbox") },
+                    )
+                    "leads" -> LiveLeadsScreenAdapter(
+                        vm = vm,
+                        onNavigateToTab = ::selectTab,
+                        onOpenLead = { nav.navigate("lead/${it.id}") },
+                        onGrabLeads = { nav.navigate("lead-grab") },
+                        onOpenNotifications = { nav.navigate("inbox") },
+                        onBackClick = { selectTab("home") },
+                        onModalVisibilityChanged = { modalBlocksFooter = it },
+                    )
+                    "calls" -> LiveCallsScreenAdapter(
+                        vm = vm,
+                        onNavigateToTab = ::selectTab,
+                        onOpenDisposition = { nav.navigate("disposition/$it") },
+                        onOpenNotifications = { nav.navigate("inbox") },
+                    )
+                    "inbox" -> InboxScreen(vm, open = { item -> item.conversationId?.let { nav.navigate("chat/$it/${Uri.encode(item.lead.customerName)}") } })
+                    else -> {
+                        if (showMoreSettings) {
+                            SettingsScreen(
+                                vm = vm,
+                                edit = { nav.navigate("edit-profile") },
+                                inbox = { nav.navigate("inbox") },
+                                openLesson = { course, lesson -> nav.navigate("lesson/${course.id}/${lesson.id}") },
+                                back = { showMoreSettings = false },
+                            )
+                        }
                     }
                 }
             }
+        }
+        if (footerVisible) {
+            val selectedFooterIndex = tabs.indexOfFirst { it.key == activeTab }.coerceAtLeast(0)
             GxBottomNav(
                 tabs = tabs,
-                selected = selected,
-                onSelect = { selected = it },
+                selected = selectedFooterIndex,
+                onSelect = { index -> tabs.getOrNull(index)?.let { selectTab(it.key) } },
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
@@ -1158,7 +1546,13 @@ private data class Tab(val key: String, val label: String, val icon: ImageVector
 }
 
 @Composable
-private fun ReferenceScreenGallery(vm: CrmViewModel, onBack: () -> Unit) {
+private fun ReferenceScreenGallery(
+    vm: CrmViewModel,
+    initialScreen: String = "home06",
+    onOpenWhatsApp: (String) -> Unit = {},
+    onBack: () -> Unit,
+) {
+    val context = LocalContext.current
     val screens = remember {
         listOf(
             "06 Home" to "home06",
@@ -1177,8 +1571,11 @@ private fun ReferenceScreenGallery(vm: CrmViewModel, onBack: () -> Unit) {
             "19 Payments" to "payments19",
         )
     }
-    var selected by rememberSaveable { mutableStateOf("home06") }
+    var selected by rememberSaveable(initialScreen) {
+        mutableStateOf(initialScreen.takeIf { screen -> screens.any { it.second == screen } } ?: "home06")
+    }
     var selectedLeadId by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedConversationId by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedCallId by rememberSaveable { mutableStateOf<String?>(null) }
     fun select(key: String) { selected = key }
 
@@ -1215,17 +1612,22 @@ private fun ReferenceScreenGallery(vm: CrmViewModel, onBack: () -> Unit) {
                     onGrabLeads = { select("grab10") },
                     onOpenChats = { select("inbox13") },
                     onOpenPayments = { select("payments19") },
+                    onOpenWhatsApp = { onOpenWhatsApp(vm.bootstrap?.leads?.firstOrNull()?.customerPhone.orEmpty()) },
+                    onOpenNotifications = { select("inbox13") },
                 )
                 "leads07" -> LiveLeadsScreenAdapter(
                     vm = vm,
                     onNavigateToTab = { tab -> select(if (tab == "home") "home06" else if (tab == "calls") "calls08" else "leads07") },
                     onOpenLead = { lead -> selectedLeadId = lead.id; select("detail11") },
                     onGrabLeads = { select("grab10") },
+                    onOpenNotifications = { select("inbox13") },
+                    onBackClick = { select("home06") },
                 )
                 "calls08" -> LiveCallsScreenAdapter(
                     vm = vm,
                     onNavigateToTab = { tab -> select(if (tab == "home") "home06" else if (tab == "leads") "leads07" else "calls08") },
                     onOpenDisposition = { callId -> selectedCallId = callId; select("complete12") },
+                    onOpenNotifications = { select("inbox13") },
                 )
                 "more09" -> LiveMoreDrawerAdapter(
                     vm = vm,
@@ -1235,6 +1637,11 @@ private fun ReferenceScreenGallery(vm: CrmViewModel, onBack: () -> Unit) {
                     onProfileClick = { select("settings15") },
                     onSettingsClick = { select("settings15") },
                     onPaymentsClick = { select("payments19") },
+                    onHelpClick = {
+                        val helpIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://aicloser.in/contact"))
+                        runCatching { context.startActivity(helpIntent) }
+                            .onFailure { vm.showError("Contact your workspace admin or support@aicloser.in for help.") }
+                    },
                 )
                 "grab10" -> LiveGrabLeadsScreenAdapter(
                     vm = vm,
@@ -1245,8 +1652,10 @@ private fun ReferenceScreenGallery(vm: CrmViewModel, onBack: () -> Unit) {
                     vm = vm,
                     leadId = selectedLeadId ?: vm.bootstrap?.leads?.firstOrNull()?.id.orEmpty(),
                     onBackClick = { select("leads07") },
+                    onMenuClick = { vm.refreshAll() },
                     onOpenDisposition = { callId -> selectedCallId = callId; select("complete12") },
                     onChatClick = { select("chat14") },
+                    onWhatsAppClick = onOpenWhatsApp,
                 )
                 "complete12" -> LiveCompleteCallScreenAdapter(
                     vm = vm,
@@ -1256,12 +1665,17 @@ private fun ReferenceScreenGallery(vm: CrmViewModel, onBack: () -> Unit) {
                 )
                 "inbox13" -> LiveInboxScreen(
                     viewModel = vm,
-                    onNavigateToChat = { leadId -> selectedLeadId = leadId; select("chat14") },
+                    onNavigateToChat = { leadId ->
+                        selectedLeadId = leadId
+                        selectedConversationId = vm.inbox.firstOrNull { it.lead.id == leadId }?.conversationId
+                        select("chat14")
+                    },
                     onNavTabSelect = { tab -> select(if (tab == 1) "leads07" else if (tab == 2) "calls08" else "home06") },
                 )
                 "chat14" -> LiveChatScreen(
                     viewModel = vm,
                     leadId = selectedLeadId ?: vm.inbox.firstOrNull()?.lead?.id.orEmpty(),
+                    conversationId = selectedConversationId,
                     onBackClick = { select("inbox13") },
                 )
                 "settings15" -> LiveSettingsScreen(
@@ -1279,11 +1693,13 @@ private fun ReferenceScreenGallery(vm: CrmViewModel, onBack: () -> Unit) {
                     onAddLeadClick = { select("contact16") },
                     onLeadCardClick = { lead -> selectedLeadId = lead.id; select("detail11") },
                     onNavTabSelect = { tab -> select(if (tab == 0) "home06" else "pipeline17") },
+                    onNotificationsClick = { select("inbox13") },
                 )
                 "contacts18" -> LiveContactsScreen(
                     viewModel = vm,
                     onContactClick = { lead -> selectedLeadId = lead.id; select("detail11") },
                     onNavTabSelect = { tab -> select(if (tab == 0) "home06" else "contacts18") },
+                    onNotificationsClick = { select("inbox13") },
                 )
                 "payments19" -> LivePaymentsScreen(
                     viewModel = vm,
@@ -1300,62 +1716,12 @@ private fun ReferenceScreenGallery(vm: CrmViewModel, onBack: () -> Unit) {
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val navShape = RoundedCornerShape(30.dp)
-    Box(
-        modifier
-            .fillMaxWidth()
-            .padding(top = 4.dp, bottom = 4.dp)
-            .navigationBarsPadding(),
-        contentAlignment = Alignment.Center,
-    ) {
-        Surface(
-            color = GxSurface,
-            shape = navShape,
-            border = BorderStroke(1.dp, GxOutlineSoft),
-            tonalElevation = 0.dp,
-            shadowElevation = 0.dp,
-            modifier = Modifier
-                .fillMaxWidth(.88f)
-                .widthIn(min = 316.dp, max = 560.dp)
-                .height(68.dp)
-                .shadow(
-                    elevation = 12.dp,
-                    shape = navShape,
-                    clip = false,
-                    ambientColor = Color.Black.copy(alpha = .34f),
-                    spotColor = Color.Black.copy(alpha = .48f),
-                ),
-        ) {
-            Row(Modifier.padding(horizontal = 8.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                tabs.forEachIndexed { index, tab ->
-                    val active = selected == index
-                    Column(
-                        modifier = Modifier.weight(1f).heightIn(min = 48.dp).clickable { onSelect(index) },
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center,
-                    ) {
-                        val indicatorSize by animateDpAsState(
-                            targetValue = if (active) 42.dp else 30.dp,
-                            animationSpec = tween(240),
-                            label = "bottom-nav-indicator",
-                        )
-                        Box(Modifier.size(42.dp), contentAlignment = Alignment.Center) {
-                            Box(
-                                Modifier
-                                    .size(indicatorSize)
-                                    .clip(CircleShape)
-                                    .background(if (active) GxAccent.copy(alpha = .14f) else Color.Transparent)
-                                    .border(BorderStroke(1.dp, if (active) GxAccent.copy(alpha = .42f) else Color.Transparent), CircleShape)
-                            )
-                            Icon(tab.icon, tab.label, tint = if (active) GxAccent else GxMuted, modifier = Modifier.size(21.dp))
-                        }
-                        Spacer(Modifier.height(1.dp))
-                        Text(tab.label, color = if (active) GxText else GxMuted, fontSize = 10.sp, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1)
-                    }
-                }
-            }
-        }
-    }
+    GxAppFooter(
+        items = tabs.map { GxFooterItem(it.label, it.icon) },
+        selected = selected,
+        onSelect = onSelect,
+        modifier = modifier,
+    )
 }
 
 @Composable private fun DashboardScreen(
@@ -1363,14 +1729,25 @@ private fun ReferenceScreenGallery(vm: CrmViewModel, onBack: () -> Unit) {
     grab: () -> Unit,
     calls: () -> Unit,
     inbox: () -> Unit,
+    openLead: (SalesLead) -> Unit = {},
+    viewAllLeads: () -> Unit = {},
 ) {
     val data = vm.bootstrap
-    val callsToday = data?.calls.orEmpty()
+    val zone = java.time.ZoneId.systemDefault()
+    val today = java.time.LocalDate.now(zone)
+    val callsToday = remember(data?.calls, vm.currentDeviceId, vm.currentDeviceModel) {
+        data?.calls.orEmpty().filter { call ->
+            if (!call.isFromDevice(vm.currentDeviceId, vm.currentDeviceModel)) return@filter false
+            val instant = call.parseEffectiveInstant() ?: return@filter false
+            instant.atZone(zone).toLocalDate() == today
+        }
+    }
     val talkSeconds = callsToday.sumOf { it.durationSeconds }
     val talkTime = when {
         talkSeconds >= 3600 -> "${talkSeconds / 3600}h ${(talkSeconds % 3600) / 60}m"
         talkSeconds >= 60 -> "${talkSeconds / 60}m"
-        else -> "${talkSeconds}s"
+        talkSeconds > 0 -> "${talkSeconds}s"
+        else -> "0m"
     }
     val firstName = data?.agent?.displayName?.substringBefore(' ')?.takeIf(String::isNotBlank)
         ?: vm.session?.displayName?.substringBefore(' ')?.takeIf(String::isNotBlank)
@@ -1378,11 +1755,12 @@ private fun ReferenceScreenGallery(vm: CrmViewModel, onBack: () -> Unit) {
     val canGrab = data?.agent?.canClaimLeads == true && (data.pendingNotes) == 0
     val recentLeads = data?.leads.orEmpty().take(3)
 
-    Page(backdrop = GxBackdropKind.TELEPHONY, reserveBottomBar = true) {
+    Page(backdrop = GxBackdropKind.TELEPHONY) {
         GxPremiumHeader(
             greeting = "Good morning, $firstName",
             headline = "Ready to close more today?",
             notificationCount = data?.pendingNotes ?: 0,
+            onNotificationsClick = inbox,
         )
 
         Box(Modifier.fillMaxWidth().height(190.dp), contentAlignment = Alignment.Center) {
@@ -1436,15 +1814,35 @@ private fun ReferenceScreenGallery(vm: CrmViewModel, onBack: () -> Unit) {
         )
 
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Recent leads", color = GxText, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            Text("View all", color = GxAccent, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            Text(
+                "Recent leads",
+                color = GxText,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f).clickable(onClick = viewAllLeads)
+            )
+            Text(
+                "View all",
+                color = GxAccent,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.clickable(onClick = viewAllLeads),
+            )
         }
         if (recentLeads.isEmpty()) {
-            GxGlassSurface { Text("No assigned leads yet.", color = GxMuted, fontSize = 13.sp) }
+            GxGlassSurface(modifier = Modifier.fillMaxWidth().clickable(onClick = viewAllLeads)) {
+                Text("No assigned leads yet.", color = GxMuted, fontSize = 13.sp)
+            }
         } else {
             GxGlassSurface(padding = 4.dp) {
                 recentLeads.forEachIndexed { index, lead ->
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { openLead(lead) }
+                            .padding(horizontal = 12.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Surface(color = GxAccent.copy(alpha = .14f), shape = CircleShape, modifier = Modifier.size(38.dp)) {
                             Box(contentAlignment = Alignment.Center) {
                                 Text(initials(lead.customerName), color = GxAccent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
@@ -1455,7 +1853,7 @@ private fun ReferenceScreenGallery(vm: CrmViewModel, onBack: () -> Unit) {
                             Text(lead.customerName, color = GxText, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1)
                             Text(lead.serviceInterest.ifBlank { lead.customerPhone }, color = GxMuted, fontSize = 11.sp, maxLines = 1)
                         }
-                        Icon(Icons.Default.Phone, "Open lead", tint = GxMuted, modifier = Modifier.size(19.dp))
+                        Icon(Icons.Default.ChevronRight, "Open ${lead.customerName}", tint = GxMuted, modifier = Modifier.size(19.dp))
                     }
                     if (index < recentLeads.lastIndex) HorizontalDivider(color = GxOutlineSoft.copy(alpha = .65f))
                 }
@@ -1496,8 +1894,8 @@ private fun ReferenceScreenGallery(vm: CrmViewModel, onBack: () -> Unit) {
         )
     }
 
-    Page(backdrop = GxBackdropKind.CRM, reserveBottomBar = true) {
-        GxWorkspaceHeader("Leads", "Manage and follow up with your leads", vm.bootstrap?.pendingNotes ?: 0)
+    Page(backdrop = GxBackdropKind.CRM) {
+        GxWorkspaceHeader("Leads", "Manage and follow up with your leads", vm.bootstrap?.pendingNotes ?: 0, onNotificationsClick = { vm.loadInbox() })
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
                 value = search,
@@ -1620,20 +2018,9 @@ private fun ReferenceScreenGallery(vm: CrmViewModel, onBack: () -> Unit) {
 
 @Composable private fun CallsScreen(vm: CrmViewModel, disposition: (String) -> Unit) {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var accessibilityEnabled by remember { mutableStateOf(DialerShareAutomation.isAccessibilityEnabled(context)) }
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                accessibilityEnabled = DialerShareAutomation.isAccessibilityEnabled(context)
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
     val data = vm.bootstrap
-    Page(backdrop = GxBackdropKind.TELEPHONY, reserveBottomBar = true) {
-        GxWorkspaceHeader("Calls", "Recordings and call history", data?.pendingNotes ?: 0)
+    Page(backdrop = GxBackdropKind.TELEPHONY) {
+        GxWorkspaceHeader("Calls", "Recordings and call history", data?.pendingNotes ?: 0, onNotificationsClick = { vm.loadInbox() })
 
         if (vm.certificationStatus != DeviceCertificationManager.STATUS_VERIFIED) {
             GxCard(accent = true) {
@@ -1709,21 +2096,19 @@ private fun ReferenceScreenGallery(vm: CrmViewModel, onBack: () -> Unit) {
 
         CallHistoryPreview(data?.calls.orEmpty(), vm, disposition)
 
-        if (!accessibilityEnabled) {
-            GxCard(accent = true) {
-                Text("RECORDING BRIDGE NEEDS ATTENTION", color = GxWarning, fontSize = 10.sp, fontWeight = FontWeight.Black)
-                Text("Pixel/Google Phone recordings are private until AI Closer is allowed to use the visible Share flow.", fontWeight = FontWeight.Black)
-                Text("After an APK update, Android may turn this protected service off. Enable it before making the next test call; otherwise the call can appear without audio.", color = GxMuted, fontSize = 11.sp, lineHeight = 16.sp)
-                OutlinedButton(
-                    onClick = {
-                        runCatching { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Default.Accessibility, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Open Accessibility settings")
-                }
+        GxCard(accent = true) {
+            Text("MANUAL RECORDING SHARE", color = GxAccent, fontSize = 10.sp, fontWeight = FontWeight.Black)
+            Text("After a call, open Phone, tap the number, choose Share recording, and select AI Closer.", fontWeight = FontWeight.Black)
+            Text("The imported audio is linked automatically using the phone number, call date, time, and duration.", color = GxMuted, fontSize = 11.sp, lineHeight = 16.sp)
+            OutlinedButton(
+                onClick = {
+                    runCatching { context.startActivity(Intent(Intent.ACTION_DIAL)) }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Default.Phone, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Open Phone")
             }
         }
 
@@ -1811,13 +2196,25 @@ private fun ReferenceScreenGallery(vm: CrmViewModel, onBack: () -> Unit) {
 @Composable
 private fun CallHistoryPreview(calls: List<MobileCall>, vm: CrmViewModel, disposition: (String) -> Unit) {
     if (calls.isEmpty()) return
-    var filter by rememberSaveable { mutableStateOf("OUTBOUND") }
+    var filter by rememberSaveable { mutableStateOf("ALL") }
     var expandedCallId by rememberSaveable { mutableStateOf<String?>(null) }
     val featured = calls.first()
-    val secondary = calls.drop(1)
+    val secondary = calls.drop(1).filter { call ->
+        when (filter) {
+            "MISSED" -> call.status.equals("MISSED", true)
+            "INBOUND", "OUTBOUND" -> call.direction.equals(filter, true) && !call.status.equals("MISSED", true)
+            else -> true
+        }
+    }
     val featuredName = featured.assignment?.customerName ?: featured.phoneNumber
     val featuredDuration = formatCallDuration(featured.durationSeconds)
+    val featuredPlaying = vm.isPlaybackPlaying && vm.playingCallId == featured.id
     val featuredStatus = if (featured.recordingStatus == "UPLOADED") "Recording synced" else recordingStatusLabel(featured.recordingStatus)
+    val featuredDirection = when {
+        featured.status.equals("MISSED", true) -> "↙ Missed"
+        featured.direction.equals("INBOUND", true) -> "↘ Inbound"
+        else -> "↗ Outgoing"
+    }
     val mutedColor = GxMuted
 
     GxGlassSurface(radius = 24.dp, padding = 16.dp) {
@@ -1829,14 +2226,29 @@ private fun CallHistoryPreview(calls: List<MobileCall>, vm: CrmViewModel, dispos
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(featuredName, color = GxText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("↗ Outgoing · $featuredDuration", color = GxMuted, fontSize = 11.sp)
+                Text("$featuredDirection · $featuredDuration", color = GxMuted, fontSize = 11.sp)
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 Icon(Icons.Default.CloudDone, null, tint = if (featured.recordingStatus == "UPLOADED") GxSuccess else GxMuted, modifier = Modifier.size(17.dp))
                 Text(featuredStatus, color = GxMuted, fontSize = 10.sp, maxLines = 1)
             }
         }
-        Canvas(Modifier.fillMaxWidth().height(46.dp).padding(top = 8.dp)) {
+        val totalSeconds = featured.durationSeconds.coerceAtLeast(1)
+        val currentSeconds = if (featuredPlaying) vm.playbackPositionSeconds else 0
+        val playbackProgress = if (featuredPlaying) (currentSeconds.toFloat() / totalSeconds).coerceIn(0f, 1f) else 0f
+
+        Canvas(
+            Modifier
+                .fillMaxWidth()
+                .height(46.dp)
+                .padding(top = 8.dp)
+                .pointerInput(featured.id, totalSeconds) {
+                    detectTapGestures { offset ->
+                        val fraction = (offset.x / size.width).coerceIn(0f, 1f)
+                        vm.seekRecordingTo(fraction)
+                    }
+                }
+        ) {
             val bars = List(42) { index ->
                 val base = 0.18f + ((index * 17) % 9) / 24f
                 (base + if (index in 4..15) .28f else 0f).coerceIn(.16f, .90f)
@@ -1846,7 +2258,7 @@ private fun CallHistoryPreview(calls: List<MobileCall>, vm: CrmViewModel, dispos
                 val x = gap * (index + .75f)
                 val half = size.height * value / 2f
                 drawLine(
-                    color = if (index < bars.size * .30f) GxAccent else mutedColor.copy(alpha = .34f),
+                    color = if (index < bars.size * playbackProgress) GxAccent else mutedColor.copy(alpha = .34f),
                     start = Offset(x, size.height / 2f - half),
                     end = Offset(x, size.height / 2f + half),
                     strokeWidth = 3.2f,
@@ -1854,26 +2266,57 @@ private fun CallHistoryPreview(calls: List<MobileCall>, vm: CrmViewModel, dispos
             }
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("0:36", color = GxText, fontSize = 10.sp)
-            Spacer(Modifier.width(8.dp))
-            LinearProgressIndicator(
-                progress = { .27f },
-                modifier = Modifier.weight(1f).height(3.dp),
-                color = GxAccent,
-                trackColor = GxMuted.copy(alpha = .18f),
+            Text(
+                if (featuredPlaying) "Playing (${formatCallDuration(currentSeconds)})" else "Ready to play",
+                color = GxMuted,
+                fontSize = 10.sp,
+                modifier = Modifier.weight(1f)
             )
-            Spacer(Modifier.width(8.dp))
             Text(featuredDuration, color = GxText, fontSize = 10.sp)
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = {}, modifier = Modifier.size(42.dp)) { Icon(Icons.Default.Replay10, "Rewind 10 seconds", tint = GxText) }
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(GxSurface)
+                    .border(BorderStroke(1.dp, GxOutlineSoft), CircleShape)
+                    .clickable { vm.seekRecordingBy(-15) },
+                contentAlignment = Alignment.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Replay, "Replay 15 seconds", tint = GxText, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(2.dp))
+                    Text("15", color = GxText, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            Spacer(Modifier.width(20.dp))
             Box(
                 Modifier.size(56.dp).clip(CircleShape).background(GxAccent).clickable { vm.playRecording(featured.id) },
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(if (vm.playingCallId == featured.id) Icons.Default.Pause else Icons.Default.PlayArrow, "Play recording", tint = Color.White, modifier = Modifier.size(26.dp))
+                Icon(if (featuredPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, "Play recording", tint = Color.White, modifier = Modifier.size(26.dp))
             }
-            IconButton(onClick = {}, modifier = Modifier.size(42.dp)) { Icon(Icons.Default.Forward10, "Forward 10 seconds", tint = GxText) }
+            Spacer(Modifier.width(20.dp))
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(GxSurface)
+                    .border(BorderStroke(1.dp, GxOutlineSoft), CircleShape)
+                    .clickable { vm.seekRecordingBy(15) },
+                contentAlignment = Alignment.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("15", color = GxText, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(2.dp))
+                    Icon(Icons.Default.Forward, "Forward 15 seconds", tint = GxText, modifier = Modifier.size(16.dp))
+                }
+            }
         }
     }
 
@@ -1881,7 +2324,7 @@ private fun CallHistoryPreview(calls: List<MobileCall>, vm: CrmViewModel, dispos
         Modifier.fillMaxWidth().clip(RoundedCornerShape(50)).background(GxSurface).border(BorderStroke(1.dp, GxOutlineSoft), RoundedCornerShape(50)).padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        listOf("INBOUND" to "Inbound", "OUTBOUND" to "Outbound", "MISSED" to "Missed").forEach { (value, label) ->
+        listOf("ALL" to "All", "INBOUND" to "Inbound", "OUTBOUND" to "Outbound", "MISSED" to "Missed").forEach { (value, label) ->
             Box(
                 Modifier.weight(1f).clip(RoundedCornerShape(50)).background(if (filter == value) GxAccent.copy(alpha = .13f) else Color.Transparent).clickable { filter = value }.padding(vertical = 9.dp),
                 contentAlignment = Alignment.Center,
@@ -1900,8 +2343,10 @@ private fun CallHistoryPreview(calls: List<MobileCall>, vm: CrmViewModel, dispos
                     .padding(vertical = 9.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(Modifier.size(36.dp).clip(CircleShape).background(if (call.status.equals("MISSED", true)) GxDanger.copy(alpha = .10f) else GxSuccess.copy(alpha = .10f)), contentAlignment = Alignment.Center) {
-                    Icon(if (call.status.equals("MISSED", true)) Icons.Default.CallReceived else Icons.Default.CallMade, null, tint = if (call.status.equals("MISSED", true)) GxDanger else GxSuccess, modifier = Modifier.size(18.dp))
+                val isInbound = call.direction.equals("INBOUND", true)
+                val isMissed = call.status.equals("MISSED", true)
+                Box(Modifier.size(36.dp).clip(CircleShape).background(if (isMissed) GxDanger.copy(alpha = .10f) else GxSuccess.copy(alpha = .10f)), contentAlignment = Alignment.Center) {
+                    Icon(if (isInbound || isMissed) Icons.Default.CallReceived else Icons.Default.CallMade, null, tint = if (isMissed) GxDanger else GxSuccess, modifier = Modifier.size(18.dp))
                 }
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -1950,7 +2395,7 @@ private fun CallDetailActions(call: MobileCall, vm: CrmViewModel, disposition: (
             SecondaryButton(
                 when {
                     vm.playbackLoadingCallId == call.id -> "Loading audio…"
-                    vm.playingCallId == call.id -> "Pause recording"
+                    vm.isPlaybackPlaying && vm.playingCallId == call.id -> "Pause recording"
                     else -> "Play recording"
                 },
                 vm.playbackLoadingCallId == call.id,
@@ -2160,9 +2605,11 @@ private fun MoreScreen(
     inbox: () -> Unit,
     openSettings: () -> Unit,
     openReferencePack: () -> Unit,
+    openPayments: () -> Unit,
     close: () -> Unit,
     bottomBar: @Composable BoxScope.() -> Unit,
 ) {
+    val context = LocalContext.current
     val session = vm.session
     val themeMode = LocalThemeMode.current
     val setThemeMode = LocalThemeModeChange.current
@@ -2177,17 +2624,26 @@ private fun MoreScreen(
 
     Box(Modifier.fillMaxSize()) {
         if (vm.hasFeature("dashboard")) {
-            DashboardScreen(vm = vm, grab = {}, calls = {}, inbox = inbox)
+            DashboardScreen(
+                vm = vm,
+                grab = {},
+                calls = {},
+                inbox = inbox,
+                openLead = { close() },
+                viewAllLeads = { close() }
+            )
         } else {
             Page(backdrop = GxBackdropKind.NEUTRAL) {
-                GxWorkspaceHeader("More", "Your workspace and account")
+                GxWorkspaceHeader("More", "Your workspace and account", onNotificationsClick = inbox)
             }
         }
         bottomBar()
         Box(
             Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = if (dark) .48f else .25f))
+                // Keep the previous workspace, footer, and cards from bleeding
+                // through the drawer as confusing grey boxes.
+                .background(if (dark) Color(0xFF0B0D10) else Color(0xFFF5F2EC))
                 .clickable { close() },
         )
         Box(
@@ -2235,8 +2691,12 @@ private fun MoreScreen(
                 DrawerItem(Icons.Default.PersonOutline, "Profile") { edit() }
                 DrawerItem(Icons.Default.Settings, "Settings") { openSettings() }
                 DrawerSectionLabel("WORKSPACE", Modifier.padding(top = 14.dp))
-                DrawerItem(Icons.Default.CreditCard, "Payments") { }
-                DrawerItem(Icons.Default.HelpOutline, "Help & support") { }
+                DrawerItem(Icons.Default.CreditCard, "Payments") { openPayments() }
+                DrawerItem(Icons.Default.HelpOutline, "Help & support") {
+                    val helpIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://aicloser.in/contact"))
+                    runCatching { context.startActivity(helpIntent) }
+                        .onFailure { vm.showError("Contact your workspace admin or support@aicloser.in for help.") }
+                }
                 DrawerItem(Icons.Default.Visibility, "Reference screens") { openReferencePack() }
 
                 Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -2311,6 +2771,7 @@ private fun DrawerItem(icon: ImageVector, label: String, danger: Boolean = false
     var simOptions by remember { mutableStateOf<List<SimOption>>(emptyList()) }
     var simSelection by rememberSaveable { mutableStateOf(CallManager.simSelection(context)) }
     var recordingFolderUri by remember { mutableStateOf(RecordingFolderStore.getTreeUri(context)) }
+    var micFallbackEnabled by remember { mutableStateOf(DialerShareAutomation.isMicrophoneFallbackEnabled(context)) }
     var folderCheckBusy by remember { mutableStateOf(false) }
     var folderCheckMessage by rememberSaveable { mutableStateOf<String?>(null) }
     val folderCheckScope = rememberCoroutineScope()
@@ -2319,6 +2780,25 @@ private fun DrawerItem(icon: ImageVector, label: String, danger: Boolean = false
         if (persistRecordingFolder(context, uri)) {
             recordingFolderUri = uri
             folderCheckMessage = null
+        }
+    }
+    val micFallbackPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        micFallbackEnabled = granted
+        DialerShareAutomation.setMicrophoneFallbackEnabled(context, granted)
+    }
+    fun setMicFallbackEnabled(enabled: Boolean) {
+        if (enabled) {
+            val hasPermission = Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            if (hasPermission) {
+                micFallbackEnabled = true
+                DialerShareAutomation.setMicrophoneFallbackEnabled(context, true)
+            } else {
+                micFallbackPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        } else {
+            micFallbackEnabled = false
+            DialerShareAutomation.setMicrophoneFallbackEnabled(context, false)
         }
     }
     fun checkRecordingFolder() {
@@ -2335,6 +2815,7 @@ private fun DrawerItem(icon: ImageVector, label: String, danger: Boolean = false
     }
     LaunchedEffect(Unit) { simOptions = CallManager.availableSims(context) }
     Page(backdrop = GxBackdropKind.NEUTRAL) {
+        CompositionLocalProvider(LocalContentColor provides GxText) {
         if (back != null) {
             HeaderWithBack("Settings", "Your sales workspace and phone setup", back)
         } else {
@@ -2407,13 +2888,13 @@ private fun DrawerItem(icon: ImageVector, label: String, danger: Boolean = false
             GxCard {
                 SectionHeading(Icons.Default.Folder, "Call recording folder")
                 Text(
-                    "TeleCRM-style sync reads the recording created by the Phone app. Choose the folder where that app saves completed call recordings.",
+                    "Sync reads recordings created by the Phone app. Select the folder where completed call recordings are saved.",
                     color = GxMuted,
                     fontSize = 12.sp,
                     lineHeight = 17.sp,
                 )
                 Text(
-                    "How to find it: make a short recorded call, open Files, locate the newest audio file, and select the folder containing it. Pixel/Google Phone may keep recordings private and unavailable to other apps.",
+                    "Make a short recorded call, then select the folder containing the newest audio file.",
                     color = GxMuted,
                     fontSize = 11.sp,
                     lineHeight = 16.sp,
@@ -2428,14 +2909,46 @@ private fun DrawerItem(icon: ImageVector, label: String, danger: Boolean = false
                 }
                 SecondaryButton("Check selected folder", folderCheckBusy, recordingFolderUri != null) { checkRecordingFolder() }
                 Text(
-                    if (recordingFolderUri == null) "No folder linked. GXClosers will try Android's automatic audio library scan; private OEM recordings may require Share/Export to a visible folder."
-                    else "Folder linked. New system-dialer recordings will be matched and uploaded after each call.",
-                    color = if (recordingFolderUri == null) GxWarning else GxSuccess,
+                    if (recordingFolderUri == null) {
+                        "No folder linked. Android audio scan will be used; private recordings may require Share or Export."
+                    } else {
+                        "Folder access saved. Xiaomi/Redmi recording folders are also checked when needed."
+                    },
+                    color = if (recordingFolderUri == null) GxWarning else GxMuted,
                     fontSize = 11.sp,
                     lineHeight = 16.sp,
                 )
                 folderCheckMessage?.let { message ->
                     Text(message, color = if (message.startsWith("Access confirmed")) GxSuccess else GxWarning, fontSize = 11.sp, lineHeight = 16.sp)
+                }
+            }
+            GxCard {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        SectionHeading(Icons.Default.Mic, "Microphone fallback")
+                        Text(
+                            "Use the phone microphone as a fallback when a dialer recording is unavailable. This applies to future calls.",
+                            color = GxMuted,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                        )
+                        if (Build.MANUFACTURER.equals("Google", ignoreCase = true) && Build.MODEL.equals("Pixel 9", ignoreCase = true)) {
+                            Text(
+                                "Pixel 9: keep this off. Mic fallback has produced silent recordings on this device.",
+                                color = GxWarning,
+                                fontSize = 11.sp,
+                                lineHeight = 16.sp,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Switch(
+                        checked = micFallbackEnabled,
+                        onCheckedChange = ::setMicFallbackEnabled,
+                    )
                 }
             }
             var testPhoneBusy by remember { mutableStateOf(false) }
@@ -2455,7 +2968,7 @@ private fun DrawerItem(icon: ImageVector, label: String, danger: Boolean = false
                 val capability = diag.optString("recordingCapability")
                 val capabilityLabel = when (capability) {
                     "SYSTEM_FOLDER_OR_MEDIASTORE" -> "Automatic native dialer recording"
-                    "DIALER_SHARE" -> "Dialer Share automation"
+                    "DIALER_SHARE" -> "Manual dialer share"
                     "MICROPHONE_FALLBACK" -> "Microphone fallback active"
                     else -> "Setup required"
                 }
@@ -2582,6 +3095,7 @@ private fun DrawerItem(icon: ImageVector, label: String, danger: Boolean = false
             SecondaryButton("Refresh profile", vm.busy) { vm.refreshAll() }
             TextButton(onClick = { vm.logout {} }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Icon(Icons.Default.Logout, null, Modifier.size(18.dp)); Spacer(Modifier.width(7.dp)); Text("Sign out", color = GxDanger, fontWeight = FontWeight.Bold) }
         }
+        }
     }
 }
 
@@ -2699,6 +3213,7 @@ private fun parseLeadContext(raw: String): List<LeadContextEvent> {
     var taskComposerOpen by rememberSaveable(id) { mutableStateOf(false) }
     var historyExpanded by rememberSaveable(id) { mutableStateOf(false) }
     var simChooserOpen by remember { mutableStateOf(false) }
+    var followUpPickerOpen by rememberSaveable(id) { mutableStateOf(false) }
     var simOptions by remember { mutableStateOf<List<SimOption>>(emptyList()) }
     val pendingCall = vm.bootstrap?.calls.orEmpty().firstOrNull { it.note.isNullOrBlank() }
     LaunchedEffect(id) { vm.clearCustomer360(); vm.loadCustomer360(id) }
@@ -2881,7 +3396,7 @@ private fun parseLeadContext(raw: String): List<LeadContextEvent> {
                 Text("New follow-up", fontWeight = FontWeight.Black, fontSize = 16.sp)
                 OutlinedTextField(taskTitle, { taskTitle = it }, label = { Text("What needs to happen?") }, placeholder = { Text("Call after webinar") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedButton(
-                    onClick = { showFollowUpPicker(context) { iso, display -> taskDueAt = iso; taskDueLabel = display } },
+                    onClick = { followUpPickerOpen = true },
                     modifier = Modifier.fillMaxWidth().height(56.dp),
                     shape = RoundedCornerShape(14.dp),
                 ) {
@@ -2908,6 +3423,16 @@ private fun parseLeadContext(raw: String): List<LeadContextEvent> {
             }
         }
         GxCard { SectionHeading(Icons.Default.Security, "Tracked-call flow"); Text("CRM session → company dialer → supported recording → secure upload → required disposition", color = GxMuted, fontSize = 12.sp, lineHeight = 18.sp) }
+    }
+    if (followUpPickerOpen) {
+        FollowUpPickerDialog(
+            onDismiss = { followUpPickerOpen = false },
+            onPicked = { iso, display ->
+                taskDueAt = iso
+                taskDueLabel = display
+                followUpPickerOpen = false
+            },
+        )
     }
     if (simChooserOpen) {
         AlertDialog(
@@ -2983,24 +3508,108 @@ private fun persistRecordingFolder(context: Context, uri: Uri): Boolean {
     return persisted
 }
 
-private fun showFollowUpPicker(context: Context, onPicked: (iso: String, display: String) -> Unit) {
-    val initial = ZonedDateTime.now().plusDays(1).withHour(11).withMinute(0).withSecond(0).withNano(0)
-    DatePickerDialog(context, { _, year, month, day ->
-        TimePickerDialog(context, { _, hour, minute ->
-            val selected = LocalDateTime.of(year, month + 1, day, hour, minute).atZone(ZoneId.systemDefault())
-            val display = DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a").format(selected)
-            onPicked(selected.toInstant().toString(), display)
-        }, initial.hour, initial.minute, false).show()
-    }, initial.year, initial.monthValue - 1, initial.dayOfMonth).apply {
-        datePicker.minDate = System.currentTimeMillis() - 1_000
-    }.show()
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun FollowUpPickerDialog(
+    onDismiss: () -> Unit,
+    onPicked: (iso: String, display: String) -> Unit,
+) {
+    val zone = remember { ZoneId.systemDefault() }
+    val initial = remember { ZonedDateTime.now(zone).plusDays(1).withHour(11).withMinute(0).withSecond(0).withNano(0) }
+    val initialMillis = remember { initial.toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli() }
+    val dateState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
+    val timeState = rememberTimePickerState(initialHour = initial.hour, initialMinute = initial.minute, is24Hour = false)
+    var showTimeStep by rememberSaveable { mutableStateOf(false) }
+
+    if (!showTimeStep) {
+        DatePickerDialog(
+            onDismissRequest = onDismiss,
+            confirmButton = {
+                TextButton(onClick = { showTimeStep = true }) { Text("Next", color = GxAccent, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismiss) { Text("Cancel", color = GxMuted) }
+            },
+            colors = DatePickerDefaults.colors(containerColor = GxSurface),
+        ) {
+            Column {
+                Text(
+                    text = "Schedule follow-up",
+                    color = GxText,
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
+                )
+                DatePicker(
+                    state = dateState,
+                    showModeToggle = false,
+                    colors = DatePickerDefaults.colors(
+                        containerColor = GxSurface,
+                        titleContentColor = GxText,
+                        headlineContentColor = GxText,
+                        weekdayContentColor = GxMuted,
+                        subheadContentColor = GxMuted,
+                        navigationContentColor = GxText,
+                        yearContentColor = GxText,
+                        currentYearContentColor = GxAccent,
+                        selectedDayContainerColor = GxAccent,
+                        selectedDayContentColor = Color.White,
+                        dayContentColor = GxText,
+                    ),
+                )
+            }
+        }
+    } else {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            containerColor = GxSurface,
+            title = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Choose time", color = GxText, fontWeight = FontWeight.Black)
+                    Text("When should this follow-up appear?", color = GxMuted, fontSize = 12.sp)
+                }
+            },
+            text = {
+                TimePicker(
+                    state = timeState,
+                    colors = TimePickerDefaults.colors(
+                        clockDialColor = GxSurface2,
+                        clockDialSelectedContentColor = Color.White,
+                        clockDialUnselectedContentColor = GxText,
+                        selectorColor = GxAccent,
+                        containerColor = GxSurface,
+                        periodSelectorBorderColor = GxOutline,
+                        periodSelectorSelectedContainerColor = GxAccent,
+                        periodSelectorSelectedContentColor = Color.White,
+                        periodSelectorUnselectedContentColor = GxMuted,
+                        timeSelectorSelectedContainerColor = GxAccent.copy(alpha = .16f),
+                        timeSelectorSelectedContentColor = GxText,
+                        timeSelectorUnselectedContainerColor = GxSurface2,
+                        timeSelectorUnselectedContentColor = GxMuted,
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val selectedDate = Instant.ofEpochMilli(dateState.selectedDateMillis ?: initialMillis).atZone(zone).toLocalDate()
+                        val selected = ZonedDateTime.of(selectedDate, LocalTime.of(timeState.hour, timeState.minute), zone)
+                        val display = DateTimeFormatter.ofPattern("EEE, d MMM · h:mm a", Locale.getDefault()).format(selected)
+                        onPicked(selected.toInstant().toString(), display)
+                    },
+                ) { Text("Save", color = GxAccent, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTimeStep = false }) { Text("Back", color = GxMuted) }
+            },
+        )
+    }
 }
 
 private val outcomes = listOf("CONNECTED_INTERESTED", "CONNECTED_NOT_INTERESTED", "NO_ANSWER", "BUSY", "SWITCHED_OFF", "WRONG_NUMBER", "CALLBACK_REQUESTED", "WEBINAR_LINK_SENT", "PAYMENT_LINK_SENT", "CLOSED_WON", "LOST")
 private val dispositionStages = listOf("NEW", "CONTACTED", "INTERESTED", "QUALIFIED", "FOLLOW_UP", "CLOSED_WON", "CLOSED_LOST")
 
 @Composable private fun DispositionScreen(vm: CrmViewModel, callId: String, done: () -> Unit) {
-    val context = LocalContext.current
     val existingCall = vm.bootstrap?.calls?.firstOrNull { it.id == callId }
     var customerName by remember(callId) { mutableStateOf(existingCall?.assignment?.customerName.orEmpty()) }
     var stageUpdate by remember(callId) { mutableStateOf(existingCall?.assignment?.stage?.ifBlank { "NEW" } ?: "NEW") }
@@ -3008,6 +3617,7 @@ private val dispositionStages = listOf("NEW", "CONTACTED", "INTERESTED", "QUALIF
     var note by remember(callId) { mutableStateOf("") }
     var followUp by remember(callId) { mutableStateOf("") }
     var followUpLabel by remember(callId) { mutableStateOf("") }
+    var followUpPickerOpen by rememberSaveable(callId) { mutableStateOf(false) }
     Page {
         BrandHeader("Complete call notes", "Update this contact while the call context is fresh")
         GxCard {
@@ -3029,7 +3639,7 @@ private val dispositionStages = listOf("NEW", "CONTACTED", "INTERESTED", "QUALIF
             FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) { outcomes.forEach { value -> FilterChip(outcome == value, { outcome = value }, { Text(value.replace('_', ' '), fontSize = 10.sp) }) } }
             OutlinedTextField(note, { note = it }, label = { Text("Discussion notes") }, placeholder = { Text("What happened, what matters next?") }, minLines = 3, modifier = Modifier.fillMaxWidth())
             OutlinedButton(
-                onClick = { showFollowUpPicker(context) { iso, display -> followUp = iso; followUpLabel = display } },
+                onClick = { followUpPickerOpen = true },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 shape = RoundedCornerShape(14.dp),
             ) {
@@ -3046,6 +3656,16 @@ private val dispositionStages = listOf("NEW", "CONTACTED", "INTERESTED", "QUALIF
                 vm.saveDisposition(callId, customerName, outcome, note, followUp.ifBlank { null }, stageUpdate, done)
             }
         }
+    }
+    if (followUpPickerOpen) {
+        FollowUpPickerDialog(
+            onDismiss = { followUpPickerOpen = false },
+            onPicked = { iso, display ->
+                followUp = iso
+                followUpLabel = display
+                followUpPickerOpen = false
+            },
+        )
     }
 }
 
@@ -3156,11 +3776,16 @@ private val conversationStages = listOf(
 @Composable private fun ChatScreen(vm: CrmViewModel, id: String, name: String, back: () -> Unit) {
     var body by rememberSaveable { mutableStateOf("") }
     var labelMenu by remember { mutableStateOf(false) }
+    var notesOpen by rememberSaveable { mutableStateOf(false) }
+    var notesDraft by rememberSaveable(id) { mutableStateOf("") }
     val keyboard = LocalSoftwareKeyboardController.current
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val inboxItem = vm.inbox.firstOrNull { it.conversationId == id }
-    LaunchedEffect(id) { vm.openChat(id) }
+    LaunchedEffect(id) {
+        vm.openChat(id)
+        notesDraft = inboxItem?.lead?.notes.orEmpty()
+    }
     DisposableEffect(id) {
         onDispose { vm.closeChat() }
     }
@@ -3176,7 +3801,14 @@ private val conversationStages = listOf(
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text(name.ifBlank { "Conversation" }, fontSize = 20.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("Assigned lead conversation", color = GxMuted, fontSize = 11.sp)
+                Text(
+                    listOfNotNull("Assigned lead conversation", inboxItem?.lead?.customerPhone?.takeIf { it.isNotBlank() }).joinToString(" · "),
+                    color = GxMuted,
+                    fontSize = 11.sp,
+                )
+            }
+            IconButton(onClick = { notesOpen = true }) {
+                Icon(Icons.Default.Notes, "Private notes", tint = if (notesDraft.isBlank()) GxMuted else GxAccent)
             }
             IconButton(onClick = { vm.loadChat(id) }, enabled = !vm.chatLoading) { Icon(Icons.Default.Refresh, "Refresh conversation", tint = GxMuted) }
         }
@@ -3189,7 +3821,26 @@ private val conversationStages = listOf(
                         Text(inboxItem?.lead?.stage?.replace('_', ' ') ?: "SET LABEL", fontSize = 9.sp, fontWeight = FontWeight.Black); Spacer(Modifier.width(3.dp)); Icon(Icons.Default.ArrowDropDown, null, Modifier.size(16.dp))
                     }
                     DropdownMenu(expanded = labelMenu, onDismissRequest = { labelMenu = false }) {
-                        conversationStages.forEach { stage -> DropdownMenuItem(text = { Text(stage.replace('_', ' ')) }, leadingIcon = { Icon(Icons.Default.Label, null, tint = if (stage == inboxItem?.lead?.stage) GxAccent else GxMuted) }, onClick = { labelMenu = false; inboxItem?.lead?.id?.let { vm.updateLeadStage(it, stage) } }) }
+                        conversationStages.forEach { stage ->
+                            DropdownMenuItem(
+                                text = { Text(stage.replace('_', ' ')) },
+                                leadingIcon = { Icon(Icons.Default.Label, null, tint = if (stage == inboxItem?.lead?.stage) GxAccent else GxMuted) },
+                                onClick = {
+                                    labelMenu = false
+                                    val statusId = when (stage) {
+                                        "QUALIFIED" -> "interested"
+                                        "WEBINAR_INVITED" -> "webinar-invited"
+                                        "WEBINAR_ATTENDED" -> "interested"
+                                        "CLOSED_WON" -> "closed-won"
+                                        "CLOSED_LOST" -> "closed-lost"
+                                        "NOT_REACHABLE" -> "not-reachable"
+                                        "RECYCLED" -> "recycled"
+                                        else -> stage.lowercase().replace('_', '-')
+                                    }
+                                    vm.updateConversationStage(id, statusId)
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -3267,6 +3918,30 @@ private val conversationStages = listOf(
                 }
             }
         }
+    }
+    if (notesOpen) {
+        AlertDialog(
+            onDismissRequest = { if (!vm.busy) notesOpen = false },
+            title = { Text("Private notes") },
+            text = {
+                OutlinedTextField(
+                    value = notesDraft,
+                    onValueChange = { notesDraft = it },
+                    label = { Text("Internal note") },
+                    minLines = 4,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                Button(
+                    enabled = !vm.busy,
+                    onClick = { vm.saveConversationNotes(id, notesDraft) { notesOpen = false } },
+                ) { Text(if (vm.busy) "Saving…" else "Save note") }
+            },
+            dismissButton = {
+                TextButton(onClick = { notesOpen = false }, enabled = !vm.busy) { Text("Cancel") }
+            },
+        )
     }
 }
 
@@ -3366,7 +4041,6 @@ private fun formatMessageDay(value: String): String {
 @Composable private fun Page(
     vertical: Boolean = false,
     backdrop: GxBackdropKind = GxBackdropKind.NEUTRAL,
-    reserveBottomBar: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     GxScreenBackdrop(backdrop) {
@@ -3375,11 +4049,12 @@ private fun formatMessageDay(value: String): String {
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .imePadding()
+                .statusBarsPadding()
                 .padding(
                     start = 16.dp,
                     top = 10.dp,
                     end = 16.dp,
-                    bottom = if (reserveBottomBar) 104.dp else 16.dp,
+                    bottom = 16.dp,
                 ),
             verticalArrangement = Arrangement.spacedBy(13.dp),
             content = content,

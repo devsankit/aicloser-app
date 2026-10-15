@@ -32,6 +32,31 @@ data class QueuedRecording(
     val createdAt: Long = System.currentTimeMillis(),
 )
 
+data class ManualRecordingCallMatch(
+    val callId: String,
+    val phoneNumber: String?,
+    val callAtMillis: Long,
+)
+
+data class CrmCallCandidate(
+    val callId: String,
+    val phoneNumber: String,
+    val callAtMillis: Long,
+    val durationSeconds: Long,
+)
+
+data class LocalCallRecord(
+    val callId: String,
+    val phoneNumber: String,
+    val contactName: String?,
+    val direction: String,
+    val status: String,
+    val durationSeconds: Int,
+    val startedAt: String,
+    val endedAt: String?,
+    val recordingStatus: String,
+)
+
 data class SyncCounts(
     val pending: Int,
     val syncing: Int,
@@ -128,11 +153,36 @@ class OfflineEventStore private constructor(context: Context) : SQLiteOpenHelper
         writableDatabase.insertWithOnConflict("offline_events", null, values, SQLiteDatabase.CONFLICT_IGNORE)
     }
 
-    fun pendingEvents(): List<OfflineEventRecord> = readableDatabase.query(
+    fun hasEvent(id: String): Boolean = readableDatabase.query(
+        "offline_events",
+        arrayOf("id"),
+        "id = ?",
+        arrayOf(id),
+        null,
+        null,
+        null
+    ).use { it.moveToFirst() }
+
+    fun hasCallSession(callSessionId: String): Boolean = readableDatabase.query(
+        "offline_events",
+        arrayOf("id"),
+        "id = ? OR entity_id = ? OR id = ? OR entity_id = ?",
+        arrayOf(
+            callSessionId,
+            callSessionId,
+            "call-log-end-${callSessionId.removePrefix("call-log-")}",
+            "call-end-$callSessionId"
+        ),
+        null,
+        null,
+        null
+    ).use { it.moveToFirst() }
+
+    fun pendingEvents(maxRetries: Int = 5): List<OfflineEventRecord> = readableDatabase.query(
         "offline_events",
         arrayOf("id", "type", "entity_id", "payload", "created_at", "retry_count", "sync_status", "error_message"),
-        "sync_status IN ('PENDING', 'FAILED')",
-        null,
+        "sync_status = 'PENDING' OR (sync_status = 'FAILED' AND retry_count < ?)",
+        arrayOf(maxRetries.toString()),
         null,
         null,
         "created_at ASC"
@@ -182,12 +232,24 @@ class OfflineEventStore private constructor(context: Context) : SQLiteOpenHelper
         val db = writableDatabase
         val cursor = db.rawQuery("SELECT retry_count FROM offline_events WHERE id = ?", arrayOf(id))
         val currentRetries = cursor.use { if (it.moveToFirst()) it.getInt(0) else 0 }
+        val newRetries = currentRetries + 1
+        val isPermanent = errorMessage.contains("Call session not found", ignoreCase = true) ||
+            errorMessage.contains("Unsupported offline event type", ignoreCase = true) ||
+            newRetries >= 5
         val values = ContentValues().apply {
-            put("sync_status", "FAILED")
-            put("retry_count", currentRetries + 1)
+            put("sync_status", if (isPermanent) "FAILED_PERMANENT" else "FAILED")
+            put("retry_count", newRetries)
             put("error_message", errorMessage)
         }
         db.update("offline_events", values, "id = ?", arrayOf(id))
+    }
+
+    fun recoverPermanentFailure(id: String) {
+        val values = ContentValues().apply {
+            put("sync_status", "SYNCED")
+            putNull("error_message")
+        }
+        writableDatabase.update("offline_events", values, "id = ?", arrayOf(id))
     }
 
     fun getSyncCounts(): SyncCounts {
@@ -196,15 +258,27 @@ class OfflineEventStore private constructor(context: Context) : SQLiteOpenHelper
         var syncing = 0
         var synced = 0
         var failed = 0
-        db.rawQuery("SELECT sync_status, COUNT(*) FROM offline_events GROUP BY sync_status", null).use { cursor ->
+        db.rawQuery("SELECT sync_status, COUNT(*) FROM offline_events WHERE retry_count < 5 GROUP BY sync_status", null).use { cursor ->
             while (cursor.moveToNext()) {
                 val status = cursor.getString(0)
                 val count = cursor.getInt(1)
                 when (status) {
-                    "PENDING" -> pending = count
-                    "SYNCING" -> syncing = count
-                    "SYNCED" -> synced = count
-                    "FAILED" -> failed = count
+                    "PENDING" -> pending += count
+                    "SYNCING" -> syncing += count
+                    "SYNCED" -> synced += count
+                    "FAILED" -> failed += count
+                }
+            }
+        }
+        db.rawQuery("SELECT status, COUNT(*) FROM recording_queue WHERE retry_count < 5 GROUP BY status", null).use { cursor ->
+            while (cursor.moveToNext()) {
+                val status = cursor.getString(0)
+                val count = cursor.getInt(1)
+                when (status) {
+                    "LOCAL_PENDING", "RECORDING" -> pending += count
+                    "UPLOADING" -> syncing += count
+                    "UPLOADED" -> synced += count
+                    "FAILED" -> failed += count
                 }
             }
         }
@@ -228,14 +302,73 @@ class OfflineEventStore private constructor(context: Context) : SQLiteOpenHelper
         writableDatabase.insertWithOnConflict("recording_queue", null, values, SQLiteDatabase.CONFLICT_IGNORE)
     }
 
-    fun finalizeRecording(clientUploadId: String, sizeBytes: Long, durationMs: Long) {
+    fun finalizeRecording(clientUploadId: String, sizeBytes: Long, durationMs: Long, status: String = "LOCAL_PENDING") {
         val values = ContentValues().apply {
             put("size_bytes", sizeBytes)
             put("duration_ms", durationMs)
-            put("status", "LOCAL_PENDING")
+            put("status", status)
             putNull("error_message")
         }
         writableDatabase.update("recording_queue", values, "client_upload_id = ?", arrayOf(clientUploadId))
+    }
+
+    fun supersedeRecordingWithSystem(
+        callId: String,
+        systemUploadId: String,
+        filePath: String,
+        sizeBytes: Long,
+        durationMs: Long,
+        deviceId: String,
+    ) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val cursor = readableDatabase.query(
+                "recording_queue",
+                arrayOf("client_upload_id", "file_path"),
+                "call_id = ?",
+                arrayOf(callId),
+                null,
+                null,
+                null
+            )
+            val filesToDelete = mutableListOf<File>()
+            val idsToDelete = mutableListOf<String>()
+            cursor.use {
+                while (it.moveToNext()) {
+                    val uploadId = it.getString(0)
+                    val path = it.getString(1)
+                    if (uploadId != systemUploadId) {
+                        idsToDelete.add(uploadId)
+                        if (!path.isNullOrBlank()) filesToDelete.add(File(path))
+                    }
+                }
+            }
+            for (id in idsToDelete) {
+                db.delete("recording_queue", "client_upload_id = ?", arrayOf(id))
+            }
+            for (file in filesToDelete) {
+                runCatching { if (file.exists()) file.delete() }
+            }
+
+            val values = ContentValues().apply {
+                put("client_upload_id", systemUploadId)
+                put("call_id", callId)
+                putNull("tenant_id")
+                put("device_id", deviceId)
+                put("file_path", filePath)
+                put("size_bytes", sizeBytes)
+                put("duration_ms", durationMs)
+                put("retry_count", 0)
+                put("status", "LOCAL_PENDING")
+                putNull("error_message")
+                put("created_at", System.currentTimeMillis())
+            }
+            db.insertWithOnConflict("recording_queue", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
     }
 
     fun rebindRecordingCall(clientUploadId: String, callId: String) {
@@ -266,7 +399,7 @@ class OfflineEventStore private constructor(context: Context) : SQLiteOpenHelper
     fun pendingRecordings(): List<QueuedRecording> = readableDatabase.query(
         "recording_queue",
         arrayOf("client_upload_id", "call_id", "tenant_id", "device_id", "file_path", "size_bytes", "duration_ms", "retry_count", "status", "error_message", "created_at"),
-        "status IN ('LOCAL_PENDING', 'FAILED', 'RECORDING')",
+        "status IN ('LOCAL_PENDING', 'FAILED', 'RECORDING', 'HOLD_FOR_SYSTEM')",
         null,
         null,
         null,
@@ -323,8 +456,165 @@ class OfflineEventStore private constructor(context: Context) : SQLiteOpenHelper
         }
     }
 
-    fun recordingForCall(callId: String): QueuedRecording? = allRecordings()
-        .firstOrNull { it.callId == callId }
+    fun recordingForCall(callId: String): QueuedRecording? {
+        val matches = allRecordings().filter { it.callId == callId }
+        return matches.find { it.status == "UPLOADED" }
+            ?: matches.find { it.status == "UPLOADING" }
+            ?: matches.find { it.status == "LOCAL_PENDING" }
+            ?: matches.firstOrNull()
+    }
+
+    fun hasPendingRecordingForCall(callId: String): Boolean = runCatching {
+        readableDatabase.query(
+            "recording_queue",
+            arrayOf("client_upload_id"),
+            "call_id = ? AND status IN ('LOCAL_PENDING', 'RECORDING', 'UPLOADING')",
+            arrayOf(callId),
+            null,
+            null,
+            null
+        ).use { it.moveToFirst() }
+    }.getOrDefault(false)
+
+    fun recentLocalCalls(sinceMillis: Long = System.currentTimeMillis() - 14L * 24L * 60L * 60L * 1000L): List<LocalCallRecord> =
+        readableDatabase.query(
+            "offline_events",
+            arrayOf("entity_id", "payload", "created_at"),
+            "type = ? AND entity_id IS NOT NULL",
+            arrayOf("CALL_END"),
+            null,
+            null,
+            "created_at DESC"
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    val callId = cursor.getString(0).orEmpty().takeIf(String::isNotBlank) ?: continue
+                    val payload = runCatching { org.json.JSONObject(cursor.getString(1)) }.getOrNull() ?: continue
+                    val phone = payload.optString("phoneNumber").trim().takeIf(String::isNotBlank) ?: continue
+                    val contactName = payload.optString("contactName").takeIf { it.isNotBlank() && it != "null" }
+                    val direction = payload.optString("direction").ifBlank { "UNKNOWN" }
+                    val status = payload.optString("status").ifBlank { "COMPLETED" }
+                    val isUnverified = payload.optBoolean("unverified", false) || status == "UNVERIFIED"
+
+                    // Do not display unverified calls or calls with missing/unknown direction as completed calls
+                    if (isUnverified || (direction == "UNKNOWN" && status == "COMPLETED")) {
+                        continue
+                    }
+
+                    val durationSec = payload.optInt("durationSeconds", 0)
+                    val endedAtIso = payload.optString("endedAt").takeIf(String::isNotBlank)
+                    val endedAtMillis = endedAtIso?.toInstantMillis() ?: cursor.getLong(2)
+                    val startedAtIso = payload.optString("startedAt").takeIf(String::isNotBlank)
+                        ?: payload.optString("connectedAt").takeIf(String::isNotBlank)
+                        ?: java.time.Instant.ofEpochMilli(endedAtMillis - durationSec * 1000L).toString()
+                    val startedAtMillis = startedAtIso.toInstantMillis() ?: (endedAtMillis - durationSec * 1000L)
+                    if (startedAtMillis < sinceMillis && endedAtMillis < sinceMillis) continue
+
+                    val rawRecordingStatus = payload.optString("recordingStatus").ifBlank { "NONE" }
+                    val recordingStatus = if (rawRecordingStatus == "LOCAL_PENDING") {
+                        val hasQueueItem = hasPendingRecordingForCall(callId)
+                        if (hasQueueItem) "LOCAL_PENDING" else "NONE"
+                    } else rawRecordingStatus
+
+                    add(
+                        LocalCallRecord(
+                            callId = callId,
+                            phoneNumber = phone,
+                            contactName = contactName,
+                            direction = direction,
+                            status = status,
+                            durationSeconds = durationSec,
+                            startedAt = startedAtIso,
+                            endedAt = endedAtIso,
+                            recordingStatus = recordingStatus,
+                        )
+                    )
+                }
+            }
+        }
+
+    fun recentCrmCallCandidates(sinceMillis: Long = System.currentTimeMillis() - 24L * 60L * 60L * 1000L): List<CrmCallCandidate> =
+        readableDatabase.query(
+            "offline_events",
+            arrayOf("entity_id", "payload", "created_at"),
+            "type = ? AND entity_id IS NOT NULL",
+            arrayOf("CALL_END"),
+            null,
+            null,
+            "created_at DESC"
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    val callId = cursor.getString(0).orEmpty()
+                    val payload = runCatching { org.json.JSONObject(cursor.getString(1)) }.getOrNull() ?: continue
+                    val phone = payload.optString("phoneNumber")
+                    val durationSec = payload.optLong("durationSeconds", 0L)
+                    val endedAt = payload.optString("endedAt").toInstantMillis() ?: cursor.getLong(2)
+                    val startedAt = payload.optString("connectedAt").toInstantMillis()
+                        ?: (endedAt - durationSec * 1000L)
+                    if (startedAt < sinceMillis && endedAt < sinceMillis) continue
+                    add(CrmCallCandidate(callId, phone, startedAt, durationSec))
+                }
+            }
+        }
+
+    /**
+     * Finds the completed CRM call represented by a recording shared manually
+     * from the Phone app. The native share intent does not carry the call ID,
+     * so match the newest local CALL_END event by normalized phone, end time,
+     * and duration before falling back to the time window alone.
+     */
+    fun findBestCallForManualRecording(
+        phoneNumber: String?,
+        callAtMillis: Long,
+        durationMs: Long,
+    ): ManualRecordingCallMatch? {
+        val requestedPhone = normalizePhone(phoneNumber)
+        val candidates = readableDatabase.query(
+            "offline_events",
+            arrayOf("entity_id", "payload", "created_at"),
+            "type = ? AND entity_id IS NOT NULL",
+            arrayOf("CALL_END"),
+            null,
+            null,
+            "created_at DESC",
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    val callId = cursor.getString(0).orEmpty()
+                    val payload = runCatching { JSONObject(cursor.getString(1)) }.getOrNull() ?: continue
+                    val eventPhone = normalizePhone(payload.optString("phoneNumber"))
+                    if (requestedPhone.isNotBlank() && eventPhone.isNotBlank() && requestedPhone != eventPhone) continue
+                    val endedAt = payload.optString("endedAt").toInstantMillis() ?: cursor.getLong(2)
+                    val durationSec = payload.optLong("durationSeconds", 0L)
+                    val startedAt = payload.optString("connectedAt").toInstantMillis()
+                        ?: (endedAt - durationSec * 1000L)
+                    val timeDiff = minOf(
+                        kotlin.math.abs(startedAt - callAtMillis),
+                        kotlin.math.abs(endedAt - callAtMillis)
+                    )
+                    if (timeDiff > 5000L) continue // Reject calls > 5 seconds away (prevents sequential call cross-linking)
+                    val eventDurationMs = payload.optLong("durationSeconds", 0L) * 1000L
+                    val durationDiff = if (durationMs > 0L && eventDurationMs > 0L) kotlin.math.abs(eventDurationMs - durationMs) else 0L
+                    if (durationMs > 0L && eventDurationMs > 0L && durationDiff > 60_000L) continue // Reject duration mismatch > 60s
+                    var score = 0L
+                    if (requestedPhone.isNotBlank() && requestedPhone == eventPhone) score += 200L
+                    score += (60L - (timeDiff / 60_000L).coerceAtMost(60L))
+                    if (durationDiff <= 10_000L) score += 50L else if (durationDiff <= 30_000L) score += 20L
+                    add(ScoredManualCall(ManualRecordingCallMatch(callId, eventPhone.ifBlank { null }, endedAt), score))
+                }
+            }
+        }
+        val best = candidates.filter { it.score >= 200L }.maxByOrNull { it.score } ?: return null
+        return best.match.takeIf { kotlin.math.abs(it.callAtMillis - callAtMillis) <= 15 * 60 * 1000L }
+    }
+
+    private data class ScoredManualCall(val match: ManualRecordingCallMatch, val score: Long)
+
+    private fun normalizePhone(value: String?): String = value.orEmpty().filter(Char::isDigit).takeLast(10)
+
+    private fun String.toInstantMillis(): Long? = takeIf(String::isNotBlank)
+        ?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() }
 
     fun markRecordingUploaded(clientUploadId: String) {
         val values = ContentValues().apply {
@@ -351,7 +641,19 @@ class OfflineEventStore private constructor(context: Context) : SQLiteOpenHelper
         var recovered = 0
         db.beginTransaction()
         try {
-            existing.filter { it.status == "RECORDING" && it.callId != activeCallId }.forEach { item ->
+            // Archive permanently failed offline events and recordings so they do not loop forever
+            runCatching {
+                db.execSQL("UPDATE offline_events SET sync_status = 'FAILED_PERMANENT' WHERE retry_count >= 5 AND sync_status = 'FAILED'")
+                db.execSQL("UPDATE recording_queue SET status = 'FAILED_PERMANENT' WHERE retry_count >= 5 AND status = 'FAILED'")
+            }
+            // If an app was killed while mic recording was held for system import, release it after 2 minutes
+            val staleHoldCutoff = System.currentTimeMillis() - (2 * 60 * 1000L)
+            existing.filter { it.status == "HOLD_FOR_SYSTEM" && it.createdAt < staleHoldCutoff }.forEach { item ->
+                val values = ContentValues().apply { put("status", "LOCAL_PENDING") }
+                db.update("recording_queue", values, "client_upload_id = ?", arrayOf(item.clientUploadId))
+            }
+
+            existing.filter { (it.status == "RECORDING" || it.status == "UPLOADING") && it.callId != activeCallId }.forEach { item ->
                 val file = File(item.filePath)
                 if (file.exists() && file.length() > 0L) {
                     val values = ContentValues().apply {
@@ -370,11 +672,20 @@ class OfflineEventStore private constructor(context: Context) : SQLiteOpenHelper
                 }
             }
 
+            val audioExtensions = setOf("m4a", "mp3", "wav", "aac", "3gp", "amr", "ogg", "opus")
             directory.listFiles()
-                ?.filter { it.isFile && it.extension.equals("m4a", ignoreCase = true) && it.length() > 0L }
+                ?.filter { it.isFile && it.extension.lowercase() in audioExtensions && it.length() > 0L }
                 ?.filterNot { knownPaths.contains(it.absolutePath) }
                 ?.forEach { file ->
-                    val callId = file.nameWithoutExtension.substringBeforeLast("-")
+                    val callId = when {
+                        file.nameWithoutExtension.startsWith("shared-") -> {
+                            file.nameWithoutExtension.removePrefix("shared-").substringBeforeLast("-")
+                        }
+                        file.nameWithoutExtension.contains("-system-") -> file.nameWithoutExtension.substringBefore("-system-")
+                        file.nameWithoutExtension.contains("-shared-") -> file.nameWithoutExtension.substringBefore("-shared-")
+                        file.nameWithoutExtension.contains("-") -> file.nameWithoutExtension.substringBeforeLast("-")
+                        else -> ""
+                    }.removePrefix("shared-")
                     if (callId.isBlank()) return@forEach
                     val uploadId = "recovered-${file.nameWithoutExtension}"
                     val values = ContentValues().apply {

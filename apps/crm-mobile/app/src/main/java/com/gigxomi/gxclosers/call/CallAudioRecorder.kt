@@ -111,11 +111,15 @@ object CallAudioRecorder {
             release()
             if (file == null || callId.isNullOrBlank() || file.length() <= 0) {
                 prefs.edit().putString("recordingState", "RECORDING_UNAVAILABLE").apply()
+                if (!uploadId.isNullOrBlank()) {
+                    OfflineEventStore(context).updateRecordingStatus(uploadId, "FAILED", "Audio recording was empty or missing")
+                }
                 return@runCatching null
             }
             val durationMs = duration(file)
             val finalUploadId = uploadId ?: UUID.randomUUID().toString()
             val store = OfflineEventStore(context)
+            val recordingStatus = "LOCAL_PENDING"
             if (uploadId.isNullOrBlank()) {
                 store.enqueueRecording(
                     QueuedRecording(
@@ -126,26 +130,27 @@ object CallAudioRecorder {
                         filePath = file.absolutePath,
                         sizeBytes = file.length(),
                         durationMs = durationMs,
-                        status = "LOCAL_PENDING",
+                        status = recordingStatus,
                     )
                 )
             } else {
-                store.finalizeRecording(finalUploadId, file.length(), durationMs)
+                store.finalizeRecording(finalUploadId, file.length(), durationMs, status = recordingStatus)
             }
-            // An unprepared dialer call is linked to its real CRM call from the
-            // call log after IDLE. Do not race that rebinding with an upload.
-            if (!callId.startsWith(UNPREPARED_CALL_PREFIX)) RecordingUploadWorker.enqueue(context)
-            prefs.edit().putString("recordingState", "LOCAL_PENDING").apply()
+            prefs.edit().putString("recordingState", recordingStatus).apply()
+            RecordingUploadWorker.enqueue(context)
             PendingRecording(callId, file.absolutePath, file.length(), durationMs, finalUploadId)
         }.getOrElse { error ->
             release()
+            if (!uploadId.isNullOrBlank()) {
+                OfflineEventStore(context).updateRecordingStatus(uploadId, "FAILED", error.message ?: "Audio recorder stopped unexpectedly")
+            }
             prefs.edit().putString("recordingState", "FAILED").putString("recordingError", error.message).apply()
             null
         }
     }
 
     fun pending(context: Context, forCallId: String? = null): PendingRecording? {
-        val candidates = OfflineEventStore(context).pendingRecordings().filter { it.status == "LOCAL_PENDING" }
+        val candidates = OfflineEventStore(context).pendingRecordings().filter { it.status == "LOCAL_PENDING" || it.status == "HOLD_FOR_SYSTEM" }
         val queued = if (!forCallId.isNullOrBlank()) {
             candidates.firstOrNull { it.callId == forCallId }
         } else {

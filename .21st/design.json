@@ -474,6 +474,11 @@
       "decision": "Use a focused chat workspace with assignment, lead status, and private notes as the primary thread controls; keep the composer uncluttered and hide connection prompts once any inbox is connected.",
       "scope": "Live Multi-Channel Chat",
       "date": "2026-10-10"
+    },
+    {
+      "decision": "Use a compact dark glass caller-context card over the active dialer, with orange accent, lead identity, live status, stage/source, last note, and a single Open AI Closer action. Prefer the enabled Accessibility overlay on Android and keep notification/standard overlay behavior as fallback.",
+      "scope": "Android Caller Context Card",
+      "date": "2026-10-13"
     }
   ],
   "evidence": [

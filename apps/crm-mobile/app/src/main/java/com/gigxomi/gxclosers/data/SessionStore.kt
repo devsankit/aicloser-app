@@ -10,12 +10,22 @@ class SessionStore(
     prefsOverride: SharedPreferences? = null
 ) {
     private val lock = Any()
+    private val appContext: Context? = context?.applicationContext ?: context
     private val prefs: SharedPreferences = prefsOverride
         ?: context?.getSharedPreferences("gxclosers_session", Context.MODE_PRIVATE)
         ?: error("A valid Context or SharedPreferences instance is required for SessionStore.")
 
     val installationId: String
         get() = synchronized(lock) {
+            val androidId = appContext?.let { ctx ->
+                runCatching {
+                    android.provider.Settings.Secure.getString(ctx.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+                }.getOrNull()?.trim()?.takeIf(String::isNotBlank)
+            }
+            if (!androidId.isNullOrBlank()) {
+                prefs.edit().putString(KEY_INSTALLATION_ID, androidId).apply()
+                return androidId
+            }
             val existing = prefs.getString(KEY_INSTALLATION_ID, null)
             if (!existing.isNullOrBlank()) return existing
             val newId = UUID.randomUUID().toString()

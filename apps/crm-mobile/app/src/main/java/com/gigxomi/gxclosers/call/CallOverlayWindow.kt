@@ -4,122 +4,184 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.net.Uri
 import android.provider.Settings
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.View
 import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.util.Log
+import com.gigxomi.gxclosers.MainActivity
 
-/** Renders caller context directly from the call callbacks. This avoids Android 14
- * background-FGS restrictions that prevent a special-use service from starting. */
+/**
+ * Truecaller-style caller context card. The Accessibility service supplies
+ * the preferred window type, which lets the card appear on Pixel/Google Phone
+ * without asking for the broader "draw over other apps" permission.
+ */
 object CallOverlayWindow {
     private var windowManager: WindowManager? = null
-    private var card: LinearLayout? = null
+    private var card: View? = null
 
-    fun show(context: Context, phone: String) {
-        Log.i(TAG, "show requested phone=$phone overlay=${Settings.canDrawOverlays(context)}")
-        if (phone.isBlank() || Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) return
-        // Context.getMainExecutor() was added in API 28. Vivo test devices can
-        // still run API 27, so use the platform main looper for all supported
-        // Android versions and keep the PHONE_STATE receiver from crashing on
-        // the first inbound ring event.
+    fun show(
+        context: Context,
+        phone: String,
+        windowType: Int = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+    ) {
+        val needsOverlayPermission = windowType == WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        if (phone.isBlank() || needsOverlayPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) return
         Handler(Looper.getMainLooper()).post {
-            remove()
+            // The caller is already on the main looper here. A posted remove
+            // would run after addView and immediately delete the new card.
+            removeNow()
             val lead = CallManager.lookup(context, phone)
-            val root = LinearLayout(context.applicationContext).apply {
+            val root = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(dp(context, 14), dp(context, 10), dp(context, 12), dp(context, 10))
-                background = GradientDrawable().apply {
-                    setColor(Color.rgb(27, 29, 34))
-                    cornerRadius = dp(context, 18).toFloat()
-                    setStroke(dp(context, 1), Color.rgb(255, 105, 45))
+                setPadding(dp(context, 16), dp(context, 14), dp(context, 16), dp(context, 14))
+                background = GradientDrawable(
+                    GradientDrawable.Orientation.TL_BR,
+                    intArrayOf(Color.argb(246, 18, 28, 34), Color.argb(232, 7, 12, 17)),
+                ).apply {
+                    cornerRadius = dp(context, 22).toFloat()
+                    setStroke(dp(context, 1), Color.argb(92, 255, 255, 255))
                 }
-                elevation = dp(context, 12).toFloat()
+                elevation = dp(context, 18).toFloat()
             }
-            val header = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
-            val dragHandle = TextView(context).apply {
-                text = "⋮⋮"
-                setTextColor(Color.rgb(140, 148, 160))
-                textSize = 15f
+
+            root.addView(TextView(context).apply {
+                text = "AI CLOSER  •  CALL CONTEXT"
+                setTextColor(ACCENT)
+                textSize = 10f
+                typeface = Typeface.DEFAULT_BOLD
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) letterSpacing = 0.08f
+            })
+
+            val header = LinearLayout(context).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, dp(context, 10), 0, 0)
+            }
+            header.addView(TextView(context).apply {
+                text = initials(lead?.name ?: "Caller")
                 gravity = Gravity.CENTER
-                setPadding(0, 0, dp(context, 8), 0)
-                contentDescription = "Drag caller card"
-            }
-            val title = TextView(context).apply {
-                text = lead?.name ?: "Unknown caller"
-                setTextColor(Color.WHITE)
-                textSize = 16f
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                textSize = 15f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(ACCENT)
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(Color.argb(45, 255, 107, 47))
+                    setStroke(dp(context, 1), Color.argb(150, 255, 107, 47))
+                }
+                layoutParams = LinearLayout.LayoutParams(dp(context, 44), dp(context, 44))
+            })
+
+            val identity = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(context, 12), 0, dp(context, 8), 0)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
-            val close = TextView(context).apply {
-                text = "×"
-                setTextColor(Color.LTGRAY)
-                textSize = 28f
+            identity.addView(TextView(context).apply {
+                text = lead?.name ?: "Unknown caller"
+                setTextColor(Color.WHITE)
+                textSize = 18f
+                typeface = Typeface.DEFAULT_BOLD
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+            })
+            identity.addView(TextView(context).apply {
+                text = lead?.phone ?: phone
+                setTextColor(MUTED)
+                textSize = 12f
+                setPadding(0, dp(context, 3), 0, 0)
+            })
+            header.addView(identity)
+            header.addView(TextView(context).apply {
+                text = "LIVE"
                 gravity = Gravity.CENTER
-                setPadding(dp(context, 8), 0, dp(context, 4), 0)
-                setOnClickListener { remove() }
-            }
-            header.addView(dragHandle)
-            header.addView(title)
-            header.addView(close)
-            root.addView(header)
-            addText(context, root, phone, 12f, Color.rgb(190, 196, 206), 2)
-            if (lead == null) {
-                addText(context, root, "NEW LEAD  ·  COMPANY CALLER", 11f, Color.rgb(255, 166, 115), 10)
-                addText(context, root, "Lead details can be added after the call.", 11f, Color.rgb(190, 196, 206), 3)
-            } else {
-                listOfNotNull(
-                    lead.stage.takeIf(String::isNotBlank)?.let { "Stage  ·  ${it.replace('_', ' ')}" },
-                    lead.source.takeIf(String::isNotBlank)?.let { "Source  ·  $it" },
-                ).take(2).forEachIndexed { index, value ->
-                    addText(context, root, value, 11f, Color.rgb(218, 222, 230), if (index == 0) 8 else 4)
+                setTextColor(Color.WHITE)
+                textSize = 10f
+                typeface = Typeface.DEFAULT_BOLD
+                setPadding(dp(context, 8), dp(context, 5), dp(context, 8), dp(context, 5))
+                background = GradientDrawable().apply {
+                    setColor(Color.argb(225, 255, 107, 47))
+                    cornerRadius = dp(context, 99).toFloat()
                 }
+            })
+            header.addView(TextView(context).apply {
+                text = "×"
+                contentDescription = "Close caller information"
+                gravity = Gravity.CENTER
+                setTextColor(Color.argb(220, 247, 251, 255))
+                textSize = 27f
+                setPadding(dp(context, 10), 0, 0, dp(context, 2))
+                minimumWidth = dp(context, 48)
+                minimumHeight = dp(context, 48)
+                setOnClickListener { remove() }
+            })
+            root.addView(header)
+
+            if (lead != null) {
+                val meta = listOfNotNull(
+                    lead.stage.takeIf(String::isNotBlank)?.replace('_', ' '),
+                    lead.source.takeIf(String::isNotBlank),
+                ).joinToString("  ·  ")
+                if (meta.isNotBlank()) addText(context, root, meta.uppercase(), 10f, Color.argb(220, 218, 222, 230), 10)
+                addText(context, root, "LAST NOTE", 10f, Color.argb(190, 255, 107, 47), 14)
+                val lastNote = lead.lastTouchSummary.ifBlank { lead.notes }.trim()
+                addText(
+                    context,
+                    root,
+                    if (lastNote.isBlank()) "No previous note saved" else lastNote,
+                    12f,
+                    if (lastNote.isBlank()) MUTED else Color.argb(238, 247, 251, 255),
+                    5,
+                    maxLines = 3,
+                )
+            } else {
+                addText(context, root, "NEW LEAD  ·  NO CRM MATCH", 10f, Color.argb(220, 255, 166, 115), 12)
+                addText(context, root, "Save caller context after the call", 12f, MUTED, 5)
             }
 
-            val openCrm = TextView(context).apply {
-                text = if (lead == null) "Add lead details after call" else "Open CRM details"
-                textSize = 12f
+            root.addView(TextView(context).apply {
+                text = if (lead == null) "Add caller to AI Closer" else "Open AI Closer"
                 gravity = Gravity.CENTER
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                typeface = Typeface.DEFAULT_BOLD
                 setTextColor(Color.WHITE)
-                setPadding(dp(context, 10), dp(context, 9), dp(context, 10), dp(context, 9))
+                textSize = 12f
+                setPadding(dp(context, 12), dp(context, 11), dp(context, 12), dp(context, 11))
                 background = GradientDrawable().apply {
-                    setColor(Color.rgb(255, 105, 45))
-                    cornerRadius = dp(context, 11).toFloat()
+                    setColor(Color.argb(232, 255, 107, 47))
+                    cornerRadius = dp(context, 13).toFloat()
                 }
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                    topMargin = dp(context, 10)
+                    topMargin = dp(context, 14)
                 }
-                setOnClickListener { openDisposition(context) }
-            }
-            root.addView(openCrm)
+                setOnClickListener { openCaller(context, phone, lead?.id) }
+            })
 
+            val maxWidth = context.resources.displayMetrics.widthPixels - dp(context, 24)
             val params = WindowManager.LayoutParams(
-                dp(context, 280),
+                minOf(dp(context, 344), maxWidth),
                 WindowManager.LayoutParams.WRAP_CONTENT,
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
+                windowType,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
                 PixelFormat.TRANSLUCENT,
             ).apply {
-                gravity = Gravity.TOP or Gravity.START
-                x = dp(context, 12)
-                y = dp(context, 160)
+                gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                y = dp(context, 88)
             }
             windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
             var downX = 0f
             var downY = 0f
             var startX = params.x
             var startY = params.y
-            header.setOnTouchListener { _, event ->
+            root.setOnTouchListener { _, event ->
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
                         downX = event.rawX
@@ -129,8 +191,10 @@ object CallOverlayWindow {
                         true
                     }
                     MotionEvent.ACTION_MOVE -> {
-                        params.x = startX + (event.rawX - downX).toInt()
-                        params.y = startY + (event.rawY - downY).toInt()
+                        val maxHorizontalOffset = ((context.resources.displayMetrics.widthPixels - maxWidth) / 2).coerceAtLeast(0)
+                        val maxVerticalOffset = (context.resources.displayMetrics.heightPixels - root.height - dp(context, 32)).coerceAtLeast(dp(context, 32))
+                        params.x = (startX + event.rawX - downX).toInt().coerceIn(-maxHorizontalOffset, maxHorizontalOffset)
+                        params.y = (startY + event.rawY - downY).toInt().coerceIn(dp(context, 32), maxVerticalOffset)
                         runCatching { windowManager?.updateViewLayout(root, params) }
                         true
                     }
@@ -141,19 +205,30 @@ object CallOverlayWindow {
             runCatching {
                 windowManager?.addView(root, params)
                 card = root
-                Log.i(TAG, "caller card attached")
-            }.onFailure { Log.e(TAG, "caller card attach failed", it) }
+                Log.i(TAG, "caller info card attached type=$windowType phone=$phone")
+            }.onFailure { error -> Log.e(TAG, "caller info card attach failed", error) }
         }
     }
 
     fun remove() {
-        Handler(Looper.getMainLooper()).post {
-            card?.let { runCatching { windowManager?.removeView(it) } }
-            card = null
-        }
+        if (Looper.myLooper() == Looper.getMainLooper()) removeNow()
+        else Handler(Looper.getMainLooper()).post { removeNow() }
     }
 
-    private fun addText(context: Context, parent: LinearLayout, value: String, size: Float, color: Int, top: Int, maxLines: Int = 1) {
+    private fun removeNow() {
+        card?.let { runCatching { windowManager?.removeView(it) } }
+        card = null
+    }
+
+    private fun addText(
+        context: Context,
+        parent: LinearLayout,
+        value: String,
+        size: Float,
+        color: Int,
+        top: Int,
+        maxLines: Int = 1,
+    ) {
         parent.addView(TextView(context).apply {
             text = value
             textSize = size
@@ -166,20 +241,28 @@ object CallOverlayWindow {
         })
     }
 
-    private fun dp(context: Context, value: Int) = (value * context.resources.displayMetrics.density).toInt()
-
-    private fun openDisposition(context: Context) {
+    private fun openCaller(context: Context, phone: String, leadId: String?) {
         val prefs = context.getSharedPreferences(CallAudioRecorder.PREFS, Context.MODE_PRIVATE)
         val callId = prefs.getString("activeCallId", null).orEmpty()
-        val intent = if (callId.isNotBlank()) {
-            Intent(Intent.ACTION_VIEW, Uri.parse("gxclosers://disposition/$callId"))
-        } else {
-            context.packageManager.getLaunchIntentForPackage(context.packageName)
-        } ?: return
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        val uri = when {
+            callId.isNotBlank() -> Uri.parse("gxclosers://disposition/$callId")
+            !leadId.isNullOrBlank() -> Uri.parse("gxclosers://lead/${Uri.encode(leadId)}")
+            else -> Uri.parse("gxclosers://lead/${Uri.encode(phone)}")
+        }
+        val intent = Intent(context, MainActivity::class.java).apply {
+            action = Intent.ACTION_VIEW
+            data = uri
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
         runCatching { context.startActivity(intent) }
         remove()
     }
 
+    private fun initials(name: String): String = name.trim().split(Regex("\\s+")).filter(String::isNotBlank).take(2).joinToString("") { it.first().uppercase() }.ifBlank { "?" }
+
+    private fun dp(context: Context, value: Int) = (value * context.resources.displayMetrics.density).toInt()
+
+    private const val ACCENT = 0xFFFF6B2F.toInt()
+    private const val MUTED = 0xFF9BA8B4.toInt()
     private const val TAG = "GXCallOverlay"
 }

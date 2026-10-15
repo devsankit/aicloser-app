@@ -16,6 +16,8 @@ import androidx.core.content.ContextCompat
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.graphics.Color as AndroidColor
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.SideEffect
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -39,6 +41,10 @@ class MainActivity : ComponentActivity() {
                 ThemeMode.DARK -> true
             }
             SideEffect {
+                window.navigationBarColor = AndroidColor.TRANSPARENT
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    window.isNavigationBarContrastEnforced = false
+                }
                 val controller = WindowCompat.getInsetsController(window, window.decorView)
                 controller.isAppearanceLightStatusBars = !darkSystemBars
                 controller.isAppearanceLightNavigationBars = !darkSystemBars

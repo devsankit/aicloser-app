@@ -34,6 +34,7 @@ data class MobileCall(
     val id: String,
     val assignmentId: String,
     val phoneNumber: String,
+    val direction: String,
     val status: String,
     val outcome: String?,
     val note: String?,
@@ -43,10 +44,19 @@ data class MobileCall(
     val startedAt: String,
     val endedAt: String?,
     val assignment: SalesLead?,
+    val deviceId: String? = null,
+    val deviceModel: String? = null,
 )
 
 data class Dashboard(val totalLeads: Int, val activeLeads: Int, val closedWon: Int, val availableBalance: Double)
 data class Agent(val id: String, val displayName: String, val agentCode: String, val canClaimLeads: Boolean)
+
+data class CreatedPaymentLink(
+    val publicToken: String,
+    val totalAmount: Double,
+    val customerName: String?,
+    val expiresAt: String?,
+)
 
 data class Bootstrap(
     val agent: Agent?,
@@ -162,19 +172,28 @@ fun parseBootstrap(json: JSONObject): Bootstrap {
     val agentJson = json.optJSONObject("agent")
     val permissionsJson = json.optJSONObject("permissions")
     val permissions = permissionsJson?.keys()?.asSequence()?.associateWith { permissionsJson.optBoolean(it, true) }.orEmpty()
+    val availableLeads = json.optJSONArray("availableLeads")?.objects()?.map(::parseAvailableLead).orEmpty()
     return Bootstrap(
         agent = agentJson?.let { Agent(it.text("id"), it.text("displayName"), it.text("agentCode"), it.optBoolean("canClaimLeads")) },
         dashboard = Dashboard(dashboard.optInt("totalLeads"), dashboard.optInt("activeLeads"), dashboard.optInt("closedWon"), dashboard.optDouble("availableBalance")),
         leads = json.optJSONArray("leads")?.objects()?.map(::parseLead).orEmpty(),
-        availableLeads = json.optJSONArray("availableLeads")?.objects()?.map(::parseAvailableLead).orEmpty(),
-        availableLeadCount = json.optInt("availableLeadCount"),
+        availableLeads = availableLeads,
+        // Older API responses could omit the count while still returning the
+        // open lead pool. Keep the mobile grab action usable in that case.
+        availableLeadCount = maxOf(json.optInt("availableLeadCount", 0), availableLeads.size),
         calls = json.optJSONArray("calls")?.objects()?.map { call ->
+            val deviceObj = call.optJSONObject("device")
+            val devModel = deviceObj?.nullableText("model") ?: deviceObj?.nullableText("brand")
+            val devId = call.nullableText("deviceId") ?: deviceObj?.nullableText("deviceId")
             MobileCall(
                 id = call.text("id"), assignmentId = call.text("assignmentId"), phoneNumber = call.text("phoneNumber"),
+                direction = call.text("direction").ifBlank { "UNKNOWN" },
                 status = call.text("status"), outcome = call.nullableText("outcome"), note = call.nullableText("note"),
                 durationSeconds = call.optInt("durationSeconds"), recordingStatus = call.text("recordingStatus"),
                 recordingError = call.nullableText("recordingError"), startedAt = call.text("startedAt"), endedAt = call.nullableText("endedAt"),
                 assignment = call.optJSONObject("assignment")?.let(::parseLead),
+                deviceId = devId,
+                deviceModel = devModel,
             )
         }.orEmpty(),
         pendingNotes = json.optInt("pendingNotes"), pendingUploads = json.optInt("pendingUploads"),
@@ -279,4 +298,40 @@ fun parseCustomer360(json: JSONObject): Customer360 {
         notificationCount = notificationSummary.optInt("sent"),
         unreadNotificationCount = notificationSummary.optInt("unread"),
     )
+}
+
+fun MobileCall.parseEffectiveInstant(): java.time.Instant? {
+    val started = startedAt.trim().takeIf(String::isNotBlank)?.let { raw ->
+        runCatching { java.time.Instant.parse(raw) }.getOrNull()
+            ?: raw.toLongOrNull()?.let { value ->
+                runCatching {
+                    if (value < 10_000_000_000L) java.time.Instant.ofEpochSecond(value) else java.time.Instant.ofEpochMilli(value)
+                }.getOrNull()
+            }
+    }
+
+    val ended = endedAt?.trim()?.takeIf(String::isNotBlank)?.let { raw ->
+        runCatching { java.time.Instant.parse(raw) }.getOrNull()
+            ?: raw.toLongOrNull()?.let { value ->
+                runCatching {
+                    if (value < 10_000_000_000L) java.time.Instant.ofEpochSecond(value) else java.time.Instant.ofEpochMilli(value)
+                }.getOrNull()
+            }
+    }
+
+    return when {
+        started != null && ended != null && ended.isBefore(started) -> {
+            // Historical import where startedAt was stamped by the server at import time
+            ended.minusSeconds(durationSeconds.toLong().coerceAtLeast(0L))
+        }
+        started != null -> started
+        ended != null -> ended.minusSeconds(durationSeconds.toLong().coerceAtLeast(0L))
+        else -> null
+    }
+}
+
+fun MobileCall.isFromDevice(currentDeviceId: String, currentDeviceModel: String): Boolean {
+    val isOtherDevice = (!deviceId.isNullOrBlank() && currentDeviceId.isNotBlank() && deviceId != currentDeviceId) ||
+            (!deviceModel.isNullOrBlank() && currentDeviceModel.isNotBlank() && !deviceModel.equals(currentDeviceModel, ignoreCase = true))
+    return !isOtherDevice
 }

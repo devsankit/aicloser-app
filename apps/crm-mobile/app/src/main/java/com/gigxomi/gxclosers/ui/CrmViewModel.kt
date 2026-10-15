@@ -2,10 +2,13 @@ package com.gigxomi.gxclosers.ui
 
 import android.app.Application
 import android.media.MediaPlayer
+import android.net.Uri
 import android.os.Build
+import android.provider.OpenableColumns
 import android.provider.Settings
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
@@ -13,7 +16,9 @@ import androidx.lifecycle.viewModelScope
 import com.gigxomi.gxclosers.BuildConfig
 import com.gigxomi.gxclosers.call.CallManager
 import com.gigxomi.gxclosers.call.DeviceCertificationManager
+import com.gigxomi.gxclosers.call.RealtimeNotification
 import com.gigxomi.gxclosers.data.*
+import com.gigxomi.gxclosers.device.DeviceIdentity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -22,6 +27,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.util.Collections
+import java.io.File
 import java.util.UUID
 
 class CrmViewModel(application: Application) : AndroidViewModel(application) {
@@ -51,6 +57,8 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
     var syncCounts by mutableStateOf(repository.getSyncCounts()); private set
     var playbackSpeed by mutableFloatStateOf(1.0f); private set
     var playingCallId by mutableStateOf<String?>(null); private set
+    var isPlaybackPlaying by mutableStateOf(false); private set
+    var playbackPositionSeconds by mutableIntStateOf(0); private set
     var playbackLoadingCallId by mutableStateOf<String?>(null); private set
     var pendingSharedRecording by mutableStateOf(SharedRecordingStore.current(application)); private set
     var certificationStatus by mutableStateOf(repository.sessionStore.certificationStatus); private set
@@ -58,6 +66,12 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
     var testSessionId by mutableStateOf(repository.sessionStore.lastTestSessionId); private set
     var testSessionBusy by mutableStateOf(false); private set
     var testSessionMessage by mutableStateOf<String?>(null); private set
+    var createdPaymentLink by mutableStateOf<CreatedPaymentLink?>(null); private set
+    val currentDeviceId: String = android.provider.Settings.Secure.getString(
+        application.contentResolver,
+        android.provider.Settings.Secure.ANDROID_ID
+    ) ?: ""
+    val currentDeviceModel: String = android.os.Build.MODEL
 
     private var heartbeatJob: Job? = null
     private var realtimeConnection: AutoCloseable? = null
@@ -65,6 +79,7 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
     private val processedEventIds = Collections.synchronizedSet(HashSet<String>())
     private var activeConversationId: String? = null
     private var mediaPlayer: MediaPlayer? = null
+    private var playbackProgressJob: Job? = null
 
     init {
         if (authenticated) {
@@ -193,13 +208,15 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun handleRealtimeEvent(eventType: String, data: JSONObject) {
         val payload = data.optJSONObject("payload") ?: data
-        when (eventType) {
+        val normalizedEventType = eventType.lowercase().replace('-', '.')
+        RealtimeNotification.show(getApplication(), normalizedEventType, payload)
+        when (normalizedEventType) {
             "lead.updated" -> {
                 val leadId = payload.optString("leadId", payload.optString("id"))
                 val conversationId = payload.optString("conversationId")
                 if (leadId.isNotBlank() || conversationId.isNotBlank()) refreshAll()
             }
-            "conversation-updated" -> refreshAll()
+            "conversation.updated", "conversation.created" -> refreshAll()
             "message.created" -> {
                 val convId = payload.optString("conversationId", payload.optString("id"))
                 if (convId.isNotBlank() && convId == activeConversationId) {
@@ -220,6 +237,7 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
                 refreshAll()
                 updateSyncCounts()
             }
+            "lead.created", "task.created", "follow.up.scheduled", "callback.scheduled" -> refreshAll()
             "device.online", "device.offline" -> {
                 // Refresh device status
             }
@@ -328,11 +346,12 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun registerDeviceOnIo(force: Boolean) {
         val id = deviceId()
+        val identity = DeviceIdentity.current()
         repository.registerDevice(
             id,
-            "${Build.MANUFACTURER} ${Build.MODEL}",
-            Build.MANUFACTURER,
-            Build.MODEL,
+            identity.displayName,
+            identity.manufacturerLabel,
+            identity.modelLabel,
             Build.VERSION.RELEASE,
             BuildConfig.VERSION_NAME,
             force = force
@@ -345,7 +364,79 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
         val data = withContext(Dispatchers.IO) {
             runCatching { repository.syncOffline() }
             runCatching { repository.uploadPendingRecording() }
-            repository.bootstrap()
+            runCatching { com.gigxomi.gxclosers.call.CallLogSyncManager.syncRecentCallLogs(getApplication()) }
+            val raw = repository.bootstrap()
+            val store = OfflineEventStore(getApplication())
+            val localRecordings = store.allRecordings().associateBy { it.callId }
+            val existingIds = raw.calls.map { it.id }.toSet()
+            val localCalls = store.recentLocalCalls()
+                .filter { it.callId !in existingIds && it.status != "UNVERIFIED" && !it.direction.equals("UNKNOWN", ignoreCase = true) }
+
+            val synthesizedLocalCalls = localCalls.map { rec ->
+                val localRec = localRecordings[rec.callId]
+                val effectiveStatus = when (localRec?.status) {
+                    "UPLOADED" -> "UPLOADED"
+                    "UPLOADING" -> "UPLOADING"
+                    "FAILED", "FAILED_PERMANENT" -> "FAILED"
+                    "LOCAL_PENDING", "RECORDING" -> "LOCAL_PENDING"
+                    else -> rec.recordingStatus
+                }
+                val lead = raw.leads.find { l ->
+                    val normLead = l.customerPhone.filter(Char::isDigit).takeLast(10)
+                    val normCall = rec.phoneNumber.filter(Char::isDigit).takeLast(10)
+                    normLead.isNotBlank() && normLead == normCall
+                } ?: com.gigxomi.gxclosers.data.SalesLead(
+                    id = rec.callId,
+                    customerName = rec.contactName ?: "Unknown caller",
+                    customerPhone = rec.phoneNumber,
+                    customerEmail = "",
+                    stage = "CONTACTED",
+                    source = "PHONE_CALL",
+                    serviceInterest = "Phone enquiry",
+                    notes = "",
+                    followUpAt = null,
+                    priority = "NORMAL",
+                )
+                com.gigxomi.gxclosers.data.MobileCall(
+                    id = rec.callId,
+                    assignmentId = lead.id,
+                    phoneNumber = rec.phoneNumber,
+                    direction = rec.direction,
+                    status = rec.status,
+                    outcome = null,
+                    note = null,
+                    durationSeconds = rec.durationSeconds,
+                    recordingStatus = effectiveStatus,
+                    recordingError = localRec?.errorMessage,
+                    startedAt = rec.startedAt,
+                    endedAt = rec.endedAt,
+                    assignment = lead,
+                )
+            }
+
+            val mergedCalls = synthesizedLocalCalls + raw.calls
+            val enrichedCalls = mergedCalls.map { call ->
+                val local = localRecordings[call.id]
+                if (local != null && call.recordingStatus != "UPLOADED") {
+                    val effectiveStatus = when (local.status) {
+                        "UPLOADED" -> "UPLOADED"
+                        "UPLOADING" -> "UPLOADING"
+                        "FAILED", "FAILED_PERMANENT" -> "FAILED"
+                        "LOCAL_PENDING", "RECORDING" -> "LOCAL_PENDING"
+                        else -> call.recordingStatus
+                    }
+                    call.copy(
+                        recordingStatus = effectiveStatus,
+                        recordingError = local.errorMessage ?: call.recordingError
+                    )
+                } else if (local == null && (call.recordingStatus == "LOCAL_PENDING" || call.recordingStatus == "UPLOADING")) {
+                    // Only label recordingStatus as pending when a physical recording file exists in the queue.
+                    call.copy(recordingStatus = "NONE", recordingError = null)
+                } else {
+                    call
+                }
+            }
+            raw.copy(calls = enrichedCalls)
         }
         bootstrap = data
         featurePermissions = data.permissions
@@ -365,16 +456,59 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refreshSharedRecording() {
-        pendingSharedRecording = SharedRecordingStore.current(getApplication())
-        status = if (pendingSharedRecording != null) {
-            "Recording imported. Select the completed call to attach it."
+        val pending = SharedRecordingStore.current(getApplication())
+        pendingSharedRecording = pending
+        if (pending?.matchedCallId != null) {
+            autoAttachMatchedRecording(pending)
         } else {
-            "Shared recording could not be imported."
+            status = if (pending != null) {
+                "Recording imported. No exact call match was found; choose the matching completed call."
+            } else {
+                "Shared recording could not be imported."
+            }
         }
     }
 
+    private fun autoAttachMatchedRecording(pending: PendingSharedRecording) = launchWork {
+        val callId = pending.matchedCallId ?: throw IllegalStateException("No matched call was found.")
+        val context = getApplication<Application>()
+        val crmDir = java.io.File(context.filesDir, "crm-recordings").apply { mkdirs() }
+        val sourceFile = java.io.File(pending.path)
+        val ext = sourceFile.extension.ifBlank { "m4a" }
+        val permanentFile = java.io.File(crmDir, "shared-$callId-${System.currentTimeMillis()}.$ext")
+        val safeFile = if (sourceFile.exists()) {
+            if (!sourceFile.renameTo(permanentFile)) {
+                sourceFile.copyTo(permanentFile, overwrite = true)
+                sourceFile.delete()
+            }
+            permanentFile
+        } else {
+            sourceFile
+        }
+
+        val clientUploadId = "manual-shared-${pending.receivedAt}-${safeFile.length()}"
+        OfflineEventStore(context).enqueueRecording(
+            QueuedRecording(
+                clientUploadId = clientUploadId,
+                callId = callId,
+                tenantId = null,
+                deviceId = deviceId(),
+                filePath = safeFile.absolutePath,
+                sizeBytes = safeFile.length(),
+                durationMs = pending.durationMs,
+                status = "LOCAL_PENDING",
+            )
+        )
+        SharedRecordingStore.clearPreferences(context)
+        pendingSharedRecording = null
+        RecordingUploadWorker.enqueue(context)
+        updateSyncCounts()
+        status = "Recording linked to ${pending.matchedPhone ?: "the matching completed call"} and uploading."
+        refreshAll()
+    }
+
     fun discardSharedRecording() {
-        SharedRecordingStore.clear(getApplication())
+        SharedRecordingStore.discard(getApplication())
         pendingSharedRecording = null
         status = "Imported recording discarded."
     }
@@ -385,23 +519,100 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
         if (!call.status.equals("COMPLETED", ignoreCase = true)) {
             throw IllegalArgumentException("Only a completed call can receive a recording.")
         }
-        OfflineEventStore(getApplication()).enqueueRecording(
+        val context = getApplication<Application>()
+        val crmDir = java.io.File(context.filesDir, "crm-recordings").apply { mkdirs() }
+        val sourceFile = java.io.File(pending.path)
+        val ext = sourceFile.extension.ifBlank { "m4a" }
+        val permanentFile = java.io.File(crmDir, "shared-${call.id}-${System.currentTimeMillis()}.$ext")
+        val safeFile = if (sourceFile.exists()) {
+            if (!sourceFile.renameTo(permanentFile)) {
+                sourceFile.copyTo(permanentFile, overwrite = true)
+                sourceFile.delete()
+            }
+            permanentFile
+        } else {
+            sourceFile
+        }
+
+        OfflineEventStore(context).enqueueRecording(
             QueuedRecording(
                 clientUploadId = "shared-${UUID.randomUUID()}",
                 callId = call.id,
                 tenantId = null,
                 deviceId = deviceId(),
-                filePath = pending.path,
-                sizeBytes = pending.sizeBytes,
+                filePath = safeFile.absolutePath,
+                sizeBytes = safeFile.length(),
                 durationMs = pending.durationMs.takeIf { it > 0L } ?: call.durationSeconds * 1000L,
                 status = "LOCAL_PENDING",
             )
         )
-        SharedRecordingStore.clear(getApplication())
+        SharedRecordingStore.clearPreferences(context)
         pendingSharedRecording = null
-        RecordingUploadWorker.enqueue(getApplication())
+        RecordingUploadWorker.enqueue(context)
         updateSyncCounts()
         status = "Recording queued for ${call.assignment?.customerName ?: call.phoneNumber}."
+    }
+
+    fun attachAudioUri(callId: String, uri: Uri) = launchWork {
+        if (callId.isBlank()) throw IllegalArgumentException("Invalid call ID.")
+        val context = getApplication<Application>()
+        val resolver = context.contentResolver
+        val directory = java.io.File(context.filesDir, "crm-recordings").apply { mkdirs() }
+        val destination = java.io.File(directory, "manual-$callId-${System.currentTimeMillis()}.m4a")
+        val copied = withContext(Dispatchers.IO) {
+            runCatching {
+                resolver.openInputStream(uri)?.use { input ->
+                    destination.outputStream().use { output -> input.copyTo(output) }
+                } ?: 0L
+            }.getOrDefault(0L)
+        }
+        if (copied <= 0L) {
+            destination.delete()
+            throw IllegalArgumentException("Could not read selected audio file.")
+        }
+        val durationMs = runCatching {
+            android.media.MediaMetadataRetriever().let { retriever ->
+                try {
+                    retriever.setDataSource(destination.absolutePath)
+                    retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+                } finally {
+                    retriever.release()
+                }
+            }
+        }.getOrDefault(0L)
+
+        val targetCall = bootstrap?.calls?.find { it.id == callId }
+        val duration = if (durationMs > 0L) durationMs else (targetCall?.durationSeconds ?: 0).toLong() * 1000L
+
+        OfflineEventStore(context).enqueueRecording(
+            QueuedRecording(
+                clientUploadId = "manual-${UUID.randomUUID()}",
+                callId = callId,
+                tenantId = null,
+                deviceId = deviceId(),
+                filePath = destination.absolutePath,
+                sizeBytes = destination.length(),
+                durationMs = duration,
+                status = "LOCAL_PENDING",
+            )
+        )
+        RecordingUploadWorker.retryNow(context)
+        updateSyncCounts()
+        status = "Audio attached. Uploading in background..."
+        refreshAll()
+    }
+
+    fun retryRecordingUpload(callId: String) = launchWork {
+        val context = getApplication<Application>()
+        val store = OfflineEventStore(context)
+        val queueItem = store.recordingForCall(callId)
+        if (queueItem != null) {
+            store.updateRecordingStatus(queueItem.clientUploadId, "LOCAL_PENDING", null)
+        }
+        RecordingUploadWorker.retryNow(context)
+        updateSyncCounts()
+        status = "Retrying recording upload..."
+        refreshAll()
     }
 
     fun setSpeed(speed: Float) {
@@ -416,21 +627,47 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun playRecording(callId: String) {
-        if (playingCallId == callId) {
-            mediaPlayer?.pause()
-            playingCallId = null
+        if (playingCallId == callId && mediaPlayer != null) {
+            val player = mediaPlayer ?: return
+            if (player.isPlaying) {
+                player.pause()
+                isPlaybackPlaying = false
+                playbackProgressJob?.cancel()
+            } else {
+                player.start()
+                isPlaybackPlaying = true
+                playbackProgressJob?.cancel()
+                playbackProgressJob = viewModelScope.launch {
+                    while (isActive && mediaPlayer === player && player.isPlaying) {
+                        playbackPositionSeconds = player.currentPosition / 1000
+                        delay(250L)
+                    }
+                }
+            }
             return
         }
+        playbackProgressJob?.cancel()
         mediaPlayer?.release()
         mediaPlayer = null
         playingCallId = null
+        isPlaybackPlaying = false
+        playbackPositionSeconds = 0
         playbackLoadingCallId = callId
         viewModelScope.launch {
             try {
                 val file = withContext(Dispatchers.IO) {
-                    val cached = java.io.File(getApplication<Application>().cacheDir, "recording-$callId.m4a")
-                    repository.api.downloadRecording(callId, cached)
-                    cached
+                    val store = OfflineEventStore(getApplication())
+                    val localPath = store.recordingForCall(callId)?.filePath
+                    val localFile = localPath?.let { java.io.File(it) }
+                    if (localFile != null && localFile.exists() && localFile.length() > 0L) {
+                        localFile
+                    } else {
+                        val cached = java.io.File(getApplication<Application>().cacheDir, "recording-$callId.m4a")
+                        if (!cached.exists() || cached.length() == 0L) {
+                            repository.api.downloadRecording(callId, cached)
+                        }
+                        cached
+                    }
                 }
                 val player = MediaPlayer().apply {
                     setDataSource(file.absolutePath)
@@ -440,17 +677,32 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
                         }
                         playbackLoadingCallId = null
                         playingCallId = callId
+                        isPlaybackPlaying = true
                         prepared.start()
+                        playbackProgressJob?.cancel()
+                        playbackProgressJob = viewModelScope.launch {
+                            while (isActive && mediaPlayer === prepared) {
+                                playbackPositionSeconds = prepared.currentPosition / 1000
+                                delay(250L)
+                            }
+                        }
                     }
                     setOnCompletionListener {
+                        playbackProgressJob?.cancel()
                         playingCallId = null
+                        isPlaybackPlaying = false
                         playbackLoadingCallId = null
+                        playbackPositionSeconds = 0
                         it.release()
                         if (mediaPlayer === it) mediaPlayer = null
                     }
-                    setOnErrorListener { failed, _, _ ->
+                    setOnErrorListener { failed, what, extra ->
+                        playbackProgressJob?.cancel()
                         playbackLoadingCallId = null
                         playingCallId = null
+                        isPlaybackPlaying = false
+                        playbackPositionSeconds = 0
+                        error = "Recording could not be played (media error $what/$extra)."
                         failed.release()
                         if (mediaPlayer === failed) mediaPlayer = null
                         true
@@ -459,15 +711,41 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
                 mediaPlayer = player
                 player.prepareAsync()
             } catch (e: Exception) {
+                mediaPlayer?.release()
+                mediaPlayer = null
+                playingCallId = null
                 playbackLoadingCallId = null
+                isPlaybackPlaying = false
                 error = e.message ?: "Recording could not be played."
             }
         }
     }
 
+    fun seekRecordingTo(fraction: Float) {
+        mediaPlayer?.let { player ->
+            runCatching {
+                val target = (player.duration * fraction.coerceIn(0f, 1f)).toInt()
+                player.seekTo(target)
+                playbackPositionSeconds = target / 1000
+            }
+        }
+    }
+
+    fun seekRecordingBy(seconds: Int) {
+        mediaPlayer?.let { player ->
+            runCatching {
+                val target = (player.currentPosition + seconds * 1000).coerceIn(0, player.duration)
+                player.seekTo(target)
+                playbackPositionSeconds = target / 1000
+            }
+        }
+    }
+
     override fun onCleared() {
+        playbackProgressJob?.cancel()
         mediaPlayer?.release()
         mediaPlayer = null
+        isPlaybackPlaying = false
         super.onCleared()
     }
 
@@ -555,8 +833,43 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
         val pack = selectedPack ?: return@launchWork
         withContext(Dispatchers.IO) { repository.claimLeadPack(pack.id) }
         selectedPack = null
-        refreshAll()
+        // Wait for the live bootstrap refresh before leaving the screen so
+        // the newly claimed leads are immediately visible in the pipeline.
+        refreshAllInternal()
         done()
+    }
+
+    fun createPaymentLink(
+        baseAmount: Double,
+        quantity: Int,
+        duration: Int,
+        durationUnit: String,
+        customerName: String,
+        customerPhone: String,
+        customerEmail: String,
+        productName: String,
+        customerNote: String,
+        done: (CreatedPaymentLink) -> Unit = {},
+    ) = launchWork {
+        val result = withContext(Dispatchers.IO) {
+            repository.createPaymentLink(
+                baseAmount = baseAmount,
+                quantity = quantity,
+                duration = duration,
+                durationUnit = durationUnit,
+                customerName = customerName.trim(),
+                customerPhone = customerPhone.trim(),
+                customerEmail = customerEmail.trim(),
+                productName = productName.trim(),
+                customerNote = customerNote.trim(),
+            )
+        }
+        createdPaymentLink = result
+        done(result)
+    }
+
+    fun clearCreatedPaymentLink() {
+        createdPaymentLink = null
     }
 
     fun startCall(lead: SalesLead, sim: com.gigxomi.gxclosers.call.SimOption? = null) = launchWork {
@@ -618,6 +931,77 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
         chatMessages = withContext(Dispatchers.IO) { repository.chat(id) }
     }
 
+    fun sendChatAttachment(
+        id: String,
+        name: String,
+        mimeType: String?,
+        sizeBytes: Long?,
+    ) = launchWork {
+        val cleanName = name.trim()
+        if (cleanName.isBlank()) throw IllegalArgumentException("The selected file has no name.")
+        if (sizeBytes != null && sizeBytes > 20L * 1024L * 1024L) {
+            throw IllegalArgumentException("Choose a file smaller than 20 MB.")
+        }
+        withContext(Dispatchers.IO) {
+            repository.sendChat(
+                conversationId = id,
+                body = "",
+                attachmentName = cleanName,
+                attachmentMimeType = mimeType,
+                attachmentSizeBytes = sizeBytes,
+            )
+        }
+        chatMessages = withContext(Dispatchers.IO) { repository.chat(id) }
+        status = "Attachment sent."
+    }
+
+    fun importContacts(uri: Uri) = launchWork {
+        val context = getApplication<Application>()
+        val resolver = context.contentResolver
+        val displayName = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        }?.trim().orEmpty().ifBlank { "contacts.csv" }
+        val extension = displayName.substringAfterLast('.', "csv").lowercase()
+        if (extension !in setOf("csv", "tsv", "xls", "xlsx")) {
+            throw IllegalArgumentException("Choose a CSV, TSV, XLS, or XLSX contact file.")
+        }
+
+        val temporary = File.createTempFile("aicloser-import-", ".$extension", context.cacheDir)
+        try {
+            val result = withContext(Dispatchers.IO) {
+                resolver.openInputStream(uri)?.use { input ->
+                    temporary.outputStream().use { output -> input.copyTo(output) }
+                } ?: throw IllegalArgumentException("The selected file could not be opened.")
+                repository.importContacts(temporary)
+            }
+            val imported = result.optInt("imported")
+            val duplicate = result.optInt("duplicate")
+            val skipped = result.optInt("skipped")
+            refreshAllInternal()
+            status = if (imported > 0) {
+                "Imported $imported contact${if (imported == 1) "" else "s"}." +
+                    if (duplicate + skipped > 0) " $duplicate duplicate(s), $skipped skipped." else ""
+            } else {
+                "No new contacts imported. $duplicate duplicate(s), $skipped skipped."
+            }
+        } finally {
+            temporary.delete()
+        }
+    }
+
+    fun updateConversationStage(conversationId: String, leadStatusId: String) = launchWork {
+        withContext(Dispatchers.IO) { repository.updateConversationStage(conversationId, leadStatusId) }
+        loadInbox()
+        status = "Chat label updated."
+    }
+
+    fun saveConversationNotes(conversationId: String, notes: String, done: () -> Unit = {}) = launchWork {
+        withContext(Dispatchers.IO) { repository.saveConversationNotes(conversationId, notes) }
+        loadInbox()
+        status = "Internal note saved."
+        done()
+    }
+
     fun updateLeadStage(leadId: String, stage: String) = launchWork {
         try {
             withContext(Dispatchers.IO) { repository.updateLeadStage(leadId, stage) }
@@ -640,6 +1024,7 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
         serviceInterest: String = "Sales Inquiry",
         priority: String = "HIGH",
         notes: String = "",
+        stage: String = "NEW",
         done: () -> Unit
     ) = launchWork {
         val trimmedName = name.trim()
@@ -652,7 +1037,7 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
             customerName = trimmedName,
             customerPhone = trimmedPhone,
             customerEmail = email.trim(),
-            stage = "NEW",
+            stage = stage.ifBlank { "NEW" }.uppercase(),
             source = source.ifBlank { "Direct / Manual" },
             serviceInterest = serviceInterest.ifBlank { "Sales Inquiry" },
             notes = notes.trim(),
@@ -682,6 +1067,7 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
             .put("notes", notes.trim())
             .put("tags", org.json.JSONArray(listOf("hot", "mobile")))
             .put("source", "MOBILE_MANUAL")
+            .put("stage", stage.ifBlank { "NEW" }.uppercase())
         val dedicatedPayload = JSONObject().put("contact", contactObj)
 
         // The app API is the tenant-aware source of truth. Do not leave the

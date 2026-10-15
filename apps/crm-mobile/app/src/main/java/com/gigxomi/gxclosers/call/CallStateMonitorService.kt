@@ -63,6 +63,7 @@ class CallStateMonitorService : Service() {
 
         telephonyManager = getSystemService(TelephonyManager::class.java)
         registerCallStateListener()
+        registerDynamicPhoneStateReceiver()
         handler.post(poll)
         Log.i(TAG, "Call-state monitor started with event-driven listener and relaxed watchdog")
     }
@@ -73,8 +74,38 @@ class CallStateMonitorService : Service() {
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         unregisterCallStateListener()
+        unregisterDynamicPhoneStateReceiver()
         Log.i(TAG, "Call-state monitor stopped")
         super.onDestroy()
+    }
+
+    private var dynamicReceiver: PhoneStateReceiver? = null
+
+    private fun registerDynamicPhoneStateReceiver() {
+        if (dynamicReceiver != null) return
+        runCatching {
+            val receiver = PhoneStateReceiver()
+            val filter = android.content.IntentFilter().apply {
+                addAction(TelephonyManager.ACTION_PHONE_STATE_CHANGED)
+                @Suppress("DEPRECATION")
+                addAction(Intent.ACTION_NEW_OUTGOING_CALL)
+            }
+            ContextCompat.registerReceiver(
+                this,
+                receiver,
+                filter,
+                ContextCompat.RECEIVER_EXPORTED,
+            )
+            dynamicReceiver = receiver
+            Log.i(TAG, "Dynamically registered PhoneStateReceiver in foreground service")
+        }.onFailure { Log.w(TAG, "Could not dynamically register PhoneStateReceiver", it) }
+    }
+
+    private fun unregisterDynamicPhoneStateReceiver() {
+        dynamicReceiver?.let {
+            runCatching { unregisterReceiver(it) }
+            dynamicReceiver = null
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -155,7 +186,7 @@ class CallStateMonitorService : Service() {
 
     private fun ensureMicRecorderStarted() {
         val prefs = getSharedPreferences(CallAudioRecorder.PREFS, MODE_PRIVATE)
-        if (!prefs.getBoolean("micFallbackEnabled", false)) return
+        if (!DialerShareAutomation.isMicrophoneFallbackEnabled(this)) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
             checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
         ) return

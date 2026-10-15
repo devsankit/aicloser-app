@@ -5,10 +5,34 @@ import android.accessibilityservice.AccessibilityServiceInfo
 import android.os.Handler
 import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
+import android.view.WindowManager
 import android.util.Log
 
 /** Receives visible Phone/share-sheet UI events after the user enables access. */
 class DialerShareAccessibilityService : AccessibilityService() {
+    companion object {
+        @Volatile
+        private var activeService: DialerShareAccessibilityService? = null
+
+        /** Shows the caller card through the already-enabled accessibility channel. */
+        fun showCallerCard(context: android.content.Context, phone: String): Boolean {
+            val service = activeService ?: return false
+            service.handler.post {
+                CallOverlayWindow.show(
+                    service,
+                    phone,
+                    WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                )
+            }
+            return true
+        }
+
+        fun hideCallerCard() {
+            activeService?.handler?.post { CallOverlayWindow.remove() }
+        }
+    }
+
+    private var dynamicReceiver: PhoneStateReceiver? = null
     private val handler = Handler(Looper.getMainLooper())
     private val poller = object : Runnable {
         override fun run() {
@@ -30,6 +54,25 @@ class DialerShareAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        activeService = this
+        if (dynamicReceiver == null) {
+            runCatching {
+                val receiver = PhoneStateReceiver()
+                val filter = android.content.IntentFilter().apply {
+                    addAction(android.telephony.TelephonyManager.ACTION_PHONE_STATE_CHANGED)
+                    @Suppress("DEPRECATION")
+                    addAction(android.content.Intent.ACTION_NEW_OUTGOING_CALL)
+                }
+                androidx.core.content.ContextCompat.registerReceiver(
+                    this,
+                    receiver,
+                    filter,
+                    androidx.core.content.ContextCompat.RECEIVER_EXPORTED,
+                )
+                dynamicReceiver = receiver
+                Log.i("GXShareAccess", "Dynamically registered PhoneStateReceiver in AccessibilityService")
+            }.onFailure { Log.w("GXShareAccess", "Could not register PhoneStateReceiver in a11y", it) }
+        }
         serviceInfo = serviceInfo.apply {
             eventTypes = AccessibilityEvent.TYPES_ALL_MASK
             feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
@@ -56,6 +99,12 @@ class DialerShareAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         handler.removeCallbacks(poller)
+        CallOverlayWindow.remove()
+        if (activeService === this) dynamicReceiver?.let {
+            runCatching { unregisterReceiver(it) }
+            dynamicReceiver = null
+        }
+        activeService = null
         super.onDestroy()
     }
 }

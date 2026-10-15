@@ -3,6 +3,8 @@ package com.gigxomi.gxclosers.data
 import android.content.Context
 import android.os.Build
 import com.gigxomi.gxclosers.BuildConfig
+import com.gigxomi.gxclosers.call.DialerShareAutomation
+import com.gigxomi.gxclosers.device.DeviceIdentity
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -33,7 +35,7 @@ open class CrmRepository(
 
     fun login(identifier: String, password: String, forceReplace: Boolean = false): Session {
         val installationId = sessionStore.installationId
-        val deviceName = "${Build.MANUFACTURER} ${Build.MODEL}"
+        val deviceName = DeviceIdentity.current().displayName
         val androidVersion = Build.VERSION.RELEASE
         val appVersion = BuildConfig.VERSION_NAME
 
@@ -78,6 +80,7 @@ open class CrmRepository(
                     JSONObject()
                         .put("deviceId", deviceId)
                         .put("appVersion", BuildConfig.VERSION_NAME)
+                        .put("dialerPackage", appContext?.let { DialerShareAutomation.defaultDialerPackage(it) }.orEmpty())
                         .put("recordingCapability", capabilitySnapshot.optString("recordingCapability", "UNKNOWN"))
                         .put("recordingEnabled", capabilitySnapshot.optBoolean("recordingEnabled", false)),
                 )
@@ -155,6 +158,7 @@ open class CrmRepository(
             .put("model", model)
             .put("androidVersion", androidVersion)
             .put("appVersion", appVersion)
+              .put("dialerPackage", appContext?.let { DialerShareAutomation.defaultDialerPackage(it) }.orEmpty())
             .put("recordingCapability", capabilitySnapshot.optString("recordingCapability", "UNKNOWN"))
             .put("recordingEnabled", capabilitySnapshot.optBoolean("recordingEnabled", false))
             .put("force", true)
@@ -181,6 +185,46 @@ open class CrmRepository(
     fun requestLeadPack(size: Int) = parseLeadPack(api.post("/sales/mobile/lead-packs/request", JSONObject().put("size", size)))
     fun claimLeadPack(packId: String) { api.post("/sales/mobile/lead-packs/$packId/claim") }
     fun customer360(leadId: String): Customer360 = parseCustomer360(api.get("/sales/leads/$leadId/customer-360"))
+
+    fun createPaymentLink(
+        baseAmount: Double,
+        quantity: Int,
+        duration: Int,
+        durationUnit: String,
+        customerName: String,
+        customerPhone: String,
+        customerEmail: String,
+        productName: String,
+        customerNote: String,
+        validityValue: Int = 1,
+        validityUnit: String = "DAY",
+    ): CreatedPaymentLink {
+        val response = api.post(
+            "/payment-links",
+            JSONObject()
+                .put("baseAmount", baseAmount)
+                .put("quantity", quantity)
+                .put("duration", duration)
+                .put("durationUnit", durationUnit)
+                .put("customerName", customerName.ifBlank { JSONObject.NULL })
+                .put("customerPhone", customerPhone.ifBlank { JSONObject.NULL })
+                .put("customerEmail", customerEmail.ifBlank { JSONObject.NULL })
+                .put("productName", productName.ifBlank { JSONObject.NULL })
+                .put("customerNote", customerNote.ifBlank { JSONObject.NULL })
+                .put("validityValue", validityValue)
+                .put("validityUnit", validityUnit)
+        )
+        val link = response.optJSONObject("paymentLink")
+            ?: throw IllegalStateException("Payment link response was empty.")
+        val token = link.optString("publicToken").trim()
+        if (token.isBlank()) throw IllegalStateException("Payment link token was missing from the response.")
+        return CreatedPaymentLink(
+            publicToken = token,
+            totalAmount = link.optDouble("totalAmount", 0.0),
+            customerName = link.optString("customerName").takeUnless { it.isBlank() || it == "null" },
+            expiresAt = link.optString("expiresAt").takeUnless { it.isBlank() || it == "null" },
+        )
+    }
 
     fun createFollowUpTask(leadId: String, title: String, dueAt: String, priority: String, description: String) {
         api.post("/sales/leads/$leadId/tasks", JSONObject()
@@ -229,8 +273,11 @@ open class CrmRepository(
         simSlotIndex: Int? = null,
         simLabel: String? = null,
         callSessionId: String? = null,
+        startedAt: String? = null,
     ): String {
-        return startUnmatchedCall(leadId, phone, "INBOUND", deviceId, contactName, simSubscriptionId, simSlotIndex, simLabel, callSessionId)
+        return startUnmatchedCall(
+            leadId, phone, "INBOUND", deviceId, contactName, simSubscriptionId, simSlotIndex, simLabel, callSessionId, startedAt
+        )
     }
 
     fun startUnmatchedCall(
@@ -243,6 +290,9 @@ open class CrmRepository(
         simSlotIndex: Int? = null,
         simLabel: String? = null,
         callSessionId: String? = null,
+        startedAt: String? = null,
+        endedAt: String? = null,
+        durationSeconds: Long? = null,
     ): String {
         val clientKey = callSessionId?.takeIf(String::isNotBlank) ?: "call-${java.util.UUID.randomUUID()}"
         val payload = JSONObject()
@@ -254,6 +304,9 @@ open class CrmRepository(
             .put("clientCallId", clientKey)
             .put("callSessionId", clientKey)
             .put("idempotencyKey", clientKey)
+        startedAt?.takeIf(String::isNotBlank)?.let { payload.put("startedAt", it) }
+        endedAt?.takeIf(String::isNotBlank)?.let { payload.put("endedAt", it) }
+        durationSeconds?.let { payload.put("durationSeconds", it) }
         leadId?.takeIf(String::isNotBlank)?.let { payload.put("leadId", it) }
         contactName?.takeIf(String::isNotBlank)?.let { payload.put("contactName", it) }
         simSubscriptionId?.takeIf(String::isNotBlank)?.let { payload.put("simSubscriptionId", it) }
@@ -344,7 +397,6 @@ open class CrmRepository(
         return try {
             api.uploadRecording(pending.callId, pending.clientUploadId, file, pending.durationMs)
             offline.markRecordingUploaded(pending.clientUploadId)
-            runCatching { file.delete() }
             true
         } catch (e: Exception) {
             offline.incrementRecordingRetry(pending.clientUploadId, e.message ?: "Recording upload failed")
@@ -372,8 +424,31 @@ open class CrmRepository(
         }
     }
 
-    fun sendChat(conversationId: String, body: String) {
-        api.post("/conversations/$conversationId/messages", JSONObject().put("body", body).put("message", body))
+    fun sendChat(
+        conversationId: String,
+        body: String,
+        attachmentName: String? = null,
+        attachmentMimeType: String? = null,
+        attachmentSizeBytes: Long? = null,
+    ) {
+        val payload = JSONObject().put("body", body).put("message", body)
+        if (!attachmentName.isNullOrBlank()) {
+            val attachment = JSONObject().put("name", attachmentName.trim())
+            attachmentMimeType?.takeIf { it.isNotBlank() }?.let { attachment.put("mimeType", it) }
+            attachmentSizeBytes?.takeIf { it >= 0L }?.let { attachment.put("sizeBytes", it) }
+            payload.put("attachments", JSONArray().put(attachment))
+        }
+        api.post("/conversations/$conversationId/messages", payload)
+    }
+
+    fun importContacts(file: File): JSONObject = api.importContacts(file)
+
+    fun updateConversationStage(conversationId: String, leadStatusId: String) {
+        api.post("/conversations/$conversationId/lead-status", JSONObject().put("leadStatusId", leadStatusId))
+    }
+
+    fun saveConversationNotes(conversationId: String, notes: String) {
+        api.post("/conversations/$conversationId/notes", JSONObject().put("notes", notes.trim()))
     }
 
     fun saveLessonProgress(courseId: String, lessonId: String, watchedSeconds: Int, durationSeconds: Int, positionSeconds: Int, confirmComplete: Boolean) {

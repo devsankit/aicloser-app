@@ -74,15 +74,21 @@ object DeviceDiagnostics {
         val dialer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             runCatching { context.getSystemService(TelecomManager::class.java)?.defaultDialerPackage }.getOrNull()
         } else null
-        val shareAutomation = runCatching { DialerShareAutomation.isAccessibilityEnabled(context) }.getOrDefault(false)
+        val accessibilityEnabled = runCatching { DialerShareAutomation.isAccessibilityEnabled(context) }.getOrDefault(false)
+        val nativeDialerAvailable = !dialer.isNullOrBlank()
         val batteryOptimized = runCatching {
             val power = context.getSystemService(PowerManager::class.java)
             !power.isIgnoringBatteryOptimizations(context.packageName)
         }.getOrNull()
+        // A microphone permission alone does not mean the fallback is active.
+        // The fallback is an explicit user opt-in and is disabled for Google
+        // Phone, where it cannot guarantee two-sided call audio.
+        val microphoneFallbackEnabled = microphone &&
+            DialerShareAutomation.isMicrophoneFallbackEnabled(context)
         val recordingCapability = when {
             miuiFolder.isDirectory && audioStorage -> "SYSTEM_FOLDER_OR_MEDIASTORE"
-            shareAutomation -> "DIALER_SHARE"
-            microphone -> "MICROPHONE_FALLBACK"
+            nativeDialerAvailable -> "DIALER_SHARE"
+            microphoneFallbackEnabled -> "MICROPHONE_FALLBACK"
             else -> "UNAVAILABLE"
         }
 
@@ -107,10 +113,30 @@ object DeviceDiagnostics {
             .put("sharedAudioAccess", audioStorage)
             .put("miuiRecordingFolderPresent", miuiFolder.isDirectory)
             .put("miuiRecordingFolderReadable", miuiFolder.isDirectory && miuiFolder.canRead())
-            .put("accessibilityShareEnabled", shareAutomation)
+            .put("accessibilityShareEnabled", accessibilityEnabled)
+            .put("microphoneFallbackEnabled", microphoneFallbackEnabled)
             .put("batteryOptimizationEnabled", batteryOptimized ?: false)
             .put("recordingCapability", recordingCapability)
             .put("recordingEnabled", recordingCapability != "UNAVAILABLE")
+    }
+
+    /**
+     * Xiaomi/Redmi Phone writes completed call recordings to a shared MIUI
+     * directory. When that directory is available, do not start a competing
+     * microphone capture: the native file is the authoritative two-sided
+     * recording and the importer can match it after the call ends.
+     */
+    fun prefersSystemRecording(context: Context): Boolean {
+        if (snapshot(context).optString("recordingCapability") == "SYSTEM_FOLDER_OR_MEDIASTORE") return true
+
+        // A persisted ACTION_OPEN_DOCUMENT_TREE grant is also a native-file
+        // route, even when the selected folder is not the Xiaomi default.
+        // Try that folder before arming Accessibility; if no matching file is
+        // found, SystemRecordingImportWorker will still use the fallback.
+        val treeUri = RecordingFolderStore.getTreeUri(context) ?: return false
+        return context.contentResolver.persistedUriPermissions.any { permission ->
+            permission.uri == treeUri && permission.isReadPermission
+        }
     }
 
     private fun enqueue(context: Context, id: String, payload: JSONObject) {

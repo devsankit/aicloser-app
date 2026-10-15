@@ -27,11 +27,15 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -97,6 +101,82 @@ val GxDarkBg = Color(0xFF090B0D)
 val GxCardDark = Color(0xFF171A1E)
 val GxCardBorder = Color(0x1FFFFFFF)
 val GxMutedText = Color(0xFF8E95A2)
+
+data class GxFooterItem(val label: String, val icon: ImageVector)
+
+@Composable
+fun GxAppFooter(
+    items: List<GxFooterItem>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val navShape = RoundedCornerShape(30.dp)
+    Box(
+        modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            color = GxSurface,
+            shape = navShape,
+            border = BorderStroke(1.dp, GxOutlineSoft),
+            tonalElevation = 0.dp,
+            shadowElevation = 12.dp,
+            modifier = Modifier
+                .fillMaxWidth(.92f)
+                .widthIn(min = 300.dp, max = 560.dp)
+                .heightIn(min = 78.dp),
+        ) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .height(68.dp)
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                items.forEachIndexed { index, item ->
+                    val active = selected == index
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(if (active) GxAccent.copy(alpha = .14f) else Color.Transparent)
+                            .clickable { onSelect(index) }
+                            .padding(horizontal = 2.dp, vertical = 2.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(if (active) GxAccent.copy(alpha = .16f) else Color.Transparent)
+                                .border(BorderStroke(1.dp, if (active) GxAccent.copy(alpha = .42f) else Color.Transparent), CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(item.icon, item.label, tint = if (active) GxAccent else GxMuted, modifier = Modifier.size(19.dp))
+                        }
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            item.label,
+                            color = if (active) GxText else GxMuted,
+                            fontSize = 11.sp,
+                            lineHeight = 14.sp,
+                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+                            maxLines = 1,
+                            softWrap = false,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
 
 enum class GxBackdropKind { TELEPHONY, CRM, COMMUNICATION, NEUTRAL }
 
@@ -241,6 +321,7 @@ fun GxPremiumHeader(
     greeting: String,
     headline: String,
     notificationCount: Int = 0,
+    onNotificationsClick: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -260,7 +341,7 @@ fun GxPremiumHeader(
                     border = BorderStroke(1.dp, GxText.copy(alpha = .08f)),
                     modifier = Modifier.size(44.dp),
                 ) {
-                    IconButton(onClick = {}) {
+                    IconButton(onClick = onNotificationsClick) {
                         Icon(Icons.Outlined.NotificationsNone, "Notifications", tint = GxText, modifier = Modifier.size(21.dp))
                     }
                 }
@@ -332,6 +413,7 @@ fun GxWorkspaceHeader(
     title: String,
     subtitle: String,
     notificationCount: Int = 0,
+    onNotificationsClick: () -> Unit = {},
     action: (@Composable () -> Unit)? = null,
 ) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -355,7 +437,7 @@ fun GxWorkspaceHeader(
                         border = BorderStroke(1.dp, GxText.copy(alpha = .08f)),
                         modifier = Modifier.size(40.dp),
                     ) {
-                        IconButton(onClick = {}) {
+                        IconButton(onClick = onNotificationsClick) {
                             Icon(Icons.Outlined.NotificationsNone, "Notifications", tint = GxText, modifier = Modifier.size(20.dp))
                         }
                     }

@@ -19,12 +19,13 @@ class RecordingUploadWorker(appContext: Context, workerParams: WorkerParameters)
         val store = OfflineEventStore(applicationContext)
         val sessionStore = SessionStore(applicationContext)
         store.reconcileRecordingFiles(File(applicationContext.filesDir, "crm-recordings"), CallAudioRecorder.currentCallId())
+        store.reconcileRecordingFiles(File(applicationContext.filesDir, "shared-recordings"), CallAudioRecorder.currentCallId())
         if (sessionStore.token.isNullOrBlank()) return Result.success()
 
         val api = ApiClient(sessionStore)
         // An active recorder remains in RECORDING until the phone emits IDLE.
         // Never upload that file while it is still being written.
-        val pending = store.pendingRecordings().filter { it.status != "RECORDING" }
+        val pending = store.pendingRecordings().filter { it.status != "RECORDING" && it.status != "HOLD_FOR_SYSTEM" }
         if (pending.isEmpty()) return Result.success()
 
         var hasFailures = false
@@ -59,7 +60,12 @@ class RecordingUploadWorker(appContext: Context, workerParams: WorkerParameters)
                         .put("sizeBytes", file.length()),
                 )
                 // Retain a safe local buffer (keep latest 10 files / 2 hours) instead of immediate deletion
-                pruneOldRecordings(applicationContext)
+                pruneOldRecordings(
+                    filesDir = applicationContext.filesDir,
+                    recordingsProvider = { runCatching { store.allRecordings() }.getOrDefault(emptyList()) },
+                    pendingSharedPathProvider = { SharedRecordingStore.current(applicationContext)?.path },
+                    activeCallIdProvider = { CallAudioRecorder.currentCallId() },
+                )
             } catch (error: Exception) {
                 val message = error.message ?: "Recording upload failed"
                 Log.e("GXUpload", "Recording upload failed callId=${item.callId} status=${item.status} file=${file.name} bytes=${file.length()} message=$message", error)
@@ -109,24 +115,61 @@ class RecordingUploadWorker(appContext: Context, workerParams: WorkerParameters)
         return apiError.status in 400..499 && apiError.status !in setOf(401, 408, 409, 429)
     }
 
-    private fun pruneOldRecordings(context: Context) {
-        runCatching {
-            val dir = File(context.filesDir, "crm-recordings")
-            if (!dir.exists() || !dir.isDirectory) return
-            val files = dir.listFiles()?.filter { it.isFile }?.sortedBy { it.lastModified() } ?: return
-            // Keep at least the latest 10 files; delete files older than 2 hours if count > 10
-            val cutoff = System.currentTimeMillis() - (2 * 60 * 60 * 1000L)
-            if (files.size > 10) {
-                files.take(files.size - 10).forEach { file ->
-                    if (file.lastModified() < cutoff) {
-                        file.delete()
+    companion object {
+        internal fun pruneOldRecordings(
+            filesDir: File,
+            recordingsProvider: () -> List<QueuedRecording>,
+            pendingSharedPathProvider: () -> String? = { null },
+            activeCallIdProvider: () -> String? = { null },
+            nowMillis: Long = System.currentTimeMillis(),
+        ) {
+            val allRecordings = recordingsProvider()
+            val pendingSharedPath = pendingSharedPathProvider()
+            val activeCallId = activeCallIdProvider()
+
+            // Build a set of all file paths that MUST NOT be deleted
+            val protectedPaths = mutableSetOf<String>()
+
+            // 1. Protect all uncompleted uploads (pending, uploading, recording, retrying, held)
+            allRecordings
+                .filter { it.status != "UPLOADED" && it.status != "FAILED_PERMANENT" }
+                .forEach { protectedPaths.add(File(it.filePath).absolutePath) }
+
+            // 2. Protect currently recording call
+            activeCallId?.let { id ->
+                allRecordings.find { it.callId == id }?.let { protectedPaths.add(File(it.filePath).absolutePath) }
+            }
+
+            // 3. Protect pending shared recording
+            pendingSharedPath?.let { protectedPaths.add(File(it).absolutePath) }
+
+            // 4. Protect recently uploaded recordings (grace period 2 hours for in-app playback)
+            val cutoff = nowMillis - (2 * 60 * 60 * 1000L)
+            allRecordings
+                .filter { it.status == "UPLOADED" && it.createdAt > cutoff }
+                .forEach { protectedPaths.add(File(it.filePath).absolutePath) }
+
+            listOf("crm-recordings", "shared-recordings").forEach { dirName ->
+                runCatching {
+                    val dir = File(filesDir, dirName)
+                    if (!dir.exists() || !dir.isDirectory) return@runCatching
+                    val files = dir.listFiles()?.filter { it.isFile } ?: return@runCatching
+
+                    // Only consider deleting files that are NOT protected and older than cutoff
+                    val deletableFiles = files
+                        .filter { file -> !protectedPaths.contains(file.absolutePath) && file.lastModified() < cutoff }
+                        .sortedBy { it.lastModified() }
+
+                    // Only prune if total file count exceeds 10
+                    if (files.size > 10 && deletableFiles.isNotEmpty()) {
+                        val pruneCount = (files.size - 10).coerceAtMost(deletableFiles.size)
+                        deletableFiles.take(pruneCount).forEach { file ->
+                            file.delete()
+                        }
                     }
                 }
             }
         }
-    }
-
-    companion object {
         private const val UNIQUE_NAME = "gxclosers-recording-upload"
 
         fun enqueue(context: Context) {

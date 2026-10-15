@@ -14,7 +14,7 @@ The debug APK is created at `app/build/outputs/apk/debug/app-debug.apk`.
 ## Identity
 
 - Display name: `GXClosers`
-- Application ID: `com.gigxomi.gxclosers`
+- Application ID: `com.gigxomi.crm`
 - Deep-link scheme: `gxclosers`
 - API: `https://app.aicloser.in/api`
 - Minimum Android: 8.0 (API 26)

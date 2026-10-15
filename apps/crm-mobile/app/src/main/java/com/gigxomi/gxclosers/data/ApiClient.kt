@@ -50,6 +50,35 @@ open class ApiClient(protected val sessionStore: SessionStore) {
         }
     }
 
+    fun importContacts(file: File): JSONObject {
+        val boundary = "GXClosers-Import-${UUID.randomUUID()}"
+        val connection = URL(endpoint("/sales/leads/import")).openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod = "POST"
+            connection.connectTimeout = 15_000
+            connection.readTimeout = 60_000
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+            connection.setRequestProperty("Accept", "application/json")
+            sessionStore.token?.let { connection.setRequestProperty("Authorization", "Bearer $it") }
+            connection.outputStream.buffered().use { out ->
+                val safeName = file.name.replace("\"", "")
+                out.write("--$boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"$safeName\"\r\nContent-Type: ${contactMimeType(file)}\r\n\r\n".toByteArray(Charsets.UTF_8))
+                file.inputStream().use { it.copyTo(out) }
+                out.write("\r\n--$boundary--\r\n".toByteArray(Charsets.UTF_8))
+            }
+            val status = connection.responseCode
+            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+            val payload = runCatching { JSONObject(stream?.bufferedReader()?.use { it.readText() }.orEmpty()) }.getOrElse { JSONObject() }
+            if (status !in 200..299) throw parseHttpError("/sales/leads/import", status, payload)
+            return payload
+        } catch (e: SocketTimeoutException) {
+            throw NetworkTimeoutException("Contact import timed out")
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     private fun request(path: String, method: String, body: JSONObject? = null): JSONObject {
         val url = URL(endpoint(path))
         val connection = url.openConnection() as HttpURLConnection
@@ -184,60 +213,93 @@ open class ApiClient(protected val sessionStore: SessionStore) {
         else -> "application/octet-stream"
     }
 
+    private fun contactMimeType(file: File): String = when (file.extension.lowercase()) {
+        "csv" -> "text/csv"
+        "tsv" -> "text/tab-separated-values"
+        "xls" -> "application/vnd.ms-excel"
+        "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        else -> "application/octet-stream"
+    }
+
     fun openRealtimeStream(
         since: String? = null,
         lastEventId: String? = null,
         onEvent: (id: String?, type: String, data: JSONObject) -> Unit
     ): AutoCloseable {
         val running = AtomicBoolean(true)
-        val query = if (!since.isNullOrBlank()) "?since=${java.net.URLEncoder.encode(since, "UTF-8")}" else ""
-        val url = URL(endpoint("/sales/realtime$query"))
-        val connection = url.openConnection() as HttpURLConnection
-        connection.requestMethod = "GET"
-        connection.connectTimeout = 15_000
-        connection.readTimeout = 60_000
-        connection.setRequestProperty("Accept", "text/event-stream")
-        sessionStore.token?.let { connection.setRequestProperty("Authorization", "Bearer $it") }
-        if (!lastEventId.isNullOrBlank()) {
-            connection.setRequestProperty("Last-Event-ID", lastEventId)
-        }
+        var currentLastEventId = lastEventId
 
         val thread = Thread({
-            try {
-                if (connection.responseCode !in 200..299) {
-                    if (connection.responseCode == 401) {
-                        throw SessionRevokedException()
+            var backoffMs = 2_000L
+            while (running.get()) {
+                var connection: HttpURLConnection? = null
+                try {
+                    val query = if (!since.isNullOrBlank()) "?since=${java.net.URLEncoder.encode(since, "UTF-8")}" else ""
+                    val url = URL(endpoint("/sales/realtime$query"))
+                    connection = url.openConnection() as HttpURLConnection
+                    connection.requestMethod = "GET"
+                    connection.connectTimeout = 15_000
+                    connection.readTimeout = 60_000
+                    connection.setRequestProperty("Accept", "text/event-stream")
+                    sessionStore.token?.let { connection.setRequestProperty("Authorization", "Bearer $it") }
+                    if (!currentLastEventId.isNullOrBlank()) {
+                        connection.setRequestProperty("Last-Event-ID", currentLastEventId)
                     }
-                    return@Thread
-                }
-                BufferedReader(InputStreamReader(connection.inputStream, Charsets.UTF_8)).use { reader ->
-                    var currentId: String? = null
-                    var currentEvent: String? = null
-                    val dataBuffer = StringBuilder()
 
-                    while (running.get()) {
-                        val line = reader.readLine() ?: break
-                        if (line.isBlank()) {
-                            if (dataBuffer.isNotEmpty()) {
-                                val json = runCatching { JSONObject(dataBuffer.toString()) }.getOrElse { JSONObject() }
-                                onEvent(currentId, currentEvent ?: "message", json)
-                                dataBuffer.setLength(0)
-                                currentEvent = null
+                    if (connection.responseCode !in 200..299) {
+                        if (connection.responseCode == 401) {
+                            running.set(false)
+                            break
+                        }
+                        Thread.sleep(backoffMs)
+                        backoffMs = (backoffMs * 2).coerceAtMost(30_000L)
+                        continue
+                    }
+
+                    backoffMs = 2_000L
+                    BufferedReader(InputStreamReader(connection.inputStream, Charsets.UTF_8)).use { reader ->
+                        var currentId: String? = null
+                        var currentEvent: String? = null
+                        val dataBuffer = StringBuilder()
+
+                        while (running.get()) {
+                            val line = reader.readLine() ?: break
+                            if (line.isBlank()) {
+                                if (dataBuffer.isNotEmpty()) {
+                                    val json = runCatching { JSONObject(dataBuffer.toString()) }.getOrElse { JSONObject() }
+                                    onEvent(currentId, currentEvent ?: "message", json)
+                                    dataBuffer.setLength(0)
+                                    currentEvent = null
+                                }
+                            } else if (line.startsWith("id:")) {
+                                currentId = line.substring(3).trim()
+                                if (!currentId.isNullOrBlank()) {
+                                    currentLastEventId = currentId
+                                }
+                            } else if (line.startsWith("event:")) {
+                                currentEvent = line.substring(6).trim()
+                            } else if (line.startsWith("data:")) {
+                                if (dataBuffer.isNotEmpty()) dataBuffer.append('\n')
+                                dataBuffer.append(line.substring(5).trim())
                             }
-                        } else if (line.startsWith("id:")) {
-                            currentId = line.substring(3).trim()
-                        } else if (line.startsWith("event:")) {
-                            currentEvent = line.substring(6).trim()
-                        } else if (line.startsWith("data:")) {
-                            if (dataBuffer.isNotEmpty()) dataBuffer.append("\n")
-                            dataBuffer.append(line.substring(5).trim())
                         }
                     }
+                } catch (_: InterruptedException) {
+                    break
+                } catch (_: Exception) {
+                    // Closed or network dropped
+                } finally {
+                    runCatching { connection?.disconnect() }
                 }
-            } catch (_: Exception) {
-                // Closed or network dropped
-            } finally {
-                connection.disconnect()
+
+                if (running.get()) {
+                    try {
+                        Thread.sleep(backoffMs)
+                        backoffMs = (backoffMs * 2).coerceAtMost(30_000L)
+                    } catch (_: InterruptedException) {
+                        break
+                    }
+                }
             }
         }, "RealtimeStreamThread")
         thread.isDaemon = true
@@ -245,7 +307,7 @@ open class ApiClient(protected val sessionStore: SessionStore) {
 
         return AutoCloseable {
             running.set(false)
-            try { connection.disconnect() } catch (_: Exception) {}
+            thread.interrupt()
         }
     }
 

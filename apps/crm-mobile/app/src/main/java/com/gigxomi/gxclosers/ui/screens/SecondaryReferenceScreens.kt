@@ -2,7 +2,6 @@ package com.gigxomi.gxclosers.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -12,12 +11,12 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,10 +29,10 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -42,7 +41,6 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -57,6 +55,10 @@ import com.gigxomi.gxclosers.data.ChatMessage
 import com.gigxomi.gxclosers.data.InboxItem
 import com.gigxomi.gxclosers.data.SalesLead
 import com.gigxomi.gxclosers.ui.theme.*
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -64,12 +66,18 @@ import kotlin.math.sin
 private val RefBrandOrange = Color(0xFFFF5C1C)
 private val RefBrandOrangeDark = Color(0xFFE04E15)
 private val RefBrandOrangeSoft = Color(0x24FF5C1C)
-private val RefDarkBackground = Color(0xFF0C0E12)
-private val RefDarkSurface = Color(0xFF15181F)
-private val RefDarkSurfaceVariant = Color(0xFF1C2029)
-private val RefDarkBorder = Color(0xFF262C38)
-private val RefTextPrimary = Color(0xFFF7F9FC)
-private val RefTextMuted = Color(0xFF8E95A5)
+private val RefDarkBackground: Color
+    @Composable get() = secondaryBackground()
+private val RefDarkSurface: Color
+    @Composable get() = secondarySurface()
+private val RefDarkSurfaceVariant: Color
+    @Composable get() = secondarySurfaceVariant()
+private val RefDarkBorder: Color
+    @Composable get() = secondaryBorder()
+private val RefTextPrimary: Color
+    @Composable get() = secondaryText()
+private val RefTextMuted: Color
+    @Composable get() = secondaryMuted()
 private val RefSuccessGreen = Color(0xFF22C55E)
 private val RefSuccessGreenSoft = Color(0x2622C55E)
 private val RefWarningOrange = Color(0xFFF97316)
@@ -79,37 +87,49 @@ private val RefBlueSoft = Color(0x2638BDF8)
 private val RefPurple = Color(0xFFA855F7)
 private val RefPurpleSoft = Color(0x26A855F7)
 
+@Composable private fun secondaryBackground() = Color.Transparent
+@Composable private fun secondarySurface() = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
+@Composable private fun secondarySurfaceVariant() = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.86f)
+@Composable private fun secondaryBorder() = MaterialTheme.colorScheme.outlineVariant
+@Composable private fun secondaryText() = MaterialTheme.colorScheme.onSurface
+@Composable private fun secondaryMuted() = MaterialTheme.colorScheme.onSurfaceVariant
+
+private fun secondaryInboxTime(value: String?): String {
+    if (value.isNullOrBlank()) return "Now"
+    return runCatching {
+        val local = Instant.parse(value).atZone(ZoneId.systemDefault())
+        if (local.toLocalDate() == LocalDate.now()) {
+            DateTimeFormatter.ofPattern("hh:mm a").format(local)
+        } else {
+            DateTimeFormatter.ofPattern("dd MMM").format(local)
+        }
+    }.getOrDefault(value.takeLast(5))
+}
+
+private fun secondaryChatTime(value: String?): String {
+    if (value.isNullOrBlank()) return ""
+    return runCatching {
+        DateTimeFormatter.ofPattern("h:mm a")
+            .format(Instant.parse(value).atZone(ZoneId.systemDefault()))
+    }.getOrDefault(value.takeLast(5))
+}
+
+private fun secondaryChatDayLabel(value: String?): String {
+    if (value.isNullOrBlank()) return "Today"
+    return runCatching {
+        val local = Instant.parse(value).atZone(ZoneId.systemDefault()).toLocalDate()
+        when {
+            local == LocalDate.now() -> "Today"
+            local == LocalDate.now().minusDays(1) -> "Yesterday"
+            else -> DateTimeFormatter.ofPattern("dd MMM").format(local)
+        }
+    }.getOrDefault("Today")
+}
+
 /**
  * Interactive bounce micro-motion: scales down to ~0.97 on press.
  */
-fun Modifier.referenceBounceClick(onClick: () -> Unit): Modifier = this.pointerInput(Unit) {
-    detectTapGestures(
-        onPress = {
-            tryAwaitRelease()
-            onClick()
-        }
-    )
-}
-
-@Composable
-private fun animateScaleOnPress(): Pair<Modifier, Float> {
-    var isPressed by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.97f else 1f,
-        animationSpec = spring(dampingRatio = 0.6f, stiffness = 800f),
-        label = "bounceScale"
-    )
-    val modifier = Modifier.pointerInput(Unit) {
-        detectTapGestures(
-            onPress = {
-                isPressed = true
-                tryAwaitRelease()
-                isPressed = false
-            }
-        )
-    }
-    return Pair(modifier, scale)
-}
+fun Modifier.referenceBounceClick(onClick: () -> Unit): Modifier = this.clickable(onClick = onClick)
 
 /**
  * Screen fade + slide entrance transition (~200ms).
@@ -131,7 +151,10 @@ private fun ReferenceEntrance(
         ),
         modifier = modifier
     ) {
-        content()
+        Box(Modifier.fillMaxSize()) {
+            ReferencePhotoBackdrop()
+            content()
+        }
     }
 }
 
@@ -287,172 +310,124 @@ fun ReferenceInboxScreen(
     modifier: Modifier = Modifier
 ) {
     val filters = listOf("All", "Priority", "Follow-up")
+    val visibleItems = inboxItems.take(10)
 
     ReferenceEntrance(modifier = modifier) {
         Scaffold(
-            containerColor = RefDarkBackground,
+            containerColor = Color.Transparent,
             topBar = {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .background(Color.Transparent)
                         .statusBarsPadding()
-                        .padding(horizontal = 20.dp, vertical = 12.dp)
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         ReferenceBrandBadge()
-                        IconButton(
-                            onClick = onRefreshClick,
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(RefDarkSurfaceVariant)
-                                .border(1.dp, RefDarkBorder, CircleShape)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = "Refresh",
-                                tint = RefTextPrimary,
-                                modifier = Modifier.size(18.dp)
-                            )
+                        Spacer(Modifier.width(14.dp))
+                        Text("Inbox", color = secondaryText(), fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        IconButton(onClick = onRefreshClick) {
+                            Icon(Icons.Default.Refresh, "Refresh chats", tint = secondaryText(), modifier = Modifier.size(22.dp))
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Text(
-                        text = "Inbox",
-                        color = RefTextPrimary,
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Search Field
+                    Spacer(Modifier.height(9.dp))
                     Box(
-                        modifier = Modifier
+                        Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(RefDarkSurface)
-                            .border(1.dp, RefDarkBorder, RoundedCornerShape(16.dp))
-                            .padding(horizontal = 14.dp, vertical = 12.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(secondarySurface())
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = "Search",
-                                tint = RefTextMuted,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
+                            Icon(Icons.Default.Search, null, tint = secondaryMuted(), modifier = Modifier.size(19.dp))
+                            Spacer(Modifier.width(8.dp))
                             BasicTextField(
                                 value = searchQuery,
                                 onValueChange = onSearchQueryChange,
-                                textStyle = TextStyle(color = RefTextPrimary, fontSize = 15.sp),
+                                textStyle = TextStyle(color = secondaryText(), fontSize = 15.sp),
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth(),
                                 decorationBox = { innerTextField ->
-                                    if (searchQuery.isEmpty()) {
-                                        Text(
-                                            text = "Search conversations",
-                                            color = RefTextMuted,
-                                            fontSize = 15.sp
-                                        )
-                                    }
+                                    if (searchQuery.isEmpty()) Text("Search conversations", color = secondaryMuted(), fontSize = 15.sp)
                                     innerTextField()
-                                }
+                                },
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Filter chips
+                    Spacer(modifier = Modifier.height(10.dp))
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(28.dp))
+                            .background(secondarySurface())
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
                     ) {
                         filters.forEach { filter ->
                             val isSelected = filter == selectedFilter
-                            val chipBg by animateColorAsState(
-                                targetValue = if (isSelected) RefBrandOrangeSoft else RefDarkSurface,
-                                animationSpec = tween(180),
-                                label = "filterBg"
-                            )
-                            val chipBorder by animateColorAsState(
-                                targetValue = if (isSelected) RefBrandOrange else RefDarkBorder,
-                                animationSpec = tween(180),
-                                label = "filterBorder"
-                            )
-                            val chipText by animateColorAsState(
-                                targetValue = if (isSelected) RefBrandOrange else RefTextMuted,
-                                animationSpec = tween(180),
-                                label = "filterText"
-                            )
-
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(20.dp))
-                                    .background(chipBg)
-                                    .border(1.dp, chipBorder, RoundedCornerShape(20.dp))
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(22.dp))
+                                    .background(if (isSelected) RefBrandOrangeSoft else Color.Transparent)
                                     .clickable { onFilterSelect(filter) }
-                                    .padding(horizontal = 18.dp, vertical = 8.dp),
+                                    .padding(horizontal = 8.dp, vertical = 9.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = filter,
-                                    color = chipText,
+                                    color = if (isSelected) RefBrandOrange else secondaryMuted(),
                                     fontSize = 13.sp,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                 )
                             }
                         }
                     }
+
                 }
-            }
+            },
         ) { paddingValues ->
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
+                    .background(Color.Transparent)
                     .padding(paddingValues),
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 5.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                if (inboxItems.isEmpty()) {
+                if (visibleItems.isEmpty()) {
                     item {
-                        // Empty / preview placeholder card
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(RefDarkSurface)
-                                .border(1.dp, RefDarkBorder, RoundedCornerShape(20.dp))
-                                .padding(24.dp),
+                                .padding(vertical = 46.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(
                                     imageVector = Icons.Default.ChatBubbleOutline,
                                     contentDescription = null,
-                                    tint = RefTextMuted,
+                                    tint = secondaryMuted(),
                                     modifier = Modifier.size(36.dp)
                                 )
                                 Spacer(modifier = Modifier.height(10.dp))
                                 Text(
                                     text = "No conversations found",
-                                    color = RefTextMuted,
+                                    color = secondaryMuted(),
                                     fontSize = 14.sp
                                 )
                             }
                         }
                     }
                 } else {
-                    items(inboxItems) { item ->
-                        ReferenceInboxItemCard(
+                    items(visibleItems, key = { it.conversationId ?: it.lead.id }) { item ->
+                        InboxChatRow(
                             item = item,
                             onClick = { onConversationClick(item) }
                         )
@@ -460,6 +435,43 @@ fun ReferenceInboxScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun InboxChatRow(
+    item: InboxItem,
+    onClick: () -> Unit,
+) {
+    val unread = item.status.equals("new", ignoreCase = true) || item.status.equals("assigned", ignoreCase = true) || item.status.equals("open", ignoreCase = true)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+        Surface(color = RefBrandOrangeSoft, shape = CircleShape, border = BorderStroke(1.dp, RefBrandOrange.copy(alpha = 0.55f)), modifier = Modifier.size(48.dp)) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(item.lead.customerName.take(2).uppercase(), color = RefBrandOrange, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(item.lead.customerName.ifBlank { "Unknown contact" }, color = secondaryText(), fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text(secondaryInboxTime(item.latestMessageAt), color = if (unread) RefBrandOrange else secondaryMuted(), fontSize = 11.sp)
+            }
+            if (item.lead.serviceInterest.isNotBlank()) {
+                Text(item.lead.serviceInterest, color = secondaryMuted(), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(item.latestMessage.ifBlank { "Open conversation" }, color = if (unread) secondaryText() else secondaryMuted(), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                if (unread) Box(Modifier.size(8.dp).clip(CircleShape).background(RefBrandOrange))
+            }
+        }
+        }
+        HorizontalDivider(modifier = Modifier.padding(start = 60.dp, top = 8.dp), color = secondaryBorder().copy(alpha = 0.75f))
     }
 }
 
@@ -473,8 +485,8 @@ private fun ReferenceInboxItemCard(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
-            .background(RefDarkSurface)
-            .border(1.dp, RefDarkBorder.copy(alpha = 0.8f), RoundedCornerShape(20.dp))
+            .background(secondarySurface())
+            .border(1.dp, secondaryBorder().copy(alpha = 0.8f), RoundedCornerShape(20.dp))
             .clickable(onClick = onClick)
             .padding(16.dp)
     ) {
@@ -497,7 +509,7 @@ private fun ReferenceInboxItemCard(
                 ) {
                     Text(
                         text = item.lead.customerName,
-                        color = RefTextPrimary,
+                        color = secondaryText(),
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -506,8 +518,8 @@ private fun ReferenceInboxItemCard(
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = item.latestMessageAt?.take(5) ?: "2m",
-                            color = RefTextMuted,
+                            text = secondaryInboxTime(item.latestMessageAt),
+                            color = secondaryMuted(),
                             fontSize = 12.sp
                         )
                         Spacer(modifier = Modifier.width(6.dp))
@@ -521,7 +533,7 @@ private fun ReferenceInboxItemCard(
                         Icon(
                             imageVector = Icons.Default.ChevronRight,
                             contentDescription = null,
-                            tint = RefTextMuted,
+                            tint = secondaryMuted(),
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -530,7 +542,7 @@ private fun ReferenceInboxItemCard(
                 if (item.lead.serviceInterest.isNotBlank()) {
                     Text(
                         text = item.lead.serviceInterest,
-                        color = RefTextMuted,
+                        color = secondaryMuted(),
                         fontSize = 12.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -541,7 +553,7 @@ private fun ReferenceInboxItemCard(
 
                 Text(
                     text = item.latestMessage.ifBlank { "Open conversation" },
-                    color = RefTextPrimary.copy(alpha = 0.85f),
+                    color = secondaryText().copy(alpha = 0.85f),
                     fontSize = 13.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -554,12 +566,12 @@ private fun ReferenceInboxItemCard(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .background(RefDarkSurfaceVariant)
+                            .background(secondarySurfaceVariant())
                             .padding(horizontal = 8.dp, vertical = 3.dp)
                     ) {
                         Text(
                             text = "CRM",
-                            color = RefTextMuted,
+                            color = secondaryMuted(),
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -594,35 +606,57 @@ private fun ReferenceInboxItemCard(
 fun ReferenceChatScreen(
     lead: SalesLead? = null,
     messages: List<ChatMessage> = emptyList(),
+    notes: String = "",
     inputText: String = "",
     onInputTextChange: (String) -> Unit = {},
     onSendMessage: (String) -> Unit = {},
     onAttachFileClick: () -> Unit = {},
     onCallClick: () -> Unit = {},
     onMenuClick: () -> Unit = {},
-    onStageDropdownClick: () -> Unit = {},
+    onStageSelect: (String) -> Unit = {},
+    onNotesClick: () -> Unit = {},
     onBackClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val contactName = lead?.customerName ?: "Ankit Sharma"
     val stageText = lead?.stage?.ifBlank { "Follow-up" } ?: "Follow-up"
     val dealTitle = lead?.serviceInterest?.ifBlank { "CRM implementation" } ?: "CRM implementation"
+    var moreExpanded by remember { mutableStateOf(false) }
+    var stageMenuExpanded by remember { mutableStateOf(false) }
+    // Keep the chat card responsive immediately after a stage selection. The
+    // conversation object is refreshed asynchronously, so relying only on the
+    // incoming lead would leave the chip looking static until navigation.
+    var selectedStageKey by remember(lead?.id, stageText) {
+        mutableStateOf(stageText.uppercase().replace('-', '_').replace(' ', '_'))
+    }
+    val messageListState = rememberLazyListState()
+    val stageOptions = listOf(
+        "NEW", "CONTACTED", "INTERESTED", "FOLLOW_UP", "QUALIFIED",
+        "CLOSED_WON", "CLOSED_LOST", "NOT_REACHABLE",
+    )
+    fun stageLabel(value: String): String = when (value.uppercase().replace(' ', '_').replace('-', '_')) {
+        "FOLLOW_UP" -> "Follow-up"
+        "NOT_REACHABLE" -> "Not reachable"
+        "CLOSED_WON" -> "Closed won"
+        "CLOSED_LOST" -> "Closed lost"
+        else -> value.replace('_', ' ').replace('-', ' ').lowercase().replaceFirstChar { it.uppercase() }
+    }
 
     ReferenceEntrance(modifier = modifier) {
         Scaffold(
-            containerColor = RefDarkBackground,
+            containerColor = Color.Transparent,
             topBar = {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .statusBarsPadding()
-                        .background(RefDarkBackground)
+                        .background(Color.Transparent)
                 ) {
                     // Header Bar
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                            .padding(horizontal = 14.dp, vertical = 7.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(onClick = onBackClick) {
@@ -650,7 +684,7 @@ fun ReferenceChatScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = stageText,
+                                text = stageLabel(selectedStageKey),
                                 color = RefTextMuted,
                                 fontSize = 12.sp
                             )
@@ -661,7 +695,7 @@ fun ReferenceChatScreen(
                             modifier = Modifier
                                 .size(36.dp)
                                 .clip(CircleShape)
-                                .background(RefDarkSurfaceVariant)
+                                .background(Color.Transparent)
                                 .border(1.dp, RefDarkBorder, CircleShape)
                         ) {
                             Icon(
@@ -674,21 +708,50 @@ fun ReferenceChatScreen(
 
                         Spacer(modifier = Modifier.width(6.dp))
 
-                        IconButton(
-                            onClick = onMenuClick,
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(RefDarkSurfaceVariant)
-                                .border(1.dp, RefDarkBorder, CircleShape)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.MoreVert,
-                                contentDescription = "More",
-                                tint = RefTextPrimary,
-                                modifier = Modifier.size(18.dp)
-                            )
+                        Box {
+                            IconButton(
+                                onClick = { moreExpanded = true },
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Transparent)
+                                    .border(1.dp, RefDarkBorder, CircleShape)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "More",
+                                    tint = RefTextPrimary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = moreExpanded,
+                                onDismissRequest = { moreExpanded = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Refresh conversation") },
+                                    onClick = {
+                                        moreExpanded = false
+                                        onMenuClick()
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Private notes") },
+                                    onClick = {
+                                        moreExpanded = false
+                                        onNotesClick()
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Call contact") },
+                                    onClick = {
+                                        moreExpanded = false
+                                        onCallClick()
+                                    },
+                                )
+                            }
                         }
+
                     }
 
                     // Deal context banner
@@ -725,12 +788,12 @@ fun ReferenceChatScreen(
                                     .clip(RoundedCornerShape(14.dp))
                                     .background(RefDarkSurfaceVariant)
                                     .border(1.dp, RefDarkBorder, RoundedCornerShape(14.dp))
-                                    .clickable(onClick = onStageDropdownClick)
+                                    .clickable { stageMenuExpanded = true }
                                     .padding(horizontal = 12.dp, vertical = 6.dp)
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        text = stageText,
+                                        text = stageLabel(selectedStageKey),
                                         color = RefTextPrimary,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Medium
@@ -743,6 +806,26 @@ fun ReferenceChatScreen(
                                         modifier = Modifier.size(16.dp)
                                     )
                                 }
+                                DropdownMenu(
+                                    expanded = stageMenuExpanded,
+                                    onDismissRequest = { stageMenuExpanded = false },
+                                ) {
+                                    stageOptions.forEach { option ->
+                                        DropdownMenuItem(
+                                            text = { Text(stageLabel(option)) },
+                                            leadingIcon = {
+                                        if (option == selectedStageKey) {
+                                                    Icon(Icons.Default.Check, contentDescription = null, tint = RefBrandOrange)
+                                                }
+                                            },
+                                            onClick = {
+                                                stageMenuExpanded = false
+                                                selectedStageKey = option
+                                                onStageSelect(option)
+                                            },
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -753,22 +836,26 @@ fun ReferenceChatScreen(
             bottomBar = {
                 // Composer Bottom Bar with IME and Nav padding
                 Surface(
-                    color = RefDarkBackground,
+                    color = Color.Transparent,
                     modifier = Modifier
                         .fillMaxWidth()
                         .navigationBarsPadding()
                         .imePadding()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                            .clip(RoundedCornerShape(22.dp))
+                            .background(RefDarkSurface.copy(alpha = 0.9f))
+                            .border(1.dp, RefDarkBorder, RoundedCornerShape(22.dp))
+                            .padding(horizontal = 5.dp, vertical = 3.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(
                             onClick = onAttachFileClick,
                             modifier = Modifier
-                                .size(42.dp)
+                                .size(34.dp)
                                 .clip(CircleShape)
                                 .background(RefDarkSurface)
                                 .border(1.dp, RefDarkBorder, CircleShape)
@@ -777,19 +864,16 @@ fun ReferenceChatScreen(
                                 imageVector = Icons.Default.AttachFile,
                                 contentDescription = "Attach",
                                 tint = RefTextMuted,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(18.dp)
                             )
                         }
 
-                        Spacer(modifier = Modifier.width(10.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
 
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(22.dp))
-                                .background(RefDarkSurface)
-                                .border(1.dp, RefDarkBorder, RoundedCornerShape(22.dp))
-                                .padding(horizontal = 16.dp, vertical = 11.dp)
+                                .padding(horizontal = 8.dp, vertical = 5.dp)
                         ) {
                             BasicTextField(
                                 value = inputText,
@@ -809,23 +893,26 @@ fun ReferenceChatScreen(
                             )
                         }
 
-                        Spacer(modifier = Modifier.width(10.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
 
                         IconButton(
+                            enabled = inputText.isNotBlank(),
                             onClick = {
                                 if (inputText.isNotBlank()) {
                                     onSendMessage(inputText)
                                 }
                             },
                             modifier = Modifier
-                                .size(42.dp)
+                                .size(34.dp)
                                 .clip(CircleShape)
-                                .background(RefBrandOrange)
+                                .background(
+                                    if (inputText.isNotBlank()) RefBrandOrange else RefDarkSurfaceVariant
+                                )
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.Send,
                                 contentDescription = "Send",
-                                tint = Color.White,
+                                tint = if (inputText.isNotBlank()) Color.White else RefTextMuted,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -833,64 +920,55 @@ fun ReferenceChatScreen(
                 }
             }
         ) { paddingValues ->
-            LazyColumn(
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(paddingValues),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .padding(paddingValues)
             ) {
-                item {
-                    // Date Separator "Today"
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 12.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Today",
-                            color = RefTextMuted,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
+                LazyColumn(
+                    state = messageListState,
+                    modifier = Modifier.fillMaxSize(),
+                // The chat detail screen intentionally has no global navigation
+                // footer. Keep only a small composer-safe gap so the thread does
+                // not look detached from the reply field.
+                    contentPadding = PaddingValues(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 20.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
 
                 if (messages.isEmpty()) {
-                    // Fallback to sample reference messages matching screenshot 14
                     item {
-                        ReferenceIncomingBubble(
-                            text = "Hi, can we schedule the demo tomorrow?",
-                            time = "9:14 AM"
-                        )
-                    }
-                    item {
-                        ReferenceOutgoingBubble(
-                            text = "Yes, 11:30 AM works. I'll send the details.",
-                            time = "9:16 AM"
-                        )
-                    }
-                    item {
-                        ReferenceIncomingBubble(
-                            text = "Perfect, thank you.",
-                            time = "9:18 AM"
+                        Text(
+                            text = "No messages in this assigned conversation yet.",
+                            color = RefTextMuted,
+                            fontSize = 13.sp,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 28.dp),
+                            textAlign = TextAlign.Center,
                         )
                     }
                 } else {
+                    item {
+                        ReferenceChatDayDivider(
+                            label = secondaryChatDayLabel(messages.firstOrNull()?.createdAt)
+                        )
+                    }
                     items(messages) { message ->
                         if (message.outbound) {
                             ReferenceOutgoingBubble(
                                 text = message.body,
-                                time = message.createdAt.takeLast(8).take(5)
+                                time = secondaryChatTime(message.createdAt),
+                                attachmentName = message.attachmentName,
+                                attachmentCount = message.attachmentCount,
                             )
                         } else {
                             ReferenceIncomingBubble(
                                 text = message.body,
-                                time = message.createdAt.takeLast(8).take(5)
+                                time = secondaryChatTime(message.createdAt),
+                                attachmentName = message.attachmentName,
+                                attachmentCount = message.attachmentCount,
                             )
                         }
                     }
+                }
                 }
             }
         }
@@ -898,9 +976,40 @@ fun ReferenceChatScreen(
 }
 
 @Composable
+private fun ReferenceChatDayDivider(
+    label: String,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        HorizontalDivider(
+            modifier = Modifier.weight(1f),
+            color = RefDarkBorder.copy(alpha = 0.8f),
+        )
+        Text(
+            text = label,
+            color = RefTextMuted,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+        )
+        HorizontalDivider(
+            modifier = Modifier.weight(1f),
+            color = RefDarkBorder.copy(alpha = 0.8f),
+        )
+    }
+}
+
+@Composable
 private fun ReferenceIncomingBubble(
     text: String,
     time: String,
+    attachmentName: String? = null,
+    attachmentCount: Int = 0,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -916,12 +1025,25 @@ private fun ReferenceIncomingBubble(
                 .padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
             Column {
-                Text(
-                    text = text,
-                    color = RefTextPrimary,
-                    fontSize = 14.sp,
-                    lineHeight = 19.sp
-                )
+                if (text.isNotBlank()) {
+                    Text(
+                        text = text,
+                        color = RefTextPrimary,
+                        fontSize = 14.sp,
+                        lineHeight = 19.sp
+                    )
+                }
+                attachmentName?.let {
+                    if (text.isNotBlank()) Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = if (attachmentCount > 1) "$it (+${attachmentCount - 1})" else it,
+                        color = RefBrandOrange,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = time,
@@ -938,6 +1060,8 @@ private fun ReferenceIncomingBubble(
 private fun ReferenceOutgoingBubble(
     text: String,
     time: String,
+    attachmentName: String? = null,
+    attachmentCount: Int = 0,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -952,12 +1076,25 @@ private fun ReferenceOutgoingBubble(
                 .padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
             Column {
-                Text(
-                    text = text,
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    lineHeight = 19.sp
-                )
+                if (text.isNotBlank()) {
+                    Text(
+                        text = text,
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        lineHeight = 19.sp
+                    )
+                }
+                attachmentName?.let {
+                    if (text.isNotBlank()) Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = if (attachmentCount > 1) "$it (+${attachmentCount - 1})" else it,
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(
                     modifier = Modifier.align(Alignment.End),
@@ -1008,7 +1145,7 @@ fun ReferenceLeadOverviewScreen(
 ) {
     ReferenceEntrance(modifier = modifier) {
         Scaffold(
-            containerColor = RefDarkBackground,
+            containerColor = Color.Transparent,
             topBar = {
                 Row(
                     modifier = Modifier
@@ -1097,7 +1234,7 @@ fun ReferenceLeadOverviewScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 // Telephony hardware / sync card
                 Box(
@@ -1106,7 +1243,7 @@ fun ReferenceLeadOverviewScreen(
                         .clip(RoundedCornerShape(20.dp))
                         .background(RefDarkSurface)
                         .border(1.dp, RefDarkBorder, RoundedCornerShape(20.dp))
-                        .padding(18.dp)
+                        .padding(12.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1115,7 +1252,7 @@ fun ReferenceLeadOverviewScreen(
                         // Phone graphic
                         Box(
                             modifier = Modifier
-                                .size(50.dp, 64.dp)
+                                .size(46.dp, 54.dp)
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(RefDarkSurfaceVariant)
                                 .border(1.dp, RefDarkBorder, RoundedCornerShape(10.dp)),
@@ -1129,7 +1266,7 @@ fun ReferenceLeadOverviewScreen(
                             )
                         }
 
-                        Spacer(modifier = Modifier.width(16.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
 
                         Column {
                             Text(
@@ -1138,27 +1275,27 @@ fun ReferenceLeadOverviewScreen(
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold
                             )
-                            Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.height(3.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Box(
                                     modifier = Modifier
                                         .size(7.dp)
                                         .clip(CircleShape)
-                                        .background(RefSuccessGreen)
+                                        .background(if (isDeviceSynced) RefSuccessGreen else RefWarningOrange)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = if (isDeviceSynced) "Synced" else "Offline",
+                                    text = if (isDeviceSynced) "Synced" else "Sync pending",
                                     color = RefTextPrimary,
                                     fontSize = 12.sp
                                 )
                             }
-                            Spacer(modifier = Modifier.height(3.dp))
+                            Spacer(modifier = Modifier.height(1.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
                                     imageVector = Icons.Default.CheckCircle,
                                     contentDescription = null,
-                                    tint = RefSuccessGreen,
+                                    tint = if (isDeviceVerified) RefSuccessGreen else RefWarningOrange,
                                     modifier = Modifier.size(13.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
@@ -1172,7 +1309,7 @@ fun ReferenceLeadOverviewScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 // Account section
                 ReferenceSettingsSectionTitle("Account")
@@ -1192,7 +1329,7 @@ fun ReferenceLeadOverviewScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 // Preferences section
                 ReferenceSettingsSectionTitle("Preferences")
@@ -1212,7 +1349,7 @@ fun ReferenceLeadOverviewScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 // Call & Sync section
                 ReferenceSettingsSectionTitle("Call & sync")
@@ -1239,7 +1376,7 @@ fun ReferenceLeadOverviewScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(22.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 // Run Diagnostics Button
                 Box(
@@ -1249,7 +1386,7 @@ fun ReferenceLeadOverviewScreen(
                         .background(RefDarkSurface)
                         .border(1.dp, RefDarkBorder, RoundedCornerShape(24.dp))
                         .clickable(onClick = onRunDiagnosticsClick)
-                        .padding(vertical = 14.dp),
+                        .padding(vertical = 10.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1269,7 +1406,7 @@ fun ReferenceLeadOverviewScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 // Log out Button
                 Box(
@@ -1279,7 +1416,7 @@ fun ReferenceLeadOverviewScreen(
                         .background(RefDarkSurface)
                         .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.4f), RoundedCornerShape(24.dp))
                         .clickable(onClick = onLogoutClick)
-                        .padding(vertical = 14.dp),
+                        .padding(vertical = 10.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1299,7 +1436,7 @@ fun ReferenceLeadOverviewScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(28.dp))
+                Spacer(modifier = Modifier.height(12.dp))
             }
         }
     }
@@ -1340,7 +1477,7 @@ private fun ReferenceSettingsRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .padding(horizontal = 16.dp, vertical = 9.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1399,10 +1536,16 @@ fun ReferenceAddContactScreen(
     onSourceChange: (String) -> Unit = {},
     selectedStage: String = "New",
     onStageChange: (String) -> Unit = {},
+    isSaving: Boolean = false,
     onSaveContact: () -> Unit = {},
     onCancel: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    var sourceExpanded by remember { mutableStateOf(false) }
+    var stageExpanded by remember { mutableStateOf(false) }
+    val sourceOptions = listOf("Manual", "WhatsApp", "Website", "Referral")
+    val stageOptions = listOf("New", "Contacted", "Qualified", "Follow-up", "Closed won")
+
     ReferenceEntrance(modifier = modifier) {
         Box(
             modifier = Modifier
@@ -1413,6 +1556,7 @@ fun ReferenceAddContactScreen(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .fillMaxHeight(0.92f)
                     .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)),
                 color = RefDarkSurface,
                 border = BorderStroke(1.dp, RefDarkBorder.copy(alpha = 0.6f))
@@ -1423,6 +1567,7 @@ fun ReferenceAddContactScreen(
                         .padding(horizontal = 20.dp, vertical = 14.dp)
                         .navigationBarsPadding()
                         .imePadding()
+                        .verticalScroll(rememberScrollState())
                 ) {
                     // Drag handle
                     Box(
@@ -1571,6 +1716,7 @@ fun ReferenceAddContactScreen(
                                     .clip(RoundedCornerShape(16.dp))
                                     .background(RefDarkSurfaceVariant)
                                     .border(1.dp, RefDarkBorder, RoundedCornerShape(16.dp))
+                                    .clickable { sourceExpanded = true }
                                     .padding(horizontal = 12.dp, vertical = 11.dp)
                             ) {
                                 Row(
@@ -1599,6 +1745,20 @@ fun ReferenceAddContactScreen(
                                         modifier = Modifier.size(16.dp)
                                     )
                                 }
+                                DropdownMenu(
+                                    expanded = sourceExpanded,
+                                    onDismissRequest = { sourceExpanded = false },
+                                ) {
+                                    sourceOptions.forEach { option ->
+                                        DropdownMenuItem(
+                                            text = { Text(option) },
+                                            onClick = {
+                                                onSourceChange(option)
+                                                sourceExpanded = false
+                                            },
+                                        )
+                                    }
+                                }
                             }
                         }
 
@@ -1616,6 +1776,7 @@ fun ReferenceAddContactScreen(
                                     .clip(RoundedCornerShape(16.dp))
                                     .background(RefDarkSurfaceVariant)
                                     .border(1.dp, RefDarkBorder, RoundedCornerShape(16.dp))
+                                    .clickable { stageExpanded = true }
                                     .padding(horizontal = 12.dp, vertical = 11.dp)
                             ) {
                                 Row(
@@ -1643,6 +1804,20 @@ fun ReferenceAddContactScreen(
                                         tint = RefTextMuted,
                                         modifier = Modifier.size(16.dp)
                                     )
+                                }
+                                DropdownMenu(
+                                    expanded = stageExpanded,
+                                    onDismissRequest = { stageExpanded = false },
+                                ) {
+                                    stageOptions.forEach { option ->
+                                        DropdownMenuItem(
+                                            text = { Text(option) },
+                                            onClick = {
+                                                onStageChange(option)
+                                                stageExpanded = false
+                                            },
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1672,6 +1847,7 @@ fun ReferenceAddContactScreen(
 
                         Button(
                             onClick = onSaveContact,
+                            enabled = !isSaving,
                             modifier = Modifier
                                 .weight(1.3f)
                                 .height(48.dp),
@@ -1681,7 +1857,17 @@ fun ReferenceAddContactScreen(
                                 contentColor = Color.White
                             )
                         ) {
-                            Text(text = "Save contact", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            if (isSaving) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(17.dp),
+                                    color = Color.White,
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(17.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text(text = "Save contact", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
 
@@ -1769,9 +1955,17 @@ fun ReferencePipelineScreen(
     onNavTabSelect: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val newLeads = leads.filter { it.stage.equals("NEW", ignoreCase = true) }
+    val followUpLeads = leads.filter {
+        it.stage.equals("FOLLOW_UP", ignoreCase = true) ||
+            it.stage.equals("INTERESTED", ignoreCase = true) ||
+            it.stage.equals("QUALIFIED", ignoreCase = true)
+    }
+    val qualifiedLeads = leads.filter { it.stage.equals("QUALIFIED", ignoreCase = true) }
+
     ReferenceEntrance(modifier = modifier) {
         Scaffold(
-            containerColor = RefDarkBackground,
+            containerColor = Color.Transparent,
             topBar = {
                 Column(
                     modifier = Modifier
@@ -1942,12 +2136,6 @@ fun ReferencePipelineScreen(
                     }
                 }
             },
-            bottomBar = {
-                ReferenceBottomNavigation(
-                    selectedTab = selectedNavTab,
-                    onTabSelect = onNavTabSelect
-                )
-            },
             floatingActionButton = {
                 FloatingActionButton(
                     onClick = onAddLeadClick,
@@ -1962,6 +2150,26 @@ fun ReferencePipelineScreen(
                         modifier = Modifier.size(24.dp)
                     )
                 }
+            },
+            bottomBar = {
+                AppBottomNavBar(
+                    selectedTab = when (selectedNavTab) {
+                        0 -> "home"
+                        2 -> "calls"
+                        3 -> "more"
+                        else -> "leads"
+                    },
+                    onTabSelected = { tab ->
+                        onNavTabSelect(
+                            when (tab) {
+                                "home" -> 0
+                                "calls" -> 2
+                                "more" -> 3
+                                else -> 1
+                            }
+                        )
+                    }
+                )
             }
         ) { paddingValues ->
             // Kanban board columns
@@ -1975,23 +2183,24 @@ fun ReferencePipelineScreen(
                 // Peek Left Column: New
                 ReferenceKanbanPeekColumn(
                     title = "New",
-                    count = 4,
+                    count = newLeads.size,
                     dotColor = RefBlue,
                     modifier = Modifier.width(52.dp)
                 )
 
                 // Active Center Column: Follow-up
                 ReferenceKanbanActiveColumn(
-                    leads = leads,
+                    leads = followUpLeads,
                     onLeadCardClick = onLeadCardClick,
                     onLeadMenuClick = onLeadMenuClick,
+                    onColumnMenuClick = onFilterClick,
                     modifier = Modifier.weight(1f)
                 )
 
                 // Peek Right Column: Qualified
                 ReferenceKanbanPeekColumn(
                     title = "Qualif",
-                    count = 3,
+                    count = qualifiedLeads.size,
                     dotColor = RefSuccessGreen,
                     modifier = Modifier.width(52.dp)
                 )
@@ -2040,15 +2249,12 @@ private fun ReferenceKanbanPeekColumn(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Placeholder cards
-        repeat(4) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
-                    .padding(vertical = 4.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(RefDarkSurfaceVariant.copy(alpha = 0.4f))
+        if (count == 0) {
+            Text(
+                text = "—",
+                color = RefTextMuted,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
             )
         }
     }
@@ -2059,6 +2265,7 @@ private fun ReferenceKanbanActiveColumn(
     leads: List<SalesLead>,
     onLeadCardClick: (SalesLead) -> Unit,
     onLeadMenuClick: (SalesLead) -> Unit,
+    onColumnMenuClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -2084,19 +2291,24 @@ private fun ReferenceKanbanActiveColumn(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Follow-up · 6",
+                    text = "Follow-up · ${leads.size}",
                     color = RefTextPrimary,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
 
-            Icon(
-                imageVector = Icons.Default.MoreHoriz,
-                contentDescription = null,
-                tint = RefTextMuted,
-                modifier = Modifier.size(18.dp)
-            )
+            IconButton(
+                onClick = onColumnMenuClick,
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.MoreHoriz,
+                    contentDescription = "Pipeline actions",
+                    tint = RefTextMuted,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -2107,42 +2319,16 @@ private fun ReferenceKanbanActiveColumn(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             if (leads.isEmpty()) {
-                // Render sample reference cards matching screenshot 17
                 item {
-                    ReferencePipelineLeadCard(
-                        avatar = "A",
-                        name = "Ankit Sharma",
-                        service = "Car Loan",
-                        priority = "High",
-                        priorityColor = RefBrandOrange,
-                        priorityBg = RefBrandOrangeSoft,
-                        actionTime = "Call today, 10:00 AM",
-                        onClick = {}
-                    )
-                }
-                item {
-                    ReferencePipelineLeadCard(
-                        avatar = "P",
-                        name = "Priya Mehta",
-                        service = "Home Loan",
-                        priority = "Medium",
-                        priorityColor = RefWarningOrange,
-                        priorityBg = RefWarningOrangeSoft,
-                        actionTime = "Follow up tomorrow",
-                        onClick = {}
-                    )
-                }
-                item {
-                    ReferencePipelineLeadCard(
-                        avatar = "R",
-                        name = "Rahul Verma",
-                        service = "Personal Loan",
-                        priority = "Low",
-                        priorityColor = RefSuccessGreen,
-                        priorityBg = RefSuccessGreenSoft,
-                        actionTime = "Send document",
-                        onClick = {}
-                    )
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 36.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(Icons.Default.Inbox, contentDescription = null, tint = RefTextMuted, modifier = Modifier.size(28.dp))
+                        Text("No follow-ups yet", color = RefTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text("Live lead activity will appear here.", color = RefTextMuted, fontSize = 12.sp)
+                    }
                 }
             } else {
                 items(leads) { lead ->
@@ -2164,6 +2350,7 @@ private fun ReferenceKanbanActiveColumn(
                         priorityColor = priorityColor,
                         priorityBg = priorityBg,
                         actionTime = lead.followUpAt ?: "Schedule call",
+                        onMenuClick = { onLeadMenuClick(lead) },
                         onClick = { onLeadCardClick(lead) }
                     )
                 }
@@ -2181,6 +2368,7 @@ private fun ReferencePipelineLeadCard(
     priorityColor: Color,
     priorityBg: Color,
     actionTime: String,
+    onMenuClick: () -> Unit,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -2215,12 +2403,17 @@ private fun ReferencePipelineLeadCard(
                         fontSize = 12.sp
                     )
                 }
-                Icon(
-                    imageVector = Icons.Default.MoreHoriz,
-                    contentDescription = null,
-                    tint = RefTextMuted,
-                    modifier = Modifier.size(16.dp)
-                )
+                IconButton(
+                    onClick = onMenuClick,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreHoriz,
+                        contentDescription = "Lead actions",
+                        tint = RefTextMuted,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -2287,7 +2480,7 @@ fun ReferenceContactsScreen(
 ) {
     ReferenceEntrance(modifier = modifier) {
         Scaffold(
-            containerColor = RefDarkBackground,
+            containerColor = Color.Transparent,
             topBar = {
                 Column(
                     modifier = Modifier
@@ -2523,9 +2716,23 @@ fun ReferenceContactsScreen(
                 }
             },
             bottomBar = {
-                ReferenceBottomNavigation(
-                    selectedTab = selectedNavTab,
-                    onTabSelect = onNavTabSelect
+                AppBottomNavBar(
+                    selectedTab = when (selectedNavTab) {
+                        0 -> "home"
+                        2 -> "calls"
+                        3 -> "more"
+                        else -> "leads"
+                    },
+                    onTabSelected = { tab ->
+                        onNavTabSelect(
+                            when (tab) {
+                                "home" -> 0
+                                "calls" -> 2
+                                "more" -> 3
+                                else -> 1
+                            }
+                        )
+                    }
                 )
             }
         ) { paddingValues ->
@@ -2537,47 +2744,44 @@ fun ReferenceContactsScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 if (contacts.isEmpty()) {
-                    // Fallback to sample contacts matching screenshot 18
                     item {
-                        ReferenceContactItemCard(
-                            avatar = "A",
-                            name = "Aarav Khanna",
-                            phone = "+91 98765 43210",
-                            email = "aarav.khanna@example.com",
-                            onCallClick = {},
-                            onClick = {}
-                        )
-                    }
-                    item {
-                        ReferenceContactItemCard(
-                            avatar = "P",
-                            name = "Priya Mehta",
-                            phone = "+91 91234 56789",
-                            email = "priya.mehta@example.com",
-                            onCallClick = {},
-                            onClick = {}
-                        )
-                    }
-                    item {
-                        ReferenceContactItemCard(
-                            avatar = "R",
-                            name = "Rahul Verma",
-                            phone = "+91 99887 66554",
-                            email = "rahul.verma@example.com",
-                            onCallClick = {},
-                            onClick = {}
-                        )
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 44.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(Icons.Default.PeopleOutline, contentDescription = null, tint = RefTextMuted, modifier = Modifier.size(30.dp))
+                            Text("No contacts yet", color = RefTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text("Add a contact or refresh to load live leads.", color = RefTextMuted, fontSize = 12.sp, textAlign = TextAlign.Center)
+                        }
                     }
                 } else {
-                    items(contacts) { contact ->
-                        ReferenceContactItemCard(
-                            avatar = contact.customerName.firstOrNull()?.toString() ?: "C",
-                            name = contact.customerName,
-                            phone = contact.customerPhone,
-                            email = contact.customerEmail,
-                            onCallClick = { onCallContactClick(contact) },
-                            onClick = { onContactClick(contact) }
-                        )
+                    item {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(RefDarkSurface)
+                                .border(1.dp, RefDarkBorder, RoundedCornerShape(20.dp))
+                        ) {
+                            contacts.forEachIndexed { index, contact ->
+                                ReferenceContactItemCard(
+                                    avatar = contact.customerName.firstOrNull()?.toString() ?: "C",
+                                    name = contact.customerName,
+                                    phone = contact.customerPhone,
+                                    email = contact.customerEmail,
+                                    onCallClick = { onCallContactClick(contact) },
+                                    onClick = { onContactClick(contact) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                if (index < contacts.lastIndex) {
+                                    HorizontalDivider(
+                                        color = RefDarkBorder.copy(alpha = 0.72f),
+                                        modifier = Modifier.padding(horizontal = 10.dp),
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -2595,31 +2799,27 @@ private fun ReferenceContactItemCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Box(
+    Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(RefDarkSurface)
-            .border(1.dp, RefDarkBorder, RoundedCornerShape(20.dp))
             .clickable(onClick = onClick)
-            .padding(14.dp)
+            .padding(horizontal = 10.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            ReferenceAvatar(text = avatar, size = 42.dp)
+        ReferenceAvatar(text = avatar, size = 42.dp)
 
-            Spacer(modifier = Modifier.width(14.dp))
+        Spacer(modifier = Modifier.width(12.dp))
 
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = name,
-                    color = RefTextPrimary,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(2.dp))
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = name,
+                color = RefTextPrimary,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (phone.isNotBlank()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = Icons.Default.Phone,
@@ -2631,10 +2831,13 @@ private fun ReferenceContactItemCard(
                     Text(
                         text = phone,
                         color = RefTextMuted,
-                        fontSize = 12.sp
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
-                Spacer(modifier = Modifier.height(2.dp))
+            }
+            if (email.isNotBlank()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = Icons.Default.MailOutline,
@@ -2646,26 +2849,28 @@ private fun ReferenceContactItemCard(
                     Text(
                         text = email,
                         color = RefTextMuted,
-                        fontSize = 12.sp
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
+        }
 
-            IconButton(
-                onClick = onCallClick,
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(RefDarkSurfaceVariant)
-                    .border(1.dp, RefDarkBorder, CircleShape)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Phone,
-                    contentDescription = "Call",
-                    tint = RefTextPrimary,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
+        IconButton(
+            onClick = onCallClick,
+            modifier = Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(RefDarkSurfaceVariant)
+                .border(1.dp, RefDarkBorder, CircleShape)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Phone,
+                contentDescription = "Call",
+                tint = RefTextPrimary,
+                modifier = Modifier.size(18.dp)
+            )
         }
     }
 }
@@ -2699,10 +2904,23 @@ fun ReferencePaymentsScreen(
     modifier: Modifier = Modifier
 ) {
     val subTabs = listOf("Overview", "Payment links", "Confirmations")
+    val paymentBorderColor = RefDarkBorder
+    val paymentSurfaceVariantColor = RefDarkSurfaceVariant
+    val visibleTransactions = if (selectedSubTab == "Overview") transactions else emptyList()
+    val emptyTitle = when (selectedSubTab) {
+        "Payment links" -> "No payment links yet"
+        "Confirmations" -> "No confirmations yet"
+        else -> "No transactions yet"
+    }
+    val emptyMessage = when (selectedSubTab) {
+        "Payment links" -> "Created payment links will appear here."
+        "Confirmations" -> "Customer confirmations will appear here."
+        else -> "Confirmed payments will appear here."
+    }
 
     ReferenceEntrance(modifier = modifier) {
         Scaffold(
-            containerColor = RefDarkBackground,
+            containerColor = Color.Transparent,
             topBar = {
                 Column(
                     modifier = Modifier
@@ -2961,7 +3179,7 @@ fun ReferencePaymentsScreen(
                                             (center.y + outerR * sin(angleRad)).toFloat()
                                         )
                                         drawLine(
-                                            color = RefDarkBorder,
+                                            color = paymentBorderColor,
                                             start = start,
                                             end = end,
                                             strokeWidth = 1.5.dp.toPx()
@@ -2970,7 +3188,7 @@ fun ReferencePaymentsScreen(
 
                                     // Base grey track
                                     drawArc(
-                                        color = RefDarkSurfaceVariant,
+                                        color = paymentSurfaceVariantColor,
                                         startAngle = -90f,
                                         sweepAngle = 360f,
                                         useCenter = false,
@@ -3009,46 +3227,20 @@ fun ReferencePaymentsScreen(
                 }
 
                 // Transactions Ledger
-                if (transactions.isEmpty()) {
-                    // Fallback to sample reference transactions matching screenshot 19
+                if (visibleTransactions.isEmpty()) {
                     item {
-                        ReferencePaymentItemCard(
-                            initial = "P",
-                            title = "PPW Office",
-                            date = "12 Mar 2025",
-                            amount = "₹24,500",
-                            status = "Confirmed",
-                            statusColor = RefSuccessGreen,
-                            statusBg = RefSuccessGreenSoft,
-                            onClick = {}
-                        )
-                    }
-                    item {
-                        ReferencePaymentItemCard(
-                            initial = "A",
-                            title = "Ankit Sharma",
-                            date = "10 Mar 2025",
-                            amount = "₹35,000",
-                            status = "Pending",
-                            statusColor = RefWarningOrange,
-                            statusBg = RefWarningOrangeSoft,
-                            onClick = {}
-                        )
-                    }
-                    item {
-                        ReferencePaymentItemCard(
-                            initial = "C",
-                            title = "CRM Setup",
-                            date = "05 Mar 2025",
-                            amount = "₹25,000",
-                            status = "Confirmed",
-                            statusColor = RefSuccessGreen,
-                            statusBg = RefSuccessGreenSoft,
-                            onClick = {}
-                        )
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 34.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = RefTextMuted, modifier = Modifier.size(30.dp))
+                            Text(emptyTitle, color = RefTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text(emptyMessage, color = RefTextMuted, fontSize = 12.sp)
+                        }
                     }
                 } else {
-                    items(transactions) { tx ->
+                    items(visibleTransactions) { tx ->
                         val isConfirmed = tx.status.equals("Confirmed", ignoreCase = true)
                         ReferencePaymentItemCard(
                             initial = tx.initial,

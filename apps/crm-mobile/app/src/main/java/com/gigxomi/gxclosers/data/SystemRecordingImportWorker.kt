@@ -24,21 +24,49 @@ class SystemRecordingImportWorker(appContext: Context, workerParams: WorkerParam
         val phoneNumber = inputData.getString(KEY_PHONE_NUMBER)
         val imported = SystemCallRecordingImporter.importLatest(
             applicationContext,
+            callId,
             startedAt,
             endedAt,
             durationSeconds,
             phoneNumber,
         ) ?: run {
+            val isFinalAttempt = runAttemptCount >= MAX_ATTEMPTS
             DeviceDiagnostics.record(
                 applicationContext,
-                kind = if (runAttemptCount < MAX_ATTEMPTS) "RECORDING_SOURCE_WAITING" else "RECORDING_SOURCE_MISSING",
+                kind = if (!isFinalAttempt) "RECORDING_SOURCE_WAITING" else "RECORDING_SOURCE_MISSING",
                 callId = callId,
                 fields = org.json.JSONObject()
                     .put("stage", "IMPORT")
                     .put("retryCount", runAttemptCount)
                     .put("expectedDurationMs", durationSeconds * 1000L),
             )
-            return if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.success()
+            if (isFinalAttempt) {
+                val store = OfflineEventStore(applicationContext)
+                // If a microphone fallback was held for this call, release it now since system audio was not found
+                val fallbackMic = store.pendingRecordings().firstOrNull { it.callId == callId && it.status == "HOLD_FOR_SYSTEM" }
+                if (fallbackMic != null) {
+                    store.updateRecordingStatus(fallbackMic.clientUploadId, "LOCAL_PENDING")
+                    RecordingUploadWorker.enqueue(applicationContext)
+                    return Result.success()
+                }
+
+                val existingRec = store.recordingForCall(callId)
+                if (existingRec == null || existingRec.status == "FAILED" || existingRec.status == "FAILED_PERMANENT") {
+                    store.enqueue(
+                        id = "system-import-timeout-$callId",
+                        type = "CALL_END",
+                        payload = org.json.JSONObject()
+                            .put("callSessionId", callId)
+                            .put("status", "COMPLETED")
+                            .put("recordingStatus", "RECORDING_UNAVAILABLE")
+                            .put("recordingError", "System recording was not found. Open the call in Phone, tap Share recording, and choose AI Closer."),
+                        entityId = callId,
+                    )
+                    CrmRepository(applicationContext).syncOffline()
+                }
+                return Result.success()
+            }
+            return Result.retry()
         }
 
         DeviceDiagnostics.record(
@@ -54,20 +82,16 @@ class SystemRecordingImportWorker(appContext: Context, workerParams: WorkerParam
 
         val clientUploadId = UUID.nameUUIDFromBytes("system:$callId:${imported.sourceId}".toByteArray()).toString()
         val store = OfflineEventStore(applicationContext)
-        if (store.allRecordings().none { it.clientUploadId == clientUploadId }) {
-            store.enqueueRecording(
-                QueuedRecording(
-                    clientUploadId = clientUploadId,
-                    callId = callId,
-                    tenantId = null,
-                    deviceId = SessionStore(applicationContext).installationId,
-                    filePath = imported.file.absolutePath,
-                    sizeBytes = imported.file.length(),
-                    durationMs = imported.durationMs,
-                    status = "LOCAL_PENDING",
-                )
-            )
-        }
+        val sessionStore = SessionStore(applicationContext)
+        // Cleanly supersede any 1-way mic fallback recording with the 2-way system recording
+        store.supersedeRecordingWithSystem(
+            callId = callId,
+            systemUploadId = clientUploadId,
+            filePath = imported.file.absolutePath,
+            sizeBytes = imported.file.length(),
+            durationMs = imported.durationMs,
+            deviceId = sessionStore.installationId,
+        )
         RecordingUploadWorker.enqueue(applicationContext)
         return Result.success()
     }
@@ -96,7 +120,7 @@ class SystemRecordingImportWorker(appContext: Context, workerParams: WorkerParam
                 .build()
             WorkManager.getInstance(context).enqueueUniqueWork(
                 UNIQUE_PREFIX + callId,
-                ExistingWorkPolicy.KEEP,
+                ExistingWorkPolicy.REPLACE,
                 request,
             )
         }

@@ -1,0 +1,26 @@
+{
+  "name": "Redmi 9 / MIUI recording route",
+  "manufacturer": "Xiaomi",
+  "brand": "Redmi",
+  "model": "M2004J19C",
+  "device": "lancelot",
+  "androidApi": 31,
+  "androidVersion": "12",
+  "defaultDialer": "com.android.contacts",
+  "recordingDirectory": "/sdcard/MIUI/sound_recorder/call_rec",
+  "selectedFolderExample": "content://com.android.externalstorage.documents/tree/primary%3ARecordings",
+  "sharedAudioAccess": true,
+  "accessibilityShareEnabled": false,
+  "microphoneFallbackEnabled": true,
+  "expectedRecordingCapability": "SYSTEM_FOLDER_OR_MEDIASTORE",
+  "expectedRoutePriority": [
+    "SYSTEM_FOLDER_OR_MEDIASTORE",
+    "DIALER_SHARE",
+    "MICROPHONE_FALLBACK"
+  ],
+  "notes": [
+    "The selected Recordings folder can be empty; the Xiaomi native folder is scanned separately.",
+    "The emulator cannot reproduce MIUI Phone internals, so this profile covers the app routing and storage branch only.",
+    "Do not place real call recordings, phone numbers, tokens, or account data in this fixture."
+  ]
+}

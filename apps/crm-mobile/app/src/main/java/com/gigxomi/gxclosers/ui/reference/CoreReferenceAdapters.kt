@@ -1,5 +1,9 @@
 package com.gigxomi.gxclosers.ui.reference
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.gigxomi.gxclosers.ui.FollowUpPickerDialog
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
@@ -23,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import com.gigxomi.gxclosers.data.*
 import com.gigxomi.gxclosers.ui.CrmViewModel
 import com.gigxomi.gxclosers.ui.screens.*
+import com.gigxomi.gxclosers.ui.theme.LocalThemeMode
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -47,20 +52,31 @@ private fun ExplicitEmptyStateView(
     onActionClick: (() -> Unit)? = null,
     secondaryActionLabel: String? = null,
     onSecondaryActionClick: (() -> Unit)? = null,
+    onBackClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(RefDarkBg)
+            .background(MaterialTheme.colorScheme.background)
             .padding(24.dp),
         contentAlignment = Alignment.Center
     ) {
+        if (onBackClick != null) {
+            IconButton(
+                onClick = onBackClick,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(8.dp),
+            ) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            }
+        }
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = RefDarkCard),
-            border = BorderStroke(1.dp, RefDarkBorder)
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
             Column(
                 modifier = Modifier
@@ -88,7 +104,7 @@ private fun ExplicitEmptyStateView(
 
                 Text(
                     text = title,
-                    color = RefDarkText,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center
@@ -98,7 +114,7 @@ private fun ExplicitEmptyStateView(
 
                 Text(
                     text = message,
-                    color = RefDarkMuted,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp,
                     textAlign = TextAlign.Center,
                     lineHeight = 18.sp
@@ -128,14 +144,14 @@ private fun ExplicitEmptyStateView(
                     OutlinedButton(
                         onClick = onSecondaryActionClick,
                         shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, RefDarkBorder),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(44.dp)
                     ) {
                         Text(
                             text = secondaryActionLabel,
-                            color = RefDarkText,
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 13.sp
                         )
@@ -158,6 +174,7 @@ fun LiveHomeScreenAdapter(
     onGrabLeads: () -> Unit = {},
     onOpenChats: () -> Unit = {},
     onOpenPayments: () -> Unit = {},
+    onOpenWhatsApp: () -> Unit = {},
     onOpenNotifications: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -185,17 +202,24 @@ fun LiveHomeScreenAdapter(
         if (available > 0) "Ready to close more today?" else "Track your progress and follow-ups"
     }
 
-    val callsToday = remember(data?.calls) {
-        val today = LocalDate.now()
-        data?.calls.orEmpty().count { call ->
-            runCatching {
-                Instant.parse(call.startedAt).atZone(ZoneId.systemDefault()).toLocalDate() == today
-            }.getOrDefault(true)
+    val todayCalls = remember(data?.calls, vm.currentDeviceId, vm.currentDeviceModel) {
+        val zone = ZoneId.systemDefault()
+        val today = LocalDate.now(zone)
+        data?.calls.orEmpty().filter { call ->
+            if (!call.isFromDevice(vm.currentDeviceId, vm.currentDeviceModel)) return@filter false
+            val instant = call.parseEffectiveInstant() ?: return@filter false
+            instant.atZone(zone).toLocalDate() == today
         }
     }
 
-    val talkTimeMinutes = remember(data?.calls) {
-        data?.calls.orEmpty().sumOf { it.durationSeconds } / 60
+    val callsToday = todayCalls.size
+    val totalTalkSeconds = todayCalls.sumOf { it.durationSeconds }
+    val talkTimeMinutes = totalTalkSeconds / 60
+    val talkTimeDisplay = when {
+        totalTalkSeconds >= 3600 -> "${totalTalkSeconds / 3600}h ${(totalTalkSeconds % 3600) / 60}m"
+        totalTalkSeconds >= 60 -> "${totalTalkSeconds / 60}m"
+        totalTalkSeconds > 0 -> "${totalTalkSeconds}s"
+        else -> "0m"
     }
 
     val leadsCount = data?.dashboard?.totalLeads ?: data?.leads?.size ?: 0
@@ -217,13 +241,14 @@ fun LiveHomeScreenAdapter(
         headline = headline,
         callsToday = callsToday,
         talkTimeMinutes = talkTimeMinutes,
+        talkTimeDisplay = talkTimeDisplay,
         leadsCount = leadsCount,
         syncStatusText = syncStatusText,
         recentLeads = recentLeads,
         selectedNavTab = "home",
         onNotificationClick = onOpenNotifications,
         onGrabLeadsClick = onGrabLeads,
-        onWhatsAppClick = { /* Real action triggered via WhatsApp or chat */ },
+        onWhatsAppClick = onOpenWhatsApp,
         onChatsClick = onOpenChats,
         onPaymentsClick = onOpenPayments,
         onViewAllLeadsClick = { onNavigateToTab("leads") },
@@ -271,11 +296,17 @@ fun LiveLeadsScreenAdapter(
     onOpenLead: (SalesLead) -> Unit = {},
     onGrabLeads: () -> Unit = {},
     onOpenNotifications: () -> Unit = {},
+    onBackClick: () -> Unit = { onNavigateToTab("home") },
+    onModalVisibilityChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var selectedStageFilter by rememberSaveable { mutableStateOf("All") }
     var showAddContactDialog by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(showAddContactDialog) {
+        onModalVisibilityChanged(showAddContactDialog)
+    }
 
     val rawLeads = vm.bootstrap?.leads.orEmpty()
 
@@ -289,6 +320,7 @@ fun LiveLeadsScreenAdapter(
             onActionClick = onGrabLeads,
             secondaryActionLabel = "Refresh leads",
             onSecondaryActionClick = { vm.refreshAll() },
+            onBackClick = onBackClick,
             modifier = modifier
         )
     } else {
@@ -298,7 +330,11 @@ fun LiveLeadsScreenAdapter(
             searchQuery = searchQuery,
             selectedNavTab = "leads",
             onSearchQueryChange = { searchQuery = it },
-            onFilterClick = { /* Opens filter sheet or cycles stages */ },
+            onFilterClick = {
+                val filters = listOf("All", "New", "Follow-up", "Contacted")
+                val next = (filters.indexOf(selectedStageFilter).coerceAtLeast(0) + 1) % filters.size
+                selectedStageFilter = filters[next]
+            },
             onStageFilterSelect = { selectedStageFilter = it },
             onNotificationClick = onOpenNotifications,
             onGrabLeadsClick = onGrabLeads,
@@ -315,58 +351,40 @@ fun LiveLeadsScreenAdapter(
         var phone by rememberSaveable { mutableStateOf("") }
         var email by rememberSaveable { mutableStateOf("") }
         var notes by rememberSaveable { mutableStateOf("") }
+        var selectedSource by rememberSaveable { mutableStateOf("Manual") }
+        var selectedStage by rememberSaveable { mutableStateOf("New") }
 
-        AlertDialog(
-            onDismissRequest = { showAddContactDialog = false },
-            title = { Text("Add New Contact", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(
-                        value = name,
-                        onValueChange = { name = it },
-                        label = { Text("Customer full name") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = phone,
-                        onValueChange = { phone = it },
-                        label = { Text("Phone number") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = email,
-                        onValueChange = { email = it },
-                        label = { Text("Email (optional)") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = notes,
-                        onValueChange = { notes = it },
-                        label = { Text("Initial notes (optional)") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
+        ReferenceAddContactScreen(
+            fullName = name,
+            onFullNameChange = { name = it },
+            phoneNumber = phone,
+            onPhoneNumberChange = { phone = it },
+            email = email,
+            onEmailChange = { email = it },
+            notes = notes,
+            onNotesChange = { notes = it },
+            selectedSource = selectedSource,
+            onSourceChange = { selectedSource = it },
+            selectedStage = selectedStage,
+            onStageChange = { selectedStage = it },
+            isSaving = vm.busy,
+            onCancel = { showAddContactDialog = false },
+            onSaveContact = {
+                if (name.trim().length < 2) {
+                    vm.showError("Enter customer full name.")
+                } else if (phone.filter(Char::isDigit).length < 7) {
+                    vm.showError("Enter a valid phone number.")
+                } else {
+                    vm.addContact(
+                        name = name.trim(),
+                        phone = phone.trim(),
+                        email = email.trim(),
+                        source = selectedSource,
+                        notes = notes.trim(),
+                        stage = selectedStage,
+                    ) { showAddContactDialog = false }
                 }
             },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        vm.addContact(name, phone, email, notes = notes) {
-                            showAddContactDialog = false
-                        }
-                    },
-                    enabled = name.isNotBlank() && phone.isNotBlank() && !vm.busy
-                ) {
-                    Text(if (vm.busy) "Saving..." else "Save")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddContactDialog = false }) {
-                    Text("Cancel")
-                }
-            }
         )
     }
 }
@@ -384,14 +402,67 @@ fun LiveCallsScreenAdapter(
     modifier: Modifier = Modifier
 ) {
     val calls = vm.bootstrap?.calls.orEmpty()
-    var selectedCallTab by rememberSaveable { mutableStateOf("Outbound") }
+    var selectedCallTab by rememberSaveable { mutableStateOf("All") }
+    var selectedScopeTab by rememberSaveable { mutableStateOf("All") }
+    var selectedCallId by rememberSaveable { mutableStateOf<String?>(null) }
 
-    val activeCall = remember(calls, vm.playingCallId) {
-        calls.find { it.id == vm.playingCallId } ?: calls.firstOrNull()
+    val filteredCalls = remember(calls, selectedCallTab, selectedScopeTab) {
+        calls.filter { call ->
+            val matchesScope = when (selectedScopeTab) {
+                "This Device" -> {
+                    val isOtherDevice = (!call.deviceId.isNullOrBlank() && vm.currentDeviceId.isNotBlank() && call.deviceId != vm.currentDeviceId) ||
+                            (!call.deviceModel.isNullOrBlank() && vm.currentDeviceModel.isNotBlank() && !call.deviceModel.equals(vm.currentDeviceModel, ignoreCase = true))
+                    !isOtherDevice
+                }
+                else -> true
+            }
+            if (!matchesScope) return@filter false
+
+            when (selectedCallTab.lowercase()) {
+                "all" -> true
+                "missed" -> call.status.equals("MISSED", true) || call.direction.equals("MISSED", true) || call.durationSeconds <= 0
+                "inbound" -> (call.direction.equals("INBOUND", true) ||
+                    call.direction.equals("INCOMING", true) ||
+                    call.direction.equals("RECEIVED", true)) &&
+                    !call.status.equals("MISSED", true) &&
+                    !call.direction.equals("MISSED", true) &&
+                    call.durationSeconds > 0
+                "outbound" -> (call.direction.equals("OUTBOUND", true) || call.direction.equals("DIALED", true)) &&
+                    !call.status.equals("MISSED", true) &&
+                    !call.direction.equals("MISSED", true) &&
+                    call.durationSeconds > 0
+                else -> true
+            }
+        }.sortedByDescending { it.endedAt?.takeIf(String::isNotBlank) ?: it.startedAt }
     }
-    val isPlaying = vm.playingCallId != null && vm.playingCallId == activeCall?.id
 
-    if (calls.isEmpty() && vm.bootstrap != null) {
+    val activeCall = remember(filteredCalls, vm.playingCallId, selectedCallId) {
+        filteredCalls.find { it.id == vm.playingCallId }
+            ?: filteredCalls.find { it.id == selectedCallId }
+            ?: filteredCalls.find { it.recordingStatus == "UPLOADED" }
+            ?: filteredCalls.firstOrNull()
+    }
+    val isPlaying = vm.isPlaybackPlaying && vm.playingCallId == activeCall?.id
+    val attachableCalls = remember(calls) {
+        calls.filter { call ->
+            call.status.equals("COMPLETED", ignoreCase = true) &&
+                call.recordingStatus != "UPLOADED"
+        // A contact can have several call attempts in the bootstrap payload.
+        // Show one representative target per contact so recovery stays compact;
+        // the newest call is first in the API response and is the safest match
+        // for a recording just shared from Phone.
+        }.distinctBy { call ->
+            listOf(
+                call.assignment?.customerName.orEmpty().trim().lowercase(),
+                call.phoneNumber.trim(),
+            ).joinToString("|")
+        }.take(8)
+    }
+
+    // Keep the Calls surface available when a dialer share was imported but
+    // there is no call in the currently selected tab yet. The recovery card
+    // is the only user-facing path for a share that missed auto-association.
+    if (calls.isEmpty() && vm.bootstrap != null && vm.pendingSharedRecording == null) {
         // Explicit empty state when no calls are logged
         ExplicitEmptyStateView(
             icon = Icons.AutoMirrored.Filled.PhoneCallback,
@@ -403,23 +474,35 @@ fun LiveCallsScreenAdapter(
         )
     } else {
         ReferenceCallsScreen(
-            calls = calls,
+            calls = filteredCalls,
             activeCall = activeCall,
             isPlaying = isPlaying,
-            playbackPositionSeconds = 0,
+            playbackPositionSeconds = vm.playbackPositionSeconds,
             selectedCallTab = selectedCallTab,
+            selectedScopeTab = selectedScopeTab,
             selectedNavTab = "calls",
+            currentDeviceId = vm.currentDeviceId,
+            currentDeviceModel = vm.currentDeviceModel,
+            onScopeTabSelect = { selectedScopeTab = it },
             onNotificationClick = onOpenNotifications,
             onPlayPauseToggle = {
                 activeCall?.id?.let { callId -> vm.playRecording(callId) }
             },
-            onSkipBackward = { /* Rewind playback */ },
-            onSkipForward = { /* Fast forward playback */ },
-            onSeek = { /* Seek position */ },
+            onSkipBackward = { vm.seekRecordingBy(-15) },
+            onSkipForward = { vm.seekRecordingBy(15) },
+            onSeek = vm::seekRecordingTo,
             onCallTabSelect = { selectedCallTab = it },
+            pendingSharedRecording = vm.pendingSharedRecording,
+            attachableCalls = attachableCalls,
+            isAttachingSharedRecording = vm.busy,
+            onAttachSharedRecording = vm::attachSharedRecording,
+            onDiscardSharedRecording = vm::discardSharedRecording,
             onCallClick = { call ->
+                selectedCallId = call.id
                 if (call.recordingStatus == "UPLOADED") {
                     vm.playRecording(call.id)
+                } else if (call.recordingStatus == "FAILED" || call.recordingStatus == "LOCAL_PENDING" || call.recordingStatus == "PENDING") {
+                    vm.retryRecordingUpload(call.id)
                 } else if (call.note.isNullOrBlank()) {
                     onOpenDisposition(call.id)
                 }
@@ -450,6 +533,7 @@ fun LiveMoreDrawerAdapter(
 ) {
     val session = vm.session
     val agent = vm.bootstrap?.agent
+    val themeMode = LocalThemeMode.current
 
     val userName = session?.displayName ?: agent?.displayName ?: "Sales Closer"
     val userRole = if (agent?.canClaimLeads == true) "Certified Closer" else "Sales closer"
@@ -457,7 +541,7 @@ fun LiveMoreDrawerAdapter(
     ReferenceMoreDrawer(
         userName = userName,
         userRole = userRole,
-        currentTheme = "Dark",
+        currentTheme = themeMode.name.lowercase().replaceFirstChar { it.uppercase() },
         onClose = onClose,
         onInboxClick = {
             vm.loadInbox()
@@ -488,26 +572,34 @@ fun LiveGrabLeadsScreenAdapter(
     onClaimCompleted: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val availableCount = vm.bootstrap?.availableLeadCount ?: vm.bootstrap?.availableLeads?.size ?: 0
+    val availableCount = maxOf(
+        vm.bootstrap?.availableLeadCount ?: 0,
+        vm.bootstrap?.availableLeads?.size ?: 0,
+    )
     val pack = vm.selectedPack
     val previewLead = pack?.leads?.firstOrNull() ?: vm.bootstrap?.availableLeads?.firstOrNull()
+    val canClaimLeads = vm.bootstrap?.agent?.canClaimLeads == true
+    val hasPendingNotes = (vm.bootstrap?.pendingNotes ?: 0) > 0
 
-    if (availableCount == 0 && pack == null && vm.bootstrap != null) {
-        // Explicit empty state when no leads are available in the queue
-        ExplicitEmptyStateView(
-            icon = Icons.Default.Inbox,
-            title = "No leads in queue",
-            message = "There are currently no fresh leads in the unassigned queue. Please check back soon or refresh.",
-            actionLabel = "Refresh pool",
-            onActionClick = { vm.refreshAll() },
-            secondaryActionLabel = "Back to dashboard",
-            onSecondaryActionClick = onBackClick,
+    if (vm.bootstrap == null) {
+        ReferenceGrabLeadsLoadingState(
+            onBackClick = onBackClick,
+            modifier = modifier,
+        )
+    } else if (availableCount == 0 && pack == null) {
+        ReferenceGrabLeadsEmptyState(
+            onBackClick = onBackClick,
+            onRefreshClick = { vm.refreshAll() },
             modifier = modifier
         )
     } else {
         ReferenceGrabLeadsScreen(
             availableCount = availableCount,
             previewLead = previewLead,
+            canClaimLeads = canClaimLeads,
+            hasPendingNotes = hasPendingNotes,
+            isBusy = vm.busy,
+            errorMessage = vm.error,
             onBackClick = onBackClick,
             onGrabNextLead = {
                 if (pack == null) {
@@ -539,6 +631,7 @@ fun LiveLeadDetailScreenAdapter(
 ) {
     val lead = vm.bootstrap?.leads?.find { it.id == leadId }
     val customer = vm.customer360
+    var showFollowUpDialog by rememberSaveable(leadId) { mutableStateOf(false) }
 
     LaunchedEffect(leadId) {
         vm.clearCustomer360()
@@ -578,10 +671,31 @@ fun LiveLeadDetailScreenAdapter(
             onWhatsAppClick = { onWhatsAppClick?.invoke(lead.customerPhone) },
             onChatClick = { onChatClick(lead.id) },
             onStageChange = { newStage -> vm.updateLeadStage(lead.id, newStage) },
-            onNextActionClick = { /* Opens schedule follow-up picker */ },
-            onUpdateLeadClick = { /* Opens update lead details */ },
+            onNextActionClick = { showFollowUpDialog = true },
+            // Stage chips persist changes as they are selected. Keep the
+            // sticky action useful by explicitly re-saving the current stage
+            // and refreshing the lead list instead of leaving it inert.
+            onUpdateLeadClick = { selectedStage ->
+                vm.updateLeadStage(lead.id, selectedStage.ifBlank { lead.stage.ifBlank { "NEW" } })
+            },
             modifier = modifier
         )
+
+        if (showFollowUpDialog) {
+            FollowUpPickerDialog(
+                onDismiss = { showFollowUpDialog = false },
+                onPicked = { iso, _ ->
+                    showFollowUpDialog = false
+                    vm.createFollowUpTask(
+                        leadId = lead.id,
+                        title = "Follow up with ${lead.customerName}",
+                        dueAt = iso,
+                        priority = lead.priority.ifBlank { "NORMAL" },
+                        description = "Scheduled from lead details",
+                    )
+                },
+            )
+        }
     }
 }
 
@@ -598,8 +712,30 @@ fun LiveCompleteCallScreenAdapter(
     modifier: Modifier = Modifier
 ) {
     val call = vm.bootstrap?.calls?.find { it.id == callId }
+    var followUpIso by rememberSaveable(callId) { mutableStateOf<String?>(null) }
+    var followUpDisplay by rememberSaveable(callId) { mutableStateOf("") }
+    var showFollowUpDialog by rememberSaveable(callId) { mutableStateOf(false) }
 
-    if (call == null && callId.isNotBlank()) {
+    val audioPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            vm.attachAudioUri(callId, it)
+        }
+    }
+
+    LaunchedEffect(call?.assignment?.followUpAt) {
+        if (followUpDisplay.isBlank()) {
+            followUpDisplay = call?.assignment?.followUpAt.orEmpty()
+        }
+    }
+
+    if (vm.bootstrap == null) {
+        ReferenceCompleteCallLoadingState(
+            onBackClick = onBackClick,
+            modifier = modifier,
+        )
+    } else if (call == null || callId.isBlank()) {
         // Explicit empty state when call is not found
         ExplicitEmptyStateView(
             icon = Icons.AutoMirrored.Filled.PhoneMissed,
@@ -612,38 +748,56 @@ fun LiveCompleteCallScreenAdapter(
             modifier = modifier
         )
     } else {
-        val contactName = call?.assignment?.customerName ?: call?.phoneNumber ?: "Contact"
-        val durationSeconds = call?.durationSeconds ?: 0
+        val contactName = call.assignment?.customerName ?: call.phoneNumber
+        val durationSeconds = call.durationSeconds
         val min = durationSeconds / 60
         val sec = durationSeconds % 60
-        val callTypeAndDuration = "Outgoing · %02d:%02d".format(min, sec)
-        val initialOutcome = call?.outcome?.ifBlank { "Connected" } ?: "Connected"
-        val initialFollowUpText = call?.assignment?.followUpAt ?: ""
-        val initialNotes = call?.note.orEmpty()
-        val initialMoveToFollowUp = call?.assignment?.stage?.equals("FOLLOW_UP", ignoreCase = true) ?: true
+        val callTypeAndDuration = "Outgoing • %02d:%02d".format(min, sec)
+        val initialOutcome = call.outcome?.ifBlank { "Connected" } ?: "Connected"
+        val initialNotes = call.note.orEmpty()
 
         ReferenceCompleteCallScreen(
             contactName = contactName,
             callTypeAndDuration = callTypeAndDuration,
             initialOutcome = initialOutcome,
-            initialFollowUpText = initialFollowUpText,
+            initialFollowUpText = followUpDisplay,
             initialNotes = initialNotes,
-            initialMoveToFollowUp = initialMoveToFollowUp,
+            recordingStatus = call.recordingStatus,
+            recordingDurationSeconds = durationSeconds,
             onBackClick = onBackClick,
-            onSelectFollowUpTime = { /* Opens follow-up date/time picker */ },
+            onSelectFollowUpTime = {
+                showFollowUpDialog = true
+            },
+            onAttachAudioClick = {
+                audioPickerLauncher.launch("audio/*")
+            },
+            onRetryRecordingClick = {
+                vm.retryRecordingUpload(callId)
+            },
             onSaveOutcome = { outcome, notes, followUpText, moveToFollowUp ->
-                val stageUpdate = if (moveToFollowUp) "FOLLOW_UP" else (call?.assignment?.stage ?: "CONTACTED")
+                val stageUpdate = if (moveToFollowUp) "FOLLOW_UP" else (call.assignment?.stage ?: "CONTACTED")
+                val followUpToSend = followUpIso ?: followUpText.ifBlank { null }
                 vm.saveDisposition(
                     callId = callId,
                     customerName = contactName,
                     outcome = outcome,
                     note = notes,
-                    followUp = followUpText.ifBlank { null },
+                    followUp = followUpToSend,
                     stageUpdate = stageUpdate,
                     done = onSaved
                 )
             },
             modifier = modifier
         )
+        if (showFollowUpDialog) {
+            FollowUpPickerDialog(
+                onDismiss = { showFollowUpDialog = false },
+                onPicked = { iso, display ->
+                    followUpIso = iso
+                    followUpDisplay = display
+                    showFollowUpDialog = false
+                },
+            )
+        }
     }
 }

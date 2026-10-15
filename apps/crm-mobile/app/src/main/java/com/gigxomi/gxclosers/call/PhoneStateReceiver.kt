@@ -49,22 +49,43 @@ class PhoneStateReceiver : BroadcastReceiver() {
             else -> null
         } ?: return
         val prefs = context.getSharedPreferences(CallAudioRecorder.PREFS, Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val lastHandledState = prefs.getString("lastHandledState", null)
+        val lastHandledStateAt = prefs.getLong("lastHandledStateAt", 0L)
+        if (lastHandledState == state && (now - lastHandledStateAt) < 500L) {
+            Log.d("GXPhoneState", "Debouncing duplicate $state transition within ${now - lastHandledStateAt}ms")
+            return
+        }
+        prefs.edit().putString("lastHandledState", state).putLong("lastHandledStateAt", now).apply()
+
         val incoming = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER).orEmpty()
-        val rawPhone = incoming.ifBlank { prefs.getString("activePhone", prefs.getString("phone", "")).orEmpty() }
-        // Some OEMs put a caller label/SIP URI in EXTRA_INCOMING_NUMBER.
-        // Normalize it before creating the inbound CRM session.
+        val screenedPhone = prefs.getString("screenedIncomingPhone", null)?.takeIf {
+            prefs.getLong("screenedIncomingAt", 0L) >= (now - 25_000L)
+        }
+        // When incoming-number extra is missing on RINGING, only accept fresh CallScreening evidence.
+        // Never fall back to activePhone (outbound target) or stale cached phone numbers.
+        val rawPhone = when {
+            incoming.isNotBlank() -> incoming
+            state == "RINGING" && !screenedPhone.isNullOrBlank() -> screenedPhone
+            state == "RINGING" -> ""
+            state == "OFFHOOK" -> prefs.getString("activePhone", "").orEmpty()
+            else -> prefs.getString("activePhone", "").orEmpty()
+        }
         val phone = normalizePhone(rawPhone)
         Log.i("GXPhoneState", "state=$state incoming=$incoming resolved=$phone")
         prefs.edit().putString("state", state).putString("phone", phone).putLong("updatedAt", System.currentTimeMillis()).apply()
 
         val detectedSubId = CallManager.extractSubscriptionId(context, intent)
-        if (detectedSubId != null && !CallManager.isWorkSim(context, detectedSubId)) {
+        val initialLead = phone.takeIf(String::isNotBlank)?.let { CallManager.lookup(context, it) }
+        val isInitialLead = initialLead != null
+
+        if (detectedSubId != null && CallManager.isPersonalSim(context, detectedSubId) && !isInitialLead) {
             prefs.edit().putBoolean("activeCallIsNonWorkSim", true).apply()
         }
 
         if (state == "RINGING" && phone.isNotBlank()) {
-            if (detectedSubId != null && !CallManager.isWorkSim(context, detectedSubId)) {
-                Log.i("GXPhoneState", "RINGING detected on personal SIM subId= phone=. Ignoring completely.")
+            if (detectedSubId != null && CallManager.isPersonalSim(context, detectedSubId) && !isInitialLead) {
+                Log.i("GXPhoneState", "RINGING detected on personal SIM subId=$detectedSubId phone=$phone. Ignoring completely.")
                 prefs.edit().putBoolean("activeCallIsNonWorkSim", true).apply()
                 return
             }
@@ -75,16 +96,17 @@ class PhoneStateReceiver : BroadcastReceiver() {
 
             val lead = CallManager.lookup(context, phone)
 
-            val isConfirmedWorkSim = (detectedSubId != null && CallManager.isWorkSim(context, detectedSubId))
-            val allowCrmUi = !isMultiSimConfigured || isConfirmedWorkSim || (lead != null)
+            val isConfirmedPersonalSim = (detectedSubId != null && CallManager.isPersonalSim(context, detectedSubId))
+            val allowCrmUi = !isConfirmedPersonalSim || (lead != null)
             if (allowCrmUi) {
-                LeadCallNotification.show(context, phone)
-                CallOverlayWindow.show(context, phone)
+                val callerCardShown = DialerShareAccessibilityService.showCallerCard(context, phone)
+                if (!callerCardShown) {
+                    LeadCallNotification.show(context, phone)
+                    CallOverlayWindow.show(context, phone)
+                }
             }
 
-            val allowRingingSessionStart = !isMultiSimConfigured ||
-                (detectedSubId != null && CallManager.isWorkSim(context, detectedSubId)) ||
-                (lead != null)
+            val allowRingingSessionStart = !isConfirmedPersonalSim || (lead != null)
 
             if (allowRingingSessionStart &&
                 phone.isNotBlank() && prefs.getString("activeCallId", null).isNullOrBlank() &&
@@ -93,12 +115,10 @@ class PhoneStateReceiver : BroadcastReceiver() {
                 // Persist one client key for the physical inbound call before
                 // the asynchronous request starts. Retries after a lost
                 // response must address the same CRM row, not create another.
+                val newIncomingKey = "inbound-${System.currentTimeMillis()}-${UUID.randomUUID()}"
                 prefs.edit()
-                    .putString(
-                        "incomingSessionKey",
-                        prefs.getString("incomingSessionKey", null)
-                            ?: "inbound-${System.currentTimeMillis()}-${UUID.randomUUID()}",
-                    )
+                    .putString("incomingSessionKey", newIncomingKey)
+                    .putBoolean("incomingSessionStarting", true)
                     .apply()
                 startIncomingSession(context, phone, simSubscriptionId = detectedSubId)
             }
@@ -106,6 +126,14 @@ class PhoneStateReceiver : BroadcastReceiver() {
 
         if (state == "OFFHOOK") {
             prefs.edit().putBoolean("wasOffhook", true).putLong("offhookAt", System.currentTimeMillis()).apply()
+            val activePhoneForCard = prefs.getString("activePhone", null).orEmpty()
+            if (!prefs.getBoolean("activeCallIsNonWorkSim", false) && activePhoneForCard.isNotBlank()) {
+                val callerCardShown = DialerShareAccessibilityService.showCallerCard(context, activePhoneForCard)
+                if (!callerCardShown) {
+                    LeadCallNotification.show(context, activePhoneForCard)
+                    CallOverlayWindow.show(context, activePhoneForCard)
+                }
+            }
             // Only trust a server call ID that belongs to the current call.
             // `recordingCallId` is persisted for the upload queue and can be
             // left behind after a previous call finishes. Reusing it here
@@ -118,7 +146,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
             if (!prefs.getBoolean("activeCallIsNonWorkSim", false)) {
                 if (!callId.isNullOrBlank()) {
                 startRecorder(context, callId)
-            } else if ((prefs.getBoolean("micFallbackEnabled", false) &&
+            } else if ((DialerShareAutomation.isMicrophoneFallbackEnabled(context) &&
                     prefs.getBoolean("incomingSessionStarting", false)) ||
                 (!prefs.getBoolean("incomingSessionStarting", false) &&
                     !SessionStore(context).token.isNullOrBlank() &&
@@ -143,7 +171,20 @@ class PhoneStateReceiver : BroadcastReceiver() {
             // microphone capture first so it can be uploaded to this call.
             val localMicRecording = CallAudioRecorder.stop(context)
             runCatching { context.stopService(Intent(context, CallRecordingService::class.java)) }
-            val activePhone = prefs.getString("activePhone", null)?.ifBlank { null } ?: phone.ifBlank { null }
+            val pendingResult = goAsync()
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    handleIdleState(context, phone, localMicRecording)
+                } finally {
+                    pendingResult.finish()
+                }
+            }
+        }
+    }
+
+    private fun handleIdleState(context: Context, phone: String, localMicRecording: PendingRecording?) {
+        val prefs = context.getSharedPreferences(CallAudioRecorder.PREFS, Context.MODE_PRIVATE)
+        val activePhone = prefs.getString("activePhone", null)?.ifBlank { null } ?: phone.ifBlank { null }
             val activeStarted = prefs.getLong("activeStartedAt", 0L).takeIf { it > 0L }
             val callLog = latestCallLog(context, expectedPhone = activePhone, minStartedAt = activeStarted)
             val effectivePhone = callLog?.number?.takeIf(String::isNotBlank) ?: activePhone ?: phone
@@ -152,7 +193,9 @@ class PhoneStateReceiver : BroadcastReceiver() {
 
             val wasNonWork = prefs.getBoolean("activeCallIsNonWorkSim", false)
             val rawSubId = callLog?.simSubscriptionId ?: queryRawCallLogSim(context, effectivePhone, activeStarted)
-            val isPersonalCall = wasNonWork || (rawSubId != null && !CallManager.isWorkSim(context, rawSubId))
+            val effectiveLead = effectivePhone.takeIf(String::isNotBlank)?.let { CallManager.lookup(context, it) }
+            val isKnownLeadOrCrmCall = effectiveLead != null || !callId.isNullOrBlank()
+            val isPersonalCall = !isKnownLeadOrCrmCall && (wasNonWork || (rawSubId != null && CallManager.isPersonalSim(context, rawSubId)))
 
             if (isPersonalCall) {
                 Log.i("GXPhoneState", "IDLE: Dropping personal SIM call phone=$effectivePhone subId=$rawSubId wasNonWork=$wasNonWork")
@@ -171,6 +214,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
                     }
                 }
                 val cleanup = prefs.edit()
+                    .remove("incomingSessionKey")
                     .remove("activeCallId")
                     .remove("activeLeadId")
                     .remove("activePhone")
@@ -215,31 +259,78 @@ class PhoneStateReceiver : BroadcastReceiver() {
             if (!callId.isNullOrBlank()) {
                 val started = prefs.getLong("activeStartedAt", System.currentTimeMillis())
                 val connectedAt = prefs.getLong("offhookAt", started)
-                // PHONE_STATE can go RINGING -> IDLE without OFFHOOK for a
-                // missed/rejected call. Treat the absence of OFFHOOK as not
-                // connected; defaulting to true falsely reports missed calls
-                // as completed and attaches a recording failure to them.
-                val connected = if (callLog != null) callLog.durationSeconds > 0L else prefs.getBoolean("wasOffhook", false)
-                val recordingError = prefs.getString("recordingError", null).orEmpty()
-                val endedAtMillis = System.currentTimeMillis()
-                val durationSeconds = callLog?.durationSeconds?.takeIf { it > 0L }
-                    ?: if (connected) ((endedAtMillis - connectedAt) / 1000).coerceAtLeast(0) else 0L
-                // When the visible Phone-app Share flow is armed, the recording
-                // is expected but has not reached AI Closer yet. Keep the call in
-                // Processing instead of publishing a false permanent failure.
-                // The upload worker will move it to UPLOADED after the share.
-                val shareAutomationArmed = connected && durationSeconds > 0L &&
-                    DialerShareAutomation.arm(context, callId, effectivePhone)
                 val inboundMicUploadId = localMicRecording
                     ?.takeIf { it.callId.startsWith(CallAudioRecorder.UNPREPARED_CALL_PREFIX) }
                     ?.clientUploadId
                 inboundMicUploadId?.let { OfflineEventStore(context).rebindRecordingCall(it, callId) }
-                val hasLocalMicRecording = localMicRecording?.callId == callId || inboundMicUploadId != null
+                val hasLocalAudioFile = (localMicRecording != null && java.io.File(localMicRecording.path).exists() && java.io.File(localMicRecording.path).length() > 0L) ||
+                    inboundMicUploadId != null
+
+                // Correlate with current call-log row or actual captured audio file.
+                // Do not mark a call completed solely from a stale pref or uncorrelated broadcast transition.
+                val isCorrelatedCallLog = callLog != null && callLog.durationSeconds > 0L
+                val isMissedCallLog = callLog != null && callLog.durationSeconds == 0L
+                val isUncorrelated = callLog == null && !hasLocalAudioFile
+
+                if (isUncorrelated) {
+                    Log.w("GXPhoneState", "IDLE: Uncorrelated state transition for callId=$callId phone=$effectivePhone (no call-log row and no audio file). Discarding phantom session.")
+                    CoroutineScope(Dispatchers.IO).launch {
+                        runCatching { CrmRepository(context).discardCall(callId) }
+                    }
+                    val cleanup = prefs.edit()
+                        .remove("incomingSessionKey")
+                        .remove("activeCallId")
+                        .remove("activeLeadId")
+                        .remove("activePhone")
+                        .remove("activeStartedAt")
+                        .remove("activeContactName")
+                        .remove("wasOffhook")
+                        .remove("offhookAt")
+                        .remove("incomingSessionEnded")
+                        .remove("incomingEndedAt")
+                        .remove("phone")
+                    cleanup.apply()
+                    return
+                }
+
+                val connected = isCorrelatedCallLog || hasLocalAudioFile
+                val recordingError = prefs.getString("recordingError", null).orEmpty()
+                val endedAtMillis = System.currentTimeMillis()
+                val durationSeconds = callLog?.durationSeconds?.takeIf { it > 0L }
+                    ?: if (connected) ((endedAtMillis - connectedAt) / 1000).coerceAtLeast(0) else 0L
+                val callLogEndedAtForShare = callLog?.takeIf { it.durationSeconds > 0L }
+                    ?.let { it.startedAt + it.durationSeconds * 1000L }
+                    ?: endedAtMillis
+
+                val shareAutomationArmed = if (
+                    connected && durationSeconds > 0L && DialerShareAutomation.isReady(context) &&
+                    CallLogSyncManager.isFreshCompletedCallForShareAutomation(
+                        System.currentTimeMillis(), callLogEndedAtForShare, durationSeconds,
+                    )
+                ) {
+                    DialerShareAutomation.arm(
+                        context,
+                        callId,
+                        effectivePhone,
+                        callLogEndedAtForShare,
+                        durationSeconds * 1000L,
+                        contactName = callLog?.contactName ?: prefs.getString("activeContactName", ""),
+                        direction = prefs.getString("direction", null) ?: callLog?.direction ?: "INBOUND",
+                    )
+                } else false
+
+                // Only mark recordingStatus as LOCAL_PENDING when an actual audio file or upload job exists.
                 val recordingStatus = when {
                     !connected -> "NONE"
-                    hasLocalMicRecording -> "LOCAL_PENDING"
-                    shareAutomationArmed -> "LOCAL_PENDING"
+                    hasLocalAudioFile -> "LOCAL_PENDING"
                     else -> "RECORDING_UNAVAILABLE"
+                }
+                if (hasLocalAudioFile) {
+                    val finalUploadId = inboundMicUploadId ?: localMicRecording?.clientUploadId
+                    if (finalUploadId != null) {
+                        OfflineEventStore(context).updateRecordingStatus(finalUploadId, "LOCAL_PENDING")
+                    }
+                    RecordingUploadWorker.enqueue(context)
                 }
 
                 DeviceDiagnostics.record(
@@ -249,7 +340,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
                     fields = JSONObject()
                         .put("stage", "CALL_END")
                         .put("route", when {
-                            hasLocalMicRecording -> "MICROPHONE_FALLBACK"
+                            hasLocalAudioFile -> "MICROPHONE_FALLBACK"
                             shareAutomationArmed -> "DIALER_SHARE"
                             connected && durationSeconds > 0L -> "SYSTEM_IMPORT_PENDING"
                             else -> "NONE"
@@ -258,15 +349,18 @@ class PhoneStateReceiver : BroadcastReceiver() {
                         .put("durationMs", durationSeconds * 1000L),
                 )
 
+                val callDirection = prefs.getString("direction", null) ?: callLog?.direction ?: "INBOUND"
                 val payload = JSONObject()
                     .put("callSessionId", callId)
                     .put("status", if (connected) "COMPLETED" else "MISSED")
+                    .put("direction", callDirection)
+                    .put("startedAt", Instant.ofEpochMilli(started).toString())
                     .put("connectedAt", if (connected) Instant.ofEpochMilli(connectedAt).toString() else JSONObject.NULL)
                     .put("endedAt", Instant.ofEpochMilli(endedAtMillis).toString())
                     .put("durationSeconds", if (connected) durationSeconds else 0)
                     .put("recordingStatus", recordingStatus)
-                    .put("recordingError", recordingError.ifBlank {
-                        if (recordingStatus == "RECORDING_UNAVAILABLE") "No recording was captured yet. Check Phone app recording or enable the AICloser microphone fallback." else ""
+                    .put("recordingError", if (recordingStatus == "LOCAL_PENDING") "" else recordingError.ifBlank {
+                        if (recordingStatus == "RECORDING_UNAVAILABLE") "No recording was captured yet. Open the completed call in Phone and use Share recording." else ""
                     })
                     .put("phoneNumber", effectivePhone)
                     .put("contactName", callLog?.contactName ?: prefs.getString("activeContactName", ""))
@@ -288,15 +382,17 @@ class PhoneStateReceiver : BroadcastReceiver() {
                 // Enqueue call-end with deterministic idempotency key
                 val store = OfflineEventStore(context)
                 store.enqueue("call-end-$callId", "CALL_END", payload, callId)
-                if (connected && durationSeconds > 0L && !hasLocalMicRecording && !shareAutomationArmed) {
-                    SystemRecordingImportWorker.enqueue(
-                        context,
-                        callId,
-                        connectedAt,
-                        endedAtMillis,
-                        durationSeconds,
-                        effectivePhone,
-                    )
+                if (connected && durationSeconds > 0L) {
+                    if (!DialerShareAutomation.isGoogleDialer(context) || !shareAutomationArmed) {
+                        SystemRecordingImportWorker.enqueue(
+                            context,
+                            callId,
+                            connectedAt,
+                            endedAtMillis,
+                            durationSeconds,
+                            effectivePhone,
+                        )
+                    }
                 }
                 LeadCallNotification.show(context, effectivePhone, ended = true, callId = callId)
 
@@ -307,7 +403,6 @@ class PhoneStateReceiver : BroadcastReceiver() {
                         repo.syncOffline()
                     }
                 }
-                if (inboundMicUploadId != null) RecordingUploadWorker.enqueue(context)
             } else if (!sessionStarting) {
                 // A call started from the normal Android dialer never gets an
                 // activeCallId because CRM did not get a chance to prepare it.
@@ -327,6 +422,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
             }
             val isNonWorkCall = prefs.getBoolean("lastDiscardedWasNonWorkSim", false)
             val cleanup = prefs.edit()
+                .remove("incomingSessionKey")
                 .putLong("lastCallEndedAt", System.currentTimeMillis())
                 .putBoolean("lastCallWasWorkSim", !isNonWorkCall)
                 .putBoolean("lastDiscardedWasNonWorkSim", isNonWorkCall)
@@ -349,7 +445,23 @@ class PhoneStateReceiver : BroadcastReceiver() {
                 cleanup.remove("wasOffhook").remove("offhookAt").remove("incomingSessionEnded").remove("incomingEndedAt").remove("phone")
             }
             cleanup.apply()
-        }
+    }
+
+    private fun queryLatestCallLogNumber(context: Context): String? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+            context.checkSelfPermission(android.Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED
+        ) return null
+        return runCatching {
+            context.contentResolver.query(
+                CallLog.Calls.CONTENT_URI,
+                arrayOf(CallLog.Calls.NUMBER),
+                null,
+                null,
+                "${CallLog.Calls.DATE} DESC LIMIT 1",
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0)?.takeIf(String::isNotBlank) else null
+            }
+        }.getOrNull()
     }
 
     companion object {
@@ -399,9 +511,12 @@ class PhoneStateReceiver : BroadcastReceiver() {
                     simSlotIndex = sim?.simSlotIndex,
                     simLabel = sim?.let { info ->
                         val title = info.displayName?.toString()?.trim().orEmpty().ifBlank { info.carrierName?.toString()?.trim().orEmpty() }
-                        if (title.isBlank()) "SIM " else " - SIM "
+                        if (title.isBlank()) "SIM ${info.simSlotIndex + 1}" else "$title • SIM ${info.simSlotIndex + 1}"
                     },
                 )
+                if (callId.isNullOrBlank()) {
+                    throw IllegalStateException("Server returned empty callId for incoming session")
+                }
                 Log.i("GXPhoneState", "inbound session created callId=$callId")
                 val endedBeforeSession = prefs.getBoolean("incomingSessionEnded", false)
                 val wasOffhook = prefs.getBoolean("wasOffhook", false)
@@ -422,36 +537,58 @@ class PhoneStateReceiver : BroadcastReceiver() {
                     val durationSeconds = if (wasOffhook) ((endedAt - prefs.getLong("offhookAt", endedAt)) / 1000).coerceAtLeast(0) else 0
                     val queuedMicUploadId = prefs.getString("pendingInboundRecordingUploadId", null)
                     queuedMicUploadId?.let { OfflineEventStore(context).rebindRecordingCall(it, callId) }
-                    val shareAutomationArmed = wasOffhook && durationSeconds > 0L && queuedMicUploadId == null &&
-                        DialerShareAutomation.arm(context, callId, prefs.getString("activePhone", phone))
-                    val payload = JSONObject()
-                        .put("callSessionId", callId)
-                        .put("status", if (wasOffhook) "COMPLETED" else "MISSED")
-                        .put("connectedAt", if (wasOffhook) Instant.ofEpochMilli(prefs.getLong("offhookAt", prefs.getLong("incomingEndedAt", System.currentTimeMillis()))).toString() else JSONObject.NULL)
-                        .put("endedAt", Instant.ofEpochMilli(endedAt).toString())
-                        .put("durationSeconds", durationSeconds)
-                        .put("recordingStatus", when {
-                            !wasOffhook -> "NONE"
-                            queuedMicUploadId != null -> "LOCAL_PENDING"
-                            shareAutomationArmed -> "LOCAL_PENDING"
-                            else -> "RECORDING_UNAVAILABLE"
-                        })
-                        .put("recordingError", if (wasOffhook && !shareAutomationArmed) "Call connected before the recorder session was ready." else "")
-                    OfflineEventStore(context).enqueue("call-end-$callId", "CALL_END", payload, callId)
-                    if (wasOffhook && durationSeconds > 0L && queuedMicUploadId == null && !shareAutomationArmed) {
-                        SystemRecordingImportWorker.enqueue(
+                    val shareAutomationArmed = if (
+                        wasOffhook && durationSeconds > 0L && DialerShareAutomation.isReady(context) &&
+                        CallLogSyncManager.isFreshCompletedCallForShareAutomation(System.currentTimeMillis(), endedAt, durationSeconds)
+                    ) {
+                        DialerShareAutomation.arm(
                             context,
                             callId,
-                            prefs.getLong("offhookAt", endedAt),
-                            endedAt,
-                            durationSeconds,
                             prefs.getString("activePhone", null),
+                            endedAt,
+                            durationSeconds * 1000L,
+                            contactName = prefs.getString("activeContactName", ""),
+                            direction = "INBOUND",
                         )
+                    } else false
+                    val callLog = latestCallLog(context, expectedPhone = phone, minStartedAt = prefs.getLong("activeStartedAt", 0L))
+                    val hasLocalAudio = queuedMicUploadId != null
+                    val connected = (callLog != null && callLog.durationSeconds > 0L) || hasLocalAudio
+                    val realDuration = callLog?.durationSeconds?.takeIf { it > 0L }
+                        ?: if (hasLocalAudio && wasOffhook) durationSeconds else 0L
+                    val recStatus = when {
+                        !connected -> "NONE"
+                        hasLocalAudio -> "LOCAL_PENDING"
+                        else -> "RECORDING_UNAVAILABLE"
+                    }
+                    val payload = JSONObject()
+                        .put("callSessionId", callId)
+                        .put("status", if (connected) "COMPLETED" else "MISSED")
+                        .put("direction", "INBOUND")
+                        .put("phoneNumber", phone)
+                        .put("contactName", contactName ?: JSONObject.NULL)
+                        .put("startedAt", Instant.ofEpochMilli(prefs.getLong("activeStartedAt", System.currentTimeMillis())).toString())
+                        .put("connectedAt", if (connected) Instant.ofEpochMilli(prefs.getLong("offhookAt", endedAt)).toString() else JSONObject.NULL)
+                        .put("endedAt", Instant.ofEpochMilli(endedAt).toString())
+                        .put("durationSeconds", realDuration)
+                        .put("recordingStatus", recStatus)
+                        .put("recordingError", if (recStatus == "LOCAL_PENDING") "" else if (recStatus == "RECORDING_UNAVAILABLE") "No recording was captured yet. Open the completed call in Phone and use Share recording." else "")
+                    OfflineEventStore(context).enqueue("call-end-$callId", "CALL_END", payload, callId)
+                    if (wasOffhook && durationSeconds > 0L) {
+                        if (!DialerShareAutomation.isGoogleDialer(context) || !shareAutomationArmed) {
+                            SystemRecordingImportWorker.enqueue(
+                                context,
+                                callId,
+                                prefs.getLong("offhookAt", endedAt),
+                                endedAt,
+                                durationSeconds,
+                                prefs.getString("activePhone", null),
+                            )
+                        }
                     }
                     CoroutineScope(Dispatchers.IO).launch {
                         runCatching { CrmRepository(context).syncOffline() }
                     }
-                    if (queuedMicUploadId != null) RecordingUploadWorker.enqueue(context)
                     prefs.edit()
                         .remove("activeCallId")
                         .remove("activeLeadId")
@@ -470,6 +607,10 @@ class PhoneStateReceiver : BroadcastReceiver() {
                 }
             } catch (error: Exception) {
                 Log.e("GXPhoneState", "Could not create incoming call session", error)
+                val endedBeforeSession = prefs.getBoolean("incomingSessionEnded", false)
+                val wasOffhook = prefs.getBoolean("wasOffhook", false)
+                val offhookAt = prefs.getLong("offhookAt", 0L)
+                val endedAt = prefs.getLong("incomingEndedAt", System.currentTimeMillis())
                 prefs.edit()
                     .putBoolean("incomingSessionStarting", false)
                     .remove("incomingSessionEnded")
@@ -482,6 +623,16 @@ class PhoneStateReceiver : BroadcastReceiver() {
                     .remove("incomingSessionKey")
                     .remove("wasOffhook")
                     .apply()
+                if (endedBeforeSession || wasOffhook) {
+                    syncUnpreparedCallLog(
+                        context,
+                        details = null,
+                        connectedHint = wasOffhook,
+                        connectedAtHint = offhookAt,
+                        endedAtHint = endedAt,
+                        localMicRecording = null,
+                    )
+                }
             } finally {
                 pendingResult.finish()
             }
@@ -495,9 +646,9 @@ class PhoneStateReceiver : BroadcastReceiver() {
             .putString("recordingAudioSource", "SYSTEM_DIALER")
             .putString("recordingState", "WAITING_FOR_SYSTEM_DIALER")
             .remove("recordingError")
-        val fallbackEnabled = prefs.getBoolean("micFallbackEnabled", false)
         val canUseMic = Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
             context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        val fallbackEnabled = DialerShareAutomation.isMicrophoneFallbackEnabled(context)
         // The Phone-app Share bridge is only useful when the OEM actually
         // exposes a completed system recording. Pixel/Google Phone can expose
         // the Share UI while still reporting that call recording is unavailable
@@ -575,7 +726,9 @@ class PhoneStateReceiver : BroadcastReceiver() {
                     ((endedAtHint - connectedAtHint) / 1000L).coerceAtLeast(0L)
                 } else 0L
             val simSubscriptionId = extractSimAccountFromCallLog(it)
-            if (!CallManager.isWorkSim(context, simSubscriptionId)) {
+            val callLogLead = CallManager.lookup(context, phone)
+            val isCallLogLead = callLogLead != null
+            if (!isCallLogLead && CallManager.isPersonalSim(context, simSubscriptionId)) {
                 prefs.edit()
                     .putString(LAST_CALL_LOG_ID, id)
                     .putLong("lastCallEndedAt", System.currentTimeMillis())
@@ -599,10 +752,11 @@ class PhoneStateReceiver : BroadcastReceiver() {
             val lastTrackedAt = prefs.getLong("lastTrackedCallEndedAt", 0L)
             val lastTrackedPhone = prefs.getString("lastTrackedCallPhone", "").orEmpty()
             val timeSinceLastCallEnd = (System.currentTimeMillis() - lastTrackedAt).coerceAtLeast(0L)
+            val lastTrackedId = prefs.getString(LAST_CALL_LOG_ID, "").orEmpty()
             if (lastTrackedAt > 0L &&
+                lastTrackedId == id &&
                 timeSinceLastCallEnd <= DUPLICATE_IDLE_WINDOW_MS &&
-                normalizedPhone(phone) == normalizedPhone(lastTrackedPhone) &&
-                startedAt <= (lastTrackedAt + 10_000L)
+                normalizedPhone(phone) == normalizedPhone(lastTrackedPhone)
             ) {
                 // Mark the row as seen without creating a second CRM call.
                 prefs.edit().putString(LAST_CALL_LOG_ID, id).apply()
@@ -611,7 +765,8 @@ class PhoneStateReceiver : BroadcastReceiver() {
             }
             val direction = when (type) {
                 CallLog.Calls.INCOMING_TYPE, CallLog.Calls.MISSED_TYPE, CallLog.Calls.REJECTED_TYPE -> "INBOUND"
-                else -> "OUTBOUND"
+                CallLog.Calls.OUTGOING_TYPE -> "OUTBOUND"
+                else -> "UNKNOWN"
             }
             val status = if (type == CallLog.Calls.MISSED_TYPE || duration == 0L) "MISSED" else "COMPLETED"
             val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
@@ -629,6 +784,14 @@ class PhoneStateReceiver : BroadcastReceiver() {
                 runCatching {
                     val repository = CrmRepository(context)
                     val lead = CallManager.lookup(context, phone)
+                    val startedAtIso = Instant.ofEpochMilli(startedAt).toString()
+                    val endedAtIso = if (callLogDuration > 0L) {
+                        Instant.ofEpochMilli(startedAt + (callLogDuration * 1000L)).toString()
+                    } else if (duration > 0L) {
+                        Instant.ofEpochMilli(endedAtHint).toString()
+                    } else {
+                        Instant.ofEpochMilli(startedAt).toString()
+                    }
                     val callId = repository.startUnmatchedCall(
                         lead?.id,
                         phone,
@@ -640,8 +803,11 @@ class PhoneStateReceiver : BroadcastReceiver() {
                         simSlotIndex = sim?.simSlotIndex,
                         simLabel = sim?.let { info ->
                             val title = info.displayName?.toString()?.trim().orEmpty().ifBlank { info.carrierName?.toString()?.trim().orEmpty() }
-                            if (title.isBlank()) "SIM ${info.simSlotIndex + 1}" else "$title · SIM ${info.simSlotIndex + 1}"
+                        if (title.isBlank()) "SIM ${info.simSlotIndex + 1}" else "$title • SIM ${info.simSlotIndex + 1}"
                         },
+                        startedAt = startedAtIso,
+                        endedAt = endedAtIso,
+                        durationSeconds = duration,
                     )
                     val endedAt = if (callLogDuration > 0L) {
                         startedAt + (callLogDuration * 1000L)
@@ -664,34 +830,46 @@ class PhoneStateReceiver : BroadcastReceiver() {
                             store.pendingRecordings().firstOrNull { it.callId == pendingId }?.clientUploadId
                         }
                     queuedMicUploadId?.let { store.rebindRecordingCall(it, callId) }
-                    val shareAutomationArmed = status == "COMPLETED" && duration > 0L &&
-                        queuedMicUploadId == null && DialerShareAutomation.arm(context, callId, phone)
+                    val shareAutomationArmed = if (
+                        status == "COMPLETED" && duration > 0L && DialerShareAutomation.isReady(context) &&
+                        CallLogSyncManager.isFreshCompletedCallForShareAutomation(System.currentTimeMillis(), endedAt, duration)
+                    ) {
+                        DialerShareAutomation.arm(
+                            context,
+                            callId,
+                            phone,
+                            endedAt,
+                            duration * 1000L,
+                            contactName = contactName,
+                            direction = direction,
+                        )
+                    } else false
                     val recordingStatus = when {
                         queuedMicUploadId != null -> "LOCAL_PENDING"
-                        shareAutomationArmed -> "LOCAL_PENDING"
                         else -> "RECORDING_UNAVAILABLE"
+                    }
+                    if (queuedMicUploadId != null) {
+                        store.updateRecordingStatus(queuedMicUploadId, "LOCAL_PENDING")
+                        RecordingUploadWorker.enqueue(context)
                     }
                     val payload = JSONObject()
                         .put("callSessionId", callId)
                         .put("status", status)
+                        .put("direction", direction)
+                        .put("phoneNumber", phone)
+                        .put("contactName", contactName ?: JSONObject.NULL)
+                        .put("startedAt", startedAtIso)
                         .put("endedAt", Instant.ofEpochMilli(endedAt).toString())
                         .put("durationSeconds", duration)
                         .put("recordingStatus", recordingStatus)
-                        .put("recordingError", if (recordingStatus == "RECORDING_UNAVAILABLE") "No recording was captured yet. Check Phone app recording or enable the AICloser microphone fallback." else "")
+                        .put("recordingError", if (recordingStatus == "LOCAL_PENDING") "" else if (recordingStatus == "RECORDING_UNAVAILABLE") "No recording was captured yet. Check Phone app recording or enable the AICloser microphone fallback." else "")
                     store.enqueue("call-log-end-$id", "CALL_END", payload, callId)
-                    if (status == "COMPLETED" && duration > 0L && queuedMicUploadId == null) {
-                        if (!shareAutomationArmed) {
+                    if (status == "COMPLETED" && duration > 0L) {
+                        if (!DialerShareAutomation.isGoogleDialer(context) || !shareAutomationArmed) {
                             SystemRecordingImportWorker.enqueue(context, callId, startedAt, endedAt, duration, phone)
                         }
                     }
                     repository.syncOffline()
-                    // The microphone file is deliberately held back while an
-                    // unprepared dialer call is being resolved. Once the real
-                    // CRM call exists and the queue row is rebound above,
-                    // explicitly wake the upload worker for this recording.
-                    if (queuedMicUploadId != null) {
-                        RecordingUploadWorker.enqueue(context)
-                    }
                 }.onFailure { error ->
                     // Leave the call-log marker untouched only for a failed
                     // server request so the next phone event can retry it.
@@ -811,7 +989,8 @@ class PhoneStateReceiver : BroadcastReceiver() {
                             number = number,
                             direction = when (type) {
                                 CallLog.Calls.INCOMING_TYPE, CallLog.Calls.MISSED_TYPE, CallLog.Calls.REJECTED_TYPE -> "INBOUND"
-                                else -> "OUTBOUND"
+                                CallLog.Calls.OUTGOING_TYPE -> "OUTBOUND"
+                                else -> "UNKNOWN"
                             },
                             startedAt = it.getLong(it.getColumnIndexOrThrow(CallLog.Calls.DATE)),
                             durationSeconds = it.getLong(it.getColumnIndexOrThrow(CallLog.Calls.DURATION)).coerceAtLeast(0),
@@ -820,7 +999,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
                             simSlotIndex = sim?.simSlotIndex,
                             simLabel = sim?.let { info ->
                                 val title = info.displayName?.toString()?.trim().orEmpty().ifBlank { info.carrierName?.toString()?.trim().orEmpty() }
-                                if (title.isBlank()) "SIM ${info.simSlotIndex + 1}" else "$title · SIM ${info.simSlotIndex + 1}"
+                        if (title.isBlank()) "SIM ${info.simSlotIndex + 1}" else "$title • SIM ${info.simSlotIndex + 1}"
                             },
                         )
                     }
