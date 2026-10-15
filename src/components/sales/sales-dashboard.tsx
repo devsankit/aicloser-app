@@ -1004,7 +1004,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   const navigationTabs = (isWorkspaceAdmin
     ? tabs.filter((tab) => tab.id !== "grab-leads")
     : isCloser
-      ? tabs.filter((tab) => ["dashboard", "crm", "grab-leads", "contacts", "lead-import", "conversations", "payments"].includes(tab.id))
+      ? tabs.filter((tab) => ["dashboard", "crm", "calls", "grab-leads", "contacts", "lead-import", "conversations", "payments"].includes(tab.id))
       : tabs.filter((tab) => !["roles", "profile", "developer", "grab-leads"].includes(tab.id)))
     .filter((tab) => !tabFeatureMap[tab.id] || hasFeature(tabFeatureMap[tab.id] as string));
   const canImportLeads = isWorkspaceAdmin || roundRobinAccess.allowNonAdminImportData;
@@ -2210,8 +2210,8 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                           <button
                             type="button"
                             aria-label="Open WhatsApp Chat"
-                            onClick={() => openSalesConversation(lead.conversationId)}
-                            title="Open WhatsApp Chat"
+                            onClick={() => lead.conversationId ? openSalesConversation(lead.conversationId) : openLeadChat(lead.id)}
+                            title={lead.conversationId ? "Open WhatsApp Chat" : "Start WhatsApp Chat"}
                             style={{
                               padding: "6px 8px",
                               borderRadius: "8px",
@@ -3048,7 +3048,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
           ) : null}
 
           <div
-            className="sales-crm-surface"
+            className={`sales-crm-surface ${crmView === "sheet" ? "sales-crm-surface-sheet" : ""}`}
             onWheel={(event) => {
               if (crmView === "kanban" && event.deltaY && !event.shiftKey) {
                 const target = event.target as HTMLElement;
@@ -3085,7 +3085,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                 </div>
               </DndContext>
             ) : (
-              <div className="sales-crm-sheet-container" style={{ width: "100%", overflowX: "auto", borderRadius: "10px", border: "1px solid var(--closer-line, #e2e8f0)", background: "var(--closer-surface, #ffffff)", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+              <div className="sales-crm-sheet-container" style={{ width: "100%", maxHeight: "calc(100vh - 240px)", overflowX: "auto", overflowY: "auto", borderRadius: "10px", border: "1px solid var(--closer-line, #e2e8f0)", background: "var(--closer-surface, #ffffff)", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
                 <table className="sales-crm-sheet-table" style={{ width: "100%", minWidth: "1050px", borderCollapse: "collapse", textAlign: "left", fontSize: "13px" }}>
                   <thead style={{ position: "sticky", top: 0, zIndex: 3, background: "var(--closer-panel-bg, #f8fafc)", borderBottom: "1px solid var(--closer-line, #cbd5e1)" }}>
                     <tr style={{ color: "var(--closer-muted, #64748b)", fontSize: "12px", textTransform: "uppercase", letterSpacing: "0.04em", fontWeight: 700 }}>

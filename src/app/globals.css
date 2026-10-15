@@ -41470,6 +41470,20 @@ body .sales-theme-scope .sales-crm-surface::-webkit-scrollbar-thumb:hover {
   background: #ff854d !important;
 }
 
+body .sales-theme-scope .sales-crm-surface.sales-crm-surface-sheet {
+  overflow-y: auto !important;
+  height: auto !important;
+  max-height: calc(100vh - 220px) !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+body .sales-theme-scope .sales-crm-sheet-container {
+  max-height: calc(100vh - 240px) !important;
+  overflow-y: auto !important;
+  overflow-x: auto !important;
+}
+
 /* Kanban board container: wide layout spanning all columns */
 body .sales-theme-scope .sales-kanban {
   display: grid !important;

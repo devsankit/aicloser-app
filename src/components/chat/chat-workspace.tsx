@@ -6865,7 +6865,43 @@ function ChatWorkspaceInner({
                   <span>{audience === "freelancer" ? "Agency lane" : "Freelancer coordination"}</span>
                 </div>
               ) : null}
-              {laneMessages.map((message, messageIndex) => {
+              {laneMessages.length === 0 ? (
+                <div
+                  className="chat-empty-thread-hint"
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: "48px 20px",
+                    textAlign: "center",
+                    color: "var(--color-text-muted, #64748b)",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: "48px",
+                      height: "48px",
+                      borderRadius: "50%",
+                      background: "rgba(16, 185, 129, 0.12)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      marginBottom: "12px",
+                      color: "#10b981",
+                    }}
+                  >
+                    <MessageSquare size={22} />
+                  </div>
+                  <strong style={{ fontSize: "14px", color: "var(--color-text, #0f172a)", marginBottom: "4px" }}>
+                    No recent WhatsApp chats
+                  </strong>
+                  <p style={{ fontSize: "12px", maxWidth: "340px", margin: 0, lineHeight: 1.5 }}>
+                    This lead was imported without previous chat history. Start a new conversation by sending a template or message below.
+                  </p>
+                </div>
+              ) : (
+                laneMessages.map((message, messageIndex) => {
                 const isIncoming = isConversationMessageIncomingForAudience(message, audience);
                 const body = visibleBody(message).trim();
                 const showAvatar = resolvedLane === "internal";
@@ -6989,7 +7025,7 @@ function ChatWorkspaceInner({
                   </article>
                   </Fragment>
                 );
-              })}
+              }))}
                 <div aria-hidden="true" className="chat-message-end-anchor" ref={messageEndRef} />
               </section>
             </div>

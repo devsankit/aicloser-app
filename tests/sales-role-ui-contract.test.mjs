@@ -21,7 +21,7 @@ test("lead form builder receives the authenticated workspace admin role", () => 
 });
 
 test("closer navigation includes private contacts and lead import tools", () => {
-  assert.match(dashboard, /tabs\.filter\(\(tab\) => \["dashboard", "crm", "grab-leads", "contacts", "lead-import", "conversations", "payments"\]\.includes\(tab\.id\)\)/);
+  assert.match(dashboard, /tabs\.filter\(\(tab\) => \["dashboard", "crm", "calls", "grab-leads", "contacts", "lead-import", "conversations", "payments"\]\.includes\(tab\.id\)\)/);
   assert.match(dashboard, /const isCloser = !isWorkspaceAdmin && effectiveWorkspaceRole === "SALES_AGENT"/);
   assert.match(dashboard, /personalWhatsAppOnly=\{isCloser\}/);
 });

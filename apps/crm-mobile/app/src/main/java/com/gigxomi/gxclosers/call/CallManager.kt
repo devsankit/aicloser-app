@@ -110,10 +110,10 @@ object CallManager {
         LeadCallNotification.show(context, lead.customerPhone)
     }
     fun dial(context: Context, phone: String, sim: SimOption? = null) {
-        val direct = Intent(Intent.ACTION_CALL, Uri.parse("tel:${Uri.encode(phone)}"))
+        val dialIntent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${Uri.encode(phone)}"))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        sim?.phoneAccountHandle?.let { direct.putExtra(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, it) }
-        runCatching { context.startActivity(direct) }.getOrElse { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${Uri.encode(phone)}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        sim?.phoneAccountHandle?.let { dialIntent.putExtra(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, it) }
+        runCatching { context.startActivity(dialIntent) }
     }
 
     fun simSelection(context: Context): String = context

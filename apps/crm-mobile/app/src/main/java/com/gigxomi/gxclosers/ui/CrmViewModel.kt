@@ -872,20 +872,31 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
         createdPaymentLink = null
     }
 
-    fun startCall(lead: SalesLead, sim: com.gigxomi.gxclosers.call.SimOption? = null) = launchWork {
-        val callId = withContext(Dispatchers.IO) {
-            repository.startCall(
-                lead = lead,
-                deviceId = deviceId(),
-                simSubscriptionId = sim?.subscriptionId,
-                simSlotIndex = sim?.slotIndex,
-                simLabel = sim?.label,
-            )
-        }
+    fun startCall(lead: SalesLead, sim: com.gigxomi.gxclosers.call.SimOption? = null) {
         val app = getApplication<Application>()
-        CallManager.prepare(app, callId, lead, sim)
+        val localCallId = "call-${UUID.randomUUID()}"
+        CallManager.prepare(app, localCallId, lead, sim)
         CallManager.dial(app, lead.customerPhone, sim)
         status = "Tracked call started. Complete the disposition when the call ends."
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val serverCallId = repository.startCall(
+                        lead = lead,
+                        deviceId = deviceId(),
+                        simSubscriptionId = sim?.subscriptionId,
+                        simSlotIndex = sim?.slotIndex,
+                        simLabel = sim?.label,
+                        callSessionId = localCallId,
+                    )
+                    if (serverCallId.isNotBlank() && serverCallId != localCallId) {
+                        CallManager.prepare(app, serverCallId, lead, sim)
+                    }
+                }
+            } catch (_: Exception) {
+                // Background startCall sync failure is safely ignored as call is dialed and logged locally
+            }
+        }
     }
 
     fun saveDisposition(callId: String, customerName: String, outcome: String, note: String, followUp: String?, stageUpdate: String, done: () -> Unit) = launchWork {
