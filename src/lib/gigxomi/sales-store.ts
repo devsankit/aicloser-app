@@ -2218,6 +2218,27 @@ export async function createSalesLead(input: Partial<SalesLeadView> & { tenantId
     where: { id: input.assignedAgentId },
     select: { user: { select: { tenantId: true } } },
   });
+  const targetTenantId = input.tenantId?.trim() || assignedAgent?.user.tenantId || "tenant-gigxomi";
+  const phoneDigits = (input.customerPhone || "").replace(/\D/g, "");
+  const last10 = phoneDigits.length >= 10 ? phoneDigits.slice(-10) : phoneDigits;
+  if (last10 && last10.length >= 7) {
+    const existing = await prisma.salesLeadAssignment.findFirst({
+      where: {
+        tenantId: targetTenantId,
+        customerPhone: { contains: last10 },
+      },
+    });
+    if (existing) {
+      if (input.conversationId && !existing.conversationId) {
+        await prisma.salesLeadAssignment.update({
+          where: { id: existing.id },
+          data: { conversationId: input.conversationId.trim(), updatedAt: new Date() },
+        });
+      }
+      return mapLead(existing);
+    }
+  }
+
   const lead = await prisma.salesLeadAssignment.create({
     data: {
       tenantId: input.tenantId?.trim() || assignedAgent?.user.tenantId || "tenant-gigxomi",
