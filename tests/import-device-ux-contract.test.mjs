@@ -21,13 +21,13 @@ test('lead import has one source chooser and no prefilled sample contacts', () =
   assert.ok(source.includes('setRawPasteText(e.target.value); setImportPreview(null)'));
 });
 test('discarding an import preview also clears the stale success banner', () => {
-  const source = readFileSync('src/components/sales/contacts-hub.tsx', 'utf8');
+  const source = readFileSync('src/components/sales/contacts-hub.tsx', 'utf8').replace(/\r\n/g, '\n');
   assert.ok(source.includes('const discardImportPreview = () =>'));
   assert.ok(source.includes('setImportPreview(null);\n    setBanner(null);'));
   assert.ok(source.includes('onClick={discardImportPreview}'));
 });
 test('device table is mounted only on the dashboard', () => {
-  const source = readFileSync('src/components/sales/sales-dashboard.tsx', 'utf8');
+  const source = readFileSync('src/components/sales/sales-dashboard.tsx', 'utf8').replace(/\r\n/g, '\n');
   assert.equal(source.match(/<TeamActivityPanel \/>/g)?.length, 1);
   assert.ok(source.includes('<section className="sales-dashboard-overview">\n'));
   assert.ok(source.includes('<div className="sales-dashboard-device-activity">\n              <TeamActivityPanel />\n            </div>'));
