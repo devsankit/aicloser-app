@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSessionRole } from "@/lib/api/require-session-role";
 import { mergeLeads } from "@/lib/gigxomi/lead-duplicates-store";
+import { getSalesSnapshotForRole } from "@/lib/gigxomi/sales-store";
 
 export async function POST(request: Request) {
   const auth = await requireSessionRole(["ADMIN", "SUPER_ADMIN", "MANAGER"]);
@@ -11,9 +12,13 @@ export async function POST(request: Request) {
     if (!body.primaryLeadId || !body.secondaryLeadId) {
       return NextResponse.json({ ok: false, error: "primaryLeadId and secondaryLeadId are required" }, { status: 400 });
     }
-    const result = await mergeLeads(body.primaryLeadId, body.secondaryLeadId);
+    const snapshot = await getSalesSnapshotForRole(auth.session);
+    const visibleLeadIds = new Set(snapshot.visibleLeads.map((lead) => lead.id));
+    const result = await mergeLeads(String(body.primaryLeadId), String(body.secondaryLeadId), visibleLeadIds);
     return NextResponse.json(result);
   } catch (error: any) {
-    return NextResponse.json({ ok: false, error: error?.message || "Failed to merge leads" }, { status: 500 });
+    const message = error?.message || "Failed to merge leads";
+    const status = message.includes("access") ? 403 : message.includes("different workspaces") ? 422 : 500;
+    return NextResponse.json({ ok: false, error: message }, { status });
   }
 }

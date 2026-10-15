@@ -1380,7 +1380,7 @@ export async function getSalesSnapshotForRole(
             agent.parentAgentId === currentAgent.id,
           )
       : currentAgent
-        ? agents.filter((agent) => agent.id === currentAgent.id || agent.parentAgentId === currentAgent.id)
+        ? agents.filter((agent) => agent.id === currentAgent.id)
         : [];
   const canViewAnotherAgent = isWorkspaceAdmin || isWorkspaceManager;
   const observingAgent = canViewAnotherAgent && requestedAgentId
@@ -1393,41 +1393,18 @@ export async function getSalesSnapshotForRole(
   const visibleAgentIds = new Set(visibleAgents.map((agent) => agent.id));
   const leadPool = leadPoolRaw.map(mapLeadPoolItem);
   const leadIds = leadsRaw.map((lead) => lead.id);
-  const phoneKeysByLeadId = new Map(
-    leadsRaw.map((lead) => [lead.id, normalizeSalesConversationPhone(lead.customerPhone)]),
-  );
-  const historicalAssignments = await prisma.salesLeadAssignment.findMany({
-    where: isSuperAdminAll
-      ? { customerPhone: { not: null } }
-      : { tenantId: effectiveTenantId, customerPhone: { not: null } },
-    select: { id: true, customerPhone: true },
-  });
-  const relatedAssignmentIds = new Set(leadIds);
-  const assignmentIdsByPhone = new Map<string, string[]>();
-  for (const assignment of historicalAssignments) {
-    const phoneKey = normalizeSalesConversationPhone(assignment.customerPhone);
-    if (!phoneKey) continue;
-    const assignmentIds = assignmentIdsByPhone.get(phoneKey) ?? [];
-    assignmentIds.push(assignment.id);
-    assignmentIdsByPhone.set(phoneKey, assignmentIds);
-  }
-  for (const assignmentIds of assignmentIdsByPhone.values()) {
-    for (const assignmentId of assignmentIds) relatedAssignmentIds.add(assignmentId);
-  }
-
-  const relatedIds = [...relatedAssignmentIds];
-  const [recentActivities, recentTimeline] = relatedIds.length
+  const [recentActivities, recentTimeline] = leadIds.length
     ? await Promise.all([
         prisma.salesActivityLog.findMany({
-          where: { assignmentId: { in: relatedIds }, action: { not: "LEAD_CREATED" } },
+          where: { assignmentId: { in: leadIds }, action: { not: "LEAD_CREATED" } },
           include: { actor: { select: { displayName: true, email: true } } },
           orderBy: { createdAt: "desc" },
-          take: Math.min(relatedIds.length * 12, 400),
+          take: Math.min(leadIds.length * 12, 400),
         }),
         prisma.salesLeadTimelineEntry.findMany({
-          where: { leadId: { in: relatedIds } },
+          where: { leadId: { in: leadIds } },
           orderBy: { createdAt: "desc" },
-          take: Math.min(relatedIds.length * 8, 300),
+          take: Math.min(leadIds.length * 8, 300),
         }),
       ])
     : [[], []];
@@ -1457,17 +1434,9 @@ export async function getSalesSnapshotForRole(
       at: timeline.createdAt.toISOString(),
     });
   }
-  const lastTouchByPhone = new Map<string, SalesLeadView["lastTouch"]>();
-  for (const [phoneKey, assignmentIds] of assignmentIdsByPhone) {
-    const touches = assignmentIds
-      .map((assignmentId) => latestTouchByAssignmentId.get(assignmentId))
-      .filter((touch): touch is NonNullable<SalesLeadView["lastTouch"]> => Boolean(touch))
-      .sort((left, right) => right.at.localeCompare(left.at));
-    if (touches[0]) lastTouchByPhone.set(phoneKey, touches[0]);
-  }
   const leads = leadsRaw.map((lead) => mapLead(
     lead,
-    latestTouchByAssignmentId.get(lead.id) ?? lastTouchByPhone.get(phoneKeysByLeadId.get(lead.id) ?? "") ?? null,
+    latestTouchByAssignmentId.get(lead.id) ?? null,
   ));
   const deals = dealsRaw.map(mapDeal);
   const earnings = earningsRaw.map(mapEarning);

@@ -17,20 +17,21 @@ export type DuplicateCluster = {
   }>;
 };
 
-export async function findDuplicateLeads(): Promise<DuplicateCluster[]> {
-  const allLeads = await prisma.salesLeadAssignment.findMany({
-    orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      customerName: true,
-      customerPhone: true,
-      customerEmail: true,
-      source: true,
-      stage: true,
-      createdAt: true,
-      notes: true,
-    },
-  });
+type DuplicateLeadInput = {
+  id: string;
+  customerName: string;
+  customerPhone: string | null;
+  customerEmail: string | null;
+  source: string;
+  stage: string;
+  createdAt: Date | string;
+  notes: string | null;
+};
+
+export async function findDuplicateLeads(visibleLeads: DuplicateLeadInput[]): Promise<DuplicateCluster[]> {
+  const allLeads = [...visibleLeads].sort((a, b) =>
+    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
 
   const phoneClusters = new Map<string, typeof allLeads>();
   for (const lead of allLeads) {
@@ -52,7 +53,7 @@ export async function findDuplicateLeads(): Promise<DuplicateCluster[]> {
         count: list.length,
         leads: list.map((l) => ({
           ...l,
-          createdAt: l.createdAt.toISOString(),
+          createdAt: new Date(l.createdAt).toISOString(),
         })),
       });
     }
@@ -61,14 +62,21 @@ export async function findDuplicateLeads(): Promise<DuplicateCluster[]> {
   return clusters;
 }
 
-export async function mergeLeads(primaryLeadId: string, secondaryLeadId: string) {
-  const primary = await prisma.salesLeadAssignment.findUnique({ where: { id: primaryLeadId } });
-  const secondary = await prisma.salesLeadAssignment.findUnique({ where: { id: secondaryLeadId } });
+export async function mergeLeads(primaryLeadId: string, secondaryLeadId: string, visibleLeadIds: ReadonlySet<string>) {
+  if (primaryLeadId === secondaryLeadId) throw new Error("Choose two different leads to merge.");
+  if (!visibleLeadIds.has(primaryLeadId) || !visibleLeadIds.has(secondaryLeadId)) {
+    throw new Error("You do not have access to both leads.");
+  }
+
+  return prisma.$transaction(async (tx) => {
+  const primary = await tx.salesLeadAssignment.findUnique({ where: { id: primaryLeadId } });
+  const secondary = await tx.salesLeadAssignment.findUnique({ where: { id: secondaryLeadId } });
 
   if (!primary || !secondary) throw new Error("One or both leads not found");
+  if (primary.tenantId !== secondary.tenantId) throw new Error("Leads from different workspaces cannot be merged.");
 
   // Re-link mobile calls from secondary to primary
-  await prisma.salesMobileCall.updateMany({
+  await tx.salesMobileCall.updateMany({
     where: { assignmentId: secondaryLeadId },
     data: { assignmentId: primaryLeadId },
   });
@@ -85,7 +93,7 @@ export async function mergeLeads(primaryLeadId: string, secondaryLeadId: string)
     .join("\n\n");
 
   // Update primary lead
-  const updatedPrimary = await prisma.salesLeadAssignment.update({
+  const updatedPrimary = await tx.salesLeadAssignment.update({
     where: { id: primaryLeadId },
     data: {
       tags: combinedTags,
@@ -97,7 +105,8 @@ export async function mergeLeads(primaryLeadId: string, secondaryLeadId: string)
   });
 
   // Delete secondary lead
-  await prisma.salesLeadAssignment.delete({ where: { id: secondaryLeadId } });
+  await tx.salesLeadAssignment.delete({ where: { id: secondaryLeadId } });
 
   return { ok: true, primary: updatedPrimary };
+  });
 }
