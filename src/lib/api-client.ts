@@ -494,6 +494,76 @@ export const aicloserApi = {
       return res.data;
     },
 
+    async assign(conversationId: string, assignedAgentId: string) {
+      const res = await request('/conversations/' + encodeURIComponent(conversationId) + '/assign', {
+        method: 'POST',
+        body: JSON.stringify({ assignedAgentId }),
+      });
+      return res.data;
+    },
+
+    async updateStage(conversationId: string, stage: string) {
+      const res = await request('/conversations/' + encodeURIComponent(conversationId) + '/stage', {
+        method: 'PATCH',
+        body: JSON.stringify({ stage }),
+      });
+      return res.data;
+    },
+
+    async addNote(conversationId: string, body: string) {
+      const res = await request('/conversations/' + encodeURIComponent(conversationId) + '/notes', {
+        method: 'POST',
+        body: JSON.stringify({ body }),
+      });
+      return res.data;
+    },
+
+    async scheduleCallback(conversationId: string, followUpAt: string, note?: string) {
+      const res = await request('/conversations/' + encodeURIComponent(conversationId) + '/callback', {
+        method: 'POST',
+        body: JSON.stringify({ followUpAt, note }),
+      });
+      return res.data;
+    },
+
+    async setTyping(conversationId: string, isTyping: boolean) {
+      const res = await request('/conversations/' + encodeURIComponent(conversationId) + '/typing', {
+        method: 'POST',
+        body: JSON.stringify({ isTyping }),
+      });
+      return res.data;
+    },
+
+    async setTransport(conversationId: string, channel: string) {
+      const res = await request('/conversations/' + encodeURIComponent(conversationId) + '/transport', {
+        method: 'PATCH',
+        body: JSON.stringify({ channel }),
+      });
+      return res.data;
+    },
+
+    async getAiReply(conversationId: string): Promise<{ suggestedReply: string; confidence: number }> {
+      const res = await request<{ suggestedReply: string; confidence: number }>(
+        '/conversations/' + encodeURIComponent(conversationId) + '/ai-reply',
+        { method: 'POST' }
+      );
+      return res.data;
+    },
+
+    async triggerDrip(conversationId: string, action: 'PAUSE' | 'RESUME' | 'TRIGGER', sequenceId?: string) {
+      const res = await request('/conversations/' + encodeURIComponent(conversationId) + '/drip', {
+        method: 'POST',
+        body: JSON.stringify({ action, sequenceId }),
+      });
+      return res.data;
+    },
+
+    getAttachmentUrl(conversationId: string, filename: string): string {
+      const token = getStoredToken();
+      const tokenParam = token ? '?token=' + encodeURIComponent(token) : '';
+      return API_BASE_URL + '/conversations/' + encodeURIComponent(conversationId) + '/attachments/' + encodeURIComponent(filename) + tokenParam;
+    },
+
     async uploadAttachment(conversationId: string, file: File) {
       const formData = new FormData();
       formData.append('file', file);
