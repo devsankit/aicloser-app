@@ -42232,8 +42232,8 @@ body:not(.dark) .sales-theme-scope .sales-crm-card .sales-recording-player {
 }
 
 .chat-top-channel-tabs {
-  display: flex !important;
-  align-items: center !important;
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   gap: 3px !important;
   background: rgba(255, 255, 255, 0.04) !important;
   padding: 3px !important;
@@ -42244,47 +42244,49 @@ body:not(.dark) .sales-theme-scope .sales-crm-card .sales-recording-player {
 }
 
 .chat-top-channel-tab {
-  flex: 1 1 0 !important;
   min-width: 0 !important;
   display: flex !important;
+  flex-direction: row !important;
   align-items: center !important;
   justify-content: center !important;
-  gap: 4px !important;
-  padding: 5px 3px !important;
-  border-radius: 7px !important;
+  gap: 3px !important;
+  padding: 5px 4px !important;
+  border-radius: 6px !important;
   border: 1px solid transparent !important;
   background: transparent !important;
   color: #94a3b8 !important;
-  font-size: 0.70rem !important;
+  font-size: 0.72rem !important;
   font-weight: 600 !important;
   cursor: pointer !important;
+  white-space: nowrap !important;
   transition: all 0.15s ease-in-out !important;
   user-select: none !important;
-  overflow: hidden !important;
+}
+
+.chat-top-tab-icon {
+  flex-shrink: 0 !important;
 }
 
 .chat-top-channel-tab .chat-top-tab-label {
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
+  display: inline-flex !important;
+  align-items: center !important;
   white-space: nowrap !important;
-  min-width: 0 !important;
-  font-size: 0.71rem !important;
+  font-size: 0 !important;
+  line-height: 1 !important;
+  flex-shrink: 0 !important;
 }
 
-.chat-top-channel-tab.tab-company .chat-top-tab-label {
-  font-size: 0 !important;
-}
 .chat-top-channel-tab.tab-company .chat-top-tab-label::before {
   content: "API" !important;
   font-size: 0.71rem !important;
+  font-weight: 600 !important;
   letter-spacing: 0.01em !important;
 }
-.chat-top-channel-tab.tab-personal .chat-top-tab-label {
-  font-size: 0 !important;
-}
+
 .chat-top-channel-tab.tab-personal .chat-top-tab-label::before {
   content: "Personal" !important;
   font-size: 0.71rem !important;
+  font-weight: 600 !important;
   letter-spacing: 0.01em !important;
 }
 
@@ -42316,13 +42318,15 @@ body:not(.dark) .sales-theme-scope .sales-crm-card .sales-recording-player {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  font-size: 0.66rem !important;
+  font-size: 0.65rem !important;
   font-weight: 700 !important;
-  padding: 1px 5px !important;
+  padding: 1px 4px !important;
   border-radius: 999px !important;
   background: rgba(255, 255, 255, 0.08) !important;
   color: inherit !important;
   line-height: 1.2 !important;
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
 }
 
 .chat-top-tab-unread-dot {

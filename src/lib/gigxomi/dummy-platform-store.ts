@@ -2526,7 +2526,21 @@ export function projectConversation(
           : "Direct client chat is still waiting for admin or manager access on this thread."
       : undefined;
   const clientAlias = audience === "freelancer" ? getFreelancerClientAlias(conversation, options?.freelancerAliasKeys) : "";
-  const customerDisplayName = audience === "freelancer" ? clientAlias || conversation.maskedCustomerName : conversation.customerName;
+  let rawCustomerName = conversation.customerName || "";
+  const nameDigits = rawCustomerName.replace(/\D/g, "");
+  const isLid = nameDigits.length >= 13 && (rawCustomerName.startsWith("+") || /^\d+$/.test(rawCustomerName));
+  if (isLid && conversation.customerPhone) {
+    const phoneDigits = conversation.customerPhone.replace(/\D/g, "");
+    if (phoneDigits.length === 10) {
+      rawCustomerName = `+91 ${phoneDigits.slice(0, 5)} ${phoneDigits.slice(5)}`;
+    } else if (phoneDigits.length === 12 && phoneDigits.startsWith("91")) {
+      const d = phoneDigits.slice(2);
+      rawCustomerName = `+91 ${d.slice(0, 5)} ${d.slice(5)}`;
+    } else if (phoneDigits.length <= 12) {
+      rawCustomerName = `+${phoneDigits}`;
+    }
+  }
+  const customerDisplayName = audience === "freelancer" ? clientAlias || conversation.maskedCustomerName : rawCustomerName;
   const effectiveUnreadCountByLane: Record<DummyConversationLane, number> =
     audience === "freelancer" && !customerLaneVisible
       ? {

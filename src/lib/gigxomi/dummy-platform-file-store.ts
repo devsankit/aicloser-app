@@ -1691,10 +1691,23 @@ export function syncExternalThreadsToInboxBatch(threads: ExternalThreadInput[]) 
       });
 
       if (!existing) {
+        let safeName = input.customerName?.trim();
+        const rawDigits = (safeName || "").replace(/\D/g, "");
+        if (!safeName || rawDigits.length >= 13 || safeName.includes("deviceId") || safeName.includes("WhatsApp Contact")) {
+          const targetDigits = input.customerPhone.replace(/\D/g, "");
+          if (targetDigits.length === 10) {
+            safeName = `+91 ${targetDigits.slice(0, 5)} ${targetDigits.slice(5)}`;
+          } else if (targetDigits.length === 12 && targetDigits.startsWith("91")) {
+            const d = targetDigits.slice(2);
+            safeName = `+91 ${d.slice(0, 5)} ${d.slice(5)}`;
+          } else {
+            safeName = `+${targetDigits}`;
+          }
+        }
         const created = await createManualConversation({
           role: "sales",
           tenantId,
-          customerName: input.customerName,
+          customerName: safeName,
           customerPhone: input.customerPhone,
         });
         existing = created.conversation;
@@ -1710,13 +1723,28 @@ export function syncExternalThreadsToInboxBatch(threads: ExternalThreadInput[]) 
         const incomingName = (input.customerName || "").trim();
         const isTelemetryOrLid = (val: string) =>
           !val ||
-          val.startsWith("+") ||
           val.includes("deviceId") ||
           val.includes("WhatsApp Contact") ||
-          /^\d+$/.test(val);
-        if (incomingName && !isTelemetryOrLid(incomingName) && isTelemetryOrLid(existingName)) {
+          (val.replace(/\D/g, "").length >= 13 && (val.startsWith("+") || /^\d+$/.test(val)));
+
+        if (incomingName && !isTelemetryOrLid(incomingName)) {
           existing.customerName = incomingName;
           existing.title = incomingName;
+        } else if (isTelemetryOrLid(existingName)) {
+          const phoneDigits = (existing.customerPhone || input.customerPhone || "").replace(/\D/g, "");
+          if (phoneDigits.length === 10) {
+            const cleanDisplay = `+91 ${phoneDigits.slice(0, 5)} ${phoneDigits.slice(5)}`;
+            existing.customerName = cleanDisplay;
+            existing.title = cleanDisplay;
+          } else if (phoneDigits.length === 12 && phoneDigits.startsWith("91")) {
+            const d = phoneDigits.slice(2);
+            const cleanDisplay = `+91 ${d.slice(0, 5)} ${d.slice(5)}`;
+            existing.customerName = cleanDisplay;
+            existing.title = cleanDisplay;
+          } else if (phoneDigits.length > 0 && phoneDigits.length <= 12) {
+            existing.customerName = `+${phoneDigits}`;
+            existing.title = `+${phoneDigits}`;
+          }
         }
 
         if (input.notes?.trim()) {

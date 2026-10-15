@@ -825,20 +825,30 @@ export async function POST(request: Request) {
       .filter((c) => Array.isArray(c.messages) && c.messages.length > 0)
       .slice(0, 200);
 
-    const batchPayload: ExternalThreadInput[] = chatsWithMessages.map((chat) => ({
-      tenantId: inboxTenantId,
-      customerName: chat.name,
-      customerPhone: chat.phone,
-      channelLabel: `${readableBadge} • ${state.connectedPhone || "connected device"}`,
-      sourceType: nextAccountType === "WHATSAPP_BUSINESS" ? "whatsapp_business" : "whatsapp_personal",
-      sourcePhone: state.connectedPhone || "",
-      notes: `Linked via ${readableBadge} (${nextVisibility === "TEAM_SHARED" ? "Shared with Team Inbox" : "Private Rep Line"})`,
-      messages: chat.messages.map((m) => ({
-        role: m.role,
-        body: m.body,
-        externalMessageId: m.id,
-      })),
-    }));
+    const batchPayload: ExternalThreadInput[] = chatsWithMessages.map((chat) => {
+      let resolvedName = chat.name?.trim() || "";
+      const isLid = resolvedName.replace(/\D/g, "").length >= 13 && (resolvedName.startsWith("+") || /^\d+$/.test(resolvedName));
+      if (!resolvedName || isLid || resolvedName.includes("deviceId")) {
+        const pDigits = chat.phone.replace(/\D/g, "");
+        if (pDigits.length === 10) resolvedName = `+91 ${pDigits.slice(0, 5)} ${pDigits.slice(5)}`;
+        else if (pDigits.length === 12 && pDigits.startsWith("91")) resolvedName = `+91 ${pDigits.slice(2, 7)} ${pDigits.slice(7)}`;
+        else resolvedName = chat.phone;
+      }
+      return {
+        tenantId: inboxTenantId,
+        customerName: resolvedName,
+        customerPhone: chat.phone,
+        channelLabel: `${readableBadge} • ${state.connectedPhone || "connected device"}`,
+        sourceType: nextAccountType === "WHATSAPP_BUSINESS" ? "whatsapp_business" : "whatsapp_personal",
+        sourcePhone: state.connectedPhone || "",
+        notes: `Linked via ${readableBadge} (${nextVisibility === "TEAM_SHARED" ? "Shared with Team Inbox" : "Private Rep Line"})`,
+        messages: chat.messages.map((m) => ({
+          role: m.role,
+          body: m.body,
+          externalMessageId: m.id,
+        })),
+      };
+    });
 
     if (batchPayload.length > 0) {
       const synced = await syncExternalThreadsToInboxBatch(batchPayload);
@@ -857,9 +867,17 @@ export async function POST(request: Request) {
     await Promise.all(
       chunk.map(async (chat) => {
         try {
+          let contactFullName = chat.name?.trim() || "";
+          const isLid = contactFullName.replace(/\D/g, "").length >= 13 && (contactFullName.startsWith("+") || /^\d+$/.test(contactFullName));
+          if (!contactFullName || isLid || contactFullName.includes("deviceId")) {
+            const pDigits = chat.phone.replace(/\D/g, "");
+            if (pDigits.length === 10) contactFullName = `+91 ${pDigits.slice(0, 5)} ${pDigits.slice(5)}`;
+            else if (pDigits.length === 12 && pDigits.startsWith("91")) contactFullName = `+91 ${pDigits.slice(2, 7)} ${pDigits.slice(7)}`;
+            else contactFullName = chat.phone;
+          }
           const upsertRes = await upsertMarketingContact({
             tenantId: inboxTenantId,
-            fullName: chat.name,
+            fullName: contactFullName,
             phone: chat.phone,
             tags: Array.from(
               new Set([

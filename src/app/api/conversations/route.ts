@@ -356,18 +356,31 @@ export async function GET(request: Request) {
           dbLeads.find((l) => l.conversationId === conv.id) ||
           (digits ? dbLeads.find((l) => (l.customerPhone || "").replace(/\D/g, "").slice(-10) === digits) : null);
 
-        // Better display name: If current name is unknown or default, use matched user or lead name
+        // Better display name: If current name is unknown or default or an LID, use matched user or lead name or formatted phone
         const rawName = (conv.customerDisplayName || "").trim();
+        const rawDigits = rawName.replace(/\D/g, "");
+        const isLid = rawDigits.length >= 13 && (rawName.startsWith("+") || /^\d+$/.test(rawName));
         const isDefaultOrUnknown =
           !rawName ||
           rawName.toLowerCase() === "unknown customer" ||
           rawName.toLowerCase() === "whatsapp customer" ||
-          rawName.toLowerCase() === "customer";
+          rawName.toLowerCase() === "customer" ||
+          rawName.includes('"deviceId"') ||
+          isLid;
+
+        const formattedPhone = digits && digits.length === 10
+          ? `+91 ${digits.slice(0, 5)} ${digits.slice(5)}`
+          : (conv.customerPhoneDisplay && conv.customerPhoneDisplay.replace(/\D/g, "").length <= 12
+              ? conv.customerPhoneDisplay
+              : "");
+
         const realName =
           (isDefaultOrUnknown ? matchedUser?.displayName || matchedLead?.customerName : null) ||
-          rawName ||
-          conv.customerPhoneDisplay ||
-          "Lead";
+          (!isDefaultOrUnknown ? rawName : null) ||
+          matchedUser?.displayName ||
+          matchedLead?.customerName ||
+          formattedPhone ||
+          "WhatsApp Contact";
 
         let accountType: "AGENCY" | "FREELANCER" | "LEAD" = "LEAD";
         if (matchedUser?.packageAudience === "AGENCY" || matchedUser?.role === "ADMIN") {

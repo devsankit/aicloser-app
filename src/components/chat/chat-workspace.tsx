@@ -813,7 +813,8 @@ function ChatAvatar({
   const safeImageUrl = normalizeAvatarImageUrl(imageUrl);
   const [failedImageUrl, setFailedImageUrl] = useState("");
   const resolvedImageUrl = safeImageUrl && failedImageUrl !== safeImageUrl ? safeImageUrl : "";
-  const initials = getInitials(name, "U").slice(0, 2) || "U";
+  const rawInitials = getInitials(name, "").slice(0, 2);
+  const isLetters = /^[A-Za-z]{1,2}$/.test(rawInitials);
 
   return (
     <div aria-label={`${name} avatar`} className={className}>
@@ -828,8 +829,12 @@ function ChatAvatar({
           unoptimized
           width={96}
         />
+      ) : isLetters ? (
+        <span className="chat-avatar-initials">{rawInitials.toUpperCase()}</span>
       ) : (
-        <span className="chat-avatar-initials">{initials}</span>
+        <span className="chat-avatar-initials" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+          <User size={15} strokeWidth={2.2} />
+        </span>
       )}
     </div>
   );
@@ -1518,28 +1523,71 @@ function ChatSidebarHeader({
   );
 }
 
-function sanitizeChatDisplayName(name?: string | null): string {
-  if (!name) return "Lead";
+function formatPhoneFriendly(phone?: string | null): string {
+  if (!phone) return "";
+  const trimmed = phone.trim();
+  if (trimmed.startsWith("{") || trimmed.includes("deviceId") || trimmed.includes('"')) {
+    return "";
+  }
+  const digits = trimmed.replace(/\D/g, "");
+  if (!digits) return "";
+  // Check if it's an LID (13+ digits that are raw WhatsApp internal IDs)
+  if (digits.length >= 13) {
+    return "";
+  }
+  // Standard Indian 10 digits
+  if (digits.length === 10) {
+    return `+91 ${digits.slice(0, 5)} ${digits.slice(5)}`;
+  }
+  // 12 digits with 91 prefix
+  if (digits.length === 12 && digits.startsWith("91")) {
+    const d = digits.slice(2);
+    return `+91 ${d.slice(0, 5)} ${d.slice(5)}`;
+  }
+  return `+${digits}`;
+}
+
+function sanitizeChatDisplayName(name?: string | null, fallbackPhone?: string | null): string {
+  const formattedFallback = formatPhoneFriendly(fallbackPhone);
+  if (!name) return formattedFallback || "Lead";
   const trimmed = name.trim();
-  if (trimmed.startsWith("{") || trimmed.includes('"deviceId"') || trimmed.startsWith("[")) {
-    return "WhatsApp Contact";
+  if (
+    trimmed.startsWith("{") ||
+    trimmed.includes('"deviceId"') ||
+    trimmed.includes("deviceId") ||
+    trimmed.startsWith("[") ||
+    trimmed.toLowerCase() === "unknown customer" ||
+    trimmed.toLowerCase() === "whatsapp customer"
+  ) {
+    return formattedFallback || "WhatsApp Contact";
+  }
+  // If name is an LID like +255168335577307 or 255168335577307
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length >= 13 && (trimmed.startsWith("+") || /^\d+$/.test(trimmed))) {
+    return formattedFallback || "WhatsApp Contact";
+  }
+  // If name is just raw 10 or 12 digits without letters, format nicely
+  if (/^\+?\d{10,12}$/.test(trimmed)) {
+    return formatPhoneFriendly(trimmed) || formattedFallback || "WhatsApp Contact";
   }
   return trimmed;
 }
 
 function cleanDisplayPhone(phone?: string | null): string {
-  if (!phone) return "";
-  const trimmed = phone.trim();
-  if (trimmed.startsWith("{") || trimmed.includes('"deviceId"') || trimmed.length > 30) {
-    return "";
-  }
-  return trimmed;
+  return formatPhoneFriendly(phone);
 }
 
 function sanitizeChatSnippet(snippet?: string | null): string {
   if (!snippet) return "";
   const trimmed = snippet.trim();
-  if (trimmed.startsWith("{") && (trimmed.includes('"deviceId"') || trimmed.includes('"model"') || trimmed.includes('"manufacturer"'))) {
+  if (
+    trimmed.includes('"deviceId"') ||
+    trimmed.includes('"model"') ||
+    trimmed.includes('"manufacturer"') ||
+    trimmed.includes("deviceId") ||
+    trimmed.includes('"battery"') ||
+    trimmed.includes("Device telemetry")
+  ) {
     return "📱 Device telemetry & diagnostics";
   }
   if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
@@ -1565,11 +1613,10 @@ const ChatThreadRow = memo(function ChatThreadRow({
   selected: boolean;
   onSelect: (conversation: DummyConversationView) => void;
 }) {
-  const rawCustomerName =
-    conversation.customerDisplayName?.trim() ||
-    cleanDisplayPhone(conversation.customerPhoneDisplay) ||
-    "Lead";
-  const customerName = sanitizeChatDisplayName(rawCustomerName);
+  const customerName = sanitizeChatDisplayName(
+    conversation.customerDisplayName,
+    conversation.customerPhoneDisplay
+  );
   const messages = Array.isArray(conversation.messages) ? conversation.messages : [];
   const latestMessage = messages.at(-1);
   const latestInternalMessage = [...messages].reverse().find((message) => message.lane === "internal");
@@ -2295,8 +2342,10 @@ function ChatWorkspaceInner({
   const activeAssignedEditor = assignableEditors.find((editor) => editor.id === activeAssignment?.assignedFreelancerId) ?? null;
   const activeFreelancerLanePermission = activeConversation?.freelancerCustomerLanePermission ?? null;
   const activePendingOffer = activeConversation?.myAssignmentOffer ?? activeAssignment?.myOffer ?? null;
-  const rawActiveCustomerName = activeConversation?.customerDisplayName?.trim() || cleanDisplayPhone(activeConversation?.customerPhoneDisplay) || "Lead";
-  const activeCustomerName = sanitizeChatDisplayName(rawActiveCustomerName);
+  const activeCustomerName = sanitizeChatDisplayName(
+    activeConversation?.customerDisplayName,
+    activeConversation?.customerPhoneDisplay
+  );
   const activeServiceTitle = activeConversation?.serviceTitle?.trim() || "";
   const activeCustomerPhone = cleanDisplayPhone(activeConversation?.customerPhoneDisplay) || "Customer contact hidden";
   const hasConnectedWhatsAppRoute = Boolean(
