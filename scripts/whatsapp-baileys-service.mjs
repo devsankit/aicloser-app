@@ -44,10 +44,95 @@ const memoryStore = {
   groups: new Map(),   // groupJid -> { groupJid, subject, participantCount, participants: [] }
 };
 
+const lidToPhoneCache = new Map();
+
+function preloadLidMappings() {
+  try {
+    if (!fs.existsSync(AUTH_DIR)) return;
+    const files = fs.readdirSync(AUTH_DIR);
+    for (const f of files) {
+      if (f.startsWith("lid-mapping-") && f.endsWith("_reverse.json")) {
+        const lid = f.slice(12, -13);
+        try {
+          const val = JSON.parse(fs.readFileSync(path.join(AUTH_DIR, f), "utf8"));
+          const digits = String(val).replace(/\D/g, "");
+          if (digits) {
+            lidToPhoneCache.set(lid, `+${digits}`);
+          }
+        } catch {}
+      } else if (f.startsWith("lid-mapping-") && f.endsWith(".json")) {
+        const phone = f.slice(12, -5).replace(/\D/g, "");
+        try {
+          const val = JSON.parse(fs.readFileSync(path.join(AUTH_DIR, f), "utf8"));
+          const lidDigits = String(val).replace(/\D/g, "");
+          if (lidDigits && phone) {
+            lidToPhoneCache.set(lidDigits, `+${phone}`);
+          }
+        } catch {}
+      }
+    }
+    console.log(`[WA Service] Preloaded ${lidToPhoneCache.size} LID phone mappings from auth store.`);
+  } catch (err) {
+    console.warn("[WA Service] Error preloading LID mappings:", err);
+  }
+}
+
+preloadLidMappings();
+
 function jidToPhone(jid) {
   if (!jid) return "";
+  if (jid.endsWith("@lid")) {
+    const lid = jid.split("@")[0].split(":")[0].replace(/\D/g, "");
+    if (lidToPhoneCache.has(lid)) {
+      return lidToPhoneCache.get(lid);
+    }
+    try {
+      const mappingFile = path.join(AUTH_DIR, `lid-mapping-${lid}_reverse.json`);
+      if (fs.existsSync(mappingFile)) {
+        const mapped = JSON.parse(fs.readFileSync(mappingFile, "utf8"));
+        const clean = String(mapped).replace(/\D/g, "");
+        if (clean) {
+          const phone = `+${clean}`;
+          lidToPhoneCache.set(lid, phone);
+          return phone;
+        }
+      }
+    } catch {}
+  }
   const num = jid.split("@")[0].split(":")[0].replace(/\D/g, "");
   return num ? `+${num}` : "";
+}
+
+function getContactNameForPhone(phone) {
+  const jid = arguments[1] || "";
+  if (!phone && !jid) return "";
+  if (jid && memoryStore.contacts.has(jid)) {
+    const direct = memoryStore.contacts.get(jid);
+    if (direct?.name && !direct.name.startsWith("+") && !direct.name.startsWith("@") && !direct.name.includes("deviceId")) {
+      return direct.name;
+    }
+  }
+
+  const rawDigits = String(phone || "").replace(/\D/g, "");
+  if (!rawDigits) return "";
+
+  const resolvedDigits = (lidToPhoneCache.get(rawDigits) || "").replace(/\D/g, "") || rawDigits;
+  const p10 = resolvedDigits.slice(-10);
+
+  for (const contact of memoryStore.contacts.values()) {
+    const cDigits = (contact.phone || "").replace(/\D/g, "");
+    const cJidDigits = (contact.jid || "").split("@")[0].replace(/\D/g, "");
+    const cName = contact.name || contact.notify || contact.verifiedName;
+    if (!cName || cName.startsWith("+") || cName.startsWith("@") || cName.includes("deviceId")) continue;
+
+    if (cDigits && (cDigits === resolvedDigits || (p10 && cDigits.endsWith(p10)))) {
+      return cName;
+    }
+    if (cJidDigits && (cJidDigits === rawDigits || (p10 && cJidDigits.endsWith(p10)))) {
+      return cName;
+    }
+  }
+  return "";
 }
 
 function appendWhatsAppMessage(message) {
@@ -63,19 +148,23 @@ function appendWhatsAppMessage(message) {
 
   const timestamp = new Date(message.messageTimestamp ? Number(message.messageTimestamp) * 1000 : Date.now()).toISOString();
   const messageId = message.key.id || `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const resolvedPhone = jidToPhone(jid);
+  const contactName = getContactNameForPhone(resolvedPhone);
   const chat = memoryStore.chats.get(jid) || {
     jid,
-    phone: jidToPhone(jid),
-    name: message.pushName || jidToPhone(jid),
+    phone: resolvedPhone,
+    name: contactName || message.pushName || resolvedPhone,
     unreadCount: 0,
     lastMessageAt: timestamp,
     lastMessagePreview: body,
     messages: [],
   };
 
+  chat.phone = resolvedPhone;
   chat.lastMessagePreview = body;
   chat.lastMessageAt = timestamp;
-  if (message.pushName && (!chat.name || chat.name.startsWith("+"))) chat.name = message.pushName;
+  if (contactName && (!chat.name || chat.name.startsWith("+"))) chat.name = contactName;
+  else if (message.pushName && (!chat.name || chat.name.startsWith("+"))) chat.name = message.pushName;
   if (!chat.messages.some((item) => item.id === messageId)) {
     chat.messages.push({
       id: messageId,
@@ -149,7 +238,16 @@ function loadScrapedCache() {
       }
       if (Array.isArray(data.chats)) {
         for (const ch of data.chats) {
-          if (ch.jid) memoryStore.chats.set(ch.jid, ch);
+          if (ch.jid) {
+            const resolved = jidToPhone(ch.jid);
+            if (resolved && (!ch.phone || ch.phone.startsWith("+92642") || ch.jid.endsWith("@lid"))) {
+              ch.phone = resolved;
+            }
+            const name = getContactNameForPhone(ch.phone, ch.jid);
+            if (name && (!ch.name || ch.name.startsWith("+") || ch.name.includes("deviceId"))) ch.name = name;
+            else if (!ch.name || ch.name.startsWith("+") || ch.name.length > 13) ch.name = ch.phone;
+            memoryStore.chats.set(ch.jid, ch);
+          }
         }
       }
       if (Array.isArray(data.groups)) {
@@ -348,15 +446,22 @@ async function startWhatsAppSocket(forceNew = false) {
       if (Array.isArray(chats)) {
         for (const ch of chats) {
           if (!ch.id || ch.id.endsWith("@g.us")) continue;
+          const phone = jidToPhone(ch.id);
+          const contactName = getContactNameForPhone(phone, ch.id);
+          const cleanName = contactName || (ch.name && !ch.name.startsWith("+") ? ch.name : "") || phone;
           const existing = memoryStore.chats.get(ch.id) || {
             jid: ch.id,
-            phone: jidToPhone(ch.id),
-            name: ch.name || jidToPhone(ch.id),
+            phone,
+            name: cleanName,
             unreadCount: ch.unreadCount || 0,
             lastMessageAt: new Date(ch.conversationTimestamp ? ch.conversationTimestamp * 1000 : Date.now()).toISOString(),
             lastMessagePreview: "Recent WhatsApp message",
             messages: [],
           };
+          if (contactName && (!existing.name || existing.name.startsWith("+"))) {
+            existing.name = contactName;
+          }
+          existing.phone = phone;
           memoryStore.chats.set(ch.id, existing);
         }
       }
@@ -381,6 +486,14 @@ async function startWhatsAppSocket(forceNew = false) {
           name,
           verifiedName: c.verifiedName || null,
         });
+
+        // Upgrade corresponding chat name in memoryStore.chats if real name
+        if (name && !name.startsWith("+") && !name.startsWith("@") && !name.includes("deviceId")) {
+          const chat = memoryStore.chats.get(c.id);
+          if (chat && (!chat.name || chat.name.startsWith("+") || chat.name.includes("deviceId"))) {
+            chat.name = name;
+          }
+        }
       }
       sessionState.stats.totalContacts = memoryStore.contacts.size;
       saveSessionState();
@@ -391,15 +504,22 @@ async function startWhatsAppSocket(forceNew = false) {
     sock.ev.on("chats.upsert", (newChats) => {
       for (const ch of newChats) {
         if (!ch.id || ch.id.endsWith("@g.us")) continue;
+        const phone = jidToPhone(ch.id);
+        const contactName = getContactNameForPhone(phone, ch.id);
+        const cleanName = contactName || (ch.name && !ch.name.startsWith("+") ? ch.name : "") || phone;
         const existing = memoryStore.chats.get(ch.id) || {
           jid: ch.id,
-          phone: jidToPhone(ch.id),
-          name: ch.name || jidToPhone(ch.id),
+          phone,
+          name: cleanName,
           unreadCount: ch.unreadCount || 0,
           lastMessageAt: new Date(ch.conversationTimestamp ? ch.conversationTimestamp * 1000 : Date.now()).toISOString(),
           lastMessagePreview: "Recent WhatsApp message",
           messages: [],
         };
+        existing.phone = phone;
+        if (contactName && (!existing.name || existing.name.startsWith("+"))) {
+          existing.name = contactName;
+        }
         existing.unreadCount = ch.unreadCount ?? existing.unreadCount;
         memoryStore.chats.set(ch.id, existing);
       }
@@ -408,10 +528,66 @@ async function startWhatsAppSocket(forceNew = false) {
       saveScrapedCache();
     });
 
+
+async function dispatchInboundMessageToCrm(m) {
+  try {
+    if (!m?.key?.remoteJid || m.key.remoteJid.endsWith("@g.us")) return;
+    const jid = m.key.remoteJid;
+    const body =
+      m.message?.conversation ||
+      m.message?.extendedTextMessage?.text ||
+      m.message?.imageMessage?.caption ||
+      (m.message?.imageMessage ? "[Photo]" : "") ||
+      (m.message?.documentMessage ? "[Document]" : "");
+    if (!body) return;
+
+    const phone = jidToPhone(jid);
+    if (!phone || phone.length < 10) return;
+    const name = getContactNameForPhone(phone) || m.pushName || phone;
+    const timestamp = new Date(m.messageTimestamp ? Number(m.messageTimestamp) * 1000 : Date.now()).toISOString();
+    const role = m.key.fromMe ? "sales" : "customer";
+    const externalMessageId = m.key.id || `wa-${Date.now()}`;
+
+    const crmPort = process.env.CRM_PORT || 3050;
+    const payload = JSON.stringify({
+      action: "inbound_event",
+      sessionKey,
+      connectedPhone: sessionState.connectedPhone,
+      message: {
+        phone,
+        name,
+        role,
+        body,
+        externalMessageId,
+        timestamp,
+      },
+    });
+
+    const req = http.request({
+      hostname: "127.0.0.1",
+      port: crmPort,
+      path: "/api/sales/whatsapp-scanner",
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(payload),
+        "x-internal-wa-token": sessionKey,
+      },
+      timeout: 3000,
+    }, (res) => {
+      res.resume();
+    });
+    req.on("error", () => {});
+    req.write(payload);
+    req.end();
+  } catch (err) {}
+}
+
     // Listen to messages upsert
     sock.ev.on("messages.upsert", ({ messages }) => {
       for (const m of messages) {
         appendWhatsAppMessage(m);
+        dispatchInboundMessageToCrm(m).catch(() => {});
       }
       sessionState.stats.totalChats = memoryStore.chats.size;
       saveSessionState();
@@ -590,13 +766,26 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/scrape") {
-      if (sock && sessionState.status === "CONNECTED" && sock.user?.id) {
-        await fetchAndCacheGroups().catch(() => {});
+      if (sock && sessionState.status === "CONNECTED" && sock.user?.id && memoryStore.groups.size === 0) {
+        fetchAndCacheGroups().catch(() => {});
       }
 
       const contacts = Array.from(memoryStore.contacts.values());
       const chats = Array.from(memoryStore.chats.values());
       const groups = Array.from(memoryStore.groups.values());
+
+      for (const ch of chats) {
+        if (!ch.phone || ch.phone.startsWith("+92642") || ch.phone.length > 13 || ch.jid.endsWith("@lid")) {
+          const resolved = jidToPhone(ch.jid);
+          if (resolved) ch.phone = resolved;
+        }
+        const name = getContactNameForPhone(ch.phone, ch.jid);
+        if (name && (!ch.name || ch.name.startsWith("+") || ch.name.includes("deviceId"))) {
+          ch.name = name;
+        } else if (!ch.name || ch.name.startsWith("+") || ch.name.length > 13) {
+          ch.name = ch.phone;
+        }
+      }
 
       return sendJson(200, {
         ok: true,
@@ -611,6 +800,24 @@ const server = http.createServer(async (req, res) => {
         chats,
         groups,
       });
+    }
+
+    if (pathname === "/send" && req.method === "POST") {
+      const body = await readBody();
+      const to = String(body.to || "").replace(/\D/g, "");
+      const text = String(body.body || "").trim();
+      if (!to || !text) {
+        return sendJson(400, { ok: false, error: "Recipient and message are required." });
+      }
+      if (!sock || sessionState.status !== "CONNECTED" || !sock.user?.id) {
+        return sendJson(409, { ok: false, error: "The linked WhatsApp device is not connected." });
+      }
+      const result = await sock.sendMessage(`${to}@s.whatsapp.net`, { text });
+      const messageId = result?.key?.id || "";
+      if (!messageId) return sendJson(502, { ok: false, error: "WhatsApp did not return a message id." });
+      appendWhatsAppMessage(result);
+      saveScrapedCache();
+      return sendJson(200, { ok: true, messageId });
     }
 
     return sendJson(404, { ok: false, error: "Endpoint not found" });

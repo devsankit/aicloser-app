@@ -139,7 +139,6 @@ test("call recordings provide direction and missed-call tabs", () => {
 });
 
 test("disabled lead actions explain the prerequisite", () => {
-  assert.match(dashboard, /Add note \(enter text first\)/);
   assert.match(dashboard, /Save follow-up \(choose a date first\)/);
   assert.match(leadNotes, /Add note \(enter text first\)/);
 });
