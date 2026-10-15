@@ -34,6 +34,12 @@ object CallLogSyncManager {
         return durationSeconds > 0L && ageMillis in 0L..SHARE_AUTOMATION_FRESHNESS_MS
     }
 
+    internal fun callLogSyncCutoff(nowMillis: Long, lookbackDays: Int, lastSyncedDate: Long): Long {
+        val boundedLookbackDays = lookbackDays.coerceIn(1, 30)
+        val defaultCutoff = nowMillis - (boundedLookbackDays.toLong() * 24 * 60 * 60 * 1000L)
+        return if (lastSyncedDate > 0L) maxOf(defaultCutoff, lastSyncedDate - 300_000L) else defaultCutoff
+    }
+
     fun syncRecentCallLogs(context: Context, lookbackDays: Int = 14): Int {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
             ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED
@@ -49,9 +55,8 @@ object CallLogSyncManager {
 
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
-        val defaultCutoff = now - (lookbackDays.toLong() * 24 * 60 * 60 * 1000L)
         val lastSynced = prefs.getLong(KEY_LAST_SYNCED_DATE, 0L)
-        val cutoff = if (lastSynced > 0L) maxOf(defaultCutoff, lastSynced - 300_000L) else defaultCutoff
+        val cutoff = callLogSyncCutoff(now, lookbackDays, lastSynced)
 
         val resolver = context.contentResolver
         val cursor = runCatching {
@@ -78,6 +83,7 @@ object CallLogSyncManager {
         val store = OfflineEventStore(context)
         var importedCount = 0
         var maxSeenDate = lastSynced
+        var earliestFailedDate: Long? = null
 
         cursor.use {
             val idCol = it.getColumnIndex(CallLog.Calls._ID)
@@ -173,13 +179,15 @@ object CallLogSyncManager {
                     }
                     importedCount++
                 } catch (e: Exception) {
+                    earliestFailedDate = earliestFailedDate?.let { minOf(it, date) } ?: date
                     Log.w(TAG, "Failed to import call log row id=$id phone=$number", e)
                 }
             }
         }
 
-        if (maxSeenDate > lastSynced) {
-            prefs.edit().putLong(KEY_LAST_SYNCED_DATE, maxSeenDate).apply()
+        val safeWatermark = earliestFailedDate?.let { minOf(maxSeenDate, it) } ?: maxSeenDate
+        if (safeWatermark != lastSynced) {
+            prefs.edit().putLong(KEY_LAST_SYNCED_DATE, safeWatermark).apply()
         }
 
         if (importedCount > 0) {

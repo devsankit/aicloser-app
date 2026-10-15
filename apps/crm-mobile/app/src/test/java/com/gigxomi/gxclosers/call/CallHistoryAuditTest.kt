@@ -4,6 +4,7 @@ import com.gigxomi.gxclosers.data.MobileCall
 import com.gigxomi.gxclosers.data.parseBootstrap
 import com.gigxomi.gxclosers.data.isFromDevice
 import com.gigxomi.gxclosers.data.parseEffectiveInstant
+import com.gigxomi.gxclosers.call.CallHistoryCorrelation
 import org.junit.Assert.assertNotNull
 import org.json.JSONArray
 import org.json.JSONObject
@@ -156,7 +157,7 @@ class CallHistoryAuditTest {
                     put("direction", "INBOUND")
                     put("status", "COMPLETED")
                     put("startedAt", "2026-10-15T09:00:00Z")
-                    put("deviceId", "pixel-9-android-id")
+                    put("deviceId", "mobile-device-db-fk-pixel")
                     put("device", JSONObject().apply {
                         put("deviceId", "pixel-9-android-id")
                         put("model", "Pixel 9")
@@ -169,7 +170,7 @@ class CallHistoryAuditTest {
                     put("direction", "OUTBOUND")
                     put("status", "COMPLETED")
                     put("startedAt", "2026-10-14T15:00:00Z")
-                    put("deviceId", "poco-f5-device-id")
+                    put("deviceId", "mobile-device-db-fk-poco")
                     put("device", JSONObject().apply {
                         put("deviceId", "poco-f5-device-id")
                         put("model", "23049PCD8G")
@@ -242,6 +243,64 @@ class CallHistoryAuditTest {
         }
 
         assertEquals("LOCAL_PENDING", recordingStatus)
+    }
+
+    @Test
+    fun unpreparedCall_requiresFreshOffhookIdleSequence() {
+        val now = 1_800_000_000_000L
+        assertTrue(CallHistoryCorrelation.hasFreshConnectedSequence(true, now - 60_000L, now))
+        assertFalse(CallHistoryCorrelation.hasFreshConnectedSequence(false, now - 60_000L, now))
+        assertFalse(CallHistoryCorrelation.hasFreshConnectedSequence(true, now - 13 * 60 * 60_000L, now))
+    }
+
+    @Test
+    fun callLogBackfill_usesBoundedWatermarkWithSmallRetryOverlap() {
+        val now = 1_800_000_000_000L
+        val twoHoursAgo = now - 2 * 60 * 60_000L
+        assertEquals(twoHoursAgo - 300_000L, CallLogSyncManager.callLogSyncCutoff(now, 14, twoHoursAgo))
+        assertEquals(now - 14 * 24 * 60 * 60_000L, CallLogSyncManager.callLogSyncCutoff(now, 14, 0L))
+        assertEquals(now - 30 * 24 * 60 * 60_000L, CallLogSyncManager.callLogSyncCutoff(now, 90, 0L))
+    }
+
+    @Test
+    fun connectedCallLogRow_mustMatchCurrentTimeAndNumber() {
+        val callStarted = 1_800_000_000_000L
+        val offhook = callStarted + 5_000L
+        val ended = callStarted + 45_000L
+        assertTrue(CallHistoryCorrelation.matchesConnectedCallLogRow(
+            rowStartedAt = callStarted,
+            durationSeconds = 40,
+            observedCallStartedAt = callStarted,
+            observedOffhookAt = offhook,
+            observedIdleAt = ended,
+            expectedPhone = "+91 98765 00001",
+            rowPhone = "+919876500001",
+        ))
+        assertFalse(CallHistoryCorrelation.matchesConnectedCallLogRow(
+            rowStartedAt = callStarted - 10 * 60_000L,
+            durationSeconds = 40,
+            observedCallStartedAt = callStarted,
+            observedOffhookAt = offhook,
+            observedIdleAt = ended,
+            expectedPhone = "+919876500001",
+            rowPhone = "+919876500001",
+        ))
+        assertFalse(CallHistoryCorrelation.matchesConnectedCallLogRow(
+            rowStartedAt = callStarted,
+            durationSeconds = 40,
+            observedCallStartedAt = callStarted,
+            observedOffhookAt = offhook,
+            observedIdleAt = ended,
+            expectedPhone = "+919876500001",
+            rowPhone = "+919876500002",
+        ))
+    }
+
+    @Test
+    fun recordingIsAvailable_onlyForExistingFileOrQueuedUpload() {
+        assertFalse(CallHistoryCorrelation.isActualAudioAvailable(fileExistsAndNonEmpty = false, uploadJobExists = false))
+        assertTrue(CallHistoryCorrelation.isActualAudioAvailable(fileExistsAndNonEmpty = true, uploadJobExists = false))
+        assertTrue(CallHistoryCorrelation.isActualAudioAvailable(fileExistsAndNonEmpty = false, uploadJobExists = true))
     }
 
     private fun createTestCall(

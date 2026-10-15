@@ -184,7 +184,10 @@ fun parseBootstrap(json: JSONObject): Bootstrap {
         calls = json.optJSONArray("calls")?.objects()?.map { call ->
             val deviceObj = call.optJSONObject("device")
             val devModel = deviceObj?.nullableText("model") ?: deviceObj?.nullableText("brand")
-            val devId = call.nullableText("deviceId") ?: deviceObj?.nullableText("deviceId")
+            // The call row's deviceId is commonly the SalesMobileDevice DB
+            // foreign key. Prefer the nested device's stable Android ID for
+            // local-device filtering; retain the row value only for legacy APIs.
+            val devId = deviceObj?.nullableText("deviceId") ?: call.nullableText("deviceId")
             MobileCall(
                 id = call.text("id"), assignmentId = call.text("assignmentId"), phoneNumber = call.text("phoneNumber"),
                 direction = call.text("direction").ifBlank { "UNKNOWN" },

@@ -58,6 +58,22 @@ class PhoneStateReceiver : BroadcastReceiver() {
         }
         prefs.edit().putString("lastHandledState", state).putLong("lastHandledStateAt", now).apply()
 
+        if (state == "RINGING") {
+            val hasCurrentSession = !prefs.getString("activeCallId", null).isNullOrBlank() ||
+                prefs.getBoolean("incomingSessionStarting", false)
+            val offhookAt = prefs.getLong("offhookAt", 0L)
+            val currentOffhookIsRecent = prefs.getBoolean("wasOffhook", false) && offhookAt > 0L && now - offhookAt in 0L..30_000L
+            if (!hasCurrentSession && !currentOffhookIsRecent) {
+                prefs.edit()
+                    .putLong("incomingRingingAt", now)
+                    .putLong("callSequenceStartedAt", now)
+                    .remove("offhookAt")
+                    .remove("incomingSessionEnded")
+                    .remove("incomingEndedAt")
+                    .apply()
+            }
+        }
+
         val incoming = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER).orEmpty()
         val screenedPhone = prefs.getString("screenedIncomingPhone", null)?.takeIf {
             prefs.getLong("screenedIncomingAt", 0L) >= (now - 25_000L)
@@ -125,7 +141,16 @@ class PhoneStateReceiver : BroadcastReceiver() {
         }
 
         if (state == "OFFHOOK") {
-            prefs.edit().putBoolean("wasOffhook", true).putLong("offhookAt", System.currentTimeMillis()).apply()
+            val offhookAt = prefs.getLong("offhookAt", 0L)
+            val newOffhookTransition = lastHandledState != "OFFHOOK" || now - lastHandledStateAt > 15_000L
+            val ringingAt = prefs.getLong("incomingRingingAt", 0L)
+            val sequenceStartedAt = ringingAt.takeIf { it > 0L && now - it in 0L..(10 * 60_000L) }
+                ?: if (newOffhookTransition) now else prefs.getLong("callSequenceStartedAt", 0L).takeIf { it > 0L } ?: now
+            prefs.edit()
+                .putBoolean("wasOffhook", true)
+                .putLong("offhookAt", if (newOffhookTransition || offhookAt <= 0L) now else offhookAt)
+                .putLong("callSequenceStartedAt", sequenceStartedAt)
+                .apply()
             val activePhoneForCard = prefs.getString("activePhone", null).orEmpty()
             if (!prefs.getBoolean("activeCallIsNonWorkSim", false) && activePhoneForCard.isNotBlank()) {
                 val callerCardShown = DialerShareAccessibilityService.showCallerCard(context, activePhoneForCard)
@@ -184,15 +209,54 @@ class PhoneStateReceiver : BroadcastReceiver() {
 
     private fun handleIdleState(context: Context, phone: String, localMicRecording: PendingRecording?) {
         val prefs = context.getSharedPreferences(CallAudioRecorder.PREFS, Context.MODE_PRIVATE)
-        val activePhone = prefs.getString("activePhone", null)?.ifBlank { null } ?: phone.ifBlank { null }
-            val activeStarted = prefs.getLong("activeStartedAt", 0L).takeIf { it > 0L }
-            val callLog = latestCallLog(context, expectedPhone = activePhone, minStartedAt = activeStarted)
-            val effectivePhone = callLog?.number?.takeIf(String::isNotBlank) ?: activePhone ?: phone
-            val callId = prefs.getString("activeCallId", null)
-            val sessionStarting = prefs.getBoolean("incomingSessionStarting", false)
+        val callId = prefs.getString("activeCallId", null)
+        val sessionStarting = prefs.getBoolean("incomingSessionStarting", false)
+        val activeSession = !callId.isNullOrBlank() || sessionStarting
+        val activePhone = if (activeSession) prefs.getString("activePhone", null)?.ifBlank { null } else null
+        val wasOffhook = prefs.getBoolean("wasOffhook", false)
+        val offhookAt = prefs.getLong("offhookAt", 0L)
+        val sequenceStartedAt = prefs.getLong(
+            "callSequenceStartedAt",
+            prefs.getLong("incomingRingingAt", prefs.getLong("activeStartedAt", 0L)),
+        )
+        val freshConnectedSequence = CallHistoryCorrelation.hasFreshConnectedSequence(wasOffhook, offhookAt, System.currentTimeMillis())
+        val callLogWindowStart = when {
+            activeSession -> sequenceStartedAt.takeIf { it > 0L }?.minus(15_000L)?.coerceAtLeast(0L)
+            freshConnectedSequence -> (offhookAt - CallHistoryCorrelation.CALL_LOG_RINGING_TOLERANCE_MS).coerceAtLeast(0L)
+            else -> null
+        }
+        val callLogCandidate = callLogWindowStart?.let { windowStart ->
+            latestCallLog(context, expectedPhone = activePhone, minStartedAt = windowStart)
+        }
+        val now = System.currentTimeMillis()
+        val callLog = callLogCandidate?.takeIf { candidate ->
+            when {
+                candidate.durationSeconds > 0L ->
+                    freshConnectedSequence && CallHistoryCorrelation.matchesConnectedCallLogRow(
+                        rowStartedAt = candidate.startedAt,
+                        durationSeconds = candidate.durationSeconds,
+                        observedCallStartedAt = sequenceStartedAt.takeIf { it > 0L } ?: offhookAt,
+                        observedOffhookAt = offhookAt,
+                        observedIdleAt = now,
+                        expectedPhone = activePhone,
+                        rowPhone = candidate.number,
+                    )
+                activeSession -> CallHistoryCorrelation.matchesMissedCallLogRow(
+                    rowStartedAt = candidate.startedAt,
+                    observedCallStartedAt = sequenceStartedAt,
+                    observedIdleAt = now,
+                    expectedPhone = activePhone,
+                    rowPhone = candidate.number,
+                )
+                else -> false
+            }
+        }
+        val effectivePhone = callLog?.number?.takeIf(String::isNotBlank) ?: activePhone ?: phone
 
             val wasNonWork = prefs.getBoolean("activeCallIsNonWorkSim", false)
-            val rawSubId = callLog?.simSubscriptionId ?: queryRawCallLogSim(context, effectivePhone, activeStarted)
+            val rawSubId = callLog?.simSubscriptionId ?: callLogWindowStart?.let {
+                queryRawCallLogSim(context, effectivePhone, it)
+            }
             val effectiveLead = effectivePhone.takeIf(String::isNotBlank)?.let { CallManager.lookup(context, it) }
             val isKnownLeadOrCrmCall = effectiveLead != null || !callId.isNullOrBlank()
             val isPersonalCall = !isKnownLeadOrCrmCall && (wasNonWork || (rawSubId != null && CallManager.isPersonalSim(context, rawSubId)))
@@ -263,8 +327,13 @@ class PhoneStateReceiver : BroadcastReceiver() {
                     ?.takeIf { it.callId.startsWith(CallAudioRecorder.UNPREPARED_CALL_PREFIX) }
                     ?.clientUploadId
                 inboundMicUploadId?.let { OfflineEventStore(context).rebindRecordingCall(it, callId) }
-                val hasLocalAudioFile = (localMicRecording != null && java.io.File(localMicRecording.path).exists() && java.io.File(localMicRecording.path).length() > 0L) ||
-                    inboundMicUploadId != null
+                val audioFileExists = localMicRecording?.let { recording ->
+                    java.io.File(recording.path).let { it.exists() && it.length() > 0L }
+                } == true
+                val uploadJobExists = inboundMicUploadId?.let { uploadId ->
+                    OfflineEventStore(context).pendingRecordings().any { it.clientUploadId == uploadId }
+                } == true
+                val hasLocalAudioFile = CallHistoryCorrelation.isActualAudioAvailable(audioFileExists, uploadJobExists)
 
                 // Correlate with current call-log row or actual captured audio file.
                 // Do not mark a call completed solely from a stale pref or uncorrelated broadcast transition.
@@ -408,14 +477,17 @@ class PhoneStateReceiver : BroadcastReceiver() {
                 // activeCallId because CRM did not get a chance to prepare it.
                 // Read the just-finished real system call-log row and create
                 // the tenant-scoped CRM session before closing it.
-                syncUnpreparedCallLog(
-                    context,
-                    callLog,
-                    connectedHint = prefs.getBoolean("wasOffhook", false),
-                    connectedAtHint = prefs.getLong("offhookAt", 0L),
-                    endedAtHint = System.currentTimeMillis(),
-                    localMicRecording = localMicRecording,
-                )
+                if (freshConnectedSequence) {
+                    syncUnpreparedCallLog(
+                        context,
+                        connectedAtHint = offhookAt,
+                        callStartedAtHint = sequenceStartedAt,
+                        endedAtHint = System.currentTimeMillis(),
+                        localMicRecording = localMicRecording,
+                    )
+                } else {
+                    Log.w("GXPhoneState", "IDLE without a fresh connected-call sequence; ignoring unprepared-call fallback")
+                }
             }
             if (sessionStarting && localMicRecording?.callId?.startsWith(CallAudioRecorder.UNPREPARED_CALL_PREFIX) == true) {
                 prefs.edit().putString("pendingInboundRecordingUploadId", localMicRecording.clientUploadId).apply()
@@ -525,7 +597,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
                     lead?.id?.let { putString("activeLeadId", it) }
                     putString("activePhone", phone)
                     putString("direction", "INBOUND")
-                    putLong("activeStartedAt", System.currentTimeMillis())
+                    putLong("activeStartedAt", prefs.getLong("incomingRingingAt", System.currentTimeMillis()))
                     putBoolean("incomingSessionStarting", false)
                     apply()
                 }
@@ -536,7 +608,16 @@ class PhoneStateReceiver : BroadcastReceiver() {
                     val endedAt = prefs.getLong("incomingEndedAt", System.currentTimeMillis())
                     val durationSeconds = if (wasOffhook) ((endedAt - prefs.getLong("offhookAt", endedAt)) / 1000).coerceAtLeast(0) else 0
                     val queuedMicUploadId = prefs.getString("pendingInboundRecordingUploadId", null)
-                    queuedMicUploadId?.let { OfflineEventStore(context).rebindRecordingCall(it, callId) }
+                    val recordingStore = OfflineEventStore(context)
+                    val queuedRecording = queuedMicUploadId?.let { uploadId ->
+                        recordingStore.allRecordings().firstOrNull { it.clientUploadId == uploadId }
+                    }
+                    val queuedUploadJobExists = queuedRecording != null && queuedRecording.status in setOf("LOCAL_PENDING", "UPLOADING", "FAILED", "RECORDING")
+                    val queuedAudioFileExists = queuedRecording?.let { recording ->
+                        java.io.File(recording.filePath).let { it.exists() && it.length() > 0L }
+                    } == true
+                    val hasLocalAudio = CallHistoryCorrelation.isActualAudioAvailable(queuedAudioFileExists, queuedUploadJobExists)
+                    if (hasLocalAudio) queuedMicUploadId?.let { recordingStore.rebindRecordingCall(it, callId) }
                     val shareAutomationArmed = if (
                         wasOffhook && durationSeconds > 0L && DialerShareAutomation.isReady(context) &&
                         CallLogSyncManager.isFreshCompletedCallForShareAutomation(System.currentTimeMillis(), endedAt, durationSeconds)
@@ -552,7 +633,6 @@ class PhoneStateReceiver : BroadcastReceiver() {
                         )
                     } else false
                     val callLog = latestCallLog(context, expectedPhone = phone, minStartedAt = prefs.getLong("activeStartedAt", 0L))
-                    val hasLocalAudio = queuedMicUploadId != null
                     val connected = (callLog != null && callLog.durationSeconds > 0L) || hasLocalAudio
                     val realDuration = callLog?.durationSeconds?.takeIf { it > 0L }
                         ?: if (hasLocalAudio && wasOffhook) durationSeconds else 0L
@@ -610,6 +690,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
                 val endedBeforeSession = prefs.getBoolean("incomingSessionEnded", false)
                 val wasOffhook = prefs.getBoolean("wasOffhook", false)
                 val offhookAt = prefs.getLong("offhookAt", 0L)
+                val callStartedAt = prefs.getLong("callSequenceStartedAt", prefs.getLong("incomingRingingAt", offhookAt))
                 val endedAt = prefs.getLong("incomingEndedAt", System.currentTimeMillis())
                 prefs.edit()
                     .putBoolean("incomingSessionStarting", false)
@@ -624,14 +705,15 @@ class PhoneStateReceiver : BroadcastReceiver() {
                     .remove("wasOffhook")
                     .apply()
                 if (endedBeforeSession || wasOffhook) {
-                    syncUnpreparedCallLog(
-                        context,
-                        details = null,
-                        connectedHint = wasOffhook,
-                        connectedAtHint = offhookAt,
-                        endedAtHint = endedAt,
-                        localMicRecording = null,
-                    )
+                    if (CallHistoryCorrelation.hasFreshConnectedSequence(wasOffhook, offhookAt, endedAt)) {
+                        syncUnpreparedCallLog(
+                            context,
+                            connectedAtHint = offhookAt,
+                            callStartedAtHint = callStartedAt,
+                            endedAtHint = endedAt,
+                            localMicRecording = null,
+                        )
+                    }
                 }
             } finally {
                 pendingResult.finish()
@@ -677,10 +759,9 @@ class PhoneStateReceiver : BroadcastReceiver() {
 
     private fun syncUnpreparedCallLog(
         context: Context,
-        details: CallLogDetails? = null,
-        connectedHint: Boolean = false,
-        connectedAtHint: Long = 0L,
-        endedAtHint: Long = System.currentTimeMillis(),
+        connectedAtHint: Long,
+        callStartedAtHint: Long,
+        endedAtHint: Long,
         localMicRecording: PendingRecording? = null,
     ) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
@@ -689,12 +770,12 @@ class PhoneStateReceiver : BroadcastReceiver() {
 
         val resolver = context.contentResolver
         val prefs = context.getSharedPreferences(CallAudioRecorder.PREFS, Context.MODE_PRIVATE)
-        val now = System.currentTimeMillis()
-        // If details was already resolved for this exact call, target that ID directly;
-        // otherwise only search within the active call window (last 2 minutes), never 2 hours ago.
-        val cutoff = if (connectedAtHint > 0L) (connectedAtHint - 15_000L) else (now - 120_000L)
-        val selection = if (details != null) "${CallLog.Calls._ID} = ?" else "${CallLog.Calls.DATE} >= ?"
-        val selectionArgs = if (details != null) arrayOf(details.id) else arrayOf(cutoff.toString())
+        if (!CallHistoryCorrelation.hasFreshConnectedSequence(true, connectedAtHint, endedAtHint) || callStartedAtHint <= 0L) {
+            Log.w("GXPhoneState", "Rejecting unprepared import without fresh OFFHOOK/IDLE evidence")
+            return
+        }
+        val cutoff = (callStartedAtHint - CallHistoryCorrelation.CALL_LOG_RINGING_TOLERANCE_MS).coerceAtLeast(0L)
+        val upperBound = endedAtHint + CallHistoryCorrelation.CALL_LOG_END_TOLERANCE_MS
         val cursor = runCatching {
             resolver.query(
                 CallLog.Calls.CONTENT_URI,
@@ -706,8 +787,8 @@ class PhoneStateReceiver : BroadcastReceiver() {
                     CallLog.Calls.DURATION,
                     CallLog.Calls.PHONE_ACCOUNT_ID,
                 ),
-                selection,
-                selectionArgs,
+                "${CallLog.Calls.DATE} >= ? AND ${CallLog.Calls.DATE} <= ?",
+                arrayOf(cutoff.toString(), upperBound.toString()),
                 "${CallLog.Calls.DATE} DESC"
             )
         }.getOrNull() ?: return
@@ -721,10 +802,19 @@ class PhoneStateReceiver : BroadcastReceiver() {
             val type = it.getInt(it.getColumnIndexOrThrow(CallLog.Calls.TYPE))
             val startedAt = it.getLong(it.getColumnIndexOrThrow(CallLog.Calls.DATE))
             val callLogDuration = it.getLong(it.getColumnIndexOrThrow(CallLog.Calls.DURATION)).coerceAtLeast(0)
-            val duration = callLogDuration.takeIf { value -> value > 0L }
-                ?: if (connectedHint && connectedAtHint > 0L) {
-                    ((endedAtHint - connectedAtHint) / 1000L).coerceAtLeast(0L)
-                } else 0L
+            if (!CallHistoryCorrelation.matchesConnectedCallLogRow(
+                    rowStartedAt = startedAt,
+                    durationSeconds = callLogDuration,
+                    observedCallStartedAt = callStartedAtHint,
+                    observedOffhookAt = connectedAtHint,
+                    observedIdleAt = endedAtHint,
+                    rowPhone = phone,
+                )
+            ) {
+                Log.w("GXPhoneState", "Call-log row id=$id does not match the current OFFHOOK/IDLE timestamps; ignoring")
+                return
+            }
+            val duration = callLogDuration
             val simSubscriptionId = extractSimAccountFromCallLog(it)
             val callLogLead = CallManager.lookup(context, phone)
             val isCallLogLead = callLogLead != null
@@ -747,7 +837,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
                 return
             }
             val sim = resolveSim(context, simSubscriptionId)
-            val contactName = details?.contactName ?: lookupContactName(context, phone)
+            val contactName = lookupContactName(context, phone)
 
             val lastTrackedAt = prefs.getLong("lastTrackedCallEndedAt", 0L)
             val lastTrackedPhone = prefs.getString("lastTrackedCallPhone", "").orEmpty()
@@ -764,11 +854,12 @@ class PhoneStateReceiver : BroadcastReceiver() {
                 return
             }
             val direction = when (type) {
-                CallLog.Calls.INCOMING_TYPE, CallLog.Calls.MISSED_TYPE, CallLog.Calls.REJECTED_TYPE -> "INBOUND"
+                CallLog.Calls.INCOMING_TYPE -> "INBOUND"
                 CallLog.Calls.OUTGOING_TYPE -> "OUTBOUND"
                 else -> "UNKNOWN"
             }
-            val status = if (type == CallLog.Calls.MISSED_TYPE || duration == 0L) "MISSED" else "COMPLETED"
+            if (direction == "UNKNOWN") return
+            val status = "COMPLETED"
             val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
                 ?: "${Build.MANUFACTURER}-${Build.MODEL}"
 
