@@ -1320,7 +1320,7 @@
 
   /* Reserve the compact control's footprint while keeping it out of the
      flex flow, so a narrow desktop chat column still has one clean row. */
-  .stageHeader:not(.has-header-actions-open) > :global(.chat-thread-head-main) {
+  .stageHeader:not(:global(.has-header-actions-open)) > :global(.chat-thread-head-main) {
     padding-right: 104px !important;
   }
 
@@ -1339,23 +1339,23 @@
     min-width: 0;
   }
 
-  .stageHeader:not(.has-header-actions-open) :global(.chat-header-actions-cluster) {
+  .stageHeader:not(:global(.has-header-actions-open)) :global(.chat-header-actions-cluster) {
     position: absolute;
     top: 8px;
     right: 12px;
     z-index: 12;
   }
 
-  .stageHeader:not(.has-header-actions-open) {
+  .stageHeader:not(:global(.has-header-actions-open)) {
     flex-wrap: nowrap !important;
     align-items: center !important;
   }
 
-  .stageHeader:not(.has-header-actions-open) > :global(.chat-thread-head-main) {
+  .stageHeader:not(:global(.has-header-actions-open)) > :global(.chat-thread-head-main) {
     padding-right: 0 !important;
   }
 
-  .stageHeader:not(.has-header-actions-open) :global(.chat-header-actions-cluster) {
+  .stageHeader:not(:global(.has-header-actions-open)) :global(.chat-header-actions-cluster) {
     position: relative;
     top: auto;
     right: auto;
@@ -1381,13 +1381,13 @@
 
   /* The closed state is an icon-only disclosure control. This keeps the
      identity row readable even when the center chat column is narrow. */
-  .stageHeader:not(.has-header-actions-open) :global(.chat-header-actions-toggle) {
+  .stageHeader:not(:global(.has-header-actions-open)) :global(.chat-header-actions-toggle) {
     width: 34px;
     min-width: 34px;
     padding-inline: 0;
   }
 
-  .stageHeader:not(.has-header-actions-open) :global(.chat-header-actions-toggle) span {
+  .stageHeader:not(:global(.has-header-actions-open)) :global(.chat-header-actions-toggle) span {
     display: none;
   }
 
@@ -1431,18 +1431,18 @@
 
   /* Opening the action rail expands the header itself instead of covering the
      conversation. Closed state remains a single compact row. */
-  .stageHeader.has-header-actions-open {
+  .stageHeader:global(.has-header-actions-open) {
     flex-wrap: wrap !important;
     align-items: stretch !important;
   }
 
-  .stageHeader.has-header-actions-open :global(.chat-header-actions-cluster) {
+  .stageHeader:global(.has-header-actions-open) :global(.chat-header-actions-cluster) {
     flex: 0 0 100%;
     justify-content: flex-end;
     padding-top: 2px;
   }
 
-  .stageHeader.has-header-actions-open :global(.chat-thread-head-toolbar) {
+  .stageHeader:global(.has-header-actions-open) :global(.chat-thread-head-toolbar) {
     position: static !important;
     inset: auto !important;
     width: auto !important;
