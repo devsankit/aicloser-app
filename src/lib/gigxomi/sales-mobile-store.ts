@@ -143,6 +143,8 @@ export async function heartbeatSalesMobileDevice(actor: SalesMobileActor, device
 
 export async function getSalesMobileBootstrap(actor: SalesMobileActor) {
   const agent = await getSalesMobileAgent(actor);
+  const tenantId = agent.tenantId || agent.user.tenantId;
+  if (!tenantId) throw new Error("Your sales profile is not assigned to a workspace.");
   // Links are populated lazily for legacy imports and for conversations that
   // arrive after a lead was assigned. This is idempotent and scoped to the
   // current agent, so CRM never broadens its inbox to unassigned threads.
@@ -178,14 +180,40 @@ export async function getSalesMobileBootstrap(actor: SalesMobileActor) {
   const permissionsRole = actor.role in rolePermissions
     ? actor.role as keyof typeof rolePermissions
     : "SALES_AGENT";
-  const availableLeads = snapshot.visibleLeadPool.filter((lead) => lead.status === "OPEN");
+  const activeLeadCount = await prisma.salesLeadAssignment.count({
+    where: { assignedAgentId: agent.id, stage: { in: [...ACTIVE_STAGES] } },
+  });
+  const remainingSlots = Math.max(0, (agent.maxActiveLeads ?? 10) - activeLeadCount);
+  const canRequestLeads = agent.canClaimLeads && pendingNotes === 0 && remainingSlots > 0;
+  const availablePoolWhere = {
+    tenantId,
+    status: "OPEN" as const,
+    OR: [{ assignedAgentId: null }, { assignedAgentId: agent.id }],
+  };
+  const availableLeadCount = canRequestLeads
+    ? await prisma.salesLeadPoolItem.count({ where: availablePoolWhere })
+    : 0;
+  const availableLeads = canRequestLeads && availableLeadCount > 0
+    ? await prisma.salesLeadPoolItem.findMany({
+        where: availablePoolWhere,
+        orderBy: [{ assignedAgentId: "desc" }, { createdAt: "asc" }],
+        take: Math.min(availableLeadCount, remainingSlots, 50),
+      })
+    : [];
   return {
     agent: snapshot.currentAgent,
     dashboard: snapshot.reports,
     leads: snapshot.visibleLeads,
     allLeads: snapshot.leads && snapshot.leads.length > 0 ? snapshot.leads : snapshot.visibleLeads,
-    availableLeads,
-    availableLeadCount: availableLeads.length,
+    availableLeads: availableLeads.map((lead) => ({
+      id: lead.id,
+      customerName: lead.customerName,
+      source: lead.source,
+      serviceInterest: lead.serviceInterest ?? "Sales enquiry",
+      priority: lead.priority,
+      createdAt: lead.createdAt.toISOString(),
+    })),
+    availableLeadCount,
     roundRobinOptional: true,
     settings: snapshot.settings,
     permissions: rolePermissions[permissionsRole] ?? rolePermissions.SALES_AGENT,
@@ -216,32 +244,35 @@ async function hydrateSalesMobileLeadPack<T extends { leadPoolIds: string[] }>(p
 
 export async function requestSalesMobileLeadPack(actor: SalesMobileActor, sizeInput: unknown) {
   const agent = await getSalesMobileAgent(actor);
-  if (!agent.tenantId) throw new Error("Your sales profile is not assigned to a workspace.");
+  const tenantId = agent.tenantId || agent.user.tenantId;
+  if (!tenantId) throw new Error("Your sales profile is not assigned to a workspace.");
   if (!agent.canClaimLeads) throw new Error("Complete the required training before requesting leads.");
   const pendingNotes = await prisma.salesMobileCall.count({ where: { agentId: agent.id, noteRequired: true, noteSubmitted: false } });
   if (pendingNotes) throw new Error("Submit pending call notes before requesting another lead pack.");
 
   await prisma.salesMobileLeadPack.updateMany({ where: { agentId: agent.id, status: "OFFERED", expiresAt: { lte: new Date() } }, data: { status: "EXPIRED" } });
-  const existing = await prisma.salesMobileLeadPack.findFirst({ where: { agentId: agent.id, status: "OFFERED", expiresAt: { gt: new Date() } }, orderBy: { createdAt: "desc" } });
+  const existing = await prisma.salesMobileLeadPack.findFirst({ where: { tenantId, agentId: agent.id, status: "OFFERED", expiresAt: { gt: new Date() } }, orderBy: { createdAt: "desc" } });
   if (existing) return hydrateSalesMobileLeadPack(existing);
 
   const activeCount = await prisma.salesLeadAssignment.count({ where: { assignedAgentId: agent.id, stage: { in: [...ACTIVE_STAGES] } } });
-  const maxActive = agent.maxActiveLeads ?? 5;
+  const maxActive = agent.maxActiveLeads ?? 10;
   if (activeCount >= maxActive) throw new Error(`You already have ${activeCount} active leads.`);
-  const requested = Math.max(3, Math.min(5, Number(sizeInput) || 3, maxActive - activeCount));
+  const requested = Math.min(5, Math.max(1, Math.floor(Number(sizeInput) || 3)), maxActive - activeCount);
   const pool = await prisma.salesLeadPoolItem.findMany({
-    where: { status: "OPEN", OR: [{ assignedAgentId: null }, { assignedAgentId: agent.id }] },
+    where: { tenantId, status: "OPEN", OR: [{ assignedAgentId: null }, { assignedAgentId: agent.id }] },
     orderBy: [{ assignedAgentId: "desc" }, { createdAt: "asc" }],
     take: requested,
   });
   if (!pool.length) throw new Error("No open leads are available right now.");
-  const pack = await prisma.salesMobileLeadPack.create({ data: { tenantId: agent.tenantId, agentId: agent.id, leadPoolIds: pool.map((item) => item.id), expiresAt: new Date(Date.now() + PACK_EXPIRY_MS) } });
+  const pack = await prisma.salesMobileLeadPack.create({ data: { tenantId, agentId: agent.id, leadPoolIds: pool.map((item) => item.id), expiresAt: new Date(Date.now() + PACK_EXPIRY_MS) } });
   return hydrateSalesMobileLeadPack(pack);
 }
 
 export async function claimSalesMobileLeadPack(actor: SalesMobileActor, packId: string) {
   const agent = await getSalesMobileAgent(actor);
-  const pack = await prisma.salesMobileLeadPack.findFirst({ where: { id: packId, agentId: agent.id } });
+  const tenantId = agent.tenantId || agent.user.tenantId;
+  if (!tenantId) throw new Error("Your sales profile is not assigned to a workspace.");
+  const pack = await prisma.salesMobileLeadPack.findFirst({ where: { id: packId, tenantId, agentId: agent.id } });
   if (!pack || pack.status !== "OFFERED") throw new Error("Lead pack is no longer claimable.");
   if (pack.expiresAt.getTime() <= Date.now()) {
     await prisma.salesMobileLeadPack.update({ where: { id: pack.id }, data: { status: "EXPIRED" } });

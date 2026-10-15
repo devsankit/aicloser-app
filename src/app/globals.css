@@ -42518,7 +42518,7 @@ body:not(.dark) .chat-stage-menu-item.selected,
 }
 
 .chat-status-control .chat-status-select,
-.shell :global(.chat-status-select) {
+.shell .chat-status-select {
   min-width: 130px !important;
   max-width: 240px !important;
   width: auto !important;

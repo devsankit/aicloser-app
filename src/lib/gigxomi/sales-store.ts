@@ -2144,6 +2144,8 @@ export async function claimSalesLeadPoolItem(input: { poolItemId: string; agentI
   if (!agent || agent.status !== "ACTIVE" || !agent.canClaimLeads) {
     throw new Error("This sales agent cannot claim queue leads right now.");
   }
+  const tenantId = agent.tenantId || agent.user.tenantId;
+  if (!tenantId) throw new Error("This sales agent is not assigned to a workspace.");
   const maxAllowed = agent.maxActiveLeads && agent.maxActiveLeads > 0 ? agent.maxActiveLeads : 10;
   const activeLeadCount = await prisma.salesLeadAssignment.count({
     where: {
@@ -2157,16 +2159,22 @@ export async function claimSalesLeadPoolItem(input: { poolItemId: string; agentI
 
   const result = await prisma.$transaction(async (tx) => {
     const poolItem = await tx.salesLeadPoolItem.findUnique({ where: { id: input.poolItemId } });
-    if (!poolItem || poolItem.status !== "OPEN") {
+    if (!poolItem || poolItem.status !== "OPEN" || poolItem.tenantId !== tenantId) {
       throw new Error("This lead has already been claimed.");
     }
     if (poolItem.assignedAgentId && poolItem.assignedAgentId !== agent.id) {
       throw new Error("This lead is reserved for another sales agent.");
     }
 
+    const reserved = await tx.salesLeadPoolItem.updateMany({
+      where: { id: poolItem.id, tenantId, status: "OPEN" },
+      data: { claimedByAgentId: agent.id, status: "CLAIMED", claimedAt: new Date() },
+    });
+    if (reserved.count !== 1) throw new Error("This lead has already been claimed.");
+
     const assignment = await tx.salesLeadAssignment.create({
       data: {
-        tenantId: poolItem.tenantId || agent.user.tenantId || "tenant-gigxomi",
+        tenantId,
         assignedAgentId: agent.id,
         createdById: input.actorUserId ?? null,
         customerName: poolItem.customerName,
@@ -2193,7 +2201,6 @@ export async function claimSalesLeadPoolItem(input: { poolItemId: string; agentI
       data: {
         claimedByAgentId: agent.id,
         convertedAssignmentId: assignment.id,
-        status: "CLAIMED",
         claimedAt: new Date(),
       },
     });
@@ -3148,10 +3155,12 @@ export async function intakeSalesLead(input: {
       : (input.source?.toLowerCase().includes("franchise")
           ? ["digital_franchise_lead", "territory_checked", "source_ai_bot"]
           : []);
+  const intakeTenantId = "tenant-gigxomi";
 
   // 1. Create the persistent lead pool item
   const poolItem = await prisma.salesLeadPoolItem.create({
     data: {
+      tenantId: intakeTenantId,
       customerName: name,
       customerPhone: phone,
       customerEmail: input.customerEmail?.trim() || null,
@@ -3166,7 +3175,7 @@ export async function intakeSalesLead(input: {
 
   // 2. Query active sales agents who can handle leads
   const agents = await prisma.salesAgentProfile.findMany({
-    where: { status: "ACTIVE", canClaimLeads: true },
+    where: { status: "ACTIVE", canClaimLeads: true, user: { tenantId: intakeTenantId } },
     include: {
       leadAssignments: {
         where: {
@@ -3189,6 +3198,7 @@ export async function intakeSalesLead(input: {
     try {
       const assignment = await prisma.salesLeadAssignment.create({
         data: {
+          tenantId: intakeTenantId,
           assignedAgentId: selectedAgent.id,
           customerName: name,
           customerPhone: phone,
