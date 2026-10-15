@@ -116,7 +116,9 @@ function recoverWhatsAppStateFromSocialConnection(
   const metadata = jsonRecord(connection.metadata);
   const setupState = jsonRecord(metadata.setupState);
   if (setupState.tenantId === tenantId) {
-    return { ...fallback, ...setupState, tenantId, accessToken: decryptStoredToken(connection.accessTokenCiphertext), authorizationCode: "" } as DummyWhatsAppConnectionState;
+    const setupPhoneNumberId = text(setupState.phoneNumberId) || text(connection.externalAccountId);
+    const setupStatus = connection.status === "CONNECTED" && setupPhoneNumberId ? "Ready for webhook" : text(setupState.status) || fallback.status;
+    return { ...fallback, ...setupState, tenantId, phoneNumberId: setupPhoneNumberId, status: setupStatus, accessToken: decryptStoredToken(connection.accessTokenCiphertext), authorizationCode: "" } as DummyWhatsAppConnectionState;
   }
   const phoneNumberId = text(metadata.phoneNumberId) || text(connection.externalAccountId);
   if (!tenantId || !phoneNumberId) return null;

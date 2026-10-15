@@ -39,6 +39,29 @@ function safeFileName(value: string) {
   return value.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
+async function resolveRecordingProfile(manufacturerInput: unknown, modelInput: unknown, dialerPackageInput: unknown) {
+  const manufacturer = clean(manufacturerInput).toLowerCase();
+  const model = clean(modelInput).toLowerCase();
+  const dialerPackage = clean(dialerPackageInput).toLowerCase();
+  const profiles = await prisma.salesMobileRecordingProfile.findMany({ where: { isActive: true } });
+  return profiles
+    .map((profile) => {
+      const profileManufacturer = profile.manufacturer.toLowerCase();
+      const profileModel = profile.modelPattern.toLowerCase();
+      const profileDialer = profile.dialerPackage?.toLowerCase() || "";
+      let score = profile.priority;
+      if (profileManufacturer === "*" || profileManufacturer === manufacturer) score += profileManufacturer === manufacturer ? 30 : 0;
+      else return null;
+      if (profileModel === "*" || profileModel === model) score += profileModel === model ? 40 : 0;
+      else return null;
+      if (profileDialer && profileDialer !== dialerPackage) return null;
+      if (profileDialer && profileDialer === dialerPackage) score += 50;
+      return { profile, score };
+    })
+    .filter((candidate): candidate is { profile: typeof profiles[number]; score: number } => candidate !== null)
+    .sort((left, right) => right.score - left.score)[0]?.profile;
+}
+
 export async function getSalesMobileAgent(actor: SalesMobileActor) {
   const profile = await prisma.salesAgentProfile.findUnique({ where: { userId: actor.userId }, include: { user: true } });
   if (!profile || profile.status !== "ACTIVE") throw new Error("Your sales mobile access is pending or suspended.");
@@ -50,6 +73,8 @@ export async function registerSalesMobileDevice(actor: SalesMobileActor, input: 
   if (!agent.tenantId) throw new Error("Your sales profile is not assigned to a workspace.");
   const deviceId = clean(input.deviceId);
   if (!deviceId) throw new Error("deviceId is required.");
+  const dialerPackage = clean(input.dialerPackage) || null;
+  const recordingProfile = await resolveRecordingProfile(input.manufacturer, input.model, dialerPackage);
 
   const existing = await prisma.salesMobileDevice.findUnique({ where: { deviceId } });
   // Session ownership is user-login based. An authenticated mobile agent can register or
@@ -66,10 +91,12 @@ export async function registerSalesMobileDevice(actor: SalesMobileActor, input: 
       manufacturer: clean(input.manufacturer) || null,
       model: clean(input.model) || null,
       androidVersion: clean(input.androidVersion) || null,
+      dialerPackage,
       simLabel: clean(input.simLabel) || null,
       officeSimNumber: clean(input.officeSimNumber) || null,
       recordingCapability: clean(input.recordingCapability) || "UNKNOWN",
       recordingEnabled: input.recordingEnabled === true,
+      recordingProfileId: recordingProfile?.id,
     },
     update: {
       tenantId: agent.tenantId,
@@ -79,13 +106,16 @@ export async function registerSalesMobileDevice(actor: SalesMobileActor, input: 
       manufacturer: clean(input.manufacturer) || null,
       model: clean(input.model) || null,
       androidVersion: clean(input.androidVersion) || null,
+      dialerPackage: dialerPackage || existing?.dialerPackage || null,
       simLabel: clean(input.simLabel) || null,
       officeSimNumber: clean(input.officeSimNumber) || null,
       recordingCapability: clean(input.recordingCapability) || existing?.recordingCapability || "UNKNOWN",
       recordingEnabled: input.recordingEnabled === true,
+      recordingProfileId: recordingProfile?.id,
       isActive: true,
       lastSeenAt: new Date(),
     },
+    include: { recordingProfile: true },
   });
 }
 
@@ -93,16 +123,21 @@ export async function heartbeatSalesMobileDevice(actor: SalesMobileActor, device
   const agent = await getSalesMobileAgent(actor);
   const device = await prisma.salesMobileDevice.findFirst({ where: { deviceId, agentId: agent.id } });
   if (!device || !device.isActive) throw new Error("This device is not active for your account.");
+  const dialerPackage = clean(input.dialerPackage) || device.dialerPackage;
+  const recordingProfile = await resolveRecordingProfile(device.manufacturer, device.model, dialerPackage);
   return prisma.salesMobileDevice.update({
     where: { id: device.id },
     data: {
       lastSeenAt: new Date(),
       appVersion: clean(input.appVersion) || device.appVersion,
+      dialerPackage,
       simLabel: clean(input.simLabel) || device.simLabel,
       officeSimNumber: clean(input.officeSimNumber) || device.officeSimNumber,
       recordingCapability: clean(input.recordingCapability) || device.recordingCapability,
       recordingEnabled: typeof input.recordingEnabled === "boolean" ? input.recordingEnabled : device.recordingEnabled,
+      recordingProfileId: recordingProfile?.id,
     },
+    include: { recordingProfile: true },
   });
 }
 
@@ -114,8 +149,23 @@ export async function getSalesMobileBootstrap(actor: SalesMobileActor) {
   await syncSalesAgentConversationLinks(agent.id);
   const [snapshot, devices, calls, pendingNotes, pendingUploads, certifications] = await Promise.all([
     getSalesSnapshotForRole(actor),
-    prisma.salesMobileDevice.findMany({ where: { agentId: agent.id, isActive: true }, orderBy: { lastSeenAt: "desc" } }),
-    prisma.salesMobileCall.findMany({ where: { agentId: agent.id }, include: { assignment: true }, orderBy: { startedAt: "desc" }, take: 50 }),
+    prisma.salesMobileDevice.findMany({ where: { agentId: agent.id, isActive: true }, include: { recordingProfile: true }, orderBy: { lastSeenAt: "desc" } }),
+    prisma.salesMobileCall.findMany({
+      where: { agentId: agent.id },
+      include: {
+        assignment: true,
+        device: {
+          select: {
+            id: true,
+            deviceId: true,
+            model: true,
+            manufacturer: true,
+          },
+        },
+      },
+      orderBy: { startedAt: "desc" },
+      take: 50,
+    }),
     prisma.salesMobileCall.count({ where: { agentId: agent.id, noteRequired: true, noteSubmitted: false } }),
     prisma.salesMobileCall.count({ where: { agentId: agent.id, recordingStatus: { in: ["LOCAL_PENDING", "UPLOADING", "FAILED"] } } }),
     prisma.salesMobileOfflineEvent.findMany({
@@ -299,6 +349,10 @@ export async function startSalesMobileCall(actor: SalesMobileActor, input: Recor
         clientCallId: clientCallId || null,
         phoneNumber: clean(input.phoneNumber) || resolvedAssignment.customerPhone || "",
         direction: clean(input.direction).toUpperCase() === "INBOUND" ? "INBOUND" : "OUTBOUND",
+        startedAt: parseDate(input.startedAt) ?? new Date(),
+        connectedAt: parseDate(input.connectedAt) ?? null,
+        endedAt: parseDate(input.endedAt) ?? null,
+        durationSeconds: Number.isFinite(Number(input.durationSeconds)) ? Math.max(0, Number(input.durationSeconds)) : null,
         recordingStatus: clean(input.recordingStatus).toUpperCase() === "RECORDING_UNAVAILABLE" ? "RECORDING_UNAVAILABLE" : "NONE",
       },
     });
@@ -375,7 +429,9 @@ export async function endSalesMobileCall(actor: SalesMobileActor, input: Record<
     data: {
       assignmentId,
       phoneNumber: phoneNumber || existing.phoneNumber,
+      direction: clean(input.direction).toUpperCase() === "INBOUND" ? "INBOUND" : clean(input.direction).toUpperCase() === "OUTBOUND" ? "OUTBOUND" : existing.direction,
       status: status as "MISSED" | "FAILED" | "CONNECTED" | "RINGING" | "COMPLETED",
+      startedAt: parseDate(input.startedAt) ?? existing.startedAt,
       connectedAt: parseDate(input.connectedAt) ?? existing.connectedAt,
       endedAt: parseDate(input.endedAt) ?? new Date(),
       durationSeconds: Number.isFinite(Number(input.durationSeconds)) ? Math.max(0, Number(input.durationSeconds)) : existing.durationSeconds,
@@ -466,6 +522,23 @@ export async function submitSalesMobileDisposition(actor: SalesMobileActor, inpu
         note,
         metadata: { callId: call.id, outcome, nextFollowUpAt, customerName: customerName || null }
       }
+    });
+
+    await tx.salesLeadTimelineEntry.create({
+      data: {
+        tenantId: agent.tenantId,
+        leadId: call.assignmentId,
+        userId: actor.userId,
+        agentId: agent.id,
+        type: "CALL",
+        body: `Call Disposition (${outcome}): ${note}`,
+        metadata: {
+          authorName: agent.user.displayName || "Mobile SIM Rep",
+          source: "mobile-app-sim",
+          callId: call.id,
+          outcome,
+        },
+      },
     });
 
     if (conversationId) {
@@ -586,8 +659,14 @@ export async function saveSalesMobileRecording(actor: SalesMobileActor, callId: 
   if (existingUpload?.status === "UPLOADED") return call;
   const extension = safeFileName(path.extname(file.name || "recording.m4a") || ".m4a");
   const objectKey = `${tenantId}/calls/${call.id}/${uploadId}${extension}`;
-  const upload = existingUpload ?? await prisma.callRecordingUpload.create({
-    data: {
+  const upload = existingUpload ?? await prisma.callRecordingUpload.upsert({
+    where: { tenantId_clientUploadId: { tenantId, clientUploadId: uploadId } },
+    update: {
+      callId: call.id,
+      sizeBytes: file.size,
+      durationSeconds: recordingDurationMs > 0 ? Math.round(recordingDurationMs / 1000) : null,
+    },
+    create: {
       tenantId,
       callId: call.id,
       deviceId: call.deviceId,
@@ -643,11 +722,18 @@ export async function readSalesMobileRecording(actor: SalesMobileActor, callId: 
   const agent = !isPrivileged && actor.role === "SALES_AGENT" ? await getSalesMobileAgent(actor).catch(() => null) : null;
   const tenantId = agent?.tenantId ?? (await prisma.appAuthUser.findUnique({ where: { id: actor.userId }, select: { tenantId: true } }))?.tenantId;
   if (!tenantId) throw new Error("Your sales account is not assigned to a workspace.");
-  const call = await prisma.salesMobileCall.findFirst({
+  let call = await prisma.salesMobileCall.findFirst({
     where: isPrivileged || !agent
       ? { id: callId, tenantId }
       : { id: callId, tenantId, OR: [{ agentId: agent.id }, { assignment: { assignedAgent: { parentAgentId: agent.id } } }] },
   });
+  if (!call) {
+    call = await prisma.salesMobileCall.findFirst({
+      where: isPrivileged || !agent
+        ? { clientCallId: callId, tenantId }
+        : { clientCallId: callId, tenantId, OR: [{ agentId: agent.id }, { assignment: { assignedAgent: { parentAgentId: agent.id } } }] },
+    });
+  }
   if (!call?.recordingPath) throw new Error("Recording not found.");
   const fileName = safeFileName(path.basename(call.recordingPath));
   const fullPath = path.join(RECORDING_ROOT, fileName);
@@ -802,6 +888,14 @@ export async function syncSalesMobileOfflineEvents(actor: SalesMobileActor, valu
     }
     const existing = await prisma.salesMobileOfflineEvent.findUnique({ where: { idempotencyKey } });
     if (existing) {
+      if (existing.status === "FAILED" && existing.error?.includes("Call session not found")) {
+        await prisma.salesMobileOfflineEvent.update({
+          where: { id: existing.id },
+          data: { status: "SYNCED", result: { recovered: true, status: "SESSION_ORPHANED", message: existing.error }, processedAt: new Date() },
+        });
+        results.push({ ok: true, idempotencyKey, status: "SYNCED", result: { recovered: true } });
+        continue;
+      }
       results.push({ ok: existing.status === "SYNCED", idempotencyKey, status: existing.status, result: existing.result, error: existing.error });
       continue;
     }
@@ -811,8 +905,28 @@ export async function syncSalesMobileOfflineEvents(actor: SalesMobileActor, valu
     const stored = await prisma.salesMobileOfflineEvent.create({ data: { tenantId: agent.tenantId, idempotencyKey, agentId: agent.id, deviceId: device?.id ?? null, type: clean(event.type).toUpperCase(), payload: payload as Prisma.InputJsonObject } });
     try {
       let result: unknown;
-      if (stored.type === "CALL_END") result = await endSalesMobileCall(actor, payload);
+      if (stored.type === "CALL_END") {
+        try {
+          result = await endSalesMobileCall(actor, payload);
+        } catch (callEndError) {
+          if (callEndError instanceof Error && callEndError.message.includes("Call session not found")) {
+            result = { recovered: true, status: "SESSION_ORPHANED", message: callEndError.message };
+          } else {
+            throw callEndError;
+          }
+        }
+      }
       else if (stored.type === "DISPOSITION") result = await submitSalesMobileDisposition(actor, payload);
+      else if (stored.type === "LEAD_STAGE") {
+        const leadId = clean(payload.leadId);
+        const stage = clean(payload.stage).toUpperCase();
+        const note = clean(payload.note);
+        if (leadId && stage) {
+          result = await updateSalesLeadStage({ leadId, stage: stage as never, note, actorUserId: actor.userId });
+        } else {
+          result = { skipped: true, reason: "Missing leadId or stage" };
+        }
+      }
       else if (stored.type === "DEVICE_DIAGNOSTIC") {
         // Diagnostics are deliberately idempotent and side-effect-light. They
         // share the offline queue so a client can report capability/failure

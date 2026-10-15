@@ -98,6 +98,7 @@ export function CrmSettingsPanel({
     fallbackAgentId: null,
     updatedAt: new Date().toISOString(),
   });
+  const [showOnlyAssignedChats, setShowOnlyAssignedChats] = useState(true);
   const [agentsList, setAgentsList] = useState<
     Array<{
       id: string;
@@ -116,12 +117,19 @@ export function CrmSettingsPanel({
   const loadSettings = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/sales/round-robin");
+      const [res, visibilityRes] = await Promise.all([
+        fetch("/api/sales/round-robin", { cache: "no-store" }),
+        fetch(tenantId ? `/api/sales/chat-visibility?tenantId=${encodeURIComponent(tenantId)}` : "/api/sales/chat-visibility", { cache: "no-store" }),
+      ]);
       const data = await res.json();
+      const visibilityData = await visibilityRes.json().catch(() => null);
       if (data.ok) {
         if (data.settings) setRrSettings(data.settings);
         if (data.agents) setAgentsList(data.agents);
         if (data.groups) setGroupsList(data.groups);
+      }
+      if (visibilityData?.ok && typeof visibilityData.showOnlyAssignedChats === "boolean") {
+        setShowOnlyAssignedChats(visibilityData.showOnlyAssignedChats);
       }
     } catch {
       // ignore
@@ -146,21 +154,29 @@ export function CrmSettingsPanel({
     setSaving(true);
     setBanner(null);
     try {
-      const res = await fetch("/api/sales/round-robin", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tenantId,
-          action: "save_settings",
-          settings: rrSettings,
+      const [res, visibilityRes] = await Promise.all([
+        fetch("/api/sales/round-robin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tenantId,
+            action: "save_settings",
+            settings: rrSettings,
+          }),
         }),
-      });
+        fetch("/api/sales/chat-visibility", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tenantId, showOnlyAssignedChats }),
+        }),
+      ]);
       const data = await res.json();
-      if (data.ok) {
+      const visibilityData = await visibilityRes.json().catch(() => null);
+      if (data.ok && visibilityRes.ok && visibilityData?.ok) {
         setBanner({ tone: "success", text: data.message || "Settings saved successfully." });
         onRefreshDashboard?.();
       } else {
-        setBanner({ tone: "error", text: data.error || "Failed to save settings." });
+        setBanner({ tone: "error", text: data.error || visibilityData?.error || "Failed to save settings." });
       }
     } catch (err: any) {
       setBanner({ tone: "error", text: err.message || "Failed to save settings." });
@@ -451,6 +467,34 @@ export function CrmSettingsPanel({
                     style={{ width: 20, height: 20 }}
                   />
                 </label>
+              </div>
+
+              <div
+                style={{
+                  padding: 16,
+                  borderRadius: 14,
+                  background: showOnlyAssignedChats ? "rgba(16, 185, 129, 0.1)" : "var(--closer-surface-soft)",
+                  border: showOnlyAssignedChats ? "1px solid rgba(16, 185, 129, 0.35)" : "1px solid var(--closer-line, rgba(148, 163, 184, 0.25))",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 16,
+                }}
+              >
+                <div>
+                  <strong style={{ fontSize: "0.95rem", display: "block" }}>Show only assigned chats to sales users</strong>
+                  <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4, lineHeight: 1.5 }}>
+                    Sales users see only conversations linked to their own lead assignments. Admins and managers keep workspace-wide visibility.
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={showOnlyAssignedChats}
+                  disabled={!isAdmin}
+                  onChange={(event) => setShowOnlyAssignedChats(event.target.checked)}
+                  aria-label="Show only assigned chats to sales users"
+                  style={{ width: 20, height: 20, flex: "0 0 auto" }}
+                />
               </div>
 
               {/* Participating Sales Agents Checklist */}

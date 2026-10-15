@@ -118,13 +118,20 @@ export async function POST(request: Request) {
           ? permissions.seats
           : null;
 
+  const workspaceSeatRows = await prisma.$queryRaw<{ maxSeats: number | null }[]>`
+    SELECT "maxSeats" FROM "AicloserWorkspace" WHERE "id" = ${authorization.session.tenantId} LIMIT 1
+  `.catch(() => []);
+  const workspaceSeats = workspaceSeatRows[0]?.maxSeats && workspaceSeatRows[0].maxSeats > 0
+    ? workspaceSeatRows[0].maxSeats
+    : null;
+
   const packageRecord = authorization.session.packageId
     ? await prisma.package.findUnique({
         where: { id: authorization.session.packageId },
         select: { teamMemberLimit: true, staffAccountLimit: true, name: true },
       })
     : null;
-  const seatLimit = customSeats ?? packageRecord?.teamMemberLimit ?? packageRecord?.staffAccountLimit ?? 5;
+  const seatLimit = workspaceSeats ?? customSeats ?? packageRecord?.teamMemberLimit ?? packageRecord?.staffAccountLimit ?? 5;
   if (seatLimit !== null && activeUsers >= seatLimit) {
     return NextResponse.json(
       {
@@ -148,7 +155,7 @@ export async function POST(request: Request) {
       parentAgentId: null,
       canCreateSubAgents: role === "ADMIN" || role === "MANAGER",
       canClaimLeads: true,
-      maxActiveLeads: 25,
+      maxActiveLeads: 10,
     });
 
     if (!created.ok) {
@@ -212,7 +219,13 @@ export async function PATCH(request: Request) {
     }
   }
 
-  if (payload.role || payload.status || Object.prototype.hasOwnProperty.call(payload, "managerAgentId")) {
+  if (
+    payload.role ||
+    payload.status ||
+    Object.prototype.hasOwnProperty.call(payload, "managerAgentId") ||
+    payload.maxActiveLeads !== undefined ||
+    payload.canClaimLeads !== undefined
+  ) {
     const snapshot = await getSalesSnapshotForRole(authorization.session);
     const existing = (snapshot.agents?.length ? snapshot.agents : snapshot.visibleAgents).find((a) => a.id === agentId);
     if (!existing) {
@@ -250,11 +263,20 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ ok: false, error: "Assign a role before unlocking this user." }, { status: 400 });
     }
 
+    const nextMaxActiveLeads =
+      payload.maxActiveLeads !== undefined && Number.isFinite(Number(payload.maxActiveLeads))
+        ? Math.max(1, Number(payload.maxActiveLeads))
+        : existing.maxActiveLeads;
+    const nextCanClaimLeads =
+      typeof payload.canClaimLeads === "boolean" ? payload.canClaimLeads : existing.canClaimLeads;
+
     await updateSalesAgentProfile({
       agentId,
       status: nextStatus,
       groupId: nextGroupId,
       parentAgentId: nextManagerId,
+      maxActiveLeads: nextMaxActiveLeads,
+      canClaimLeads: nextCanClaimLeads,
       canCreateSubAgents: nextRole === "ADMIN" || nextRole === "MANAGER",
       permissions: {
         ...(existing?.permissions ?? {}),

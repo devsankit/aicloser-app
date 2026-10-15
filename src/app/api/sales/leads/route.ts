@@ -40,7 +40,7 @@ export async function POST(request: Request) {
     }
     const stage = String(body.stage ?? "NEW") as SalesLeadStage;
     if (!salesLeadStages.has(stage)) return NextResponse.json({ ok: false, error: "Choose a valid lead stage." }, { status: 400 });
-    const note = typeof body.note === "string" ? body.note.trim() : "";
+    const note = typeof body.note === "string" ? body.note.trim() : (typeof body.reason === "string" ? body.reason.trim() : "");
     const followUpAt = typeof body.followUpAt === "string" ? body.followUpAt.trim() : "";
     if (followUpAt && Number.isNaN(new Date(followUpAt).getTime())) {
       return NextResponse.json({ ok: false, error: "Choose a valid follow-up date." }, { status: 422 });

@@ -1,0 +1,12 @@
+[
+  {
+    "id": "fb_test_sample",
+    "rating": 2,
+    "name": "Vikram Joshi",
+    "contact": "+91 99887 76655",
+    "comment": "Loved the CRM design, but my call recording sync took 5 minutes on first run. Please check.",
+    "source": "aicloser.in/rate",
+    "status": "NEW",
+    "createdAt": "2026-10-12T11:22:10.858Z"
+  }
+]

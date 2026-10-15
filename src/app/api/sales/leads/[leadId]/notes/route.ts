@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSessionRole } from "@/lib/api/require-session-role";
 import { prisma } from "@/lib/prisma";
+import { updateConversationInternalNotesFromFile } from "@/lib/gigxomi/dummy-platform-file-store";
 
 export async function GET(request: Request, { params }: { params: Promise<{ leadId: string }> }) {
   const auth = await requireSessionRole(["SALES_AGENT", "ADMIN", "SUPER_ADMIN", "MANAGER"]);
@@ -9,7 +10,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ lead
   try {
     const { leadId } = await params;
     const notes = await prisma.salesLeadTimelineEntry.findMany({
-      where: { leadId, type: { in: ["NOTE", "VOICE_NOTE", "CALL_NOTE", "MANUAL_NOTE"] } },
+      where: { leadId },
       orderBy: { createdAt: "desc" },
     });
 
@@ -47,6 +48,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ lea
     // 1. Create timeline entry
     const entry = await prisma.salesLeadTimelineEntry.create({
       data: {
+        tenantId: lead.tenantId ?? auth.session.tenantId ?? "tenant-gigxomi",
         leadId,
         userId: auth.session.userId,
         agentId: lead.assignedAgentId,
@@ -67,6 +69,35 @@ export async function POST(request: Request, { params }: { params: Promise<{ lea
         updatedAt: new Date(),
       },
     });
+
+    // 3. Keep linked conversation in sync with phone / chat if present
+    const conversationId = lead.conversationId || (lead.customerPhone ? (await prisma.appConversation.findFirst({
+      where: {
+        customerPhone: { endsWith: lead.customerPhone.replace(/\D/g, "").slice(-10) },
+        tenantId: lead.tenantId ?? auth.session.tenantId ?? "tenant-gigxomi",
+      },
+      select: { id: true },
+    }))?.id : null);
+
+    if (conversationId) {
+      await updateConversationInternalNotesFromFile(conversationId, content).catch(() => null);
+      const conv = await prisma.appConversation.findUnique({
+        where: { id: conversationId },
+        select: { payload: true },
+      });
+      if (conv) {
+        const payload = (conv.payload && typeof conv.payload === "object" && !Array.isArray(conv.payload))
+          ? (conv.payload as Record<string, unknown>)
+          : {};
+        await prisma.appConversation.update({
+          where: { id: conversationId },
+          data: {
+            payload: { ...payload, internalNotes: content, updatedAt: new Date().toISOString() },
+            updatedAt: new Date(),
+          },
+        });
+      }
+    }
 
     return NextResponse.json({ ok: true, note: entry });
   } catch (error) {
@@ -99,12 +130,17 @@ export async function PUT(request: Request, { params }: { params: Promise<{ lead
           },
         },
       });
+      // Also update main lead notes for mobile SIM sync
+      await prisma.salesLeadAssignment.update({
+        where: { id: leadId },
+        data: { notes: content, updatedAt: new Date() },
+      });
       return NextResponse.json({ ok: true, note: updated });
     } else {
       // Update the lead's main notes field
       await prisma.salesLeadAssignment.update({
         where: { id: leadId },
-        data: { notes: content },
+        data: { notes: content, updatedAt: new Date() },
       });
       return NextResponse.json({ ok: true, notes: content });
     }

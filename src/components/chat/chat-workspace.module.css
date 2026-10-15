@@ -703,6 +703,31 @@
   font-size: 0.7rem;
 }
 
+.shell :global(.chat-whatsapp-transport-row) {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 5px 10px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 62%, transparent);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.shell :global(.chat-whatsapp-transport-row) select {
+  min-height: 28px;
+  max-width: 240px;
+  padding: 0 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.72rem;
+}
+
 :global([data-theme="light"]) .shell :global(.chat-control-popover),
 :global(.light) .shell :global(.chat-control-popover) {
   background: #ffffff !important;
@@ -803,4 +828,129 @@
 :global(.light) .shell :global(.chat-head-icon) {
   background: #f8fafc !important;
   color: #334155 !important;
+}
+
+/* AI Closer web parity: keep the conversation header focused on the three
+   actions people use while working a lead. The underlying controls remain
+   mounted and functional; secondary routing/automation actions are removed
+   from the visual noise and remain available through their existing APIs. */
+.shell :global(.chat-profile-trigger) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 3px 6px 3px 0;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.shell :global(.chat-profile-trigger:hover) {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.shell :global(.chat-profile-trigger:active) {
+  transform: scale(0.99);
+}
+
+.shell :global(.chat-profile-trigger:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.shell :global(.chat-profile-trigger .chat-thread-head-copy) {
+  min-width: 0;
+}
+
+.shell :global(.chat-profile-trigger .crm-status-icon-bar),
+.shell :global(.chat-profile-trigger .crm-live-status-pill) {
+  display: none !important;
+}
+
+.shell :global(.chat-automation-actions),
+.shell :global(.chat-lane-actions),
+.shell :global(.chat-legacy-actions) {
+  display: none !important;
+}
+
+.shell :global(.chat-status-notes-actions) {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.shell :global(.chat-status-control) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 9px;
+  border: 1px solid color-mix(in srgb, var(--line-strong) 76%, var(--accent) 24%);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 90%, var(--accent) 10%);
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.shell :global(.chat-status-select) {
+  max-width: 132px;
+  min-height: 25px;
+  padding: 0 20px 0 5px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.73rem;
+  font-weight: 800;
+  cursor: pointer;
+  outline: none;
+}
+
+.shell :global(.chat-status-select option) {
+  background: var(--surface);
+  color: var(--foreground);
+}
+
+.shell :global(.chat-assignment-actions) {
+  flex: 0 0 auto;
+}
+
+.shell .detailsSheet {
+  width: min(390px, calc(100vw - 32px));
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--accent) 8%);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+}
+
+.shell :global(.chat-details-sheet-history) {
+  display: block;
+}
+
+@media (max-width: 860px) {
+  .shell :global(.chat-profile-trigger) {
+    max-width: calc(100% - 2px);
+  }
+
+  .shell :global(.chat-status-control) {
+    flex: 0 0 auto;
+  }
+
+  .shell :global(.chat-status-select) {
+    max-width: 112px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell :global(.chat-profile-trigger) {
+    transition: none;
+  }
 }

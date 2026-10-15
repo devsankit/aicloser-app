@@ -26,6 +26,12 @@ function profileSeats(permissions: unknown, fallback: number) {
   return Math.max(1, numberFrom(record.seatLimit ?? record.maxUsers ?? record.seats, fallback));
 }
 
+function isWorkspaceAdmin(permissions: unknown) {
+  if (!permissions || typeof permissions !== "object" || Array.isArray(permissions)) return false;
+  const record = permissions as JsonRecord;
+  return record.workspaceAdmin === true || String(record.workspaceRole ?? "").toUpperCase() === "ADMIN";
+}
+
 function effectiveStatus(profileStatus: string | undefined, packageStatus: string | null) {
   if (profileStatus === "ACTIVE" || profileStatus === "PENDING" || profileStatus === "SUSPENDED") return profileStatus;
   if (packageStatus === "ACTIVE") return "ACTIVE";
@@ -90,6 +96,7 @@ async function readDirectory() {
     const tenant = user.tenantId ? tenantsById.get(user.tenantId) : undefined;
     const workspace = user.tenantId ? workspacesById.get(user.tenantId) : undefined;
     const seatLimit = profileSeats(profile?.permissions, workspace?.maxSeats ?? tenant?.editorSeatLimit ?? 1);
+    const effectiveRole = isWorkspaceAdmin(profile?.permissions) ? "ADMIN" : user.role;
     const paymentStatus = subscription?.paymentStatus ?? (user.packageStatus === "ACTIVE" ? "PAID" : user.packageStatus ? "PENDING" : "NOT_CONFIGURED");
 
     return {
@@ -97,7 +104,7 @@ async function readDirectory() {
       displayName: user.displayName,
       email: user.email ?? "",
       phone: user.phone ?? "",
-      role: user.role,
+      role: effectiveRole,
       companyName: workspace?.name ?? tenant?.name ?? "Unassigned workspace",
       status: effectiveStatus(profile?.status, user.packageStatus),
       workspaceStatus: workspace?.status ?? tenant?.status ?? effectiveStatus(profile?.status, user.packageStatus),
@@ -155,7 +162,14 @@ async function updateSeats(userId: string, seats: number) {
   });
   if (user.tenantId) {
     await prisma.tenant.updateMany({ where: { id: user.tenantId }, data: { editorSeatLimit: safeSeats } });
-    await prisma.$executeRaw`UPDATE "AicloserWorkspace" SET "maxSeats" = ${safeSeats}, "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = ${user.tenantId}`.catch(() => 0);
+    const updatedWorkspaceRows = await prisma.$executeRaw`
+      UPDATE "AicloserWorkspace"
+      SET "maxSeats" = ${safeSeats}, "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ${user.tenantId}
+    `;
+    if (updatedWorkspaceRows !== 1) {
+      throw new Error("Workspace seat limit could not be persisted.");
+    }
   }
   return safeSeats;
 }
@@ -171,7 +185,16 @@ async function updateWorkspaceSeats(tenantId: string, seats: number) {
 
   const safeSeats = Math.min(500, Math.max(1, Math.floor(seats)));
   if (tenant) await prisma.tenant.update({ where: { id: tenant.id }, data: { editorSeatLimit: safeSeats } });
-  await prisma.$executeRaw`UPDATE "AicloserWorkspace" SET "maxSeats" = ${safeSeats}, "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = ${normalizedTenantId}`.catch(() => 0);
+  if (workspaceRows.length) {
+    const updatedWorkspaceRows = await prisma.$executeRaw`
+      UPDATE "AicloserWorkspace"
+      SET "maxSeats" = ${safeSeats}, "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ${normalizedTenantId}
+    `;
+    if (updatedWorkspaceRows !== 1) {
+      throw new Error("Workspace seat limit could not be persisted.");
+    }
+  }
   return safeSeats;
 }
 

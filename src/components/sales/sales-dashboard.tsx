@@ -1,7 +1,8 @@
 "use client";
 
-import { Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, FormEvent, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { closestCorners, DndContext, KeyboardSensor, PointerSensor, type DragEndEvent, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
@@ -9,6 +10,7 @@ import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalList
 import { CSS } from "@dnd-kit/utilities";
 import {
   BarChart3,
+  AlertCircle,
   ArrowDown,
   ArrowUp,
   Bot,
@@ -48,6 +50,7 @@ import {
   PhoneCall,
   Search,
   ShieldCheck,
+  Smartphone,
   Target,
   TrendingUp,
   Upload,
@@ -56,6 +59,7 @@ import {
   Users,
   Tags,
   Video,
+  Webhook,
   X,
   Sliders,
   Users2,
@@ -66,6 +70,7 @@ import { InternalAppShell } from "@/components/ui/internal-app-shell";
 import { LeadNotesManager } from "@/components/sales/lead-notes-manager";
 import { LeadStatusTagsSelector } from "@/components/sales/lead-status-tags-selector";
 import { LeadCustomFieldsEditor } from "@/components/sales/lead-custom-fields-editor";
+import { UserWhatsAppSyncCard } from "@/components/sales/user-whatsapp-sync-card";
 
 function PanelLoadingSkeleton({ label = "Loading..." }: { label?: string }) {
   return (
@@ -151,6 +156,10 @@ const CustomFieldsPanel = dynamic(
 );
 const DuplicateLeadsModal = dynamic(
   () => import("@/components/sales/duplicate-leads-modal").then((m) => m.DuplicateLeadsModal),
+  { ssr: false }
+);
+const LeadStageReasonModal = dynamic(
+  () => import("@/components/sales/lead-stage-reason-modal").then((m) => m.LeadStageReasonModal),
   { ssr: false }
 );
 const ContactsHub = dynamic(
@@ -427,16 +436,51 @@ function LeadFollowUpPicker({
     return new Date(initial.getFullYear(), initial.getMonth(), 1);
   });
 
+  const [popoverCoords, setPopoverCoords] = useState<{ top: number; left: number } | null>(null);
+
   useEffect(() => {
-    if (hasSelectedDate && selectedDate) {
+    if (!hasSelectedDate && !value) return;
+    if (selectedDate && !Number.isNaN(selectedDate.getTime())) {
       setViewMonth(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
     }
   }, [hasSelectedDate, value]);
 
   useEffect(() => {
     if (!isOpen) return undefined;
+    const updatePosition = () => {
+      if (!pickerRef.current) return;
+      const rect = pickerRef.current.getBoundingClientRect();
+      const popoverWidth = Math.min(310, window.innerWidth - 24);
+      const popoverHeight = 350;
+      let top = rect.bottom + 6;
+      let left = rect.left;
+
+      if (top + popoverHeight > window.innerHeight && rect.top - popoverHeight > 10) {
+        top = rect.top - popoverHeight - 6;
+      }
+      if (left + popoverWidth > window.innerWidth) {
+        left = Math.max(10, window.innerWidth - popoverWidth - 10);
+      }
+      setPopoverCoords({ top, left });
+    };
+
+    updatePosition();
+    window.addEventListener("scroll", updatePosition, true);
+    window.addEventListener("resize", updatePosition);
+    return () => {
+      window.removeEventListener("scroll", updatePosition, true);
+      window.removeEventListener("resize", updatePosition);
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
     const closeOnOutsideClick = (event: PointerEvent) => {
-      if (!pickerRef.current?.contains(event.target as Node)) setIsOpen(false);
+      const target = event.target as Node;
+      if (pickerRef.current?.contains(target)) return;
+      const popoverEl = document.querySelector(".sales-calendar-popover");
+      if (popoverEl?.contains(target)) return;
+      setIsOpen(false);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") setIsOpen(false);
@@ -487,57 +531,84 @@ function LeadFollowUpPicker({
         </span>
         <ChevronDown size={14} aria-hidden="true" className={isOpen ? "is-rotated" : ""} />
       </button>
-      {isOpen ? (
-        <div aria-label={`${labelText} calendar`} className="sales-calendar-popover" role="dialog">
-          <div className="sales-calendar-popover-head">
-            <div>
-              <small>Schedule next touch</small>
-              <strong>{monthLabel}</strong>
-            </div>
-            <div className="sales-calendar-month-actions">
-              <button aria-label="Previous month" onClick={() => setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1))} type="button"><ChevronLeft size={15} /></button>
-              <button aria-label="Next month" onClick={() => setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1))} type="button"><ChevronRight size={15} /></button>
-            </div>
-          </div>
-          <div className="sales-calendar-weekdays" aria-hidden="true">
-            {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((day) => <span key={day}>{day}</span>)}
-          </div>
-          <div className="sales-calendar-grid">
-            {calendarDays.map((day) => {
-              const isCurrentMonth = day.getMonth() === viewMonth.getMonth();
-              const isSelected = hasSelectedDate && selectedDate ? isSameDay(day, selectedDate) : false;
-              const isToday = isSameDay(day, new Date());
-              return (
-                <button
-                  aria-label={day.toLocaleDateString("en-IN", { dateStyle: "full" })}
-                  className={`${isCurrentMonth ? "" : "is-outside-month "}${isSelected ? "is-selected " : ""}${isToday ? "is-today" : ""}`}
-                  onClick={() => chooseDay(day)}
-                  type="button"
-                >
-                  {day.getDate()}
-                </button>
-              );
-            })}
-          </div>
-          <div className="sales-calendar-time-row">
-            <label htmlFor={`${labelText.replace(/\W+/g, "-").toLowerCase()}-time`}><Clock3 size={13} /> Time</label>
-            <input
-              id={`${labelText.replace(/\W+/g, "-").toLowerCase()}-time`}
-              onChange={(event) => {
-                const base = hasSelectedDate && selectedDate ? selectedDate : new Date();
-                onChange(formatCalendarDateTime(base, event.target.value));
-              }}
-              type="time"
-              value={selectedTime}
-            />
-          </div>
-          <div className="sales-calendar-popover-footer">
-            <button className="sales-calendar-text-button" onClick={() => { onChange(""); setIsOpen(false); }} type="button">Clear</button>
-            <button className="sales-calendar-text-button" onClick={chooseToday} type="button">Today</button>
-            <button className="sales-calendar-done-button" onClick={() => setIsOpen(false)} type="button">Done</button>
-          </div>
-        </div>
-      ) : null}
+      {isOpen && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              aria-label={`${labelText} calendar`}
+              className="sales-calendar-popover"
+              role="dialog"
+              style={
+                popoverCoords
+                  ? {
+                      position: "fixed",
+                      top: `${popoverCoords.top}px`,
+                      left: `${popoverCoords.left}px`,
+                      zIndex: 99999,
+                      margin: 0,
+                    }
+                  : {
+                      position: "fixed",
+                      top: "50%",
+                      left: "50%",
+                      transform: "translate(-50%, -50%)",
+                      zIndex: 99999,
+                      margin: 0,
+                    }
+              }
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <div className="sales-calendar-popover-head">
+                <div>
+                  <small>Schedule next touch</small>
+                  <strong>{monthLabel}</strong>
+                </div>
+                <div className="sales-calendar-month-actions">
+                  <button aria-label="Previous month" onClick={() => setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1))} type="button"><ChevronLeft size={15} /></button>
+                  <button aria-label="Next month" onClick={() => setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1))} type="button"><ChevronRight size={15} /></button>
+                </div>
+              </div>
+              <div className="sales-calendar-weekdays" aria-hidden="true">
+                {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((day) => <span key={day}>{day}</span>)}
+              </div>
+              <div className="sales-calendar-grid">
+                {calendarDays.map((day) => {
+                  const isCurrentMonth = day.getMonth() === viewMonth.getMonth();
+                  const isSelected = hasSelectedDate && selectedDate ? isSameDay(day, selectedDate) : false;
+                  const isToday = isSameDay(day, new Date());
+                  return (
+                    <button
+                      aria-label={day.toLocaleDateString("en-IN", { dateStyle: "full" })}
+                      className={`${isCurrentMonth ? "" : "is-outside-month "}${isSelected ? "is-selected " : ""}${isToday ? "is-today" : ""}`}
+                      key={day.toISOString()}
+                      onClick={() => chooseDay(day)}
+                      type="button"
+                    >
+                      {day.getDate()}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="sales-calendar-time-row">
+                <label htmlFor={`${labelText.replace(/\W+/g, "-").toLowerCase()}-time`}><Clock3 size={13} /> Time</label>
+                <input
+                  id={`${labelText.replace(/\W+/g, "-").toLowerCase()}-time`}
+                  onChange={(event) => {
+                    const base = hasSelectedDate && selectedDate ? selectedDate : new Date();
+                    onChange(formatCalendarDateTime(base, event.target.value));
+                  }}
+                  type="time"
+                  value={selectedTime}
+                />
+              </div>
+              <div className="sales-calendar-popover-footer">
+                <button className="sales-calendar-text-button" onClick={() => { onChange(""); setIsOpen(false); }} type="button">Clear</button>
+                <button className="sales-calendar-text-button" onClick={chooseToday} type="button">Today</button>
+                <button className="sales-calendar-done-button" onClick={() => setIsOpen(false)} type="button">Done</button>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
@@ -861,6 +932,14 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   const [isImporting, setIsImporting] = useState(false);
   const [isStatusLabelsModalOpen, setIsStatusLabelsModalOpen] = useState(false);
   const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false);
+  const [stageReasonRequest, setStageReasonRequest] = useState<{
+    leadId: string;
+    stage: SalesLeadStage;
+    customerName: string;
+    customerContact?: string;
+    stageLabel: string;
+  } | null>(null);
+  const [isSubmittingStageReason, setIsSubmittingStageReason] = useState(false);
   const [isLeadExportMenuOpen, setIsLeadExportMenuOpen] = useState(false);
   const [roundRobinAccess, setRoundRobinAccess] = useState<SalesRoundRobinAccess>({
     enabled: false,
@@ -1580,21 +1659,52 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     }
   }
 
-  async function updateLeadStage(leadId: string, stage: SalesLeadStage) {
-    await submitJson("/api/sales/leads", { action: "stage", leadId, stage }, "Lead stage updated.");
+  const stagesRequiringReason = useMemo(() => new Set<SalesLeadStage>(["CLOSED_LOST", "LOST", "NOT_REACHABLE", "RECYCLED"]), []);
+
+  async function updateLeadStage(leadId: string, stage: SalesLeadStage, note?: string) {
+    if (stagesRequiringReason.has(stage) && (!note || note.trim().length < 3)) {
+      const target = snapshot.visibleLeads.find((lead) => lead.id === leadId) ?? snapshot.leads.find((lead) => lead.id === leadId);
+      if (target) {
+        setStageReasonRequest({
+          leadId,
+          stage,
+          customerName: target.customerName,
+          customerContact: target.customerPhone || target.customerEmail || "",
+          stageLabel: label(stage),
+        });
+        return;
+      }
+    }
+    await submitJson("/api/sales/leads", { action: "stage", leadId, stage, note: note || undefined }, "Lead stage updated.");
   }
 
   async function addQuickLeadNote(leadId: string, body: string) {
+    const trimmed = body.trim();
     const response = await fetch(`/api/sales/leads/${encodeURIComponent(leadId)}/notes`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ body: body.trim(), type: "NOTE", source: "web-dashboard" }),
+      body: JSON.stringify({ body: trimmed, type: "NOTE", source: "web-dashboard" }),
     });
     const payload = await response.json().catch(() => null);
     const ok = Boolean(response.ok && payload?.ok);
     setStatus(ok ? "Note saved and synced." : payload?.error ?? "Unable to save note.");
-    if (ok) await Promise.all([refresh(), refreshOperating()]);
+    if (ok) {
+      setSnapshot((current) => ({
+        ...current,
+        visibleLeads: current.visibleLeads.map((l) => (l.id === leadId ? { ...l, notes: trimmed } : l)),
+        leads: current.leads.map((l) => (l.id === leadId ? { ...l, notes: trimmed } : l)),
+      }));
+      await Promise.all([refresh(), refreshOperating()]);
+    }
     return ok;
+  }
+
+  function handleTimelineNoteUpdated(leadId: string, noteText: string) {
+    setSnapshot((current) => ({
+      ...current,
+      visibleLeads: current.visibleLeads.map((l) => (l.id === leadId ? { ...l, notes: noteText } : l)),
+      leads: current.leads.map((l) => (l.id === leadId ? { ...l, notes: noteText } : l)),
+    }));
   }
 
   async function saveQuickFollowUp(leadId: string, followUpAt: string) {
@@ -1620,10 +1730,20 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     );
   }
 
-  async function moveLeadStage(leadId: string, stage: SalesLeadStage) {
-    const previous = snapshot;
-    const target = snapshot.visibleLeads.find((lead) => lead.id === leadId);
+  async function moveLeadStage(leadId: string, stage: SalesLeadStage, note?: string) {
+    const target = snapshot.visibleLeads.find((lead) => lead.id === leadId) ?? snapshot.leads.find((lead) => lead.id === leadId);
     if (!target || target.stage === stage) return;
+    if (stagesRequiringReason.has(stage) && (!note || note.trim().length < 3)) {
+      setStageReasonRequest({
+        leadId,
+        stage,
+        customerName: target.customerName,
+        customerContact: target.customerPhone || target.customerEmail || "",
+        stageLabel: label(stage),
+      });
+      return;
+    }
+    const previous = snapshot;
     setSnapshot((current) => ({
       ...current,
       visibleLeads: current.visibleLeads.map((lead) => (lead.id === leadId ? { ...lead, stage } : lead)),
@@ -1631,7 +1751,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     const response = await fetch("/api/sales/leads", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "stage", leadId, stage }),
+      body: JSON.stringify({ action: "stage", leadId, stage, note: note || undefined }),
     });
     const payload = await response.json().catch(() => null);
     if (!response.ok || !payload?.ok) {
@@ -1639,8 +1759,22 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       setStatus(payload?.error ?? "Lead stage update failed.");
       return;
     }
-    setStatus("Lead stage updated.");
+    setStatus(`Lead marked as ${label(stage)}.`);
     await refresh();
+  }
+
+  async function handleConfirmStageReason(reasonText: string) {
+    if (!stageReasonRequest) return;
+    const { leadId, stage } = stageReasonRequest;
+    setIsSubmittingStageReason(true);
+    try {
+      await moveLeadStage(leadId, stage, reasonText);
+      setStageReasonRequest(null);
+    } catch {
+      setStatus("Lead stage update failed.");
+    } finally {
+      setIsSubmittingStageReason(false);
+    }
   }
 
   function handleLeadDragEnd(event: DragEndEvent) {
@@ -1673,7 +1807,9 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
         tags: String(form.get("tags") ?? ""),
         budgetAmount: Number(form.get("budgetAmount") ?? 0),
         followUpAt: String(form.get("followUpAt") ?? ""),
-        notes: String(form.get("notes") ?? ""),
+        notes: form.has("notes") && form.get("notes") !== null
+          ? String(form.get("notes") ?? "")
+          : (snapshot.visibleLeads.find((l) => l.id === leadId)?.notes ?? snapshot.leads.find((l) => l.id === leadId)?.notes ?? ""),
       },
       "Lead CRM details saved.",
     );
@@ -1694,7 +1830,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     if (ok) event.currentTarget.reset();
   }
 
-  async function openLeadChat(leadId: string) {
+  async function openLeadChat(leadId: string, transportPreference?: "company" | "connected_user") {
     setStatus("Opening WhatsApp chat...");
     try {
       const response = await fetch(`/api/sales/conversations/${leadId}`, { method: "POST" });
@@ -1703,14 +1839,14 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
         setStatus(payload?.error ?? "Unable to open WhatsApp chat.");
         return;
       }
-      openSalesConversation(String(payload.conversationId));
+      openSalesConversation(String(payload.conversationId), transportPreference);
       setStatus("WhatsApp chat ready.");
     } catch {
       setStatus("WhatsApp chat could not reach the server. Try again.");
     }
   }
 
-  function openSalesConversation(conversationId?: string | null) {
+  function openSalesConversation(conversationId?: string | null, transportPreference?: "company" | "connected_user") {
     // Open this person's WhatsApp conversation in the GXclosers inbox
     setSelectedLeadId(null);
     navigateSales("conversations");
@@ -1718,6 +1854,13 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     url.searchParams.set("tab", "conversations");
     if (conversationId) url.searchParams.set("conversationId", conversationId);
     else url.searchParams.delete("conversationId");
+    if (transportPreference) {
+      url.searchParams.set("transport", transportPreference);
+      url.searchParams.set("channel", transportPreference === "connected_user" ? "whatsapp_connected" : "whatsapp_company");
+    } else {
+      url.searchParams.delete("transport");
+      url.searchParams.delete("channel");
+    }
     router.replace(`${url.pathname}${url.search}`, { scroll: false });
   }
 
@@ -2218,6 +2361,18 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                 )}
               </div>
             </div>
+
+            {/* Card 3: WhatsApp Sync & Live Communication Desk */}
+            <UserWhatsAppSyncCard
+              tenantId={salesOperations.tenantId}
+              isCloser={isCloser}
+              currentAgent={currentAgent}
+              assignedLeads={dashboardLeads}
+              onOpenChat={openSalesConversation}
+              onOpenLead={(leadId) => setSelectedLeadId(leadId)}
+              onNavigateTab={navigateSales}
+              onRefreshSnapshot={refresh}
+            />
           </div>
 
           {/* 3. Admin reporting replaces rep-only targets; closers keep their personal tracker. */}
@@ -2373,19 +2528,109 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
 
       {activeTab === "grab-leads" ? (
         <section className="sales-tool-workspace sales-grab-leads-workspace" style={{ width: "100%", maxWidth: "var(--crm-content-max)", margin: "0 auto", padding: "24px 20px" }}>
+          {/* Quota Capacity Banner for Closer / Sales Agent */}
+          {snapshot.currentAgent?.activeLeadQuota ? (
+            snapshot.currentAgent.activeLeadQuota.isAtCapacity ? (
+              <div
+                style={{
+                  background: "rgba(239, 68, 68, 0.08)",
+                  border: "1px solid rgba(239, 68, 68, 0.28)",
+                  borderRadius: 14,
+                  padding: "16px 20px",
+                  marginBottom: 20,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 16,
+                  flexWrap: "wrap",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 260, flex: 1 }}>
+                  <AlertCircle size={24} style={{ color: "#ef4444", flexShrink: 0 }} />
+                  <div>
+                    <strong style={{ color: "#ef4444", fontSize: 14 }}>
+                      Active Lead Quota Reached ({snapshot.currentAgent.activeLeadQuota.current} / {snapshot.currentAgent.activeLeadQuota.max})
+                    </strong>
+                    <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--muted)", lineHeight: 1.4 }}>
+                      You have reached your maximum allowance of {snapshot.currentAgent.activeLeadQuota.max} active leads. You cannot claim more leads until you finish, close, or convert an active lead in your CRM pipeline.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  className="sales-secondary-button compact"
+                  onClick={() => setActiveTab("crm")}
+                  type="button"
+                  style={{ whiteSpace: "nowrap" }}
+                >
+                  View My CRM Pipeline
+                </button>
+              </div>
+            ) : (
+              <div
+                style={{
+                  background: "rgba(16, 185, 129, 0.08)",
+                  border: "1px solid rgba(16, 185, 129, 0.25)",
+                  borderRadius: 14,
+                  padding: "12px 18px",
+                  marginBottom: 20,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  flexWrap: "wrap",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <CheckCircle2 size={18} style={{ color: "#10b981", flexShrink: 0 }} />
+                  <span style={{ fontSize: 13 }}>
+                    <strong>{snapshot.currentAgent.activeLeadQuota.remaining} of {snapshot.currentAgent.activeLeadQuota.max}</strong> lead slot{snapshot.currentAgent.activeLeadQuota.remaining === 1 ? "" : "s"} available to claim ({snapshot.currentAgent.activeLeadQuota.current} active in CRM)
+                  </span>
+                </div>
+                <span style={{ fontSize: 12, color: "var(--muted)" }}>
+                  Queue is personalized to your remaining quota
+                </span>
+              </div>
+            )
+          ) : null}
+
           <div className="sales-grab-leads-hero">
             <div>
               <span className="sales-section-eyebrow">Round-robin queue</span>
               <h2>Grab your next lead</h2>
               <p>Claim one of the leads waiting in the shared queue. Once claimed, it moves into your CRM pipeline.</p>
             </div>
-            <div className="sales-grab-leads-count"><strong>{openLeadPool.length}</strong><span>available now</span></div>
+            <div className="sales-grab-leads-count">
+              <strong style={{ color: snapshot.currentAgent?.activeLeadQuota?.isAtCapacity ? "#ef4444" : undefined }}>
+                {snapshot.currentAgent?.activeLeadQuota?.isAtCapacity ? 0 : openLeadPool.length}
+              </strong>
+              <span>
+                {snapshot.currentAgent?.activeLeadQuota?.isAtCapacity
+                  ? "Quota full"
+                  : snapshot.currentAgent?.activeLeadQuota
+                    ? `available now (${snapshot.currentAgent.activeLeadQuota.remaining} open)`
+                    : "available now"}
+              </span>
+            </div>
           </div>
           {!canUseGrabLeads ? (
             <div className="sales-empty-state">
               <Hand size={22} />
               <strong>Lead grabbing is not enabled</strong>
               <p>Ask your workspace administrator to enable round-robin grab lead mode for your role.</p>
+            </div>
+          ) : snapshot.currentAgent?.activeLeadQuota?.isAtCapacity ? (
+            <div className="sales-empty-state">
+              <AlertCircle size={26} style={{ color: "#ef4444" }} />
+              <strong>Active Lead Quota Full ({snapshot.currentAgent.activeLeadQuota.current}/{snapshot.currentAgent.activeLeadQuota.max})</strong>
+              <p>You cannot grab more leads until you close, convert, or recycle an existing active lead in your CRM pipeline.</p>
+              <button
+                className="sales-primary-button compact"
+                onClick={() => setActiveTab("crm")}
+                type="button"
+                style={{ marginTop: 14 }}
+              >
+                Go to My CRM Pipeline
+              </button>
             </div>
           ) : openLeadPool.length ? (
             <div className="sales-grab-leads-grid">
@@ -2405,7 +2650,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                   <p>{item.notes || item.serviceInterest || "New lead from shared intake"}</p>
                   <button
                     className="sales-primary-button compact"
-                    disabled={!snapshot.currentAgent?.id}
+                    disabled={!snapshot.currentAgent?.id || Boolean(snapshot.currentAgent?.activeLeadQuota?.isAtCapacity)}
                     onClick={() => void submitJson(
                       "/api/sales/leads",
                       { action: "claim", poolItemId: item.id, agentId: snapshot.currentAgent?.id },
@@ -2827,6 +3072,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                         key={col.key}
                         leads={colLeads}
                         onOpen={setSelectedLeadId}
+                        onOpenChat={openLeadChat}
                         onQuickFollowUp={saveQuickFollowUp}
                         onQuickNote={addQuickLeadNote}
                         onStage={updateLeadStage}
@@ -2865,7 +3111,42 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                     </select>
                     <div className="sales-crm-list-actions">
                       {lead.customerEmail ? <a aria-label={`Email ${lead.customerName}`} className="sales-secondary-button compact crm-list-action" href={`mailto:${lead.customerEmail}`} onClick={(event) => event.stopPropagation()} title={`Email ${lead.customerEmail}`}><Mail size={13} /> Email</a> : null}
-                      {lead.customerPhone ? <button aria-label={`Open WhatsApp chat for ${lead.customerName}`} className="sales-secondary-button compact crm-list-action" onClick={() => setSelectedLeadId(lead.id)} title="Open WhatsApp chat" type="button"><MessageCircle size={13} /> WhatsApp</button> : null}
+                      {lead.customerPhone ? (
+                        isLeadFromApi(lead.source) ? (
+                          <>
+                            <button
+                              aria-label={`Company WhatsApp for ${lead.customerName}`}
+                              className="sales-secondary-button compact crm-list-action"
+                              onClick={() => openLeadChat(lead.id, "company")}
+                              style={{ borderColor: "rgba(16, 185, 129, 0.4)", color: "#059669" }}
+                              title="Company WhatsApp chat (Official API)"
+                              type="button"
+                            >
+                              <Building2 size={12} /> Company WA
+                            </button>
+                            <button
+                              aria-label={`Closer Business WhatsApp for ${lead.customerName}`}
+                              className="sales-secondary-button compact crm-list-action"
+                              onClick={() => openLeadChat(lead.id, "connected_user")}
+                              style={{ borderColor: "rgba(2, 132, 199, 0.4)", color: "#0284c7" }}
+                              title="Closer Business WhatsApp chat (Synced Device)"
+                              type="button"
+                            >
+                              <Smartphone size={12} /> Closer Business WA
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            aria-label={`Open WhatsApp chat for ${lead.customerName}`}
+                            className="sales-secondary-button compact crm-list-action"
+                            onClick={() => openLeadChat(lead.id)}
+                            title="Open WhatsApp chat"
+                            type="button"
+                          >
+                            <MessageCircle size={13} /> WhatsApp
+                          </button>
+                        )
+                      ) : null}
                       <button aria-label={`Add note to ${lead.customerName}`} className="sales-secondary-button compact crm-list-action" onClick={() => setSelectedLeadId(lead.id)} title="Open notes and activity" type="button"><FileText size={13} /> Notes</button>
                       <button aria-label={`Schedule follow-up for ${lead.customerName}`} className="sales-secondary-button compact crm-list-action" onClick={() => setSelectedLeadId(lead.id)} title="Open follow-up and lead details" type="button"><CalendarPlus size={13} /> Follow-up</button>
                       <button aria-label={`Open details for ${lead.customerName}`} className="sales-secondary-button compact crm-list-action" onClick={() => setSelectedLeadId(lead.id)} title="Open full lead details" type="button"><ExternalLink size={13} /> Details</button>
@@ -2985,9 +3266,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
         <section className="sales-tool-workspace sales-payments-workspace" style={{ padding: "16px 20px 28px", width: "100%", maxWidth: "none", margin: 0 }}>
           <UpiPaymentCollectionPanel
             embedded
-            sessionRole={(effectiveWorkspaceRole === "ADMIN" || effectiveWorkspaceRole === "MANAGER" || effectiveWorkspaceRole === "SALES_AGENT" || effectiveWorkspaceRole === "SUPER_ADMIN"
-              ? effectiveWorkspaceRole
-              : sessionRole) as "SALES_AGENT" | "MANAGER" | "ADMIN" | "SUPER_ADMIN"}
+            sessionRole={(isWorkspaceAdmin ? "ADMIN" : (effectiveWorkspaceRole as "SALES_AGENT" | "MANAGER")) as "SALES_AGENT" | "MANAGER" | "ADMIN" | "SUPER_ADMIN"}
             tenantId={salesOperations.tenantId}
           />
         </section>
@@ -3106,13 +3385,21 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
               ) : null}
             </div>
           ) : null}
-          <ChatWorkspace
-            audience="sales"
-            listLabel="Sales social inbox"
-            listTitle="WhatsApp and Instagram"
-            mode="inbox"
-            tenantId={salesOperations.tenantId}
-          />
+          <Suspense
+            fallback={
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "300px", color: "#94a3b8" }}>
+                Loading social inbox...
+              </div>
+            }
+          >
+            <ChatWorkspace
+              audience="sales"
+              listLabel="Sales social inbox"
+              listTitle="WhatsApp and Instagram"
+              mode="inbox"
+              tenantId={salesOperations.tenantId}
+            />
+          </Suspense>
         </section>
       ) : null}
 
@@ -3185,6 +3472,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
             onNote={addLeadNote}
             onQuickFollowUp={saveQuickFollowUp}
             onQuickNote={addQuickLeadNote}
+            onTimelineNoteUpdated={handleTimelineNoteUpdated}
             onOpenChat={openLeadChat}
             onOpenManageLabels={() => setIsStatusLabelsModalOpen(true)}
             onSave={updateLeadBasics}
@@ -3201,6 +3489,17 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
 
       <StatusLabelsModal isOpen={isStatusLabelsModalOpen} onClose={() => setIsStatusLabelsModalOpen(false)} />
       <DuplicateLeadsModal isOpen={isDuplicateModalOpen} onClose={() => setIsDuplicateModalOpen(false)} onMerged={() => { router.refresh(); }} />
+      {stageReasonRequest ? (
+        <LeadStageReasonModal
+          isOpen={Boolean(stageReasonRequest)}
+          onClose={() => setStageReasonRequest(null)}
+          onSubmit={handleConfirmStageReason}
+          customerName={stageReasonRequest.customerName}
+          customerContact={stageReasonRequest.customerContact}
+          stageLabel={stageReasonRequest.stageLabel}
+          submitting={isSubmittingStageReason}
+        />
+      ) : null}
 
       {status ? <p className="sales-floating-status">{status}</p> : null}
       </div>
@@ -3373,12 +3672,30 @@ function formatDateTime(value: string | null) {
   return value ? new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Not set";
 }
 
+function isLeadFromApi(source?: string | null): boolean {
+  if (!source) return false;
+  const s = String(source).toLowerCase().trim();
+  return (
+    s.includes("api") ||
+    s.includes("webhook") ||
+    s.includes("zapier") ||
+    s.includes("pabbly") ||
+    s.includes("make") ||
+    s.includes("endpoint") ||
+    s.includes("crm_import") ||
+    s.includes("meta") ||
+    s.includes("facebook") ||
+    s.includes("lead_gen")
+  );
+}
+
 function LeadKanbanColumn({
   canModifyLeads,
   calls,
   columnLabel,
   leads,
   onOpen,
+  onOpenChat,
   onQuickFollowUp,
   onQuickNote,
   onStage,
@@ -3390,6 +3707,7 @@ function LeadKanbanColumn({
   columnLabel?: string;
   leads: SalesDashboardSnapshot["visibleLeads"];
   onOpen: (leadId: string) => void;
+  onOpenChat?: (leadId: string, transportPreference?: "company" | "connected_user") => void;
   onQuickFollowUp: (leadId: string, followUpAt: string) => Promise<boolean>;
   onQuickNote: (leadId: string, body: string) => Promise<boolean>;
   onStage: (leadId: string, stage: SalesLeadStage) => void;
@@ -3415,7 +3733,19 @@ function LeadKanbanColumn({
         ) : null}
       </header>
       <SortableContext items={leads.map((lead) => lead.id)} strategy={verticalListSortingStrategy}>
-        {leads.map((lead) => <LeadCrmCard call={calls.get(lead.id)} canModifyLeads={canModifyLeads} key={lead.id} lead={lead} onOpen={onOpen} onQuickFollowUp={onQuickFollowUp} onQuickNote={onQuickNote} onStage={onStage} />)}
+        {leads.map((lead) => (
+          <LeadCrmCard
+            call={calls.get(lead.id)}
+            canModifyLeads={canModifyLeads}
+            key={lead.id}
+            lead={lead}
+            onOpen={onOpen}
+            onOpenChat={onOpenChat}
+            onQuickFollowUp={onQuickFollowUp}
+            onQuickNote={onQuickNote}
+            onStage={onStage}
+          />
+        ))}
       </SortableContext>
       {!leads.length ? <p className="sales-kanban-empty">Drop leads here</p> : null}
     </section>
@@ -3427,6 +3757,7 @@ function LeadCrmCard({
   call,
   lead,
   onOpen,
+  onOpenChat,
   onQuickFollowUp,
   onQuickNote,
   onStage,
@@ -3435,6 +3766,7 @@ function LeadCrmCard({
   call?: SalesDashboardSnapshot["mobileCalls"][number];
   lead: SalesDashboardSnapshot["visibleLeads"][number];
   onOpen: (leadId: string) => void;
+  onOpenChat?: (leadId: string, transportPreference?: "company" | "connected_user") => void;
   onQuickFollowUp: (leadId: string, followUpAt: string) => Promise<boolean>;
   onQuickNote: (leadId: string, body: string) => Promise<boolean>;
   onStage: (leadId: string, stage: SalesLeadStage) => void;
@@ -3521,6 +3853,12 @@ function LeadCrmCard({
             <div className="sales-crm-card-identity-title">
               <strong>{lead.customerName}</strong>
               <LeadSourceBadge iconOnly source={lead.source} />
+              {isLeadFromApi(lead.source) ? (
+                <span style={{ display: "inline-flex", gap: "4px", alignItems: "center", marginLeft: "auto" }}>
+                  <span title="Company WhatsApp available" style={{ color: "#059669", display: "inline-flex", alignItems: "center" }}><Building2 size={11} /></span>
+                  <span title="Personal WhatsApp available" style={{ color: "#0284c7", display: "inline-flex", alignItems: "center" }}><Smartphone size={11} /></span>
+                </span>
+              ) : null}
             </div>
             <span>{lead.customerPhone || lead.customerEmail || "No contact details"}</span>
           </div>
@@ -3611,7 +3949,37 @@ function LeadCrmCard({
       ) : null}
       {call?.recordingStatus === "UPLOADED" ? <div onPointerDown={(event) => event.stopPropagation()}><CallRecordingPlayer callId={call.id} expectedDurationSeconds={call.durationSeconds} labelText={`${lead.customerName} recording`} /></div> : null}
       {lead.customerPhone ? (
-        <button className="sales-secondary-button compact" onClick={() => onOpen(lead.id)} onPointerDown={(event) => event.stopPropagation()} type="button"><MessageCircle size={12} /> Open WhatsApp chat</button>
+        isLeadFromApi(lead.source) ? (
+          <div style={{ display: "flex", gap: "6px", width: "100%" }} onPointerDown={(event) => event.stopPropagation()}>
+            <button
+              className="sales-secondary-button compact"
+              onClick={() => (onOpenChat ? onOpenChat(lead.id, "company") : onOpen(lead.id))}
+              style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "4px", fontSize: "11px", borderColor: "rgba(16, 185, 129, 0.4)", color: "#059669" }}
+              title="Open CRM chat (Company WhatsApp)"
+              type="button"
+            >
+              <Building2 size={12} /> Company WA
+            </button>
+            <button
+              className="sales-secondary-button compact"
+              onClick={() => (onOpenChat ? onOpenChat(lead.id, "connected_user") : onOpen(lead.id))}
+              style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "4px", fontSize: "11px", borderColor: "rgba(2, 132, 199, 0.4)", color: "#0284c7" }}
+              title="Open CRM chat (Closer Business WhatsApp - Synced Device)"
+              type="button"
+            >
+              <Smartphone size={12} /> Closer Business WA
+            </button>
+          </div>
+        ) : (
+          <button
+            className="sales-secondary-button compact"
+            onClick={() => (onOpenChat ? onOpenChat(lead.id) : onOpen(lead.id))}
+            onPointerDown={(event) => event.stopPropagation()}
+            type="button"
+          >
+            <MessageCircle size={12} /> Open WhatsApp chat
+          </button>
+        )
       ) : null}
     </article>
   );
@@ -3645,7 +4013,9 @@ function LeadSourceBadge({ iconOnly = false, source }: { iconOnly?: boolean; sou
           ? { key: "google", label: "Google Ads", Icon: Search }
           : normalized.includes("web") || normalized.includes("form")
             ? { key: "web", label: "Web form", Icon: Video }
-            : { key: "manual", label: normalized.replace(/[-_]/g, " ") || "Manual", Icon: User };
+            : normalized.includes("api") || normalized.includes("webhook")
+              ? { key: "api", label: "API Lead", Icon: Webhook }
+              : { key: "manual", label: normalized.replace(/[-_]/g, " ") || "Manual", Icon: User };
   const Icon = descriptor.Icon;
 
   return (
@@ -3675,6 +4045,7 @@ function LeadDetailForm({
   onNote,
   onQuickFollowUp,
   onQuickNote,
+  onTimelineNoteUpdated,
   onOpenChat,
   onOpenManageLabels,
   onSave,
@@ -3690,7 +4061,8 @@ function LeadDetailForm({
   onNote: (event: FormEvent<HTMLFormElement>, leadId: string) => void;
   onQuickFollowUp: (leadId: string, followUpAt: string) => Promise<boolean>;
   onQuickNote: (leadId: string, body: string) => Promise<boolean>;
-  onOpenChat: (leadId: string) => void;
+  onTimelineNoteUpdated?: (leadId: string, noteText: string) => void;
+  onOpenChat: (leadId: string, transportPreference?: "company" | "connected_user") => void;
   onOpenManageLabels?: () => void;
   onSave: (event: FormEvent<HTMLFormElement>, leadId: string) => void;
   onStage: (leadId: string, stage: SalesLeadStage) => void;
@@ -3703,7 +4075,7 @@ function LeadDetailForm({
   const leadCalls = calls.filter(
     (c) => c.assignmentId === lead.id || (lead.customerPhone && cleanPhone(c.phoneNumber) === cleanPhone(lead.customerPhone))
   );
-  const [quickNote, setQuickNote] = useState("");
+  const [notesRevision, setNotesRevision] = useState(0);
   const [followUpDate, setFollowUpDate] = useState(() => toDateTimeLocal(lead.followUpAt).slice(0, 10));
   const [followUpTime, setFollowUpTime] = useState(() => toDateTimeLocal(lead.followUpAt).slice(11, 16));
   const [quickSaving, setQuickSaving] = useState(false);
@@ -3713,6 +4085,7 @@ function LeadDetailForm({
   const leadSource = String(lead.source ?? "").toLowerCase();
   const isLinkedWhatsAppLead = leadSource.includes("qr_scanner") || leadSource.includes("whatsapp_personal") || leadSource.includes("whatsapp_business");
   const isCompanyWhatsAppLead = leadSource.includes("whatsapp") && !isLinkedWhatsAppLead;
+  const isApiLead = isLeadFromApi(lead.source);
 
   useEffect(() => {
     const nextFollowUp = toDateTimeLocal(lead.followUpAt);
@@ -3769,14 +4142,6 @@ function LeadDetailForm({
     });
   };
 
-  const saveQuickNote = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!quickNote.trim()) return;
-    setQuickSaving(true);
-    const ok = await onQuickNote(lead.id, quickNote);
-    setQuickSaving(false);
-    if (ok) setQuickNote("");
-  };
 
   const saveQuickFollowUp = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -3802,6 +4167,27 @@ function LeadDetailForm({
             <p style={{ margin: "2px 0 0", fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>
               {lead.customerPhone || "No phone"} {lead.customerEmail ? `• ${lead.customerEmail}` : ""}
             </p>
+            <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap", marginTop: "6px" }}>
+              <LeadSourceBadge source={lead.source} />
+              {(isApiLead || isCompanyWhatsAppLead || isLinkedWhatsAppLead || lead.customerPhone) ? (
+                <>
+                  <span
+                    className="sales-chip"
+                    title="Company WhatsApp (Official Cloud API)"
+                    style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "11px", fontWeight: 600, padding: "2px 8px", borderRadius: "6px", background: "rgba(16, 185, 129, 0.12)", color: "#059669", border: "1px solid rgba(16, 185, 129, 0.3)" }}
+                  >
+                    <Building2 size={12} /> Company WhatsApp
+                  </span>
+                  <span
+                    className="sales-chip"
+                    title="Personal WhatsApp (Connected QR Scanner)"
+                    style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "11px", fontWeight: 600, padding: "2px 8px", borderRadius: "6px", background: "rgba(2, 132, 199, 0.12)", color: "#0284c7", border: "1px solid rgba(2, 132, 199, 0.3)" }}
+                  >
+                    <Smartphone size={12} /> Personal WhatsApp
+                  </span>
+                </>
+              ) : null}
+            </div>
           </div>
           <div style={{ display: "flex", gap: "4px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
             <span className={`sales-chip ${stageTone(lead.stage)}`} style={{ fontWeight: 700, fontSize: "12px" }}>
@@ -3862,9 +4248,32 @@ function LeadDetailForm({
             Mark Won
           </button>
           {lead.customerPhone ? (
-            <button className="sales-primary-button compact" onClick={() => onOpenChat(lead.id)} type="button">
-              <MessageSquare size={13} style={{ marginRight: "4px" }} /> Open Chat
-            </button>
+            isApiLead ? (
+              <>
+                <button
+                  className="sales-secondary-button compact"
+                  onClick={() => onOpenChat(lead.id, "company")}
+                  style={{ display: "inline-flex", alignItems: "center", gap: "4px", borderColor: "rgba(16, 185, 129, 0.4)", color: "#059669" }}
+                  title="Open chat via Company WhatsApp (Official API)"
+                  type="button"
+                >
+                  <Building2 size={12} /> Company WA
+                </button>
+                <button
+                  className="sales-secondary-button compact"
+                  onClick={() => onOpenChat(lead.id, "connected_user")}
+                  style={{ display: "inline-flex", alignItems: "center", gap: "4px", borderColor: "rgba(2, 132, 199, 0.4)", color: "#0284c7" }}
+                  title="Open chat via Closer Business WhatsApp (Synced Device)"
+                  type="button"
+                >
+                  <Smartphone size={12} /> Closer Business WA
+                </button>
+              </>
+            ) : (
+              <button className="sales-primary-button compact" onClick={() => onOpenChat(lead.id)} type="button">
+                <MessageSquare size={13} style={{ marginRight: "4px" }} /> Open Chat
+              </button>
+            )
           ) : null}
         </div>
 
@@ -3875,21 +4284,6 @@ function LeadDetailForm({
               <span>Keep the next touchpoint visible and actionable.</span>
             </div>
           </div>
-          <form className="sales-note-composer" onSubmit={saveQuickNote}>
-            <label htmlFor="lead-quick-note">Conversation note</label>
-            <div className="sales-note-composer-row">
-              <input id="lead-quick-note" aria-label="Add a quick lead note" onChange={(event) => setQuickNote(event.target.value)} placeholder="Add note for this lead..." value={quickNote} />
-              <button
-                aria-label={quickSaving ? "Saving note" : quickNote.trim() ? "Add note" : "Add note (enter text first)"}
-                className="sales-secondary-button compact"
-                disabled={quickSaving || !quickNote.trim()}
-                title={quickSaving ? "Saving note" : quickNote.trim() ? "Add note" : "Enter a note before saving"}
-                type="submit"
-              >
-                <FileText size={12} /> {quickSaving ? "Saving" : "Add note"}
-              </button>
-            </div>
-          </form>
           <form className="sales-followup-composer" onSubmit={saveQuickFollowUp}>
             <div className="sales-followup-composer-heading">
               <div className="sales-followup-composer-title">
@@ -4024,6 +4418,13 @@ function LeadDetailForm({
           customerName={lead.customerName}
           initialNotes={leadTimeline}
           leadId={lead.id}
+          refreshTrigger={notesRevision}
+          onNotesUpdated={(updatedNoteText?: string) => {
+            setNotesRevision((v) => v + 1);
+            if (updatedNoteText) {
+              onTimelineNoteUpdated?.(lead.id, updatedNoteText);
+            }
+          }}
         />
       </div>
 
@@ -4066,7 +4467,6 @@ function LeadDetailForm({
           <input defaultValue={lead.followUpAt ? lead.followUpAt.slice(0, 10) : ""} name="followUpAt" type="date" />
         </div>
         <input defaultValue={lead.tags.join(", ")} name="tags" placeholder="Tags" />
-        <textarea defaultValue={lead.notes} name="notes" placeholder="Notes" />
         <button className="sales-primary-button" type="submit">Save lead details</button>
         </form>
 
@@ -4076,9 +4476,8 @@ function LeadDetailForm({
           <PanelTitle icon={MessageCircle} title="Send WhatsApp Message" />
           <label htmlFor="lead-whatsapp-transport">Send from</label>
           <select defaultValue={isLinkedWhatsAppLead ? "connected_user" : "company"} id="lead-whatsapp-transport" name="transport">
-            {isCompanyWhatsAppLead ? <option value="company">Company WhatsApp</option> : null}
-            {isLinkedWhatsAppLead ? <option value="connected_user">Connected WhatsApp ({leadSource.includes("business") ? "Business" : "Personal"})</option> : null}
-            {!isCompanyWhatsAppLead && !isLinkedWhatsAppLead ? <option value="company">Company WhatsApp</option> : null}
+            <option value="company">🏢 Company WhatsApp (Official API)</option>
+            <option value="connected_user">📱 Closer Business WhatsApp (Synced Device)</option>
           </select>
           <textarea name="message" placeholder="Message customer through shared WhatsApp inbox" required />
           <div className="sales-button-row">

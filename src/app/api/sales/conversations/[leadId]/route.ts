@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireSessionRole } from "@/lib/api/require-session-role";
-import { resolveWhatsAppSetupTenantId } from "@/lib/api/resolve-session-tenant";
+import { resolveSessionTenantId } from "@/lib/api/resolve-session-tenant";
 import { ensureSalesLeadConversation } from "@/lib/gigxomi/sales-conversation-store";
 import { getSalesOperatingSnapshot } from "@/lib/gigxomi/sales-operating-system-store";
 import { getSalesSnapshotForRole } from "@/lib/gigxomi/sales-store";
@@ -31,7 +31,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ le
       conversationId: lead.conversationId,
       customerName: lead.customerName,
       customerPhone: lead.customerPhone,
-      tenantId: resolveWhatsAppSetupTenantId(authorization.session),
+      tenantId: resolveSessionTenantId(authorization.session),
     });
     return NextResponse.json({ ok: true, conversationId: conversation.id });
   } catch (error) {

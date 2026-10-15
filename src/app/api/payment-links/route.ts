@@ -4,7 +4,7 @@ import { requireSessionRole } from "@/lib/api/require-session-role";
 import { createUpiPaymentLink, listUpiPaymentLinks, tenantForSession } from "@/lib/upi-payment-collection";
 
 export async function GET(request: Request) {
-  const authorization = await requireSessionRole(["ADMIN", "MANAGER", "SALES_AGENT"]);
+  const authorization = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"]);
   if (!authorization.ok) return authorization.response;
   const url = new URL(request.url);
   const tenantId = tenantForSession(authorization.session, url.searchParams.get("tenantId"));
@@ -13,7 +13,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const authorization = await requireSessionRole(["ADMIN", "MANAGER", "SALES_AGENT"]);
+  const authorization = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"]);
   if (!authorization.ok) return authorization.response;
   try {
     const body = await request.json();

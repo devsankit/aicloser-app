@@ -586,6 +586,7 @@ model SalesSettings {
   enablePayouts            Boolean  @default(true)
   enablePackageLinks       Boolean  @default(true)
   aiAutoReplyEnabled       Boolean  @default(true)
+  showOnlyAssignedChats    Boolean  @default(true)
   aiAutoReplyUpdatedById   String?
   aiAutoReplyUpdatedByName String?
   dashboardPrimaryColor    String   @default("#D7FF2F")
@@ -1063,6 +1064,30 @@ model SalesActivityLog {
   @@index([actorUserId])
 }
 
+model SalesMobileRecordingProfile {
+  id                    String              @id @default(cuid())
+  key                   String              @unique
+  manufacturer          String
+  modelPattern          String
+  dialerPackage         String?
+  recordingCapability   String
+  automationMode        String              @default("AUTO_SHARE")
+  requiresAccessibility Boolean             @default(false)
+  requiresFolderAccess  Boolean             @default(false)
+  userActionRequired    Boolean             @default(false)
+  title                 String
+  instructions          Json?
+  limitations           String?
+  priority              Int                 @default(0)
+  isActive              Boolean             @default(true)
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  devices               SalesMobileDevice[]
+
+  @@index([manufacturer, isActive])
+  @@index([modelPattern, isActive])
+}
+
 model SalesMobileDevice {
   id                  String                    @id @default(cuid())
   tenantId            String?
@@ -1074,21 +1099,25 @@ model SalesMobileDevice {
   manufacturer        String?
   model               String?
   androidVersion      String?
+  dialerPackage       String?
   simLabel            String?
   officeSimNumber     String?
   recordingCapability String                    @default("UNKNOWN")
   recordingEnabled    Boolean                   @default(false)
+  recordingProfileId  String?
   lastSeenAt          DateTime                  @default(now())
   isActive            Boolean                   @default(true)
   createdAt           DateTime                  @default(now())
   updatedAt           DateTime                  @updatedAt
   agent               SalesAgentProfile         @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  recordingProfile    SalesMobileRecordingProfile? @relation(fields: [recordingProfileId], references: [id], onDelete: SetNull)
   calls               SalesMobileCall[]
   events              SalesMobileOfflineEvent[]
 
   @@index([tenantId])
   @@index([agentId, isActive])
   @@index([lastSeenAt])
+  @@index([recordingProfileId])
 }
 
 model SalesMobileCall {

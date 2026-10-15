@@ -20,6 +20,7 @@ import {
   Check,
   CheckCheck,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleOff,
@@ -1452,6 +1453,7 @@ type ChatSidebarHeaderProps = {
   title: string;
   subtitle: string;
   titleActions?: ReactNode;
+  topTabs?: ReactNode;
   searchValue: string;
   searchPlaceholder: string;
   searchDisabled?: boolean;
@@ -1464,6 +1466,7 @@ function ChatSidebarHeader({
   title,
   subtitle,
   titleActions,
+  topTabs,
   searchValue,
   searchPlaceholder,
   searchDisabled = false,
@@ -1493,6 +1496,8 @@ function ChatSidebarHeader({
         </div>
       ) : null}
 
+      {topTabs ? <div className="chat-top-tabs-container">{topTabs}</div> : null}
+
       <label className={searchDisabled ? "chat-search-field disabled" : "chat-search-field"}>
         <input
           disabled={searchDisabled}
@@ -1513,6 +1518,42 @@ function ChatSidebarHeader({
   );
 }
 
+function sanitizeChatDisplayName(name?: string | null): string {
+  if (!name) return "Lead";
+  const trimmed = name.trim();
+  if (trimmed.startsWith("{") || trimmed.includes('"deviceId"') || trimmed.startsWith("[")) {
+    return "WhatsApp Contact";
+  }
+  return trimmed;
+}
+
+function cleanDisplayPhone(phone?: string | null): string {
+  if (!phone) return "";
+  const trimmed = phone.trim();
+  if (trimmed.startsWith("{") || trimmed.includes('"deviceId"') || trimmed.length > 30) {
+    return "";
+  }
+  return trimmed;
+}
+
+function sanitizeChatSnippet(snippet?: string | null): string {
+  if (!snippet) return "";
+  const trimmed = snippet.trim();
+  if (trimmed.startsWith("{") && (trimmed.includes('"deviceId"') || trimmed.includes('"model"') || trimmed.includes('"manufacturer"'))) {
+    return "📱 Device telemetry & diagnostics";
+  }
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed.deviceId || parsed.model) return "📱 Device telemetry & diagnostics";
+      if (parsed.text || parsed.message || parsed.body) return String(parsed.text || parsed.message || parsed.body);
+    } catch {
+      // not json
+    }
+  }
+  return trimmed;
+}
+
 const ChatThreadRow = memo(function ChatThreadRow({
   audience,
   conversation,
@@ -1524,10 +1565,11 @@ const ChatThreadRow = memo(function ChatThreadRow({
   selected: boolean;
   onSelect: (conversation: DummyConversationView) => void;
 }) {
-  const customerName =
+  const rawCustomerName =
     conversation.customerDisplayName?.trim() ||
-    conversation.customerPhoneDisplay?.trim() ||
+    cleanDisplayPhone(conversation.customerPhoneDisplay) ||
     "Lead";
+  const customerName = sanitizeChatDisplayName(rawCustomerName);
   const messages = Array.isArray(conversation.messages) ? conversation.messages : [];
   const latestMessage = messages.at(-1);
   const latestInternalMessage = [...messages].reverse().find((message) => message.lane === "internal");
@@ -1546,7 +1588,7 @@ const ChatThreadRow = memo(function ChatThreadRow({
     latestMessage
       ? summarizeMessagePreview(latestMessage, audience, { includeLanePrefix: false })
       : conversation.summary?.trim() || "";
-  const summaryLabel = summaryPreview || "Open chat";
+  const summaryLabel = sanitizeChatSnippet(summaryPreview) || "Open chat";
 
   const leadStage = (conversation as any).leadStage;
   const stageMapping = leadStage ? ({
@@ -1629,26 +1671,23 @@ const ChatThreadRow = memo(function ChatThreadRow({
             />
             <span className="chat-thread-stage-label">{badgeCfg.label}</span>
           </span>
-          {conversation.customerPhoneDisplay ? (
+          {cleanDisplayPhone(conversation.customerPhoneDisplay) ? (
             <span
               className="chat-thread-phone-display"
               style={{
                 fontSize: "0.72rem",
                 fontFamily: "monospace",
                 fontWeight: 700,
-                color: "#e2e8f0",
-                background: "rgba(255, 255, 255, 0.07)",
                 padding: "2px 6px",
                 borderRadius: "5px",
-                border: "1px solid rgba(255, 255, 255, 0.12)",
                 display: "inline-flex",
                 alignItems: "center",
                 gap: "4px",
               }}
-              title={`Customer Phone: ${conversation.customerPhoneDisplay}`}
+              title={`Customer Phone: ${cleanDisplayPhone(conversation.customerPhoneDisplay)}`}
             >
               <Phone size={10} style={{ color: "var(--closer-orange, #ff6b2f)" }} />
-              {conversation.customerPhoneDisplay}
+              {cleanDisplayPhone(conversation.customerPhoneDisplay)}
             </span>
           ) : null}
           {sourceChannel === "whatsapp" ? (
@@ -1665,10 +1704,10 @@ const ChatThreadRow = memo(function ChatThreadRow({
                 alignItems: "center",
                 gap: "4px",
               }}
-              title={conversation.externalSourceType === "whatsapp_personal" || conversation.externalSourceType === "whatsapp_business" ? "Closer Business WhatsApp (Synced Device)" : "Company WhatsApp (Official API)"}
+              title={conversation.externalSourceType === "whatsapp_personal" || conversation.externalSourceType === "whatsapp_business" ? "WhatsApp Personal (Closer Synced Device)" : "WhatsApp API (Cloud API)"}
             >
               {conversation.externalSourceType === "whatsapp_personal" || conversation.externalSourceType === "whatsapp_business" ? <Smartphone size={10} /> : <Building2 size={10} />}
-              {conversation.externalSourceType === "whatsapp_personal" || conversation.externalSourceType === "whatsapp_business" ? "Closer WA" : "Company WA"}
+              {conversation.externalSourceType === "whatsapp_personal" || conversation.externalSourceType === "whatsapp_business" ? "WhatsApp Personal" : "WhatsApp API"}
             </span>
           ) : null}
         </div>
@@ -2158,10 +2197,8 @@ function ChatWorkspaceInner({
       if (channelFilter === "whatsapp") {
         if (sourceChannel !== "whatsapp") return false;
       } else if (channelFilter === "whatsapp_company") {
-        if (sourceChannel !== "whatsapp") return false;
         if (conversation.externalSourceType === "whatsapp_personal" || conversation.externalSourceType === "whatsapp_business") return false;
       } else if (channelFilter === "whatsapp_connected") {
-        if (sourceChannel !== "whatsapp") return false;
         if (conversation.externalSourceType !== "whatsapp_personal" && conversation.externalSourceType !== "whatsapp_business") return false;
       } else if (channelFilter === "instagram") {
         if (sourceChannel !== "instagram") return false;
@@ -2258,10 +2295,10 @@ function ChatWorkspaceInner({
   const activeAssignedEditor = assignableEditors.find((editor) => editor.id === activeAssignment?.assignedFreelancerId) ?? null;
   const activeFreelancerLanePermission = activeConversation?.freelancerCustomerLanePermission ?? null;
   const activePendingOffer = activeConversation?.myAssignmentOffer ?? activeAssignment?.myOffer ?? null;
-  const activeLaneCapabilities = activeConversation?.laneCapabilities ?? null;
-  const activeCustomerName = activeConversation?.customerDisplayName?.trim() || "Unknown customer";
+  const rawActiveCustomerName = activeConversation?.customerDisplayName?.trim() || cleanDisplayPhone(activeConversation?.customerPhoneDisplay) || "Lead";
+  const activeCustomerName = sanitizeChatDisplayName(rawActiveCustomerName);
   const activeServiceTitle = activeConversation?.serviceTitle?.trim() || "";
-  const activeCustomerPhone = activeConversation?.customerPhoneDisplay?.trim() || "Customer contact hidden";
+  const activeCustomerPhone = cleanDisplayPhone(activeConversation?.customerPhoneDisplay) || "Customer contact hidden";
   const hasConnectedWhatsAppRoute = Boolean(
     activeConversation?.sourceChannel === "whatsapp" && (
       activeConversation.whatsappRoutes?.connectedUser ||
@@ -2412,6 +2449,9 @@ function ChatWorkspaceInner({
   const normalizedDraft = typeof messageDraft === "string" ? messageDraft.trim() : "";
   const hasDraft = normalizedDraft.length > 0;
   const latestPaymentRequest = activeConversation?.latestPaymentRequest;
+  const activeLaneCapabilities = activeConversation?.laneCapabilities as
+    | Record<DummyConversationLane, { writable?: boolean; reason?: string }>
+    | undefined;
   const showConversationRail = !isCompactChatLayout || !isMobileThreadViewOpen;
   const showConversationStage = !isCompactChatLayout || isMobileThreadViewOpen;
   const isFreelancerCustomerLane = audience === "freelancer" && resolvedLane === "customer";
@@ -5477,6 +5517,278 @@ function ChatWorkspaceInner({
     );
   }
 
+  const channelCounts = useMemo(() => {
+    let company = 0;
+    let personal = 0;
+    let all = 0;
+    let companyUnread = 0;
+    let personalUnread = 0;
+    let allUnread = 0;
+
+    for (const c of conversations) {
+      all++;
+      const isPersonal = c.externalSourceType === "whatsapp_personal" || c.externalSourceType === "whatsapp_business";
+      const unread = c.unreadCount ?? 0;
+      if (unread > 0) allUnread += unread;
+      if (isPersonal) {
+        personal++;
+        if (unread > 0) personalUnread += unread;
+      } else {
+        company++;
+        if (unread > 0) companyUnread += unread;
+      }
+    }
+
+    return { all, company, personal, allUnread, companyUnread, personalUnread };
+  }, [conversations]);
+
+  const handleSelectChannelTab = useCallback((tab: ChannelFilter) => {
+    setChannelFilter(tab);
+    const matching = conversations.filter((c) => {
+      if (tab === "whatsapp_company") {
+        return c.externalSourceType !== "whatsapp_personal" && c.externalSourceType !== "whatsapp_business";
+      }
+      if (tab === "whatsapp_connected") {
+        return c.externalSourceType === "whatsapp_personal" || c.externalSourceType === "whatsapp_business";
+      }
+      return true;
+    });
+    if (!isCompactChatLayout && matching.length > 0) {
+      const currentMatches = matching.some((c) => c.id === selectedConversationId);
+      if (!currentMatches) {
+        setSelectedConversationId(matching[0].id);
+      }
+    }
+  }, [conversations, isCompactChatLayout, selectedConversationId]);
+
+  const channelTopTabs = (
+    <div className="chat-top-channel-tabs" role="tablist" aria-label="WhatsApp Channel Switcher">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={channelFilter === "all"}
+        className={cx("chat-top-channel-tab", channelFilter === "all" && "active")}
+        onClick={() => handleSelectChannelTab("all")}
+        title="All Conversations (Unified Inbox)"
+      >
+        <span>All</span>
+        <span className="chat-top-tab-badge">{channelCounts.all}</span>
+        {channelCounts.allUnread > 0 ? (
+          <span className="chat-top-tab-unread-dot" title={`${channelCounts.allUnread} unread`} />
+        ) : null}
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={channelFilter === "whatsapp_company"}
+        className={cx("chat-top-channel-tab tab-company", channelFilter === "whatsapp_company" && "active")}
+        onClick={() => handleSelectChannelTab(channelFilter === "whatsapp_company" ? "all" : "whatsapp_company")}
+        title="WhatsApp API (Official Cloud API & CRM Platform Intake)"
+      >
+        <Building2 size={11} strokeWidth={2.2} style={{ flexShrink: 0 }} />
+        <span className="chat-top-tab-label"><span>WhatsApp API</span></span>
+        <span className="chat-top-tab-badge">{channelCounts.company}</span>
+        {channelCounts.companyUnread > 0 ? (
+          <span className="chat-top-tab-unread-dot" title={`${channelCounts.companyUnread} unread`} />
+        ) : null}
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={channelFilter === "whatsapp_connected"}
+        className={cx("chat-top-channel-tab tab-personal", channelFilter === "whatsapp_connected" && "active")}
+        onClick={() => handleSelectChannelTab(channelFilter === "whatsapp_connected" ? "all" : "whatsapp_connected")}
+        title="WhatsApp Personal (Closer Connected Mobile WhatsApp Device)"
+      >
+        <Smartphone size={11} strokeWidth={2.2} style={{ flexShrink: 0 }} />
+        <span className="chat-top-tab-label"><span>WhatsApp Personal</span></span>
+        <span className="chat-top-tab-badge">{channelCounts.personal}</span>
+        {channelCounts.personalUnread > 0 ? (
+          <span className="chat-top-tab-unread-dot" title={`${channelCounts.personalUnread} unread`} />
+        ) : null}
+      </button>
+    </div>
+  );
+
+  const selectedLeadStatus = leadStatuses.find((s) => s.id === leadStatusFilterId);
+  const selectedStatusBadge = selectedLeadStatus ? getLeadBadgeConfig(selectedLeadStatus.id, selectedLeadStatus.label, selectedLeadStatus.tone) : null;
+
+  const filterRowElement = (
+    <ChatFilterBar>
+      <button
+        className={activeFilter === "all" && leadStatusFilterId === "all" ? "chat-filter-chip active" : "chat-filter-chip"}
+        onClick={() => {
+          setActiveFilter("all");
+          setLeadStatusFilterId("all");
+        }}
+        type="button"
+      >
+        All
+      </button>
+      <button
+        className={activeFilter === "unread" ? "chat-filter-chip active" : "chat-filter-chip"}
+        onClick={() => setActiveFilter((current) => (current === "unread" ? "all" : "unread"))}
+        type="button"
+      >
+        Unread
+      </button>
+      <button
+        className={activeFilter === "waiting" ? "chat-filter-chip active" : "chat-filter-chip"}
+        onClick={() => setActiveFilter((current) => (current === "waiting" ? "all" : "waiting"))}
+        type="button"
+      >
+        Waiting
+      </button>
+      <button
+        className={activeFilter === "paused" ? "chat-filter-chip active" : "chat-filter-chip"}
+        onClick={() => setActiveFilter((current) => (current === "paused" ? "all" : "paused"))}
+        type="button"
+      >
+        Paused
+      </button>
+
+      {/* Clean Compact Lead Stage Filter */}
+      <div style={{ position: "relative", display: "inline-flex" }}>
+        {leadStatusFilterId !== "all" && selectedLeadStatus ? (
+          <button
+            type="button"
+            className="chat-filter-chip label-chip active"
+            style={{
+              background: selectedStatusBadge?.bg,
+              borderColor: selectedStatusBadge?.border,
+              color: selectedStatusBadge?.text,
+              boxShadow: selectedStatusBadge?.glow,
+            }}
+            onClick={() => setLeadStatusFilterId("all")}
+            title={`Active Filter: ${selectedLeadStatus.label}. Click to clear.`}
+          >
+            <span className="chat-thread-top-label-dot" style={{ backgroundColor: selectedStatusBadge?.dot }} />
+            <span>{selectedLeadStatus.label}</span>
+            <X size={11} style={{ marginLeft: "4px" }} />
+          </button>
+        ) : (
+          <button
+            type="button"
+            className={cx("chat-filter-chip", isLeadStatusMenuOpen && "active")}
+            onClick={() => setIsLeadStatusMenuOpen((curr) => !curr)}
+            title="Filter by CRM lead stage"
+          >
+            <Tag size={12} strokeWidth={2} />
+            <span>Stages</span>
+            <ChevronDown size={11} />
+          </button>
+        )}
+
+        {isLeadStatusMenuOpen ? (
+          <div
+            className="chat-filter-popover"
+            style={{
+              position: "absolute",
+              top: "100%",
+              left: 0,
+              marginTop: "6px",
+              minWidth: "180px",
+              zIndex: 50,
+              background: "var(--closer-popover-bg, #0f172a)",
+              border: "1px solid rgba(255, 255, 255, 0.15)",
+              borderRadius: "10px",
+              padding: "6px",
+              boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.5)",
+            }}
+          >
+            <button
+              type="button"
+              className={cx("chat-filter-chip", leadStatusFilterId === "all" && "active")}
+              style={{ width: "100%", justifyContent: "flex-start", marginBottom: "4px" }}
+              onClick={() => {
+                setLeadStatusFilterId("all");
+                setIsLeadStatusMenuOpen(false);
+              }}
+            >
+              All Stages
+            </button>
+            {leadStatuses.filter((s) => s.active).map((status) => {
+              const badgeCfg = getLeadBadgeConfig(status.id, status.label, status.tone);
+              const isSelected = leadStatusFilterId === status.id;
+              return (
+                <button
+                  key={status.id}
+                  type="button"
+                  className={cx("chat-filter-chip label-chip", isSelected && "active")}
+                  style={{
+                    width: "100%",
+                    justifyContent: "flex-start",
+                    marginBottom: "3px",
+                    ...(isSelected
+                      ? {
+                          background: badgeCfg.bg,
+                          borderColor: badgeCfg.border,
+                          color: badgeCfg.text,
+                        }
+                      : {}),
+                  }}
+                  onClick={() => {
+                    setLeadStatusFilterId(status.id);
+                    setIsLeadStatusMenuOpen(false);
+                  }}
+                >
+                  <span className="chat-thread-top-label-dot" style={{ backgroundColor: badgeCfg.dot }} />
+                  <span>{status.label}</span>
+                </button>
+              );
+            })}
+            <div style={{ borderTop: "1px solid rgba(255, 255, 255, 0.1)", paddingTop: "6px", marginTop: "4px" }}>
+              <button
+                type="button"
+                className="chat-filter-chip add-label-btn"
+                style={{ width: "100%", justifyContent: "center" }}
+                onClick={() => {
+                  setIsLeadStatusMenuOpen(false);
+                  setIsCreateLabelModalOpen(true);
+                }}
+              >
+                <Plus size={12} />
+                <span>Custom Label</span>
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {channelCounts.instagram > 0 || channelFilter === "instagram" ? (
+        <button
+          aria-label="Show Instagram chats"
+          className={channelFilter === "instagram" ? "chat-filter-chip chat-channel-filter-chip active" : "chat-filter-chip chat-channel-filter-chip"}
+          onClick={() => setChannelFilter((current) => (current === "instagram" ? "all" : "instagram"))}
+          type="button"
+        >
+          <Instagram size={12} style={{ marginRight: "4px" }} />
+          <span>Instagram</span>
+        </button>
+      ) : null}
+
+      <button
+        className={isFilterMenuOpen ? "chat-filter-button active" : "chat-filter-button"}
+        onClick={() => setIsFilterMenuOpen((current) => !current)}
+        type="button"
+        title="More filters"
+      >
+        <Filter size={14} strokeWidth={1.8} />
+      </button>
+
+      {(audience === "admin" || audience === "manager" || audience === "sales") ? (
+        <button
+          className="chat-filter-button"
+          onClick={() => { closeTransientMenus(); setIsNewChatOpen(true); }}
+          type="button"
+          title="New Chat"
+        >
+          <Plus size={14} strokeWidth={1.8} />
+        </button>
+      ) : null}
+    </ChatFilterBar>
+  );
+
   if (!activeConversation && filteredConversations.length === 0) {
     const isFilteringInbox =
       Boolean(searchValue.trim()) ||
@@ -5585,147 +5897,13 @@ function ChatWorkspaceInner({
                 ) : null}
               </>
             }
-            filterRow={
-              <ChatFilterBar>
-                <button
-                  className={activeFilter === "all" && leadStatusFilterId === "all" && channelFilter === "all" ? "chat-filter-chip active" : "chat-filter-chip"}
-                  onClick={() => {
-                    setActiveFilter("all");
-                    setLeadStatusFilterId("all");
-                    setChannelFilter("all");
-                  }}
-                  type="button"
-                >
-                  All
-                </button>
-                <button
-                  className={activeFilter === "unread" ? "chat-filter-chip active" : "chat-filter-chip"}
-                  onClick={() => setActiveFilter((current) => (current === "unread" ? "all" : "unread"))}
-                  type="button"
-                >
-                  Unread
-                </button>
-                <button
-                  className={activeFilter === "waiting" ? "chat-filter-chip active" : "chat-filter-chip"}
-                  onClick={() => setActiveFilter((current) => (current === "waiting" ? "all" : "waiting"))}
-                  type="button"
-                >
-                  Waiting
-                </button>
-                <button
-                  className={activeFilter === "paused" ? "chat-filter-chip active" : "chat-filter-chip"}
-                  onClick={() => setActiveFilter((current) => (current === "paused" ? "all" : "paused"))}
-                  type="button"
-                >
-                  Paused
-                </button>
-
-                {/* WhatsApp-style Lead Labels in filter bar */}
-                {leadStatuses
-                  .filter((status) => status.active && status.id !== "new")
-                  .map((status) => {
-                    const badgeCfg = getLeadBadgeConfig(status.id, status.label, status.tone);
-                    const isSelected = leadStatusFilterId === status.id;
-                    return (
-                      <button
-                        key={status.id}
-                        type="button"
-                        className={isSelected ? "chat-filter-chip label-chip active" : "chat-filter-chip label-chip"}
-                        style={{
-                          ...(isSelected
-                            ? {
-                                background: badgeCfg.bg,
-                                borderColor: badgeCfg.border,
-                                color: badgeCfg.text,
-                                boxShadow: badgeCfg.glow,
-                              }
-                            : {}),
-                        }}
-                        onClick={() => {
-                          setLeadStatusFilterId((prev) => (prev === status.id ? "all" : status.id));
-                        }}
-                        title={`Filter by ${status.label}`}
-                      >
-                        <span
-                          className="chat-thread-top-label-dot"
-                          style={{
-                            backgroundColor: badgeCfg.dot,
-                            boxShadow: isSelected && badgeCfg.dot ? `0 0 6px ${badgeCfg.dot}` : undefined,
-                          }}
-                        />
-                        <span>{status.label}</span>
-                      </button>
-                    );
-                  })}
-
-                {/* WhatsApp-style + Label button */}
-                <button
-                  type="button"
-                  className="chat-filter-chip add-label-btn"
-                  onClick={() => setIsCreateLabelModalOpen(true)}
-                  title="Create custom label (WhatsApp style)"
-                >
-                  <Plus size={13} strokeWidth={2.5} />
-                  <span>Label</span>
-                </button>
-
-                {/* Channels */}
-                <button
-                  aria-label="Show Company WhatsApp chats"
-                  className={channelFilter === "whatsapp_company" ? "chat-filter-chip chat-channel-filter-chip active" : "chat-filter-chip chat-channel-filter-chip"}
-                  onClick={() => setChannelFilter((current) => (current === "whatsapp_company" ? "all" : "whatsapp_company"))}
-                  style={channelFilter === "whatsapp_company" ? { borderColor: "rgba(16, 185, 129, 0.6)", color: "#10b981", background: "rgba(16, 185, 129, 0.15)" } : undefined}
-                  type="button"
-                >
-                  <Building2 size={12} style={{ marginRight: "4px" }} />
-                  <span>Company WA</span>
-                </button>
-                <button
-                  aria-label="Show Closer Business WhatsApp chats"
-                  className={channelFilter === "whatsapp_connected" ? "chat-filter-chip chat-channel-filter-chip active" : "chat-filter-chip chat-channel-filter-chip"}
-                  onClick={() => setChannelFilter((current) => (current === "whatsapp_connected" ? "all" : "whatsapp_connected"))}
-                  style={channelFilter === "whatsapp_connected" ? { borderColor: "rgba(2, 132, 199, 0.6)", color: "#0284c7", background: "rgba(2, 132, 199, 0.15)" } : undefined}
-                  type="button"
-                >
-                  <Smartphone size={12} style={{ marginRight: "4px" }} />
-                  <span>Closer Business WA</span>
-                </button>
-                <button
-                  aria-label="Show Instagram chats"
-                  className={channelFilter === "instagram" ? "chat-filter-chip chat-channel-filter-chip active" : "chat-filter-chip chat-channel-filter-chip"}
-                  onClick={() => setChannelFilter((current) => (current === "instagram" ? "all" : "instagram"))}
-                  type="button"
-                >
-                  <Instagram size={12} style={{ marginRight: "4px" }} />
-                  <span>Instagram</span>
-                </button>
-
-                <button
-                  className={isFilterMenuOpen ? "chat-filter-button active" : "chat-filter-button"}
-                  onClick={() => setIsFilterMenuOpen((current) => !current)}
-                  type="button"
-                  title="More filters"
-                >
-                  <Filter size={14} strokeWidth={1.8} />
-                </button>
-
-                {(audience === "admin" || audience === "manager" || audience === "sales") ? (
-                  <button
-                    className="chat-filter-button"
-                    onClick={() => { closeTransientMenus(); setIsNewChatOpen(true); }}
-                    type="button"
-                    title="New Chat"
-                  >
-                    <Plus size={14} strokeWidth={1.8} />
-                  </button>
-                ) : null}
-              </ChatFilterBar>
-            }
+            filterRow={filterRowElement}
             onSearchChange={setSearchValue}
             searchPlaceholder="Search threads"
             searchValue={searchValue}
             subtitle=""
             title=""
+            topTabs={channelTopTabs}
           />
 
           <div className={cx("chat-inbox-thread-scroll empty", styles.railBody)}>
@@ -5828,147 +6006,13 @@ function ChatWorkspaceInner({
                 ) : null}
               </>
             }
-            filterRow={
-              <ChatFilterBar>
-                <button
-                  className={activeFilter === "all" && leadStatusFilterId === "all" && channelFilter === "all" ? "chat-filter-chip active" : "chat-filter-chip"}
-                  onClick={() => {
-                    setActiveFilter("all");
-                    setLeadStatusFilterId("all");
-                    setChannelFilter("all");
-                  }}
-                  type="button"
-                >
-                  All
-                </button>
-                <button
-                  className={activeFilter === "unread" ? "chat-filter-chip active" : "chat-filter-chip"}
-                  onClick={() => setActiveFilter((current) => (current === "unread" ? "all" : "unread"))}
-                  type="button"
-                >
-                  Unread
-                </button>
-                <button
-                  className={activeFilter === "waiting" ? "chat-filter-chip active" : "chat-filter-chip"}
-                  onClick={() => setActiveFilter((current) => (current === "waiting" ? "all" : "waiting"))}
-                  type="button"
-                >
-                  Waiting
-                </button>
-                <button
-                  className={activeFilter === "paused" ? "chat-filter-chip active" : "chat-filter-chip"}
-                  onClick={() => setActiveFilter((current) => (current === "paused" ? "all" : "paused"))}
-                  type="button"
-                >
-                  Paused
-                </button>
-
-                {/* WhatsApp-style Lead Labels in filter bar */}
-                {leadStatuses
-                  .filter((status) => status.active && status.id !== "new")
-                  .map((status) => {
-                    const badgeCfg = getLeadBadgeConfig(status.id, status.label, status.tone);
-                    const isSelected = leadStatusFilterId === status.id;
-                    return (
-                      <button
-                        key={status.id}
-                        type="button"
-                        className={isSelected ? "chat-filter-chip label-chip active" : "chat-filter-chip label-chip"}
-                        style={{
-                          ...(isSelected
-                            ? {
-                                background: badgeCfg.bg,
-                                borderColor: badgeCfg.border,
-                                color: badgeCfg.text,
-                                boxShadow: badgeCfg.glow,
-                              }
-                            : {}),
-                        }}
-                        onClick={() => {
-                          setLeadStatusFilterId((prev) => (prev === status.id ? "all" : status.id));
-                        }}
-                        title={`Filter by ${status.label}`}
-                      >
-                        <span
-                          className="chat-thread-top-label-dot"
-                          style={{
-                            backgroundColor: badgeCfg.dot,
-                            boxShadow: isSelected && badgeCfg.dot ? `0 0 6px ${badgeCfg.dot}` : undefined,
-                          }}
-                        />
-                        <span>{status.label}</span>
-                      </button>
-                    );
-                  })}
-
-                {/* WhatsApp-style + Label button */}
-                <button
-                  type="button"
-                  className="chat-filter-chip add-label-btn"
-                  onClick={() => setIsCreateLabelModalOpen(true)}
-                  title="Create custom label (WhatsApp style)"
-                >
-                  <Plus size={13} strokeWidth={2.5} />
-                  <span>Label</span>
-                </button>
-
-                {/* Channels */}
-                <button
-                  aria-label="Show Company WhatsApp chats"
-                  className={channelFilter === "whatsapp_company" ? "chat-filter-chip chat-channel-filter-chip active" : "chat-filter-chip chat-channel-filter-chip"}
-                  onClick={() => setChannelFilter((current) => (current === "whatsapp_company" ? "all" : "whatsapp_company"))}
-                  style={channelFilter === "whatsapp_company" ? { borderColor: "rgba(16, 185, 129, 0.6)", color: "#10b981", background: "rgba(16, 185, 129, 0.15)" } : undefined}
-                  type="button"
-                >
-                  <Building2 size={12} style={{ marginRight: "4px" }} />
-                  <span>Company WA</span>
-                </button>
-                <button
-                  aria-label="Show Closer Business WhatsApp chats"
-                  className={channelFilter === "whatsapp_connected" ? "chat-filter-chip chat-channel-filter-chip active" : "chat-filter-chip chat-channel-filter-chip"}
-                  onClick={() => setChannelFilter((current) => (current === "whatsapp_connected" ? "all" : "whatsapp_connected"))}
-                  style={channelFilter === "whatsapp_connected" ? { borderColor: "rgba(2, 132, 199, 0.6)", color: "#0284c7", background: "rgba(2, 132, 199, 0.15)" } : undefined}
-                  type="button"
-                >
-                  <Smartphone size={12} style={{ marginRight: "4px" }} />
-                  <span>Closer Business WA</span>
-                </button>
-                <button
-                  aria-label="Show Instagram chats"
-                  className={channelFilter === "instagram" ? "chat-filter-chip chat-channel-filter-chip active" : "chat-filter-chip chat-channel-filter-chip"}
-                  onClick={() => setChannelFilter((current) => (current === "instagram" ? "all" : "instagram"))}
-                  type="button"
-                >
-                  <Instagram size={12} style={{ marginRight: "4px" }} />
-                  <span>Instagram</span>
-                </button>
-
-                <button
-                  className={isFilterMenuOpen ? "chat-filter-button active" : "chat-filter-button"}
-                  onClick={() => setIsFilterMenuOpen((current) => !current)}
-                  type="button"
-                  title="More filters"
-                >
-                  <Filter size={14} strokeWidth={1.8} />
-                </button>
-
-                {(audience === "admin" || audience === "manager" || audience === "sales") ? (
-                  <button
-                    className="chat-filter-button"
-                    onClick={() => { closeTransientMenus(); setIsNewChatOpen(true); }}
-                    type="button"
-                    title="New Chat"
-                  >
-                    <Plus size={14} strokeWidth={1.8} />
-                  </button>
-                ) : null}
-              </ChatFilterBar>
-            }
+            filterRow={filterRowElement}
             onSearchChange={setSearchValue}
             searchPlaceholder="Search or start a new chat"
             searchValue={searchValue}
             subtitle=""
             title=""
+            topTabs={channelTopTabs}
           />
 
           <div className={styles.railScrollFrame}>
@@ -6037,11 +6081,49 @@ function ChatWorkspaceInner({
               <div className="chat-thread-head-copy">
                 <div className="chat-thread-head-title">
                   <strong title={activeCustomerName}>{activeCustomerName}</strong>
-                  {activeConversation.sourceChannel === "whatsapp" ? (
-                    <span className="chat-source-chip whatsapp">WhatsApp</span>
-                  ) : activeConversation.sourceChannel === "instagram" ? (
+                  {activeConversation.sourceChannel === "instagram" ? (
                     <span className="chat-source-chip instagram strong">Instagram</span>
-                  ) : null}
+                  ) : activeConversation.externalSourceType === "whatsapp_personal" || activeConversation.externalSourceType === "whatsapp_business" ? (
+                    <span
+                      className="chat-source-chip personal-wa"
+                      style={{
+                        background: "rgba(2, 132, 199, 0.18)",
+                        color: "#38bdf8",
+                        border: "1px solid rgba(2, 132, 199, 0.4)",
+                        borderRadius: "5px",
+                        padding: "2px 6px",
+                        fontSize: "0.72rem",
+                        fontWeight: 700,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                      title="WhatsApp Personal (Closer Connected Mobile WhatsApp Device)"
+                    >
+                      <Smartphone size={11} />
+                      WhatsApp Personal
+                    </span>
+                  ) : (
+                    <span
+                      className="chat-source-chip company-wa"
+                      style={{
+                        background: "rgba(16, 185, 129, 0.18)",
+                        color: "#34d399",
+                        border: "1px solid rgba(16, 185, 129, 0.4)",
+                        borderRadius: "5px",
+                        padding: "2px 6px",
+                        fontSize: "0.72rem",
+                        fontWeight: 700,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                      title="WhatsApp API (Official WhatsApp Cloud API & CRM Platform Intake)"
+                    >
+                      <Building2 size={11} />
+                      WhatsApp API
+                    </span>
+                  )}
                 </div>
                 <div className="chat-thread-head-subtitle" style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                   <span
@@ -6051,14 +6133,11 @@ function ChatWorkspaceInner({
                       display: "inline-flex",
                       alignItems: "center",
                       gap: "5px",
-                      color: "#ffffff",
                       fontWeight: 700,
                       fontSize: "0.82rem",
                       fontFamily: "monospace",
-                      background: "rgba(255, 255, 255, 0.08)",
                       padding: "2px 8px",
                       borderRadius: "6px",
-                      border: "1px solid rgba(255, 255, 255, 0.14)",
                     }}
                   >
                     <Phone size={12} style={{ color: "var(--closer-orange, #ff6b2f)" }} />
@@ -7148,10 +7227,10 @@ function ChatWorkspaceInner({
                     onChange={(event) => setWhatsappTransport(event.target.value as "company" | "connected_user")}
                     value={whatsappTransport}
                   >
-                    {hasCompanyWhatsAppRoute ? <option value="company">🏢 Company WhatsApp (Official API)</option> : null}
+                    {hasCompanyWhatsAppRoute ? <option value="company">🏢 WhatsApp API (Cloud API)</option> : null}
                     {hasConnectedWhatsAppRoute ? (
                       <option value="connected_user">
-                        📱 {activeConversation.whatsappRoutes?.connectedUserLabel || "Closer Business WhatsApp (Synced Device)"}
+                        📱 WhatsApp Personal ({activeConversation.whatsappRoutes?.connectedUserLabel || "Synced Device"})
                       </option>
                     ) : null}
                   </select>

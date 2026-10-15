@@ -1,18 +1,55 @@
 import { NextResponse } from "next/server";
 
 import { resolveConversationAudienceForSession } from "@/lib/api/conversation-access";
+import {
+  getSalesAgentAssignedConversationIds,
+  showOnlyAssignedChatsForTenant,
+} from "@/lib/api/sales-chat-visibility";
 import { requireSessionRole } from "@/lib/api/require-session-role";
-import { resolveWhatsAppSetupTenantId } from "@/lib/api/resolve-session-tenant";
 import type { ManagedAuthUser } from "@/lib/auth/types";
 import type { WorkloadBand } from "@/lib/gigxomi/business-ecosystem-data";
 import {
   deleteConversationFromFile,
   listConversationsForAudienceFromFile,
+
 } from "@/lib/gigxomi/dummy-platform-file-store";
+import type { DummyLeadStatusTone } from "@/lib/gigxomi/dummy-platform-store";
 import { findConfirmedAgencyEditorForManagedUser } from "@/lib/gigxomi/agency-editor-eligibility";
 import { crmStatuses } from "@/lib/gigxomi/crm-data";
 import { getManagedAuthUsers } from "@/lib/auth/store";
 import { prisma } from "@/lib/prisma";
+import { POST as syncWhatsAppScanner } from "@/app/api/sales/whatsapp-scanner/route";
+
+const whatsappInboxSyncs = new Map<string, Promise<unknown>>();
+const whatsappInboxSyncAt = new Map<string, number>();
+
+async function syncConnectedWhatsAppInbox(request: Request, userId: string) {
+  const now = Date.now();
+  const previous = whatsappInboxSyncs.get(userId);
+  if (previous) {
+    await previous.catch(() => undefined);
+    return;
+  }
+  if (now - (whatsappInboxSyncAt.get(userId) ?? 0) < 10_000) return;
+
+  const headers = new Headers();
+  const cookie = request.headers.get("cookie");
+  if (cookie) headers.set("cookie", cookie);
+  const sync = syncWhatsAppScanner(
+    new Request(new URL("/api/sales/whatsapp-scanner", request.url), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ action: "complete_scan", syncMode: "FULL_INBOX_SYNC" }),
+    }),
+  ).catch(() => undefined);
+  whatsappInboxSyncs.set(userId, sync);
+  whatsappInboxSyncAt.set(userId, now);
+  try {
+    await sync;
+  } finally {
+    whatsappInboxSyncs.delete(userId);
+  }
+}
 
 type JsonRecord = Record<string, unknown>;
 
@@ -69,11 +106,22 @@ export async function GET(request: Request) {
     authorization.session.role === "SUPER_ADMIN"
       ? (explicitTenantId || "tenant-gigxomi")
       : authorization.session.role === "SALES_AGENT"
-        ? resolveWhatsAppSetupTenantId(authorization.session, explicitTenantId)
+        // The sales inbox is a shared workspace view. A sales agent's
+        // personal WhatsApp setup tenant is only for channel configuration;
+        // it must not hide conversations stored under the workspace tenant.
+        ? (authorization.session.tenantId?.trim() || explicitTenantId)
         : (authorization.session.tenantId?.trim() || explicitTenantId);
   if ((scope.audience === "admin" || scope.audience === "manager") && authorization.session.role !== "SUPER_ADMIN" && !tenantId) {
     return NextResponse.json({ ok: false, error: "This account is not attached to an agency workspace yet." }, { status: 403 });
   }
+
+  // A linked personal/business WhatsApp produces events in the Baileys
+  // service cache. Reconcile that cache into the workspace inbox before the
+  // list is read, so opening/refreshing Chat is enough to see new messages.
+  if (scope.audience === "sales") {
+    await syncConnectedWhatsAppInbox(request, authorization.session.userId);
+  }
+
   const payload = await listConversationsForAudienceFromFile(scope.audience, {
     freelancerId: scope.freelancerId,
     freelancerIds: scope.freelancerIds,
@@ -86,9 +134,21 @@ export async function GET(request: Request) {
     limit,
   });
 
+  let visibleConversations = payload.conversations;
+  if (scope.audience === "sales" && authorization.session.role === "SALES_AGENT" && tenantId) {
+    const assignedOnly = await showOnlyAssignedChatsForTenant(tenantId);
+    if (assignedOnly) {
+      const assignedConversationIds = await getSalesAgentAssignedConversationIds(authorization.session.userId);
+      visibleConversations = visibleConversations.filter((conversation) => assignedConversationIds.has(conversation.id) || conversation.externalSourceType === "whatsapp_personal" || conversation.externalSourceType === "whatsapp_business");
+      if (conversationId && visibleConversations.length === 0) {
+        return NextResponse.json({ ok: false, error: "This chat is not assigned to your account." }, { status: 403 });
+      }
+    }
+  }
+
   let assignableEditors = payload.assignableEditors;
   if (includeSupportData && (scope.audience === "admin" || scope.audience === "manager")) {
-    const [managedUsers, legacyMemberships, appMemberships, freelancerProfiles, freelancerServices] = await Promise.all([
+    const [managedUsers, legacyMemberships, appMemberships, freelancerProfiles, freelancerServices, salesAgentProfiles] = await Promise.all([
       getManagedAuthUsers(),
       tenantId
         ? prisma.teamMembership.findMany({
@@ -107,6 +167,12 @@ export async function GET(request: Request) {
         where: { status: { in: ["APPROVED", "PUBLISHED"] } },
         orderBy: { updatedAt: "desc" },
       }),
+      tenantId
+        ? prisma.salesAgentProfile.findMany({
+            where: { tenantId, status: "ACTIVE" },
+            select: { userId: true, user: { select: { displayName: true, lastLoginAt: true } } },
+          })
+        : Promise.resolve([]),
     ]);
     const confirmedEditors = [
       ...legacyMemberships.map((membership) => ({
@@ -135,7 +201,7 @@ export async function GET(request: Request) {
       servicesByUserId.set(service.ownerId, current);
     }
 
-    assignableEditors = managedUsers
+    const freelancerAssignableEditors = managedUsers
       .map((user: ManagedAuthUser) => ({ user, editor: findConfirmedAgencyEditorForManagedUser(user, confirmedEditors) }))
       // Assignment must stay inside the current tenant's active team. Do not
       // fall back to every active/seeded freelancer account; that was the
@@ -187,10 +253,45 @@ export async function GET(request: Request) {
           services,
         };
       });
+
+    // The CRM workspace also assigns conversations to active sales agents.
+    // They are represented by SalesAgentProfile rather than the legacy
+    // freelancer TeamMembership tables, so they must be surfaced separately
+    // instead of making an otherwise healthy team appear empty.
+    const salesProfilesByUserId = new Map(
+      salesAgentProfiles.map((profile) => [profile.userId, profile]),
+    );
+    const salesAssignableEditors = managedUsers
+      .filter((user) => salesProfilesByUserId.has(user.id))
+      .map((user) => {
+        const profile = salesProfilesByUserId.get(user.id);
+        const isOnline = Boolean(user.lastLoginAt && new Date(user.lastLoginAt).getTime() >= Date.now() - 15 * 60 * 1000);
+        return {
+          id: user.id,
+          name: user.displayName || profile?.user.displayName || "Sales agent",
+          specialties: ["Sales team", "Lead follow-up"],
+          workloadBand: "Moderate" as WorkloadBand,
+          karmaScore: 0,
+          onlineStatus: isOnline ? ("online" as const) : ("offline" as const),
+          lastOnlineAt: user.lastLoginAt,
+          acceptingProjects: true,
+          isTeamMember: true,
+          offerEligible: true,
+          directAssignmentEligible: true,
+          verificationStatus: "ACTIVE",
+          startingPrice: null,
+          portfolioLinks: [],
+          services: [],
+        };
+      });
+
+    assignableEditors = [...freelancerAssignableEditors, ...salesAssignableEditors].filter(
+      (editor, index, editors) => editors.findIndex((candidate) => candidate.id === editor.id) === index,
+    );
   }
 
   // Enrich conversations with Customer 360 / Registration details for sales closer
-  let enrichedConversations = payload?.conversations ?? [];
+  let enrichedConversations = visibleConversations ?? [];
   if (Array.isArray(enrichedConversations) && enrichedConversations.length > 0) {
     try {
       const phoneDigitsList = enrichedConversations
@@ -282,6 +383,18 @@ export async function GET(request: Request) {
           ? Math.max(0, Math.ceil((expiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
           : null;
 
+        const stageToConvStatus: Record<string, { id: string; label: string; tone: DummyLeadStatusTone }> = {
+          NEW: { id: "new", label: "New Lead", tone: "accent" },
+          CONTACTED: { id: "contacted", label: "Contacted", tone: "accent" },
+          INTERESTED: { id: "qualified", label: "Interested / Qualified", tone: "success" },
+          WEBINAR_INVITED: { id: "training-booked", label: "Training Booked", tone: "accent" },
+          FOLLOW_UP: { id: "follow-up", label: "Follow-up", tone: "warning" },
+          CLOSED_WON: { id: "closed", label: "Closed Won", tone: "success" },
+          CLOSED_LOST: { id: "lost", label: "Lost / Recycled", tone: "warning" },
+        };
+
+        const effectiveStatus = matchedLead?.stage ? stageToConvStatus[matchedLead.stage] : null;
+
         return {
           ...conv,
           customerDisplayName: realName,
@@ -292,6 +405,9 @@ export async function GET(request: Request) {
           customerAppInstalled: matchedUser ? installedUserIds.has(matchedUser.id) : false,
           leadPriority: matchedLead?.priority || null,
           leadStage: matchedLead?.stage || null,
+          leadStatusId: effectiveStatus ? effectiveStatus.id : (conv.leadStatusId || "inbound"),
+          leadStatusLabel: effectiveStatus ? effectiveStatus.label : (conv.leadStatusLabel || (matchedLead ? "New Lead" : "Inbound Chat")),
+          leadStatusTone: effectiveStatus ? effectiveStatus.tone : conv.leadStatusTone,
         };
       });
 

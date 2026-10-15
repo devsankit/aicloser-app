@@ -1,0 +1,2 @@
+ALTER TABLE "SalesSettings"
+ADD COLUMN IF NOT EXISTS "showOnlyAssignedChats" BOOLEAN NOT NULL DEFAULT true;

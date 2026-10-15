@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSessionRole } from "@/lib/api/require-session-role";
 import { resolveSessionTenantId, resolveWhatsAppSetupTenantId } from "@/lib/api/resolve-session-tenant";
 import { readRoundRobinSettings } from "@/lib/gigxomi/round-robin-service";
-import { createSalesLead, getSalesSnapshotForRole, updateSalesLead, type SalesLeadStage } from "@/lib/gigxomi/sales-store";
+import { createSalesLead, getSalesSnapshotForRole, reassignSalesLead, updateSalesLead, type SalesLeadStage } from "@/lib/gigxomi/sales-store";
 import { listConversationsForAudienceFromFile } from "@/lib/gigxomi/dummy-platform-file-store";
 import { normalizeE164Phone, upsertMarketingContact } from "@/lib/whatsapp-marketing/contact-service";
 
@@ -30,6 +30,7 @@ export type UnifiedContactItem = {
   stage: SalesLeadStage | "CONTACT";
   tags: string[];
   assignedAgentName: string;
+  assignedAgentId?: string;
   hasInboxThread: boolean;
   unreadCount: number;
   notes: string;
@@ -124,6 +125,16 @@ export async function GET(request: Request) {
     })),
   ]);
 
+  const isWorkspaceAdmin =
+    auth.session.role === "ADMIN" ||
+    auth.session.role === "SUPER_ADMIN" ||
+    Boolean((salesSnapshot.currentAgent?.permissions as Record<string, unknown> | null)?.workspaceAdmin === true) ||
+    String((salesSnapshot.currentAgent?.permissions as Record<string, unknown> | null)?.workspaceRole ?? "").toUpperCase() === "ADMIN";
+  const isWorkspaceManager =
+    auth.session.role === "MANAGER" ||
+    String((salesSnapshot.currentAgent?.permissions as Record<string, unknown> | null)?.workspaceRole ?? "").toUpperCase() === "MANAGER";
+  const isCloser = !isWorkspaceAdmin && !isWorkspaceManager;
+
   const agentsById = new Map(salesSnapshot.agents.map((a) => [a.id, a.displayName]));
   const unifiedMap = new Map<string, UnifiedContactItem>();
   const openPoolByPhone = new Map(
@@ -161,6 +172,7 @@ export async function GET(request: Request) {
       stage: lead.stage,
       tags: Array.from(new Set(lead.tags || [])),
       assignedAgentName: (lead.assignedAgentId && agentsById.get(lead.assignedAgentId)) || "Assigned Rep",
+      assignedAgentId: lead.assignedAgentId,
       hasInboxThread: Boolean(lead.conversationId),
       unreadCount: 0,
       notes: lead.notes || "",
@@ -176,9 +188,14 @@ export async function GET(request: Request) {
     const existing = unifiedMap.get(mapKey);
     const { category, label } = classifySource(mc.optInSource || "", mc.tags || []);
 
+    const isBadName = (n: string) =>
+      !n || n.startsWith("+") || n.includes("deviceId") || n.includes("WhatsApp Contact") || /^\d+$/.test(n);
+
     if (existing) {
       existing.marketingContactId = mc.id;
-      existing.poolItemId = existing.poolItemId || openPoolByPhone.get(pKey) || openPoolByEmail.get(eKey);
+      if (!isCloser) {
+        existing.poolItemId = existing.poolItemId || openPoolByPhone.get(pKey) || openPoolByEmail.get(eKey);
+      }
       if (!existing.email && mc.email) existing.email = mc.email;
       if (!existing.phone && mc.e164Phone) existing.phone = mc.e164Phone;
       existing.tags = Array.from(new Set([...existing.tags, ...(mc.tags || [])]));
@@ -186,12 +203,16 @@ export async function GET(request: Request) {
         existing.sourceCategory = category;
         existing.sourceLabel = label;
       }
-    } else {
+      if (mc.fullName && !isBadName(mc.fullName) && isBadName(existing.name)) {
+        existing.name = mc.fullName;
+      }
+    } else if (!isCloser || mc.tenantId === personalScannerTenantId) {
+      const cleanName = mc.fullName && !isBadName(mc.fullName) ? mc.fullName : mc.e164Phone;
       unifiedMap.set(mapKey, {
         id: mc.id,
         marketingContactId: mc.id,
-        poolItemId: openPoolByPhone.get(pKey) || openPoolByEmail.get(eKey),
-        name: mc.fullName || mc.e164Phone,
+        poolItemId: isCloser ? undefined : (openPoolByPhone.get(pKey) || openPoolByEmail.get(eKey)),
+        name: cleanName,
         phone: mc.e164Phone,
         email: mc.email || "",
         sourceRaw: mc.optInSource || "marketing_contact",
@@ -200,6 +221,7 @@ export async function GET(request: Request) {
         stage: "NEW",
         tags: Array.from(new Set(mc.tags || [])),
         assignedAgentName: salesSnapshot.currentAgent?.displayName || "Team Pool",
+        assignedAgentId: salesSnapshot.currentAgent?.id,
         hasInboxThread: false,
         unreadCount: 0,
         notes: "",
@@ -221,6 +243,8 @@ export async function GET(request: Request) {
     const displayPhone = normPhone.valid ? normPhone.e164 : rawPhone;
     const existing = unifiedMap.get(mapKey);
     const activityTimestamp = conv.updatedAt || conv.lastCustomerActivityAt || new Date().toISOString();
+    const isBadName = (n: string) =>
+      !n || n.startsWith("+") || n.includes("deviceId") || n.includes("WhatsApp Contact") || /^\d+$/.test(n);
 
     if (existing) {
       existing.conversationId = conv.id;
@@ -229,12 +253,19 @@ export async function GET(request: Request) {
       if (activityTimestamp > existing.lastActivityAt) {
         existing.lastActivityAt = activityTimestamp;
       }
-    } else {
+      if (conv.customerDisplayName && !isBadName(conv.customerDisplayName) && isBadName(existing.name)) {
+        existing.name = conv.customerDisplayName;
+      }
+    } else if (!isCloser) {
       const { category, label } = classifySource(conv.serviceTitle || "whatsapp", [], true, isIg);
+      const cleanName =
+        conv.customerDisplayName && !isBadName(conv.customerDisplayName)
+          ? conv.customerDisplayName
+          : displayPhone || "Inbox Contact";
       unifiedMap.set(mapKey, {
         id: conv.id,
         conversationId: conv.id,
-        name: conv.customerDisplayName || displayPhone || "Inbox Contact",
+        name: cleanName,
         phone: displayPhone,
         email: "",
         sourceRaw: isIg ? "instagram_dm" : "whatsapp_inbox",
@@ -251,9 +282,23 @@ export async function GET(request: Request) {
     }
   }
 
-  const allContacts = Array.from(unifiedMap.values()).sort((a, b) =>
+  let allContacts = Array.from(unifiedMap.values()).sort((a, b) =>
     b.lastActivityAt.localeCompare(a.lastActivityAt),
   );
+
+  if (isCloser) {
+    const max = salesSnapshot.currentAgent?.maxActiveLeads && salesSnapshot.currentAgent.maxActiveLeads > 0
+      ? salesSnapshot.currentAgent.maxActiveLeads
+      : 10;
+    const isTerminal = (stage: string) =>
+      ["CLOSED_WON", "CLOSED_LOST", "CLOSED", "LOST", "PAID", "CONVERTED_FREE", "RECYCLED"].includes(stage);
+    const active = allContacts.filter((c) => !isTerminal(c.stage));
+    const closed = allContacts.filter((c) => isTerminal(c.stage));
+    const cappedActive = active.slice(0, max);
+    allContacts = [...cappedActive, ...closed].sort((a, b) =>
+      b.lastActivityAt.localeCompare(a.lastActivityAt),
+    );
+  }
 
   const countsByCategory: Record<UnifiedContactSourceCategory | "ALL", number> = {
     ALL: allContacts.length,
@@ -269,11 +314,22 @@ export async function GET(request: Request) {
     countsByCategory[c.sourceCategory] = (countsByCategory[c.sourceCategory] || 0) + 1;
   }
 
+  const activeAgents = salesSnapshot.agents
+    .filter((a) => a.status === "ACTIVE")
+    .map((a) => ({
+      id: a.id,
+      displayName: a.displayName,
+      agentCode: a.agentCode,
+      role: String((a.permissions as Record<string, unknown> | null)?.workspaceRole ?? "SALES_AGENT"),
+    }));
+
   return NextResponse.json({
     ok: true,
     total: allContacts.length,
     countsByCategory,
     contacts: allContacts,
+    agents: activeAgents,
+    activeLeadQuota: salesSnapshot.currentAgent?.activeLeadQuota || null,
   });
 }
 
@@ -313,6 +369,79 @@ export async function POST(request: Request) {
     snapshot.agents.find((a) => a.status === "ACTIVE") ??
     snapshot.agents[0] ??
     null;
+
+  if ((body as any).action === "assign") {
+    const isPrivileged = ["SUPER_ADMIN", "ADMIN", "MANAGER"].includes(auth.session.role);
+    if (!isPrivileged) {
+      return NextResponse.json({ ok: false, error: "Only admins and managers can assign contacts to sales reps." }, { status: 403 });
+    }
+    const targetAgentId = String((body as any).targetAgentId ?? "").trim();
+    const leadIds = Array.isArray((body as any).leadIds) ? (body as any).leadIds.map(String) : [];
+    const nonLeadContacts = Array.isArray((body as any).contacts) ? (body as any).contacts : [];
+    const targetAgent = snapshot.agents.find((a) => a.id === targetAgentId && a.status === "ACTIVE");
+    if (!targetAgent) {
+      return NextResponse.json({ ok: false, error: "Target sales agent not found or inactive." }, { status: 400 });
+    }
+
+    let assignedCount = 0;
+    for (const leadId of leadIds) {
+      try {
+        await reassignSalesLead({ leadId, assignedAgentId: targetAgent.id, actorUserId: auth.session.userId });
+        assignedCount += 1;
+      } catch (err) {
+        console.warn("[contacts/assign] Failed to reassign lead:", leadId, err);
+      }
+    }
+
+    for (const c of nonLeadContacts) {
+      if (c.leadId && leadIds.includes(c.leadId)) continue;
+      const rawPhone = String(c.phone ?? "").trim();
+      const rawName = String(c.name ?? rawPhone ?? "Contact").trim();
+      const rawEmail = String(c.email ?? "").trim();
+      if (!rawPhone && !rawEmail) continue;
+
+      try {
+        const existing = await prisma.salesLeadAssignment.findFirst({
+          where: {
+            assignedAgent: { user: { tenantId } },
+            OR: [
+              ...(rawPhone ? [{ customerPhone: rawPhone }] : []),
+              ...(rawEmail ? [{ customerEmail: rawEmail }] : []),
+            ],
+          },
+        });
+        if (existing) {
+          await reassignSalesLead({ leadId: existing.id, assignedAgentId: targetAgent.id, actorUserId: auth.session.userId });
+        } else {
+          await createSalesLead({
+            assignedAgentId: targetAgent.id,
+            customerName: rawName,
+            customerPhone: rawPhone,
+            customerEmail: rawEmail,
+            source: c.source || "contacts_hub",
+            serviceInterest: "Unified Contacts",
+            segment: "CRM Contact",
+            priority: "normal",
+            budgetAmount: 0,
+            stage: "NEW",
+            notes: c.notes || "",
+            tags: c.tags || ["CRM Contact"],
+            actorUserId: auth.session.userId,
+          });
+        }
+        assignedCount += 1;
+      } catch (err) {
+        console.warn("[contacts/assign] Failed to assign contact:", c, err);
+      }
+    }
+
+    return NextResponse.json({
+      ok: true,
+      assignedCount,
+      agentName: targetAgent.displayName,
+      message: `Successfully assigned ${assignedCount} contact${assignedCount === 1 ? "" : "s"} to ${targetAgent.displayName}!`,
+    });
+  }
 
   const itemsToImport = [...(body.contacts || [])];
 

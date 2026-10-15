@@ -4,7 +4,7 @@ import { requireSessionRole } from "@/lib/api/require-session-role";
 import { getUpiSettings, saveUpiFieldPolicies, tenantForSession } from "@/lib/upi-payment-collection";
 
 export async function GET(request: Request) {
-  const authorization = await requireSessionRole(["ADMIN"]);
+  const authorization = await requireSessionRole(["ADMIN", "SUPER_ADMIN"]);
   if (!authorization.ok) return authorization.response;
   const tenantId = tenantForSession(authorization.session, new URL(request.url).searchParams.get("tenantId"));
   const result = await getUpiSettings(tenantId);
@@ -12,7 +12,7 @@ export async function GET(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const authorization = await requireSessionRole(["ADMIN"]);
+  const authorization = await requireSessionRole(["ADMIN", "SUPER_ADMIN"]);
   if (!authorization.ok) return authorization.response;
   try {
     const body = await request.json();

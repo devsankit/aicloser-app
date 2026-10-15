@@ -48,6 +48,12 @@ export async function POST(request: Request) {
     loginPath = loginScope === "super-admin" ? SUPER_ADMIN_LOGIN_ROUTE : loginScope === "manager" ? "/manager-login" : "/login";
 
     if (!identifier || !password) {
+      if (wantsJson) {
+        return NextResponse.json(
+          { ok: false, error: "MissingCredentials", message: "Enter your email/phone and password." },
+          { status: 400 },
+        );
+      }
       return createPublicRedirect(loginPath, { error: "Identifier and password are required." });
     }
 
@@ -65,6 +71,12 @@ export async function POST(request: Request) {
 
     const user = await authenticatePassword(identifier, password, { updateLastLogin: false });
     if (!user) {
+      if (wantsJson) {
+        return NextResponse.json(
+          { ok: false, error: "InvalidCredentials", message: "Invalid email/phone or password." },
+          { status: 401 },
+        );
+      }
       return createPublicRedirect(loginPath, { error: "InvalidCredentials: Invalid email/phone or password." });
     }
 
@@ -76,7 +88,9 @@ export async function POST(request: Request) {
     const salesAccess = ["ADMIN", "MANAGER", "SALES_AGENT"].includes(user.role)
       ? await getSalesAgentAccess(user.id)
       : null;
-    const workspaceRole = String(salesAccess?.agent?.permissions?.workspaceRole ?? "").toUpperCase();
+    const workspaceRole = salesAccess?.agent?.permissions?.workspaceAdmin === true
+      ? "ADMIN"
+      : String(salesAccess?.agent?.permissions?.workspaceRole ?? "").toUpperCase();
     if (workspaceRole === "ADMIN" || workspaceRole === "MANAGER" || workspaceRole === "SALES_AGENT") {
       effectiveRole = workspaceRole;
       effectiveAssignedRole = workspaceRole;

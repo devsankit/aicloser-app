@@ -1579,6 +1579,8 @@ export function syncExternalThreadToInboxFromFile(input: {
   customerName: string;
   customerPhone: string;
   channelLabel?: string;
+  sourceType?: "company_whatsapp" | "whatsapp_business" | "whatsapp_personal";
+  sourcePhone?: string;
   notes?: string;
   messages: Array<{
     role: "customer" | "sales" | "admin" | "manager";
@@ -1606,6 +1608,26 @@ export function syncExternalThreadToInboxFromFile(input: {
       existing = created.conversation;
     }
 
+    if (existing) {
+      existing.externalSourceType = input.sourceType || existing.externalSourceType || "company_whatsapp";
+      existing.externalSourceLabel = input.channelLabel?.trim() || existing.externalSourceLabel;
+      existing.externalSourcePhone = input.sourcePhone?.trim() || existing.externalSourcePhone;
+      existing.sourceChannel = "whatsapp";
+
+      const existingName = (existing.customerName || "").trim();
+      const incomingName = (input.customerName || "").trim();
+      const isTelemetryOrLid = (val: string) =>
+        !val ||
+        val.startsWith("+") ||
+        val.includes("deviceId") ||
+        val.includes("WhatsApp Contact") ||
+        /^\d+$/.test(val);
+      if (incomingName && !isTelemetryOrLid(incomingName) && isTelemetryOrLid(existingName)) {
+        existing.customerName = incomingName;
+        existing.title = incomingName;
+      }
+    }
+
     if (existing && input.notes?.trim()) {
       updateConversationInternalNotes(existing.id, input.notes.trim());
     }
@@ -1628,3 +1650,96 @@ export function syncExternalThreadToInboxFromFile(input: {
   });
 }
 
+export function appendConversationMessageFromFile(
+  conversationId: string,
+  input: Parameters<typeof appendConversationMessage>[1],
+) {
+  return withSnapshot(() => appendConversationMessage(conversationId, input));
+}
+
+
+
+export type ExternalThreadInput = {
+  tenantId?: string;
+  customerName: string;
+  customerPhone: string;
+  channelLabel?: string;
+  sourceType?: "company_whatsapp" | "whatsapp_business" | "whatsapp_personal";
+  sourcePhone?: string;
+  notes?: string;
+  messages: Array<{
+    role: "customer" | "sales" | "admin" | "manager";
+    body: string;
+    externalMessageId?: string;
+  }>;
+};
+
+export function syncExternalThreadsToInboxBatch(threads: ExternalThreadInput[]) {
+  return withSnapshot(async () => {
+    const snapshot = getDummyPlatformSnapshot();
+    const results: Array<{ id: string; customerPhone: string }> = [];
+
+    for (const input of threads) {
+      const tenantId = input.tenantId?.trim() || "tenant-gigxomi";
+      const cleanTargetDigits = input.customerPhone.replace(/\D/g, "").slice(-10);
+      if (!cleanTargetDigits) continue;
+
+      let existing = snapshot.conversations.find((conv) => {
+        if (conv.tenantId !== tenantId) return false;
+        const digits = (conv.customerPhone || "").replace(/\D/g, "").slice(-10);
+        return digits === cleanTargetDigits;
+      });
+
+      if (!existing) {
+        const created = await createManualConversation({
+          role: "sales",
+          tenantId,
+          customerName: input.customerName,
+          customerPhone: input.customerPhone,
+        });
+        existing = created.conversation;
+      }
+
+      if (existing) {
+        existing.externalSourceType = input.sourceType || existing.externalSourceType || "company_whatsapp";
+        existing.externalSourceLabel = input.channelLabel?.trim() || existing.externalSourceLabel;
+        existing.externalSourcePhone = input.sourcePhone?.trim() || existing.externalSourcePhone;
+        existing.sourceChannel = "whatsapp";
+
+        const existingName = (existing.customerName || "").trim();
+        const incomingName = (input.customerName || "").trim();
+        const isTelemetryOrLid = (val: string) =>
+          !val ||
+          val.startsWith("+") ||
+          val.includes("deviceId") ||
+          val.includes("WhatsApp Contact") ||
+          /^\d+$/.test(val);
+        if (incomingName && !isTelemetryOrLid(incomingName) && isTelemetryOrLid(existingName)) {
+          existing.customerName = incomingName;
+          existing.title = incomingName;
+        }
+
+        if (input.notes?.trim()) {
+          updateConversationInternalNotes(existing.id, input.notes.trim());
+        }
+
+        const existingMsgIds = new Set(existing.messages.map((m) => m.externalMessageId || m.id));
+        for (const msg of input.messages) {
+          if (!msg.body?.trim()) continue;
+          if (msg.externalMessageId && existingMsgIds.has(msg.externalMessageId)) continue;
+          appendConversationMessage(existing.id, {
+            role: msg.role,
+            body: msg.body.trim(),
+            lane: "customer",
+            externalMessageId: msg.externalMessageId,
+          });
+          if (msg.externalMessageId) existingMsgIds.add(msg.externalMessageId);
+        }
+
+        results.push({ id: existing.id, customerPhone: input.customerPhone });
+      }
+    }
+
+    return results;
+  });
+}

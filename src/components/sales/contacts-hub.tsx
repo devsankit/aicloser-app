@@ -227,7 +227,7 @@ const EMAIL_PRESET_CARDS: Array<{
   },
 ];
 
-function renderDeterministicQrSvg(seed: string) {
+export function renderDeterministicQrSvg(seed: string) {
   const size = 21;
   const cells: boolean[][] = Array.from({ length: size }, () => Array(size).fill(false));
 
@@ -342,6 +342,7 @@ export function ContactsHub({
   }, [tenantId]);
   const [editingContact, setEditingContact] = useState<UnifiedContactItem | null>(null);
   const [contactDraft, setContactDraft] = useState({ name: "", phone: "", email: "", tags: "", notes: "" });
+  const [workspaceAgents, setWorkspaceAgents] = useState<Array<{ id: string; displayName: string; role?: string }>>([]);
 
   // 1. WhatsApp QR Scanner & Scraper State
   const [scannerState, setScannerState] = useState<WhatsAppScannerSessionState | null>(null);
@@ -410,6 +411,9 @@ export function ContactsHub({
     if (contactsResult.status === "fulfilled" && contactsResult.value.response.ok && contactsResult.value.data?.ok) {
       const contactsJson = contactsResult.value.data;
       setContacts(contactsJson.contacts || []);
+      if (Array.isArray(contactsJson.agents)) {
+        setWorkspaceAgents(contactsJson.agents);
+      }
       setCounts(contactsJson.countsByCategory || {
         ALL: 0,
         WHATSAPP_SCANNER: 0,
@@ -1027,6 +1031,95 @@ export function ContactsHub({
     }
   };
 
+  const handleAssignSingleContact = async (contact: UnifiedContactItem, targetAgentId: string) => {
+    if (!targetAgentId) return;
+    const agent = workspaceAgents.find((a) => a.id === targetAgentId);
+    setBusyAction(`assign_${contact.id}`);
+    try {
+      const res = await fetch("/api/sales/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "assign",
+          tenantId,
+          targetAgentId,
+          leadIds: contact.leadId ? [contact.leadId] : [],
+          contacts: [{
+            id: contact.id,
+            leadId: contact.leadId,
+            name: contact.name,
+            phone: contact.phone,
+            email: contact.email,
+            source: contact.sourceRaw,
+            tags: contact.tags,
+            notes: contact.notes,
+          }],
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.ok) {
+        setBanner({ tone: "success", text: `Assigned "${contact.name}" to ${agent?.displayName || "sales rep"}.` });
+        setContacts((current) =>
+          current.map((c) =>
+            c.id === contact.id
+              ? { ...c, assignedAgentName: agent?.displayName || c.assignedAgentName, assignedAgentId: targetAgentId }
+              : c
+          )
+        );
+        onRefreshDashboard?.();
+      } else {
+        alert(data?.error || "Failed to assign contact.");
+      }
+    } catch {
+      alert("Could not assign contact. Please check your connection.");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleBulkAssign = async (targetAgentId: string) => {
+    if (!selectedIds.size || !targetAgentId) return;
+    const agent = workspaceAgents.find((a) => a.id === targetAgentId);
+    const selectedItems = contacts.filter((c) => selectedIds.has(c.id));
+    setDistributing(true);
+    try {
+      const res = await fetch("/api/sales/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "assign",
+          tenantId,
+          targetAgentId,
+          leadIds: selectedItems.map((c) => c.leadId).filter(Boolean),
+          contacts: selectedItems.map((c) => ({
+            id: c.id,
+            leadId: c.leadId,
+            name: c.name,
+            phone: c.phone,
+            email: c.email,
+            source: c.sourceRaw,
+            tags: c.tags,
+            notes: c.notes,
+          })),
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.ok) {
+        setDistributeSuccess(`Successfully assigned ${selectedItems.length} contact(s) to ${agent?.displayName || "sales rep"}!`);
+        setSelectedIds(new Set());
+        await loadAllContactsAndIntegrations();
+        onRefreshDashboard?.();
+        setTimeout(() => setDistributeSuccess(null), 8000);
+      } else {
+        alert(data?.error || "Failed to batch assign contacts.");
+      }
+    } catch {
+      alert("Could not assign contacts. Please check your connection.");
+    } finally {
+      setDistributing(false);
+    }
+  };
+
   const handleAutoDistribute = async () => {
     const targetContacts = selectedIds.size > 0
       ? contacts.filter((c) => selectedIds.has(c.id))
@@ -1134,12 +1227,14 @@ export function ContactsHub({
               </span>
             </div>
             <h2 className="crm-contacts-title">
-              {isLeadImportView ? "Choose an import source" : "All Contacts"}
+              {isLeadImportView ? "Choose an import source" : (!canManageContacts ? "My Assigned Contacts" : "All Contacts")}
             </h2>
             <p className="crm-contacts-description">
               {isLeadImportView
                 ? "Bring contacts in from five sources, review the data, then save only the rows you approve."
-                : "One clean, deduplicated directory for every contact from WhatsApp, email, sheets, CSV, imports, and the CRM."}
+                : (!canManageContacts
+                    ? "Your scoped contact book with verified leads assigned to you and your linked personal WhatsApp."
+                    : "One clean, deduplicated directory for every contact from WhatsApp, email, sheets, CSV, imports, and the CRM.")}
             </p>
             {!canImportData ? (
               <p style={{ margin: "10px 0 0", color: "var(--muted)", fontSize: 12 }}>
@@ -2794,6 +2889,52 @@ export function ContactsHub({
                   : `Distribute import batch (${pendingImportBatch?.poolItemIds.length ?? 0})`}
             </button>
 
+            {/* Direct Lead Assignment to Closer / Sales Rep */}
+            {canManageContacts && selectedIds.size > 0 && workspaceAgents.length > 0 ? (
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "3px 8px",
+                  borderRadius: "8px",
+                  background: "rgba(255, 107, 47, 0.12)",
+                  border: "1px solid rgba(255, 107, 47, 0.35)",
+                }}
+              >
+                <Users size={13} style={{ color: "var(--closer-orange, #ff6b2f)" }} />
+                <select
+                  aria-label="Assign selected contacts to specific rep"
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      void handleBulkAssign(e.target.value);
+                      e.target.value = "";
+                    }
+                  }}
+                  defaultValue=""
+                  disabled={distributing}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "var(--closer-orange, #ff6b2f)",
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    padding: "3px 4px",
+                  }}
+                >
+                  <option value="" disabled style={{ background: "#1e293b", color: "#f1f5f9" }}>
+                    Assign ({selectedIds.size}) to Closer...
+                  </option>
+                  {workspaceAgents.map((ag) => (
+                    <option key={ag.id} value={ag.id} style={{ background: "#1e293b", color: "#f1f5f9" }}>
+                      Assign to {ag.displayName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+
             {/* Send to WhatsApp Bulk Campaign */}
             {onOpenBulkMarketing && selectedIds.size > 0 ? (
               <button
@@ -3048,9 +3189,62 @@ export function ContactsHub({
                           ))}
                         </div>
                       </td>
-                      <td style={{ padding: "11px 8px", fontSize: 12.5 }}>{contact.assignedAgentName}</td>
+                      <td style={{ padding: "11px 8px", fontSize: 12.5 }}>
+                        {canManageContacts && workspaceAgents.length > 0 ? (
+                          <select
+                            aria-label={`Assign ${contact.name} to closer`}
+                            value={contact.assignedAgentId || workspaceAgents.find((a) => a.displayName === contact.assignedAgentName)?.id || ""}
+                            onChange={(e) => void handleAssignSingleContact(contact, e.target.value)}
+                            disabled={busyAction === `assign_${contact.id}`}
+                            style={{
+                              background: "rgba(255, 255, 255, 0.05)",
+                              border: "1px solid rgba(255, 255, 255, 0.12)",
+                              borderRadius: "6px",
+                              color: "#f1f5f9",
+                              fontSize: "11.5px",
+                              padding: "4px 8px",
+                              cursor: "pointer",
+                              maxWidth: "145px",
+                            }}
+                          >
+                            <option value="" disabled style={{ background: "#1e293b", color: "#f1f5f9" }}>
+                              {contact.assignedAgentName || "Select Rep..."}
+                            </option>
+                            {workspaceAgents.map((ag) => (
+                              <option key={ag.id} value={ag.id} style={{ background: "#1e293b", color: "#f1f5f9" }}>
+                                {ag.displayName}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span style={{ color: "#94a3b8" }}>{contact.assignedAgentName || "Unassigned"}</span>
+                        )}
+                      </td>
                       <td style={{ padding: "11px 8px", textAlign: "right" }}>
                         <div style={{ display: "inline-flex", gap: 6 }}>
+                          {canManageContacts && workspaceAgents.length > 0 ? (
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              onClick={() => {
+                                const currentAgentId = contact.assignedAgentId || workspaceAgents.find((a) => a.displayName === contact.assignedAgentName)?.id;
+                                const promptMsg = `Assign "${contact.name}" to which Closer?\n\n` +
+                                  workspaceAgents.map((a, i) => `${i + 1}. ${a.displayName}${a.id === currentAgentId ? " (current)" : ""}`).join("\n") +
+                                  `\n\nEnter number (1-${workspaceAgents.length}):`;
+                                const chosen = window.prompt(promptMsg);
+                                if (chosen) {
+                                  const idx = parseInt(chosen.trim(), 10) - 1;
+                                  if (workspaceAgents[idx]) {
+                                    void handleAssignSingleContact(contact, workspaceAgents[idx].id);
+                                  }
+                                }
+                              }}
+                              title="Assign lead to a closer / sales rep"
+                              style={{ padding: "5px 9px", fontSize: 11.5, display: "inline-flex", alignItems: "center", gap: 4, color: "var(--closer-orange, #ff6b2f)" }}
+                            >
+                              <Users size={13} /> Assign
+                            </button>
+                          ) : null}
                           {canManageContacts ? (
                             <button
                               type="button"
@@ -3085,16 +3279,16 @@ export function ContactsHub({
                               <Inbox size={13} /> Inbox Chat
                             </button>
                           ) : null}
-                          {cleanDigits ? (
-                            <a
-                              href={`https://wa.me/${cleanDigits}`}
-                              target="_blank"
-                              rel="noreferrer"
+                          {cleanDigits && onOpenMultiChannelChat ? (
+                            <button
+                              type="button"
                               className="secondary-button"
-                              style={{ padding: "5px 9px", fontSize: 11.5, display: "inline-flex", alignItems: "center", gap: 4, textDecoration: "none" }}
+                              onClick={() => onOpenMultiChannelChat(contact.conversationId)}
+                              title="Open internal WhatsApp chat"
+                              style={{ padding: "5px 9px", fontSize: 11.5, display: "inline-flex", alignItems: "center", gap: 4 }}
                             >
-                              <MessageCircle size={13} /> WA
-                            </a>
+                              <MessageCircle size={13} /> WA chat
+                            </button>
                           ) : null}
                           {cleanDigits ? (
                             <a

@@ -408,7 +408,14 @@ function hasReadyWhatsAppLine(connection: DummyWhatsAppConnectionState | null) {
 }
 
 function hasUsableWhatsAppLine(connection: DummyWhatsAppConnectionState | null) {
-  return Boolean(hasWhatsAppToken(connection) && connection?.phoneNumberId?.trim());
+  // An ACTIVE tenant channel can already be sending successfully through the
+  // Prisma Cloud API record even when the legacy onboarding snapshot does not
+  // expose its encrypted token to the browser. Do not show a false pending
+  // state in that case; server-side send actions still validate the token.
+  const connectedStatus = ["number connected", "connected", "ready for webhook"].includes(
+    String(connection?.status ?? "").trim().toLowerCase(),
+  );
+  return Boolean(connection?.phoneNumberId?.trim() && (hasWhatsAppToken(connection) || connectedStatus));
 }
 
 function isDisconnectedWhatsAppLine(connection: DummyWhatsAppConnectionState | null) {

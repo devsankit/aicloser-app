@@ -23,6 +23,7 @@ export async function GET() {
               },
             },
           },
+          recordingProfile: true,
         },
       }),
       prisma.salesMobileCall.findMany({
@@ -35,6 +36,7 @@ export async function GET() {
               manufacturer: true,
               model: true,
               androidVersion: true,
+              dialerPackage: true,
               recordingCapability: true,
             },
           },
@@ -107,10 +109,10 @@ export async function GET() {
         actionItems.push({
           id: `dev-share-${dev.id}`,
           level: "warning",
-          title: "Google / Stock Dialer (Manual Share Mode)",
+          title: "Manual Native Dialer Share",
           deviceOrUser: `${userStr} (${modelStr})`,
-          details: `This device uses Google Dialer which hides call files from Android storage. Automatic folder scraping is restricted by Google.`,
-          recommendation: `Agent must use the Phone app's Share button to send recordings, or enable Microphone fallback.`,
+          details: `${dev.recordingProfile?.title || "The dialer keeps recordings private"}. AI Closer opens the completed call and uses the native Share action.`,
+          recommendation: "Open the completed call in Phone, tap Share recording, and choose AI Closer. The app links it automatically to the matching CRM call.",
         });
       } else if (cap === "MICROPHONE_FALLBACK") {
         actionItems.push({
@@ -170,8 +172,21 @@ export async function GET() {
         appVersion: d.appVersion || "",
         simLabel: d.simLabel || "",
         officeSimNumber: d.officeSimNumber || "",
+        dialerPackage: d.dialerPackage || "",
         recordingCapability: d.recordingCapability,
         recordingEnabled: d.recordingEnabled,
+        recordingProfile: d.recordingProfile
+          ? {
+              key: d.recordingProfile.key,
+              title: d.recordingProfile.title,
+              recordingCapability: d.recordingProfile.recordingCapability,
+              automationMode: d.recordingProfile.automationMode,
+              requiresAccessibility: d.recordingProfile.requiresAccessibility,
+              userActionRequired: d.recordingProfile.userActionRequired,
+              instructions: d.recordingProfile.instructions,
+              limitations: d.recordingProfile.limitations,
+            }
+          : null,
         lastSeenAt: d.lastSeenAt.toISOString(),
         agentName: d.agent?.user?.displayName || "Unknown",
         agentEmail: d.agent?.user?.email || "",
@@ -191,6 +206,7 @@ export async function GET() {
         agentName: c.agent?.user?.displayName || "Unknown",
         deviceModel: c.device?.model || c.device?.deviceName || "Mobile",
         deviceManufacturer: c.device?.manufacturer || "",
+        dialerPackage: c.device?.dialerPackage || "",
         uploadAttempts: uploadsByCallId.get(c.id)?.attemptCount || 0,
       })),
       diagnosticEvents: diagnosticEvents.map((e) => ({

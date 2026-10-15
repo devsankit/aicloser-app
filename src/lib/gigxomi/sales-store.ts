@@ -95,6 +95,7 @@ export type SalesAgentView = {
   canCreateSubAgents: boolean;
   canClaimLeads: boolean;
   maxActiveLeads: number | null;
+  activeLeadQuota?: { current: number; max: number; isAtCapacity: boolean; remaining: number } | null;
   permissions: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
@@ -120,7 +121,7 @@ type SalesLeadPoolView = {
   updatedAt: string;
 };
 
-type SalesLeadView = {
+export type SalesLeadView = {
   id: string;
   leadId: string | null;
   assignedAgentId: string;
@@ -1388,6 +1389,7 @@ export async function getSalesSnapshotForRole(
   const observingAgents = observingAgent ? [observingAgent] : visibleAgents;
   const observingAgentIds = new Set(observingAgents.map((agent) => agent.id));
   const isAgentView = Boolean(observingAgent);
+  const isAgentScopedView = isAgentView || (!isWorkspaceAdmin && !isWorkspaceManager);
   const visibleAgentIds = new Set(visibleAgents.map((agent) => agent.id));
   const leadPool = leadPoolRaw.map(mapLeadPoolItem);
   const leadIds = leadsRaw.map((lead) => lead.id);
@@ -1471,23 +1473,69 @@ export async function getSalesSnapshotForRole(
   const earnings = earningsRaw.map(mapEarning);
   const payouts = payoutsRaw.map(mapPayout);
   const referralEvents = referralEventsRaw.map(mapReferralEvent);
-  const visibleLeadPool =
-    (isWorkspaceAdmin || isWorkspaceManager)
-      ? isAgentView
-        ? leadPool.filter((item) => observingAgentIds.has(item.assignedAgentId ?? "") || observingAgentIds.has(item.claimedByAgentId ?? ""))
-        : isWorkspaceAdmin
-          ? leadPool
-          : currentAgent
-            ? leadPool.filter((item) => item.status === "OPEN" || visibleAgentIds.has(item.assignedAgentId ?? "") || visibleAgentIds.has(item.claimedByAgentId ?? ""))
-            : []
-      : currentAgent
-        ? leadPool.filter((item) =>
-            item.status === "OPEN" ||
-            visibleAgentIds.has(item.assignedAgentId ?? "") ||
-            visibleAgentIds.has(item.claimedByAgentId ?? ""),
-          )
-        : [];
-  const visibleLeads = leads.filter((lead) => observingAgentIds.has(lead.assignedAgentId));
+  const assignedLeads = leads.filter((lead) => observingAgentIds.has(lead.assignedAgentId));
+  const isTerminal = (stage: SalesLeadStage) =>
+    ["CLOSED_WON", "CLOSED_LOST", "CLOSED", "LOST", "PAID", "CONVERTED_FREE", "RECYCLED"].includes(stage);
+  const activeAssignedLeads = assignedLeads.filter((l) => !isTerminal(l.stage));
+  const closedAssignedLeads = assignedLeads.filter((l) => isTerminal(l.stage));
+  const activeAssignedCount = activeAssignedLeads.length;
+
+  const effectiveMaxActiveLeads =
+    currentAgent?.maxActiveLeads && currentAgent.maxActiveLeads > 0
+      ? currentAgent.maxActiveLeads
+      : (!isWorkspaceAdmin && !isWorkspaceManager ? 10 : null);
+
+  let visibleLeads = assignedLeads;
+  if (!isWorkspaceAdmin && !isWorkspaceManager && effectiveMaxActiveLeads !== null && effectiveMaxActiveLeads > 0) {
+    activeAssignedLeads.sort((a, b) => (b.updatedAt || b.createdAt).localeCompare(a.updatedAt || a.createdAt));
+    const cappedActive = activeAssignedLeads.slice(0, effectiveMaxActiveLeads);
+    visibleLeads = [...cappedActive, ...closedAssignedLeads];
+  }
+
+  const canClaim = Boolean(currentAgent?.canClaimLeads !== false);
+  const remainingGrabSlots =
+    effectiveMaxActiveLeads !== null
+      ? (canClaim ? Math.max(0, effectiveMaxActiveLeads - activeAssignedCount) : 0)
+      : null;
+
+  let visibleLeadPool: SalesLeadPoolView[];
+  if (isWorkspaceAdmin || isWorkspaceManager) {
+    if (isAgentView) {
+      visibleLeadPool = leadPool.filter(
+        (item) => observingAgentIds.has(item.assignedAgentId ?? "") || observingAgentIds.has(item.claimedByAgentId ?? ""),
+      );
+    } else {
+      visibleLeadPool = leadPool;
+    }
+  } else if (currentAgent) {
+    if (!canClaim || remainingGrabSlots === 0) {
+      visibleLeadPool = leadPool.filter(
+        (item) =>
+          visibleAgentIds.has(item.assignedAgentId ?? "") ||
+          visibleAgentIds.has(item.claimedByAgentId ?? ""),
+      );
+    } else {
+      const openQueue = leadPool.filter(
+        (item) =>
+          item.status === "OPEN" &&
+          (!item.assignedAgentId || item.assignedAgentId === currentAgent.id),
+      );
+      const cappedOpenQueue =
+        remainingGrabSlots !== null
+          ? openQueue.slice(0, remainingGrabSlots)
+          : openQueue;
+      const agentClaimed = leadPool.filter(
+        (item) =>
+          item.id &&
+          (visibleAgentIds.has(item.assignedAgentId ?? "") ||
+            visibleAgentIds.has(item.claimedByAgentId ?? "")) &&
+          !cappedOpenQueue.some((q) => q.id === item.id),
+      );
+      visibleLeadPool = [...cappedOpenQueue, ...agentClaimed];
+    }
+  } else {
+    visibleLeadPool = [];
+  }
   const visibleDeals = deals.filter((deal) => observingAgentIds.has(deal.agentId));
   const visibleEarnings = earnings.filter((earning) => observingAgentIds.has(earning.agentId));
   const visiblePayouts = payouts.filter((payout) => observingAgentIds.has(payout.agentId));
@@ -1563,16 +1611,26 @@ export async function getSalesSnapshotForRole(
       updatedAt: group.updatedAt.toISOString(),
     })),
     agents,
-    currentAgent,
+    currentAgent: currentAgent ? {
+      ...currentAgent,
+      activeLeadQuota: effectiveMaxActiveLeads !== null && effectiveMaxActiveLeads > 0
+        ? {
+            current: activeAssignedCount,
+            max: effectiveMaxActiveLeads,
+            isAtCapacity: activeAssignedCount >= effectiveMaxActiveLeads,
+            remaining: Math.max(0, effectiveMaxActiveLeads - activeAssignedCount),
+          }
+        : null,
+    } : null,
     visibleAgents,
     visibleLeadPool,
     visibleLeads,
     visibleDeals,
     visibleEarnings,
     visiblePayouts,
-    leadPool: isAgentView ? visibleLeadPool : leadPool,
-    leads: isAgentView ? visibleLeads : leads,
-    deals: isAgentView ? visibleDeals : deals,
+    leadPool: isAgentScopedView ? visibleLeadPool : leadPool,
+    leads: isAgentScopedView ? visibleLeads : leads,
+    deals: isAgentScopedView ? visibleDeals : deals,
     commissionRules: rulesRaw.map((rule) => ({
       id: rule.id,
       name: rule.name,
@@ -1590,8 +1648,8 @@ export async function getSalesSnapshotForRole(
       priority: rule.priority,
       isActive: rule.isActive,
     })),
-    earnings: isAgentView ? visibleEarnings : earnings,
-    payouts: isAgentView ? visiblePayouts : payouts,
+    earnings: isAgentScopedView ? visibleEarnings : earnings,
+    payouts: isAgentScopedView ? visiblePayouts : payouts,
     referrals: referralsRaw.filter((referral) => (isWorkspaceAdmin || isWorkspaceManager) ? observingAgentIds.has(referral.agentId) : referral.agentId === currentAgent?.id).map((referral) => ({
       id: referral.id,
       agentId: referral.agentId,
@@ -2117,16 +2175,15 @@ export async function claimSalesLeadPoolItem(input: { poolItemId: string; agentI
   if (!agent || agent.status !== "ACTIVE" || !agent.canClaimLeads) {
     throw new Error("This sales agent cannot claim queue leads right now.");
   }
-  if (agent.maxActiveLeads) {
-    const activeLeadCount = await prisma.salesLeadAssignment.count({
-      where: {
-        assignedAgentId: agent.id,
-        stage: { in: ["NEW", "CONTACTED", "QUALIFIED", "QUOTE_SENT", "PAYMENT_PENDING"] },
-      },
-    });
-    if (activeLeadCount >= agent.maxActiveLeads) {
-      throw new Error(`You already have ${activeLeadCount} active leads. Finish or close one before grabbing another.`);
-    }
+  const maxAllowed = agent.maxActiveLeads && agent.maxActiveLeads > 0 ? agent.maxActiveLeads : 10;
+  const activeLeadCount = await prisma.salesLeadAssignment.count({
+    where: {
+      assignedAgentId: agent.id,
+      stage: { notIn: ["CLOSED_WON", "CLOSED_LOST", "CLOSED", "LOST", "PAID", "CONVERTED_FREE", "RECYCLED"] },
+    },
+  });
+  if (activeLeadCount >= maxAllowed) {
+    throw new Error(`You already have ${activeLeadCount} of ${maxAllowed} allowed active leads. Finish, close, or convert an existing lead before grabbing another.`);
   }
 
   const result = await prisma.$transaction(async (tx) => {
@@ -2445,7 +2502,7 @@ function getConversationLeadSource(payload: unknown, sourceChannel?: string | nu
 const tenantSyncPromises = new Map<string, Promise<void>>();
 const tenantSyncTimes = new Map<string, number>();
 
-async function syncConversationLeadsIntoSales(session: { userId?: string | null; role: AppRole | "GUEST"; tenantId?: string | null }) {
+export async function syncConversationLeadsIntoSales(session: { userId?: string | null; role: AppRole | "GUEST"; tenantId?: string | null }) {
   if (!process.env.DATABASE_URL?.trim()) return;
   const effectiveTenantId = session.tenantId?.trim() || "tenant-gigxomi";
   const now = Date.now();
@@ -2525,6 +2582,7 @@ async function syncConversationLeadsIntoSales(session: { userId?: string | null;
       const sourceChannel = String(record.sourceChannel ?? "").trim();
       creates.push({
         id: `sales-conversation-${conversation.id}`,
+        tenantId: effectiveTenantId,
         assignedAgentId: fallbackAgentId,
         createdById: session.userId ?? null,
         customerName: conversation.customerName || "WhatsApp Customer",
@@ -2537,6 +2595,7 @@ async function syncConversationLeadsIntoSales(session: { userId?: string | null;
         conversationId: conversation.id,
         stage: mapConversationLeadStatusToSalesStage(conversation.leadStatusId),
         notes: typeof record.internalNotes === "string" ? record.internalNotes : null,
+        updatedAt: new Date(conversation.updatedAt),
       });
       byConversationId.set(conversation.id, { id: `pending:${conversation.id}`, conversationId: conversation.id, customerPhone: conversation.customerPhone });
       if (phone) byPhone.set(phone, { id: `pending:${conversation.id}`, conversationId: conversation.id, customerPhone: conversation.customerPhone });

@@ -26,10 +26,12 @@ import {
   KeyRound,
   Filter,
   Smartphone,
+  Star,
 } from "lucide-react";
 
 import { BrandWordmark } from "@/components/ui/brand-wordmark";
 import { MobileDiagnosticsPanel } from "./mobile-diagnostics-panel";
+import { SuperAdminReviewsPanel } from "./super-admin-reviews-panel";
 
 export type SuperAdminUser = {
   id: string;
@@ -114,7 +116,7 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
-  const [activeTab, setActiveTab] = useState<"users" | "logins" | "health" | "mobile">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "logins" | "health" | "mobile" | "reviews">("users");
   const [showDetailedUsers, setShowDetailedUsers] = useState(false);
 
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
@@ -128,6 +130,7 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
   const [quickSeatModalUser, setQuickSeatModalUser] = useState<SuperAdminUser | null>(null);
   const [customSeatsInput, setCustomSeatsInput] = useState<number>(5);
   const [workspaceSeatOverrides, setWorkspaceSeatOverrides] = useState<Record<string, number>>({});
+  const [workspaceSeatSaving, setWorkspaceSeatSaving] = useState<string | null>(null);
   const [workspaceExpiryDrafts, setWorkspaceExpiryDrafts] = useState<Record<string, string>>({});
   const [workspaceExpirySaving, setWorkspaceExpirySaving] = useState<string | null>(null);
   const [workspaceStatusOverrides, setWorkspaceStatusOverrides] = useState<Record<string, string>>({});
@@ -262,6 +265,7 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
     if (nextSeats === summary.seats) return;
 
     setWorkspaceSeatOverrides((current) => ({ ...current, [summary.key]: nextSeats }));
+    setWorkspaceSeatSaving(summary.key);
     setStats((current) => ({ ...current, totalSeats: Math.max(0, current.totalSeats + delta) }));
     try {
       const response = await fetch("/api/super-admin/users", {
@@ -283,6 +287,8 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
       });
       setStats((current) => ({ ...current, totalSeats: Math.max(0, current.totalSeats - delta) }));
       showToast(error instanceof Error ? error.message : "Could not update workspace seats.", "error");
+    } finally {
+      setWorkspaceSeatSaving(null);
     }
   };
 
@@ -695,6 +701,28 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
               }}
             >
               <Smartphone size={16} /> Mobile & Recording Errors
+            </button>
+
+            {/* TAB 5: REVIEWS & GMB GATE */}
+            <button
+              type="button"
+              onClick={() => setActiveTab("reviews")}
+              style={{
+                padding: "0.5rem 1rem",
+                borderRadius: "8px",
+                fontSize: "0.88rem",
+                fontWeight: 600,
+                border: "none",
+                cursor: "pointer",
+                background: activeTab === "reviews" ? "#F97316" : "transparent",
+                color: activeTab === "reviews" ? "#FFFFFF" : "#A1A1AA",
+                display: "flex",
+                alignItems: "center",
+                gap: "0.45rem",
+                transition: "all 0.15s ease",
+              }}
+            >
+              <Star size={16} /> Reviews & GMB Gate
             </button>
           </nav>
 
@@ -1128,17 +1156,17 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
                               <button
                                 type="button"
                                 aria-label={`Decrease workspace capacity for ${summary.companyName}`}
-                                disabled={summary.seats <= 1 || isPending}
+                                disabled={summary.seats <= 1 || isPending || workspaceSeatSaving === summary.key}
                                 onClick={() => void handleUpdateWorkspaceSeats(summary, -1)}
                                 style={{ width: "30px", height: "30px", borderRadius: "7px", border: "1px solid rgba(255, 255, 255, 0.14)", background: summary.seats <= 1 ? "#1A201C" : "#121714", color: summary.seats <= 1 ? "#52525B" : "#D4D4D8", display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: summary.seats <= 1 ? "not-allowed" : "pointer" }}
                               >
                                 <Minus size={14} />
                               </button>
-                              <span style={{ minWidth: "62px", color: "#FFFFFF", fontWeight: 700, textAlign: "center" }}>{summary.seats} seats</span>
+                              <span style={{ minWidth: "62px", color: "#FFFFFF", fontWeight: 700, textAlign: "center" }}>{workspaceSeatSaving === summary.key ? "Saving…" : `${summary.seats} seats`}</span>
                               <button
                                 type="button"
                                 aria-label={`Increase workspace capacity for ${summary.companyName}`}
-                                disabled={summary.seats >= 500 || isPending}
+                                disabled={summary.seats >= 500 || isPending || workspaceSeatSaving === summary.key}
                                 onClick={() => void handleUpdateWorkspaceSeats(summary, 1)}
                                 style={{ width: "30px", height: "30px", borderRadius: "7px", border: "1px solid rgba(249, 115, 22, 0.45)", background: "rgba(249, 115, 22, 0.12)", color: "#F97316", display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: summary.seats >= 500 ? "not-allowed" : "pointer" }}
                               >
@@ -1739,6 +1767,9 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
 
         {/* TAB 4: MOBILE FLEET TELEMETRY & RECORDING ERRORS */}
         {activeTab === "mobile" && <MobileDiagnosticsPanel />}
+
+        {/* TAB 5: CUSTOMER REVIEWS & GMB FEEDBACK GATE */}
+        {activeTab === "reviews" && <SuperAdminReviewsPanel />}
       </main>
 
       {/* MODAL 1: ADD NEW USER */}

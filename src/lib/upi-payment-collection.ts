@@ -27,7 +27,11 @@ export const DEFAULT_UPI_FIELDS = [
 type TenantContext = Pick<SessionUser, "userId" | "role" | "tenantId">;
 
 export function tenantForSession(session: TenantContext, requestedTenantId?: string | null) {
-  if (session.role === "SUPER_ADMIN") throw new Error("Super Admin cannot operate tenant payment data.");
+  if (session.role === "SUPER_ADMIN") {
+    const tenantId = requestedTenantId?.trim() || session.tenantId?.trim();
+    if (tenantId) return tenantId;
+    throw new Error("Super Admin must specify a tenant workspace.");
+  }
   const tenantId = session.tenantId?.trim();
   if (!tenantId) throw new Error("Tenant workspace is required for this action.");
   // The request body/query string is never allowed to change the tenant scope.
@@ -281,12 +285,12 @@ const linkInclude = {
 
 export async function listUpiPaymentLinks(input: { tenantId?: string; userId?: string; role: AppRole; limit?: number }) {
   const where: Record<string, unknown> = {};
-  if (!(input.role === "ADMIN" || input.role === "MANAGER" || input.role === "SALES_AGENT") || !input.tenantId) throw new Error("A tenant workspace is required to access payment links.");
+  if (!(input.role === "ADMIN" || input.role === "SUPER_ADMIN" || input.role === "MANAGER" || input.role === "SALES_AGENT") || !input.tenantId) throw new Error("A tenant workspace is required to access payment links.");
   where.tenantId = input.tenantId;
   if (input.role === "SALES_AGENT") where.createdByUserId = input.userId;
   const rows = await prisma.upiPaymentLink.findMany({ where, include: linkInclude, orderBy: { createdAt: "desc" }, take: Math.min(200, Math.max(1, input.limit || 100)) });
   const settings = await prisma.upiPaymentSetting.findUnique({ where: { tenantId: input.tenantId }, select: { durationMultipliers: true, upiId: true, payeeName: true, qrAccentColor: true, qrBrandName: true } });
-  const canApprove = input.role === "ADMIN" || (input.role === "SALES_AGENT" && parseSettingsJson(settings?.durationMultipliers).closerCanApprovePayment);
+  const canApprove = input.role === "ADMIN" || input.role === "SUPER_ADMIN" || (input.role === "SALES_AGENT" && parseSettingsJson(settings?.durationMultipliers).closerCanApprovePayment);
   const stats = {
     total: rows.length,
     pending: rows.filter((row) => row.status === "PENDING").length,

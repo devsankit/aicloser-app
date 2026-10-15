@@ -4,10 +4,11 @@ import path from "node:path";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 import { requireSessionRole } from "@/lib/api/require-session-role";
-import { resolveSessionTenantId, resolveWhatsAppSetupTenantId } from "@/lib/api/resolve-session-tenant";
-import { createSalesLead, getSalesSnapshotForRole } from "@/lib/gigxomi/sales-store";
+import { resolveSessionTenantId, resolveWhatsAppSetupTenantId, buildSalesWhatsAppTenantId } from "@/lib/api/resolve-session-tenant";
+import { createSalesLead, getSalesSnapshotForRole, syncConversationLeadsIntoSales } from "@/lib/gigxomi/sales-store";
 import { readRoundRobinSettings } from "@/lib/gigxomi/round-robin-service";
-import { syncExternalThreadToInboxFromFile } from "@/lib/gigxomi/dummy-platform-file-store";
+import { syncExternalThreadToInboxFromFile, syncExternalThreadsToInboxBatch, type ExternalThreadInput } from "@/lib/gigxomi/dummy-platform-file-store";
+import { prisma } from "@/lib/prisma";
 import { upsertMarketingContact } from "@/lib/whatsapp-marketing/contact-service";
 
 export type WhatsAppAccountType = "WHATSAPP_BUSINESS" | "WHATSAPP_PERSONAL";
@@ -358,7 +359,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const tenantId = resolveWhatsAppSetupTenantId(auth.session, url.searchParams.get("tenantId"));
   const serviceUrl = waServiceUrl(tenantId);
-  let state = await readScannerStore(tenantId);
+  const state = await readScannerStore(tenantId);
 
   // Check live service status
   const isHealthy = await isWaServiceHealthy(serviceUrl);
@@ -407,6 +408,93 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const internalToken = request.headers.get("x-internal-wa-token");
+  if (internalToken) {
+    const internalBody = (await request.json().catch(() => ({}))) as {
+      action?: string;
+      sessionKey?: string;
+      connectedPhone?: string;
+      message?: {
+        phone: string;
+        name: string;
+        role: "customer" | "sales";
+        body: string;
+        externalMessageId: string;
+        timestamp: string;
+      };
+    };
+
+    if (internalBody.action === "inbound_event" && internalBody.message) {
+      const msg = internalBody.message;
+      const agents = await prisma.salesAgentProfile.findMany({
+        where: { status: "ACTIVE" },
+        select: { id: true, userId: true, tenantId: true, user: { select: { displayName: true } } },
+      });
+      let targetAgent = agents.find((a) => {
+        const hash = createHash("sha256").update(buildSalesWhatsAppTenantId(a.userId)).digest("hex").slice(0, 16);
+        return hash === internalToken;
+      });
+      if (!targetAgent) {
+        targetAgent = agents.find((a) => {
+          const hash = createHash("sha256").update(a.tenantId).digest("hex").slice(0, 16);
+          return hash === internalToken;
+        });
+      }
+
+      if (targetAgent && msg.phone && msg.body) {
+        const tenantId = targetAgent.tenantId;
+        const channelLabel = `Closer WhatsApp • ${internalBody.connectedPhone || msg.phone}`;
+        await syncExternalThreadToInboxFromFile({
+          tenantId,
+          customerName: msg.name || msg.phone,
+          customerPhone: msg.phone,
+          channelLabel,
+          sourceType: "whatsapp_business",
+          sourcePhone: internalBody.connectedPhone || "",
+          messages: [
+            {
+              role: msg.role,
+              body: msg.body,
+              externalMessageId: msg.externalMessageId,
+            },
+          ],
+        });
+
+        const last10 = msg.phone.replace(/\D/g, "").slice(-10);
+        if (last10) {
+          const lead = await prisma.salesLeadAssignment.findFirst({
+            where: { tenantId, customerPhone: { contains: last10 } },
+          });
+          if (lead) {
+            await prisma.salesLeadAssignment.update({
+              where: { id: lead.id },
+              data: {
+                lastContactedAt: new Date(),
+                activityLogs: {
+                  create: {
+                    actorUserId: targetAgent.userId,
+                    action: msg.role === "sales" ? "WHATSAPP_MESSAGE_SENT" : "WHATSAPP_MESSAGE_RECEIVED",
+                    note: msg.body.slice(0, 240),
+                    metadata: {
+                      phone: msg.phone,
+                      name: msg.name,
+                      messageId: msg.externalMessageId,
+                      source: "baileys_live_socket",
+                    },
+                  },
+                },
+              },
+            });
+          }
+        }
+
+        return NextResponse.json({ ok: true, ingested: true });
+      }
+
+      return NextResponse.json({ ok: false, error: "Target agent not resolved" }, { status: 404 });
+    }
+  }
+
   const auth = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"]);
   if (!auth.ok) return auth.response;
 
@@ -424,15 +512,20 @@ export async function POST(request: Request) {
     customContacts?: Array<{ name: string; phone: string; message?: string }>;
   };
 
+  // Keep the linked-device session private to the closer, but persist the
+  // imported CRM thread in the shared workspace tenant.
   const tenantId = resolveWhatsAppSetupTenantId(auth.session, body.tenantId);
+  const inboxTenantId = resolveSessionTenantId(auth.session, body.tenantId);
   const serviceUrl = waServiceUrl(tenantId);
-  let state = await readScannerStore(tenantId);
+  const state = await readScannerStore(tenantId);
 
   const action = body.action || "generate_qr";
   if (auth.session.role !== "ADMIN" && auth.session.role !== "SUPER_ADMIN") {
     const workspaceSettings = await readRoundRobinSettings(resolveSessionTenantId(auth.session));
     const importActions = new Set(["generate_qr", "request_pairing_code", "switch_mode", "complete_scan", "run_scraper", "scrape_custom_list"]);
-    if (importActions.has(action) && !workspaceSettings.allowNonAdminImportData) {
+    const alreadyLinked = state.status === "CONNECTED" || Boolean(state.connectedPhone?.trim());
+    const isBackgroundSync = action === "complete_scan" && alreadyLinked;
+    if (importActions.has(action) && !workspaceSettings.allowNonAdminImportData && !isBackgroundSync) {
       return NextResponse.json({ ok: false, error: "WhatsApp scanning is disabled for sales users. Ask a workspace administrator to enable lead imports." }, { status: 403 });
     }
   }
@@ -493,8 +586,8 @@ export async function POST(request: Request) {
           scanner: updated,
         });
       }
-    } catch (err: any) {
-      return NextResponse.json({ ok: false, error: err?.message || "Failed to generate pairing code." }, { status: 500 });
+    } catch (err: unknown) {
+      return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : "Failed to generate pairing code." }, { status: 500 });
     }
   }
 
@@ -629,7 +722,19 @@ export async function POST(request: Request) {
         }
         if (Array.isArray(scrapeData.chats) && scrapeData.chats.length > 0) {
           for (const c of scrapeData.chats) {
-            if (!state.discoveredChats.some((tc) => tc.jid === c.jid)) {
+            const existingChat = state.discoveredChats.find((tc) => tc.jid === c.jid);
+            if (existingChat) {
+              existingChat.name = c.name || existingChat.name;
+              existingChat.phone = c.phone || existingChat.phone;
+              existingChat.unreadCount = c.unreadCount ?? existingChat.unreadCount;
+              existingChat.lastMessageAt = c.lastMessageAt || existingChat.lastMessageAt;
+              existingChat.lastMessagePreview = c.lastMessagePreview || existingChat.lastMessagePreview;
+              const knownIds = new Set(existingChat.messages.map((message) => message.id));
+              for (const message of Array.isArray(c.messages) ? c.messages : []) {
+                if (!knownIds.has(message.id)) existingChat.messages.push(message);
+              }
+              existingChat.messages = existingChat.messages.slice(-50);
+            } else {
               state.discoveredChats.unshift({
                 jid: c.jid,
                 name: c.name || c.phone,
@@ -712,7 +817,40 @@ export async function POST(request: Request) {
   const readableBadge =
     nextAccountType === "WHATSAPP_BUSINESS" ? "WA Business Scanner" : "WA Personal Scanner";
 
-  // Fast chunked parallel ingestion
+  // 1. High-Performance Batch Ingestion into Chat Workspace (atomic snapshot transaction)
+  const phoneToConversationId = new Map<string, string>();
+  if (nextSyncMode === "FULL_INBOX_SYNC") {
+    // Select the most recent active chats with messages (up to 200)
+    const chatsWithMessages = targetChats
+      .filter((c) => Array.isArray(c.messages) && c.messages.length > 0)
+      .slice(0, 200);
+
+    const batchPayload: ExternalThreadInput[] = chatsWithMessages.map((chat) => ({
+      tenantId: inboxTenantId,
+      customerName: chat.name,
+      customerPhone: chat.phone,
+      channelLabel: `${readableBadge} • ${state.connectedPhone || "connected device"}`,
+      sourceType: nextAccountType === "WHATSAPP_BUSINESS" ? "whatsapp_business" : "whatsapp_personal",
+      sourcePhone: state.connectedPhone || "",
+      notes: `Linked via ${readableBadge} (${nextVisibility === "TEAM_SHARED" ? "Shared with Team Inbox" : "Private Rep Line"})`,
+      messages: chat.messages.map((m) => ({
+        role: m.role,
+        body: m.body,
+        externalMessageId: m.id,
+      })),
+    }));
+
+    if (batchPayload.length > 0) {
+      const synced = await syncExternalThreadsToInboxBatch(batchPayload);
+      chatsSyncedToInbox = synced.length;
+      for (const item of synced) {
+        const last10 = item.customerPhone.replace(/\D/g, "").slice(-10);
+        if (last10) phoneToConversationId.set(last10, item.id);
+      }
+    }
+  }
+
+  // 2. Fast Chunked Marketing Contact & Lead Ingestion
   const BATCH_SIZE = 40;
   for (let i = 0; i < targetChats.length; i += BATCH_SIZE) {
     const chunk = targetChats.slice(i, i + BATCH_SIZE);
@@ -720,7 +858,7 @@ export async function POST(request: Request) {
       chunk.map(async (chat) => {
         try {
           const upsertRes = await upsertMarketingContact({
-            tenantId,
+            tenantId: inboxTenantId,
             fullName: chat.name,
             phone: chat.phone,
             tags: Array.from(
@@ -739,6 +877,10 @@ export async function POST(request: Request) {
           }
 
           const last10 = chat.phone.replace(/\D/g, "").slice(-10);
+          const syncedConversationId = last10 ? phoneToConversationId.get(last10) : undefined;
+
+          // Create the CRM lead after the inbox conversation exists so the
+          // lead, chat, and assigned sales user share the same conversation id.
           if (last10 && !existingLeadPhones.has(last10) && fallbackAgent && contactsScraped <= 300) {
             try {
               await createSalesLead({
@@ -753,6 +895,7 @@ export async function POST(request: Request) {
                 segment: nextAccountType === "WHATSAPP_BUSINESS" ? "WA Business" : "WA Personal",
                 priority: chat.unreadCount > 0 ? "high" : "normal",
                 budgetAmount: 0,
+                conversationId: syncedConversationId,
                 notes:
                   nextSyncMode === "FULL_INBOX_SYNC"
                     ? `Synced with chat history via ${readableBadge}: "${chat.lastMessagePreview}"`
@@ -763,26 +906,14 @@ export async function POST(request: Request) {
               existingLeadPhones.add(last10);
             } catch {}
           }
-
-          if (nextSyncMode === "FULL_INBOX_SYNC" && chat.messages?.length > 0) {
-            await syncExternalThreadToInboxFromFile({
-              tenantId,
-              customerName: chat.name,
-              customerPhone: chat.phone,
-              channelLabel: readableBadge,
-              notes: `Linked via ${readableBadge} (${nextVisibility === "TEAM_SHARED" ? "Shared with Team Inbox" : "Private Rep Line"})`,
-              messages: chat.messages.map((m) => ({
-                role: m.role,
-                body: m.body,
-                externalMessageId: m.id,
-              })),
-            });
-            chatsSyncedToInbox += 1;
-          }
         } catch {}
       }),
     );
   }
+
+  // Reconcile older inbox threads that were imported before conversationId
+  // linking was added. This keeps assigned-only sales inboxes in sync too.
+  await syncConversationLeadsIntoSales(auth.session).catch(() => undefined);
 
   // Group Participant Scraper (extracts member phone numbers & names from groups)
   if (body.includeGroups || action === "complete_scan" || action === "run_scraper") {
@@ -850,6 +981,7 @@ export async function POST(request: Request) {
   const updatedState: WhatsAppScannerSessionState = {
     ...state,
     status: "CONNECTED",
+    discoveredChats: targetChats.slice(0, 100),
     accountType: nextAccountType,
     syncMode: nextSyncMode,
     visibilityMode: nextVisibility,

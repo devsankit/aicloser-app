@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, Edit3, MessageSquare, PhoneCall, Plus, RefreshCw, Smartphone, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, Edit3, MessageSquare, PhoneCall, Plus, RefreshCw, Smartphone, X } from "lucide-react";
 
 interface TimelineNote {
   id: string;
@@ -16,11 +16,13 @@ export function LeadNotesManager({
   customerName,
   initialNotes = [],
   onNotesUpdated,
+  refreshTrigger = 0,
 }: {
   leadId: string;
   customerName: string;
   initialNotes?: any[];
-  onNotesUpdated?: () => void;
+  onNotesUpdated?: (body?: string) => void;
+  refreshTrigger?: number;
 }) {
   const [notes, setNotes] = useState<TimelineNote[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -71,7 +73,7 @@ export function LeadNotesManager({
 
   useEffect(() => {
     void loadNotes();
-  }, [leadId]);
+  }, [leadId, refreshTrigger]);
 
   const handleCreateNote = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,7 +97,7 @@ export function LeadNotesManager({
         setNewNoteBody("");
         setStatusMessage("Note saved and synced with mobile app.");
         setTimeout(() => setStatusMessage(""), 3500);
-        onNotesUpdated?.();
+        onNotesUpdated?.(data.note.body);
       } else {
         setStatusMessage(data.error || "Failed to save note");
       }
@@ -132,7 +134,7 @@ export function LeadNotesManager({
         setEditText("");
         setStatusMessage("Note updated!");
         setTimeout(() => setStatusMessage(""), 3000);
-        onNotesUpdated?.();
+        onNotesUpdated?.(editText.trim());
       } else {
         setStatusMessage(data.error || "Failed to update note");
       }
@@ -140,27 +142,6 @@ export function LeadNotesManager({
       setStatusMessage("Network error updating note");
     } finally {
       setIsUpdating(false);
-    }
-  };
-
-  const handleDeleteNote = async (noteId: string) => {
-    if (!window.confirm("Are you sure you want to delete this note?")) return;
-
-    try {
-      const res = await fetch(`/api/sales/leads/${leadId}/notes?noteId=${encodeURIComponent(noteId)}`, {
-        method: "DELETE",
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setNotes((prev) => prev.filter((n) => n.id !== noteId));
-        setStatusMessage("Note deleted");
-        setTimeout(() => setStatusMessage(""), 3000);
-        onNotesUpdated?.();
-      } else {
-        setStatusMessage(data.error || "Failed to delete note");
-      }
-    } catch {
-      setStatusMessage("Network error deleting note");
     }
   };
 
@@ -256,7 +237,7 @@ export function LeadNotesManager({
         </div>
       </form>
 
-      {/* Notes List with Inline Edit & Delete */}
+      {/* Notes List with inline editing. Notes are retained as an audit trail. */}
       <div className="sales-lead-history-list">
         {notes.map((note) => {
           const isEditing = editingNoteId === note.id;
@@ -293,14 +274,6 @@ export function LeadNotesManager({
                         className="sales-lead-history-action"
                       >
                         <Edit3 size={12} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleDeleteNote(note.id)}
-                        title="Delete note"
-                        className="sales-lead-history-action danger"
-                      >
-                        <Trash2 size={12} />
                       </button>
                     </>
                   ) : null}

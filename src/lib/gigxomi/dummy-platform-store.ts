@@ -425,6 +425,9 @@ export type DummyConversation = {
   maskedCustomerName: string;
   tenantId: string;
   sourceChannel?: DummyConversationSourceChannel;
+  externalSourceType?: "company_whatsapp" | "whatsapp_business" | "whatsapp_personal";
+  externalSourceLabel?: string;
+  externalSourcePhone?: string;
   status: DummyConversationStatus;
   leadStatusId: string;
   summary: string;
@@ -533,6 +536,14 @@ export type DummyConversationView = {
   businessPhoneDisplay?: string;
   customerProfileImageUrl?: string;
   sourceChannel?: DummyConversationSourceChannel;
+  externalSourceType?: DummyConversation["externalSourceType"];
+  externalSourceLabel?: string;
+  externalSourcePhone?: string;
+  whatsappRoutes?: {
+    company: boolean;
+    connectedUser: boolean;
+    connectedUserLabel?: string;
+  };
   summary: string;
   status: DummyConversationStatus;
   leadStatusId: string;
@@ -2529,7 +2540,7 @@ export function projectConversation(
   const rawBusinessPhone = getWhatsAppConnectionState(conversation.tenantId)?.phoneNumber?.trim() || "";
   const businessPhoneDisplay =
     sourceChannel === "whatsapp" && audience !== "freelancer"
-      ? rawBusinessPhone
+      ? conversation.externalSourcePhone?.trim() || rawBusinessPhone
       : "";
 
   return {
@@ -2544,6 +2555,17 @@ export function projectConversation(
     businessPhoneDisplay: businessPhoneDisplay || undefined,
     customerProfileImageUrl: conversation.customerProfileImageUrl,
     sourceChannel,
+    externalSourceType: conversation.externalSourceType,
+    externalSourceLabel: conversation.externalSourceLabel,
+    externalSourcePhone: conversation.externalSourcePhone,
+    whatsappRoutes:
+      sourceChannel === "whatsapp"
+        ? {
+            company: conversation.externalSourceType === "company_whatsapp",
+            connectedUser: conversation.externalSourceType === "whatsapp_personal" || conversation.externalSourceType === "whatsapp_business",
+            connectedUserLabel: conversation.externalSourceLabel,
+          }
+        : undefined,
     summary: latestMessage ? summarizeMessage(latestMessage) || conversation.summary : conversation.summary,
     status: conversation.status,
     leadStatusId: leadStatus.id,
@@ -3584,6 +3606,9 @@ function createWhatsAppIntakeConversation(input: {
   tenantId: string;
   customerName: string;
   customerPhone: string;
+  externalSourceType?: DummyConversation["externalSourceType"];
+  externalSourceLabel?: string;
+  externalSourcePhone?: string;
   customerProfileImageUrl?: string;
   body: string;
   externalMessageId?: string;
@@ -3601,6 +3626,9 @@ function createWhatsAppIntakeConversation(input: {
     customerId: `wa-${normalizedPhone || makeId("customer")}`,
     customerName: input.customerName.trim() || "WhatsApp Customer",
     customerPhone: formatPhone(input.customerPhone),
+    externalSourceType: input.externalSourceType ?? "company_whatsapp",
+    externalSourceLabel: input.externalSourceLabel?.trim() || "Company WhatsApp",
+    externalSourcePhone: input.externalSourcePhone?.trim() || "",
     customerProfileImageUrl: input.customerProfileImageUrl?.trim() || "",
     maskedCustomerName: formatCustomerAlias(conversations.length + 3),
     tenantId: input.tenantId,
@@ -4330,10 +4358,15 @@ export function listConversationsForAudience(
           );
         }
         if (sourceChannel === "whatsapp") {
+          // QR-linked personal/business inboxes do not have a Cloud API
+          // connection row. Their threads are still first-class CRM chats.
+          if (conversation.externalSourceType === "whatsapp_personal" || conversation.externalSourceType === "whatsapp_business") {
+            return true;
+          }
           const waConnection = getWhatsAppConnectionState(targetTenant);
           const hasCloudApi = Boolean(
             waConnection &&
-              (waConnection.status === "Number connected" || waConnection.status === "Ready for webhook") &&
+              (waConnection.status === "Number connected" || waConnection.status === "Ready for webhook" || String(waConnection.status) === "CONNECTED" || waConnection.pluginEnabled) &&
               (waConnection.phoneNumberId?.trim() || waConnection.wabaId?.trim()),
           );
           if (hasCloudApi || conversation.serviceId === "svc-manual-chat" || conversation.isInAppCustomerThread) {
@@ -7031,11 +7064,25 @@ export async function ingestWhatsAppWebhookPayload(payload: unknown) {
             tenantId,
             customerName,
             customerPhone,
+            externalSourceType: "company_whatsapp",
+            externalSourceLabel: `Company WhatsApp${metadataDisplayPhoneNumber ? ` • ${metadataDisplayPhoneNumber}` : ""}`,
+            externalSourcePhone: metadataDisplayPhoneNumber,
             customerProfileImageUrl,
             body: bodyText,
             externalMessageId,
             attachments,
           });
+
+        // Older webhook-created threads predate the explicit source metadata.
+        // Backfill them here so the UI can safely offer the company line only
+        // for conversations that actually arrived through the Cloud API.
+        if (existingConversation && !existingConversation.externalSourceType) {
+          existingConversation.externalSourceType = "company_whatsapp";
+          existingConversation.externalSourceLabel = `Company WhatsApp${metadataDisplayPhoneNumber ? ` • ${metadataDisplayPhoneNumber}` : ""}`;
+          existingConversation.externalSourcePhone = metadataDisplayPhoneNumber;
+          existingConversation.updatedAt = nowIso();
+          dummyPlatformMemory.conversations = conversations;
+        }
 
         const reviewConversation =
           flowReview?.conversationId ? getConversationById(flowReview.conversationId) ?? conversation : conversation;

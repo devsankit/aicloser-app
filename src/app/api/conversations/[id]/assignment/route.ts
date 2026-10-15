@@ -44,7 +44,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     ),
   );
   if (!requestedFreelancerIds.length) {
-    return NextResponse.json({ ok: false, error: "Choose at least one freelancer from this agency workspace." }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "Choose at least one team member from this agency workspace." }, { status: 400 });
   }
   const requestedMode = String(body.assignmentMode ?? "").trim().toLowerCase();
   const hasPrimaryEditor = Boolean(currentConversationView.assignmentSummary?.assignedFreelancerId);
@@ -55,19 +55,19 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         assignmentDecisionRequired: true,
         assignedFreelancerId: currentConversationView.assignmentSummary?.assignedFreelancerId,
         assignedFreelancerName: currentConversationView.assignmentSummary?.assignedFreelancerName,
-        error: "This project already has a primary editor. Choose Replace primary or Add as read-only viewer.",
+        error: "This project already has an assigned team member. Choose Replace assignment or Add as read-only viewer.",
       },
       { status: 409 },
     );
   }
   if (!hasPrimaryEditor && requestedMode === "viewer") {
-    return NextResponse.json({ ok: false, error: "Assign a primary editor before adding lane viewers." }, { status: 409 });
+    return NextResponse.json({ ok: false, error: "Assign a team member before adding lane viewers." }, { status: 409 });
   }
   if (requestedMode === "replace" && requestedFreelancerIds.length !== 1) {
-    return NextResponse.json({ ok: false, error: "Choose exactly one editor for a primary replacement offer." }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "Choose exactly one team member for a replacement assignment." }, { status: 400 });
   }
   if (requestedMode === "direct" && requestedFreelancerIds.length !== 1) {
-    return NextResponse.json({ ok: false, error: "Choose exactly one editor for direct assignment." }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "Choose exactly one team member for direct assignment." }, { status: 400 });
   }
   const projectDetails = String(body.projectDetails ?? "").trim();
   const dispatchRequestId = crypto.randomUUID();
@@ -75,13 +75,17 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!conversationTenantId) {
     return NextResponse.json({ ok: false, error: "This conversation is not attached to an agency workspace." }, { status: 409 });
   }
-  const [managedUsers, legacyMemberships, appMemberships] = await Promise.all([
+  const [managedUsers, legacyMemberships, appMemberships, salesAgentProfiles] = await Promise.all([
     getManagedAuthUsers(),
     prisma.teamMembership.findMany({
       where: { tenantId: conversationTenantId, status: "ACTIVE", assignmentEligible: true },
       include: { editorProfile: { include: { user: true } } },
     }),
     prisma.appTeamMembership.findMany({ where: { tenantId: conversationTenantId, status: "ACTIVE" } }),
+    prisma.salesAgentProfile.findMany({
+      where: { tenantId: conversationTenantId, status: "ACTIVE" },
+      select: { id: true, userId: true },
+    }),
   ]);
   const confirmedEditors = [
     ...legacyMemberships.map((membership) => ({
@@ -95,8 +99,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       displayName: membership.freelancerName,
     })),
   ];
+  const salesTeamUserIds = new Set(salesAgentProfiles.map((profile) => profile.userId));
   const teamManagedUsers = managedUsers.filter((user: ManagedAuthUser) =>
-    Boolean(findConfirmedAgencyEditorForManagedUser(user, confirmedEditors)),
+    salesTeamUserIds.has(user.id) || Boolean(findConfirmedAgencyEditorForManagedUser(user, confirmedEditors)),
   );
   const generalManagedUsers = managedUsers.filter(
     (user: ManagedAuthUser) =>
@@ -171,6 +176,39 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       return NextResponse.json({ ok: false, error: "Unable to assign this editor directly." }, { status: 409 });
     }
 
+    // Sales agents are represented by the canonical CRM lead assignment,
+    // while the conversation editor lane is still stored in the legacy file
+    // snapshot. Keep both records aligned when an admin assigns a chat to a
+    // real sales-team member so Kanban, mobile, and chat show the same owner.
+    const salesProfile = salesAgentProfiles.find((profile) => profile.userId === freelancer.editorId);
+    if (salesProfile) {
+      const dbConversation = await prisma.appConversation.findUnique({
+        where: { id },
+        select: { customerPhone: true },
+      });
+      const phoneDigits = String(dbConversation?.customerPhone ?? "").replace(/\D/g, "");
+      const matchingLeads = await prisma.salesLeadAssignment.findMany({
+        where: {
+          tenantId: conversationTenantId,
+          OR: [
+            { conversationId: id },
+            ...(phoneDigits.length >= 10 ? [{ customerPhone: { endsWith: phoneDigits.slice(-10) } }] : []),
+          ],
+        },
+        select: { id: true },
+      });
+      if (matchingLeads.length) {
+        await prisma.salesLeadAssignment.updateMany({
+          where: { id: { in: matchingLeads.map((lead) => lead.id) } },
+          data: {
+            assignedAgentId: salesProfile.id,
+            conversationId: id,
+            updatedAt: new Date(),
+          },
+        });
+      }
+    }
+
     const affectedEditorIds = Array.from(
       new Set(
         [
@@ -187,15 +225,15 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         const isPreviousPrimary = recipient.editorId === previousPrimaryId && !isSelectedPrimary;
         const pendingOffer = pendingOffers.find((offer) => offer.freelancerId === recipient.editorId);
         const title = isSelectedPrimary
-          ? "Project assigned directly"
+          ? "Team member assigned directly"
           : isPreviousPrimary
-            ? "Primary editor changed"
-            : "Project offer closed";
+            ? "Assignment changed"
+            : "Assignment closed";
         const message = isSelectedPrimary
-          ? `${authorization.session.displayName} assigned you as the primary editor. Offer acceptance was skipped and reply access is active now.`
+          ? `${authorization.session.displayName} assigned you as the team member. Acceptance was skipped and reply access is active now.`
           : isPreviousPrimary
-            ? `${freelancer.displayName} is now the primary editor. You still have read-only project lane access.`
-            : "Ops assigned this project directly to another editor, so your pending offer was closed.";
+            ? `${freelancer.displayName} is now the assigned team member. You still have read-only project lane access.`
+            : "Ops assigned this project directly to another team member, so your pending assignment was closed.";
         const access = isSelectedPrimary ? "primary" : isPreviousPrimary ? "read_only" : "removed";
 
         if (!recipient.pushUserId) {
@@ -288,7 +326,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
           tenantId: updated.tenantId,
           type: "project_viewer_added",
           title: "Added to a project lane",
-          message: "You can review this project chat. Only the primary editor can reply.",
+          message: "You can review this project chat. Only the assigned team member can reply.",
           entityType: "conversation",
           entityId: id,
           metadata: { conversationId: id, editorId: freelancer.editorId, access: "read_only" },
@@ -300,7 +338,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
             deepLinkUrl: `/chat?conversationId=${encodeURIComponent(id)}`,
             baseUrl: getRequestOrigin(request),
             title: "Added to a project lane",
-            body: "You have read-only access. Only the primary editor can reply.",
+            body: "You have read-only access. Only the assigned team member can reply.",
           },
         }).catch((error) => {
           console.error("Failed to dispatch collaborator push notification", error);
@@ -352,6 +390,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       ),
       dispatchRequestId,
       intent: requestedMode === "replace" ? "replacement" : "primary",
+      allowOfflineEditors: requestedFreelancerIds.some((editorId) => salesTeamUserIds.has(editorId)),
     },
   );
 
@@ -387,10 +426,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         userId: freelancer.pushUserId,
         tenantId: conversation.tenantId,
         type: "project_offer",
-        title: requestedMode === "replace" ? "Primary editor replacement offer" : "New project offer",
+        title: requestedMode === "replace" ? "Team member replacement offer" : "New project assignment",
         message:
           requestedMode === "replace"
-            ? `${authorization.session.displayName} invited you to become the primary editor. Accept or reject within 10 minutes.`
+            ? `${authorization.session.displayName} invited you to become the assigned team member. Accept or reject within 10 minutes.`
             : `${authorization.session.displayName} sent project details. Open the app to accept or reject within 10 minutes.`,
         entityType: "conversation",
         entityId: id,
@@ -405,10 +444,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
           deepLinkUrl: `/chat?conversationId=${encodeURIComponent(id)}`,
           baseUrl: getRequestOrigin(request),
           expiresAt: offer?.expiresAt,
-          title: requestedMode === "replace" ? "Primary editor replacement offer" : "New project offer",
+          title: requestedMode === "replace" ? "Team member replacement offer" : "New project assignment",
           body:
             requestedMode === "replace"
-              ? "Accept to become the primary editor. The current editor will move to read-only access."
+              ? "Accept to become the assigned team member. The current assignee will move to read-only access."
               : `${authorization.session.displayName} sent project details. Open app to accept or reject.`,
         },
       }).catch((error) => {
@@ -495,7 +534,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
       const title = wasPending ? "Project offer withdrawn" : "Removed from project lane";
       const message = wasPending
         ? "The agency returned this project to the unassigned queue."
-        : "The agency set this project to No editor and removed your lane access.";
+        : "The agency left this project unassigned and removed your lane access.";
 
       await createAppNotification({
         userId: freelancer.pushUserId,

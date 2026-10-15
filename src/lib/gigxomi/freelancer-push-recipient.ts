@@ -16,12 +16,20 @@ function normalizeIdentity(value: string | null | undefined) {
     .replace(/[^a-z0-9]+/g, "");
 }
 
-function isFreelancer(user: ManagedAuthUser) {
-  return user.role === "FREELANCER" || user.assignedRole === "FREELANCER";
+function isAssignableManagedUser(user: ManagedAuthUser) {
+  // Chat assignment is shared by the agency's editor lane and the CRM sales
+  // team. Keep the recipient resolver role-aware instead of treating every
+  // managed auth user as assignable.
+  return (
+    user.role === "FREELANCER" ||
+    user.assignedRole === "FREELANCER" ||
+    user.role === "SALES_AGENT" ||
+    user.assignedRole === "SALES_AGENT"
+  );
 }
 
 export function resolveFreelancerPushRecipients(editorIds: string[], managedUsers: ManagedAuthUser[]): FreelancerPushRecipient[] {
-  const freelancerUsers = managedUsers.filter(isFreelancer);
+  const freelancerUsers = managedUsers.filter(isAssignableManagedUser);
 
   return Array.from(new Set(editorIds.map((value) => value.trim()).filter(Boolean)))
     .map((editorId) => {

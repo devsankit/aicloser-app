@@ -22,9 +22,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const notes = typeof body.notes === "string" ? body.notes.trim() : "";
   let persistedNotes = notes;
 
-  // The database is the canonical store for local/live data. Updating it
-  // directly avoids waiting for a full conversation snapshot rewrite (which
-  // can contain hundreds of threads) before the UI receives its response.
+  // 1. Keep the in-memory platform snapshot and disk file store updated synchronously
+  // so that all concurrent/subsequent inbox listings and view queries immediately see the new notes.
+  await updateConversationInternalNotesFromFile(id, notes, nextFollowUpAt).catch(() => null);
+
+  // 2. Persist to PostgreSQL database when DATABASE_URL is configured
   if (process.env.DATABASE_URL?.trim()) {
     const dbConversation = await prisma.appConversation.findUnique({
       where: { id },
@@ -54,7 +56,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
             ...(phoneDigits.length >= 10 ? [{ customerPhone: { endsWith: phoneDigits.slice(-10) } }] : []),
           ],
         },
-        select: { id: true, notes: true },
+        select: { id: true, notes: true, tenantId: true },
       });
       if (leads.length) {
         const followUpAt = nextFollowUpAt === undefined ? undefined : nextFollowUpAt ? new Date(nextFollowUpAt) : null;
@@ -65,6 +67,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         if (notes) {
           await prisma.salesLeadTimelineEntry.createMany({
             data: leads.map((lead) => ({
+              tenantId: lead.tenantId ?? authorization.session.tenantId ?? "tenant-gigxomi",
               leadId: lead.id,
               userId: authorization.session.userId,
               type: "NOTE",
@@ -77,15 +80,17 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     } else {
       return NextResponse.json({ ok: false, error: "Conversation not found" }, { status: 404 });
     }
-  } else {
-    const conversation = await updateConversationInternalNotesFromFile(id, notes, nextFollowUpAt);
-    if (!conversation) {
-      return NextResponse.json({ ok: false, error: "Conversation not found" }, { status: 404 });
-    }
-    persistedNotes = conversation.internalNotes;
   }
 
   const conversationView = await getConversationViewForSession(authorization.session, id);
+  const guaranteedView = conversationView
+    ? {
+        ...conversationView,
+        internalNotes: persistedNotes,
+        ...(nextFollowUpAt !== undefined ? { nextFollowUpAt } : {}),
+      }
+    : null;
+
   await persistRealtimeEvent({
     topic: `tenant:${authorization.session.tenantId ?? "tenant-gigxomi"}`,
     tenantId: authorization.session.tenantId,
@@ -99,6 +104,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     ok: true,
     persisted: true,
     notes: persistedNotes,
-    conversation: conversationView,
+    conversation: guaranteedView,
   });
 }

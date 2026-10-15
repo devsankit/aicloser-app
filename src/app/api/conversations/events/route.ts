@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 
 import { resolveConversationAudienceForSession } from "@/lib/api/conversation-access";
+import {
+  getSalesAgentAssignedConversationIds,
+  showOnlyAssignedChatsForTenant,
+} from "@/lib/api/sales-chat-visibility";
 import { requireSessionRole } from "@/lib/api/require-session-role";
-import { resolveSessionTenantId, resolveWhatsAppSetupTenantId } from "@/lib/api/resolve-session-tenant";
+import { resolveSessionTenantId } from "@/lib/api/resolve-session-tenant";
 import { listConversationsForAudienceFromFile } from "@/lib/gigxomi/dummy-platform-file-store";
 import type { DummyConversationRole, DummyConversationView } from "@/lib/gigxomi/dummy-platform-store";
 
@@ -73,6 +77,7 @@ export async function GET(request: Request) {
   if (!authorization.ok) {
     return authorization.response;
   }
+  const session = authorization.session;
 
   const { searchParams } = new URL(request.url);
   const requestedAudience = searchParams.get("audience");
@@ -80,12 +85,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "Unsupported conversation audience." }, { status: 400 });
   }
 
-  const scope = resolveConversationAudienceForSession(authorization.session, requestedAudience);
+  const scope = resolveConversationAudienceForSession(session, requestedAudience);
   const tenantId =
-    authorization.session.role === "SUPER_ADMIN"
+    session.role === "SUPER_ADMIN"
       ? "tenant-gigxomi"
-      : authorization.session.role === "SALES_AGENT"
-        ? resolveWhatsAppSetupTenantId(authorization.session)
       : resolveSessionTenantId(authorization.session);
   const encoder = new TextEncoder();
 
@@ -134,7 +137,15 @@ export async function GET(request: Request) {
             tenantId,
             includeSupportData: false,
           });
-          const signature = buildConversationActivitySignature(payload.conversations);
+          let visibleConversations = payload.conversations;
+          if (scope.audience === "sales" && session.role === "SALES_AGENT") {
+            const assignedOnly = await showOnlyAssignedChatsForTenant(tenantId);
+            if (assignedOnly) {
+              const assignedConversationIds = await getSalesAgentAssignedConversationIds(session.userId);
+              visibleConversations = visibleConversations.filter((conversation) => assignedConversationIds.has(conversation.id));
+            }
+          }
+          const signature = buildConversationActivitySignature(visibleConversations);
           const changed = Boolean(lastSignature && lastSignature !== signature);
           lastSignature = signature;
 

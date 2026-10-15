@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 
 import { requireSessionRole } from "@/lib/api/require-session-role";
-import { resolveWhatsAppSetupTenantId } from "@/lib/api/resolve-session-tenant";
-import { deliverConversationMessageFromFile } from "@/lib/gigxomi/dummy-platform-file-store";
+import { resolveSessionTenantId, resolveWhatsAppSetupTenantId } from "@/lib/api/resolve-session-tenant";
+import { appendConversationMessageFromFile, deliverConversationMessageFromFile } from "@/lib/gigxomi/dummy-platform-file-store";
 import { ensureSalesLeadConversation } from "@/lib/gigxomi/sales-conversation-store";
 import { getSalesSnapshotForRole } from "@/lib/gigxomi/sales-store";
 import { prisma } from "@/lib/prisma";
+import { sendLinkedWhatsAppText } from "@/lib/whatsapp/baileys-transport";
 
 export async function POST(request: Request) {
   const authorization = await requireSessionRole(["SUPER_ADMIN", "SALES_AGENT"]);
@@ -16,6 +17,7 @@ export async function POST(request: Request) {
 
   const leadId = String(body.leadId ?? "").trim();
   const message = String(body.message ?? "").trim();
+  const transport = body.transport === "connected_user" ? "connected_user" : "company";
   if (!leadId || !message) {
     return NextResponse.json({ ok: false, error: "Choose a CRM lead and write a message." }, { status: 400 });
   }
@@ -29,7 +31,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "This lead does not have a WhatsApp number." }, { status: 400 });
   }
 
-  const tenantId = resolveWhatsAppSetupTenantId(authorization.session);
+  const tenantId = resolveSessionTenantId(authorization.session);
   let conversation: Awaited<ReturnType<typeof ensureSalesLeadConversation>>;
   try {
     conversation = await ensureSalesLeadConversation({
@@ -42,18 +44,34 @@ export async function POST(request: Request) {
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Unable to create the WhatsApp chat." }, { status: 400 });
   }
-  const result = await deliverConversationMessageFromFile(conversation.id, {
-    role: "sales",
-    lane: "customer",
-    body: message,
-  }).catch((error) => ({
-    conversation,
-    delivery: {
-      ok: false as const,
-      mode: "whatsapp-failed" as const,
-      error: error instanceof Error ? error.message : "WhatsApp message failed",
-    },
-  }));
+  const result = transport === "connected_user"
+    ? await sendLinkedWhatsAppText({
+        tenantId: resolveWhatsAppSetupTenantId(authorization.session),
+        to: lead.customerPhone,
+        body: message,
+      }).then(async (delivery) => ({
+        conversation: await appendConversationMessageFromFile(conversation.id, {
+          role: "sales",
+          lane: "customer",
+          body: message,
+          externalMessageId: delivery.ok ? delivery.messageId : undefined,
+          deliveryStatus: delivery.ok ? "sent" : "failed",
+          deliveryError: delivery.ok ? undefined : delivery.error,
+        }) ?? conversation,
+        delivery,
+      }))
+    : await deliverConversationMessageFromFile(conversation.id, {
+        role: "sales",
+        lane: "customer",
+        body: message,
+      }).catch((error) => ({
+        conversation,
+        delivery: {
+          ok: false as const,
+          mode: "whatsapp-failed" as const,
+          error: error instanceof Error ? error.message : "WhatsApp message failed",
+        },
+      }));
   const delivery = result?.delivery ?? { ok: false as const, mode: "whatsapp-failed" as const, error: "WhatsApp conversation was not found." };
 
   await prisma.salesLeadAssignment.update({
@@ -65,7 +83,7 @@ export async function POST(request: Request) {
           actorUserId: authorization.session.userId,
           action: "WHATSAPP_MESSAGE_SENT",
           note: message.slice(0, 240),
-          metadata: { delivery },
+          metadata: { delivery, transport },
         },
       },
     },

@@ -27,9 +27,21 @@ export async function requireSessionRole(allowedRoles: AppRole[]): Promise<Autho
     };
   }
 
-  const isAuthorizedRole =
+  let isAuthorizedRole =
     allowedRoles.includes(session.role) ||
-    (allowedRoles.includes("SALES_AGENT") && session.role === "ADMIN");
+    (allowedRoles.includes("SALES_AGENT") && session.role === "ADMIN") ||
+    (allowedRoles.includes("ADMIN") && session.role === "SUPER_ADMIN");
+
+  if (!isAuthorizedRole && allowedRoles.includes("ADMIN") && session.userId) {
+    const access = await getSalesAgentAccess(session.userId);
+    const permissions = access.agent?.permissions as Record<string, unknown> | null | undefined;
+    const isProfileWorkspaceAdmin =
+      permissions?.workspaceAdmin === true ||
+      String(permissions?.workspaceRole ?? "").toUpperCase() === "ADMIN";
+    if (access.ok && isProfileWorkspaceAdmin) {
+      isAuthorizedRole = true;
+    }
+  }
 
   if (!isAuthorizedRole) {
     return {

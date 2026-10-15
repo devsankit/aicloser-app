@@ -47,6 +47,15 @@ export async function GET() {
             ? ownerPermissions.seats
             : null;
 
+    // Super Admin seat controls persist the canonical limit on AicloserWorkspace.
+    // Read that value first so Team & Users and Super Admin cannot drift apart.
+    const workspaceSeatRows = await prisma.$queryRaw<{ maxSeats: number | null }[]>`
+      SELECT "maxSeats" FROM "AicloserWorkspace" WHERE "id" = ${authorization.session.tenantId} LIMIT 1
+    `.catch(() => []);
+    const workspaceSeatLimit = workspaceSeatRows[0]?.maxSeats && workspaceSeatRows[0].maxSeats > 0
+      ? workspaceSeatRows[0].maxSeats
+      : null;
+
     const users = snapshot.agents ?? [];
     const activeUsers = users.filter((user) => user.status === "ACTIVE").length;
     const planCounts = users.reduce<Record<string, number>>((counts, user) => {
@@ -61,8 +70,8 @@ export async function GET() {
         name: packageRecord?.name || authorization.session.packageName || snapshot.currentAgent?.packageName || "Free plan",
         status: authorization.session.packageStatus || snapshot.currentAgent?.packageStatus || "ACTIVE",
         expiresAt: authorization.session.packageExpiresAt || snapshot.currentAgent?.packageExpiresAt || null,
-        seatLimit: customSeatLimit ?? packageRecord?.teamMemberLimit ?? packageRecord?.staffAccountLimit ?? 1,
-        isUnlimited: customSeatLimit === null && packageRecord?.teamMemberLimit === null && packageRecord?.staffAccountLimit === null,
+        seatLimit: workspaceSeatLimit ?? customSeatLimit ?? packageRecord?.teamMemberLimit ?? packageRecord?.staffAccountLimit ?? 1,
+        isUnlimited: workspaceSeatLimit === null && customSeatLimit === null && packageRecord?.teamMemberLimit === null && packageRecord?.staffAccountLimit === null,
       },
       usage: { totalUsers: users.length, activeUsers, planCounts },
       entitlements: {

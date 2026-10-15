@@ -3,10 +3,12 @@ import { NextResponse } from "next/server";
 import { getConversationAccessForSession, getFreelancerConversationAccess } from "@/lib/api/conversation-access";
 import { getConversationViewForSession } from "@/lib/api/conversation-view-response";
 import { requireSessionRole } from "@/lib/api/require-session-role";
-import { deleteConversationMessageForEveryoneFromFile, deliverConversationMessageFromFile } from "@/lib/gigxomi/dummy-platform-file-store";
+import { appendConversationMessageFromFile, deleteConversationMessageForEveryoneFromFile, deliverConversationMessageFromFile } from "@/lib/gigxomi/dummy-platform-file-store";
 import { getConversationById, projectConversation, type DummyMessageAttachmentInput } from "@/lib/gigxomi/dummy-platform-store";
 import { sendMobileChatPushForConversation } from "@/lib/mobile-chat-push";
 import { publishConversationRealtimeEvent } from "@/lib/gigxomi/conversation-realtime";
+import { resolveWhatsAppSetupTenantId } from "@/lib/api/resolve-session-tenant";
+import { sendLinkedWhatsAppText } from "@/lib/whatsapp/baileys-transport";
 
 const MAX_CHAT_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 
@@ -139,6 +141,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
           : "admin";
   const canManage = role === "admin" || role === "manager";
   const lane = body?.lane === "internal" ? "internal" : "customer";
+  const transport = body?.transport === "connected_user" ? "connected_user" : "company";
   const visibility = canManage && body?.visibility === "client_private" ? "client_private" : undefined;
   const clientMessageId = normalizeClientMessageId(body?.clientMessageId);
   const tenantAccess = await getConversationAccessForSession(authorization.session, id);
@@ -264,14 +267,41 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     });
   }
 
-  const result = await deliverConversationMessageFromFile(id, {
-    role,
-    lane,
-    body: typeof body?.body === "string" ? body.body : "",
-    attachments: normalizedAttachments.attachments,
-    visibility,
-    clientMessageId,
-  });
+  const result = transport === "connected_user" && lane === "customer" && role !== "freelancer"
+    ? await (async () => {
+        const conversation = getConversationById(id);
+        if (!conversation || (conversation.sourceChannel !== "whatsapp" && conversation.serviceId !== "svc-whatsapp-intake")) {
+          return { conversation: null, delivery: { ok: false as const, mode: "whatsapp-linked-failed" as const, error: "Connected WhatsApp is available only for WhatsApp chats." } };
+        }
+        if (normalizedAttachments.attachments.length) {
+          return { conversation, delivery: { ok: false as const, mode: "whatsapp-linked-failed" as const, error: "Connected WhatsApp currently supports text messages only." } };
+        }
+
+        const delivery = await sendLinkedWhatsAppText({
+          tenantId: resolveWhatsAppSetupTenantId(authorization.session),
+          to: conversation.customerPhone,
+          body: typeof body?.body === "string" ? body.body : "",
+        });
+        const updatedConversation = await appendConversationMessageFromFile(id, {
+          role,
+          lane,
+          body: typeof body?.body === "string" ? body.body : "",
+          visibility,
+          clientMessageId,
+          externalMessageId: delivery.ok ? delivery.messageId : undefined,
+          deliveryStatus: delivery.ok ? "sent" : "failed",
+          deliveryError: delivery.ok ? undefined : delivery.error,
+        });
+        return { conversation: updatedConversation, delivery };
+      })()
+    : await deliverConversationMessageFromFile(id, {
+        role,
+        lane,
+        body: typeof body?.body === "string" ? body.body : "",
+        attachments: normalizedAttachments.attachments,
+        visibility,
+        clientMessageId,
+      });
 
   if (!result) {
     return NextResponse.json({ ok: false, error: "Conversation not found" }, { status: 404 });

@@ -107,7 +107,9 @@ export async function GET(request: Request) {
     const salesAccess = ["ADMIN", "MANAGER", "SALES_AGENT"].includes(user.role)
       ? await getSalesAgentAccess(user.id)
       : null;
-    const workspaceRole = String(salesAccess?.agent?.permissions?.workspaceRole ?? "").toUpperCase();
+    const workspaceRole = salesAccess?.agent?.permissions?.workspaceAdmin === true
+      ? "ADMIN"
+      : String(salesAccess?.agent?.permissions?.workspaceRole ?? "").toUpperCase();
     const effectiveRole = ["ADMIN", "MANAGER", "SALES_AGENT"].includes(workspaceRole) ? workspaceRole : user.role;
     const effectiveAssignedRole = ["ADMIN", "MANAGER", "SALES_AGENT"].includes(workspaceRole) ? workspaceRole : user.assignedRole;
     const installationId = randomBytes(16).toString("hex");

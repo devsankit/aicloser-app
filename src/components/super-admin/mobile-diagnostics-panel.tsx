@@ -39,8 +39,16 @@ type MobileDevice = {
   appVersion: string;
   simLabel: string;
   officeSimNumber: string;
+  dialerPackage: string;
   recordingCapability: string;
   recordingEnabled: boolean;
+  recordingProfile: {
+    title: string;
+    automationMode: string;
+    requiresAccessibility: boolean;
+    userActionRequired: boolean;
+    limitations: string | null;
+  } | null;
   lastSeenAt: string;
   agentName: string;
   agentEmail: string;
@@ -61,6 +69,7 @@ type MobileCall = {
   agentName: string;
   deviceModel: string;
   deviceManufacturer: string;
+  dialerPackage: string;
   uploadAttempts: number;
 };
 
@@ -372,7 +381,7 @@ export function MobileDiagnosticsPanel() {
                           </span>
                         ) : isShare ? (
                           <span style={{ background: "rgba(245, 158, 11, 0.15)", color: "#FBBF24", padding: "0.25rem 0.65rem", borderRadius: "99px", fontSize: "0.75rem", fontWeight: 700 }}>
-                            ● Dialer Share Required
+                            ● Manual Dialer Share
                           </span>
                         ) : isMic ? (
                           <span style={{ background: "rgba(56, 189, 248, 0.15)", color: "#38BDF8", padding: "0.25rem 0.65rem", borderRadius: "99px", fontSize: "0.75rem", fontWeight: 700 }}>
@@ -383,6 +392,10 @@ export function MobileDiagnosticsPanel() {
                             ● Setup Incomplete
                           </span>
                         )}
+                        <div style={{ marginTop: "0.35rem", fontSize: "0.72rem", color: "#A1A1AA" }}>
+                          {device.recordingProfile?.title || device.dialerPackage || "Profile not resolved"}
+                          {device.recordingProfile?.requiresAccessibility ? " · Accessibility" : ""}
+                        </div>
                       </td>
                       <td style={{ padding: "0.75rem 0.6rem", color: "#A1A1AA" }}>
                         {device.simLabel || device.officeSimNumber || "Default SIM"}

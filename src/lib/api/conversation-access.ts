@@ -6,6 +6,7 @@ import {
   listConversationsForAudienceFromFile,
 } from "@/lib/gigxomi/dummy-platform-file-store";
 import { prisma } from "@/lib/prisma";
+import { showOnlyAssignedChatsForTenant } from "@/lib/api/sales-chat-visibility";
 
 export type InternalConversationAudience = "admin" | "manager" | "freelancer" | "sales";
 export type CustomerLaneTransportState = "ready" | "demo" | "blocked";
@@ -47,11 +48,13 @@ export function resolveConversationAudienceForSession(session: SessionLike, requ
   }
 
   if (session.role === "ADMIN") {
-    return { audience: "admin" as const, freelancerId: undefined, freelancerIds: undefined, freelancerNames: undefined, activeAgencyIds: undefined };
+    const audience = requestedAudience === "sales" ? ("sales" as const) : ("admin" as const);
+    return { audience, freelancerId: undefined, freelancerIds: undefined, freelancerNames: undefined, activeAgencyIds: undefined };
   }
 
   if (session.role === "MANAGER") {
-    return { audience: "manager" as const, freelancerId: undefined, freelancerIds: undefined, freelancerNames: undefined, activeAgencyIds: undefined };
+    const audience = requestedAudience === "sales" ? ("sales" as const) : ("manager" as const);
+    return { audience, freelancerId: undefined, freelancerIds: undefined, freelancerNames: undefined, activeAgencyIds: undefined };
   }
 
   if (session.role === "SALES_AGENT") {
@@ -193,7 +196,7 @@ export async function getFreelancerConversationAccess(session: SessionLike, conv
 // sales tenant can contain many agents, each of whom must only read or reply
 // to a conversation explicitly linked to one of their lead assignments.
 export async function salesAgentCanAccessConversation(userId: string, conversationId: string) {
-  const agent = await prisma.salesAgentProfile.findUnique({ where: { userId }, select: { id: true, status: true } });
+  const agent = await prisma.salesAgentProfile.findUnique({ where: { userId }, select: { id: true, status: true, tenantId: true } });
   if (!agent || agent.status !== "ACTIVE") return false;
   const assignment = await prisma.salesLeadAssignment.findFirst({
     where: { assignedAgentId: agent.id, conversationId },
@@ -239,9 +242,14 @@ export async function getConversationAccessForSession(session: SessionLike, conv
       return { ok: false as const, reason: "forbidden" as const };
     }
     const hasAssignedLead = await salesAgentCanAccessConversation(session.userId, conversationId);
-    return hasAssignedLead || isAuthorizedTenant
-      ? { ok: true as const, reason: "allowed" as const, conversation }
-      : { ok: false as const, reason: "forbidden" as const };
+    const assignedOnly = await showOnlyAssignedChatsForTenant(session.tenantId);
+    // An assigned lead remains accessible even when legacy conversation data
+    // carries the old shared tenant id. Otherwise enforce the workspace
+    // visibility setting for every direct conversation request.
+    if (assignedOnly && !hasAssignedLead) return { ok: false as const, reason: "forbidden" as const };
+    if (hasAssignedLead) return { ok: true as const, reason: "allowed" as const, conversation };
+    if (!isAuthorizedTenant) return { ok: false as const, reason: "forbidden" as const };
+    return { ok: true as const, reason: "allowed" as const, conversation };
   }
 
   const freelancerAccess = await getFreelancerConversationAccess(session, conversationId);
