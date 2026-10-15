@@ -5966,7 +5966,7 @@ function ChatWorkspaceInner({
   return (
     <>
       <div
-        className={cx(styles.shell, "aicloser-web-chat-shell", !isCompactChatLayout && isDetailsOpen ? styles.shellWithDetails : undefined)}
+        className={cx(styles.shell, "aicloser-web-chat-shell aicloser-ui-foundation", !isCompactChatLayout && isDetailsOpen ? styles.shellWithDetails : undefined)}
         style={!isCompactChatLayout && isDetailsOpen ? { paddingRight: "clamp(268px, 18vw, 300px)", boxSizing: "border-box" } : undefined}
       >
         {titleNotificationAction}
