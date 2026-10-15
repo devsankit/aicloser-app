@@ -41288,6 +41288,45 @@ body .sales-theme-scope-chat .aicloser-web-chat-shell .chat-thread-head-toolbar 
   gap: 8px !important;
 }
 
+/* Desktop chat polish: keep the identity row and lead actions readable without
+   changing any chat state, handlers, data loading, or message behavior. */
+@media (min-width: 861px) {
+  body .sales-theme-scope-chat .aicloser-web-chat-shell .chat-filter-row {
+    flex-wrap: wrap !important;
+    overflow-x: visible !important;
+    overflow-y: visible !important;
+  }
+}
+
+body .sales-theme-scope-chat .aicloser-web-chat-shell .crm-chat-head .chat-thread-head-toolbar {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+  padding: 9px 16px 10px !important;
+  gap: 10px !important;
+  flex-wrap: wrap !important;
+  overflow: visible !important;
+}
+
+body .sales-theme-scope-chat .aicloser-web-chat-shell .crm-chat-head .chat-thread-head-main {
+  width: 100% !important;
+  min-width: 0 !important;
+  min-height: 72px !important;
+  box-sizing: border-box !important;
+  border-bottom: 1px solid var(--crm-border, var(--color-border)) !important;
+}
+
+@media (min-width: 1100px) {
+  body .sales-theme-scope-chat .sales-chat-workspace > div:first-child.aicloser-web-chat-shell[class*="shellWithDetails"] {
+    padding-right: clamp(268px, 18vw, 300px) !important;
+    box-sizing: border-box !important;
+  }
+}
+
 body .sales-theme-scope-chat .aicloser-web-chat-shell .chat-status-control {
   display: inline-flex !important;
   min-height: 34px !important;
@@ -42234,7 +42273,7 @@ body:not(.dark) .sales-theme-scope .sales-crm-card .sales-recording-player {
 .chat-top-channel-tabs {
   display: grid !important;
   grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-  gap: 3px !important;
+  gap: 4px !important;
   background: rgba(255, 255, 255, 0.04) !important;
   padding: 3px !important;
   border-radius: 9px !important;
@@ -42249,8 +42288,8 @@ body:not(.dark) .sales-theme-scope .sales-crm-card .sales-recording-player {
   flex-direction: row !important;
   align-items: center !important;
   justify-content: center !important;
-  gap: 3px !important;
-  padding: 5px 4px !important;
+  gap: 6px !important;
+  padding: 6px 8px !important;
   border-radius: 6px !important;
   border: 1px solid transparent !important;
   background: transparent !important;
@@ -42389,6 +42428,94 @@ body:not(.dark) .chat-top-tab-badge,
 .light .chat-top-tab-badge {
   background: rgba(0, 0, 0, 0.06) !important;
   color: #64748b !important;
+}
+
+/* Keep the channel switcher aligned with the dark reference UI. The legacy
+   body:not(.dark) selectors above also match when the theme class lives on
+   html, so these scoped dark rules must win in dark mode. */
+html.dark .chat-top-channel-tabs {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+html.dark .chat-top-channel-tab {
+  color: var(--crm-text-muted, #9aa7b8) !important;
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+html.dark .chat-top-channel-tab:hover {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+
+html.dark .chat-top-channel-tab.active {
+  background: rgba(255, 107, 32, 0.16) !important;
+  color: #ffffff !important;
+  border-color: rgba(255, 107, 32, 0.78) !important;
+  box-shadow: 0 0 0 1px rgba(255, 107, 32, 0.12), 0 4px 14px rgba(255, 107, 32, 0.14) !important;
+}
+
+html.dark .chat-top-channel-tab.tab-company.active {
+  background: rgba(16, 185, 129, 0.16) !important;
+  color: #34d399 !important;
+  border-color: rgba(16, 185, 129, 0.42) !important;
+}
+
+html.dark .chat-top-channel-tab.tab-personal.active {
+  background: rgba(2, 132, 199, 0.16) !important;
+  color: #38bdf8 !important;
+  border-color: rgba(2, 132, 199, 0.42) !important;
+}
+
+/* ThemeToggle stores the active mode on data-theme (not on a .dark class).
+   Reassert the dark channel treatment with matching specificity so the legacy
+   light compatibility selectors cannot flatten the desktop tab group. */
+:root[data-theme="dark"] .chat-top-channel-tabs {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+:root[data-theme="dark"] .chat-top-channel-tab {
+  background: rgba(255, 255, 255, 0.025) !important;
+  color: #aab6c5 !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  gap: 6px !important;
+}
+
+:root[data-theme="dark"] .chat-top-channel-tab:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #ffffff !important;
+}
+
+:root[data-theme="dark"] .chat-top-channel-tab.active {
+  background: rgba(255, 107, 32, 0.18) !important;
+  color: #ffffff !important;
+  border-color: rgba(255, 107, 32, 0.85) !important;
+  box-shadow: 0 0 0 1px rgba(255, 107, 32, 0.14), 0 4px 14px rgba(255, 107, 32, 0.12) !important;
+}
+
+:root[data-theme="dark"] .chat-top-channel-tab.tab-company.active {
+  background: rgba(16, 185, 129, 0.18) !important;
+  color: #34d399 !important;
+  border-color: rgba(16, 185, 129, 0.52) !important;
+}
+
+:root[data-theme="dark"] .chat-top-channel-tab.tab-personal.active {
+  background: rgba(2, 132, 199, 0.18) !important;
+  color: #38bdf8 !important;
+  border-color: rgba(2, 132, 199, 0.52) !important;
+}
+
+:root[data-theme="dark"] .chat-top-tab-badge {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: inherit !important;
+}
+
+@media (min-width: 1100px) and (max-width: 1400px) {
+  body .sales-theme-scope-chat .sales-chat-workspace > div:first-child.aicloser-web-chat-shell[class*="shellWithDetails"] {
+    padding-right: 250px !important;
+  }
 }
 
 html:not(.dark) .chat-top-channel-tab.active .chat-top-tab-badge,

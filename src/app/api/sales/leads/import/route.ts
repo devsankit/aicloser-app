@@ -5,6 +5,7 @@ import { requireSessionRole } from "@/lib/api/require-session-role";
 import { resolveSessionTenantId } from "@/lib/api/resolve-session-tenant";
 import { normalizePhone } from "@/lib/auth/normalize";
 import { createSalesLead, createSalesLeadPoolItem, getSalesSnapshotForRole } from "@/lib/gigxomi/sales-store";
+import { prisma } from "@/lib/prisma";
 import { readRoundRobinSettings } from "@/lib/gigxomi/round-robin-service";
 import { upsertMarketingContact } from "@/lib/whatsapp-marketing/contact-service";
 
@@ -225,9 +226,29 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "No contacts were found. Include a header row and at least one contact." }, { status: 400 });
   }
   const rows = normalizeRows(rawRows);
+  const tenantScopeId = resolveSessionTenantId(authorization.session);
   const seen = new Set<string>();
-  for (const lead of [...snapshot.visibleLeads, ...snapshot.visibleLeadPool]) {
-    for (const key of contactKeys({ customerEmail: lead.customerEmail, customerName: lead.customerName, customerPhone: lead.customerPhone })) seen.add(key);
+
+  // Tenant-wide deduplication: fetch all existing lead assignments and pool items
+  const [existingAssignments, existingPoolItems] = await Promise.all([
+    prisma.salesLeadAssignment.findMany({
+      where: { tenantId: tenantScopeId },
+      select: { customerEmail: true, customerName: true, customerPhone: true },
+    }),
+    prisma.salesLeadPoolItem.findMany({
+      where: { tenantId: tenantScopeId },
+      select: { customerEmail: true, customerName: true, customerPhone: true },
+    }),
+  ]);
+
+  for (const item of [...existingAssignments, ...existingPoolItems]) {
+    for (const key of contactKeys({
+      customerEmail: item.customerEmail ?? undefined,
+      customerName: item.customerName ?? undefined,
+      customerPhone: item.customerPhone ?? undefined,
+    })) {
+      seen.add(key);
+    }
   }
   const errors: Array<{ row: number; reason: string }> = [];
   let imported = 0;

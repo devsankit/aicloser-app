@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { resolveConversationAudienceForSession } from "@/lib/api/conversation-access";
 import {
   getSalesAgentAssignedConversationIds,
+  getSalesAgentAssignedScope,
   showOnlyAssignedChatsForTenant,
 } from "@/lib/api/sales-chat-visibility";
 import { requireSessionRole } from "@/lib/api/require-session-role";
@@ -135,11 +136,46 @@ export async function GET(request: Request) {
   });
 
   let visibleConversations = payload.conversations;
+
+  // 1. Admin / Manager switching to inspect a specific agent's inbox
+  const requestedAgentId = searchParams.get("agentId")?.trim() || searchParams.get("selectedAgentId")?.trim();
+  if ((scope.audience === "admin" || scope.audience === "manager") && requestedAgentId && requestedAgentId !== "all") {
+    const agentScope = await getSalesAgentAssignedScope(requestedAgentId);
+    visibleConversations = visibleConversations.filter((conversation) => {
+      if (agentScope.conversationIds.has(conversation.id)) return true;
+      const last10 = conversation.customerPhone?.replace(/\D/g, "").slice(-10);
+      if (last10 && agentScope.phones.has(last10)) return true;
+      if (conversation.externalSourceType === "whatsapp_personal") {
+        const sourcePhone = (conversation.externalSourcePhone || (conversation as { sourcePhone?: string }).sourcePhone || "").replace(/\D/g, "").slice(-10);
+        if (agentScope.connectedPhone && sourcePhone && agentScope.connectedPhone === sourcePhone) {
+          return true;
+        }
+      }
+      return false;
+    });
+  }
+
+  // 2. Strict access enforcement for Sales Agents
   if (scope.audience === "sales" && authorization.session.role === "SALES_AGENT" && tenantId) {
     const assignedOnly = await showOnlyAssignedChatsForTenant(tenantId);
     if (assignedOnly) {
-      const assignedConversationIds = await getSalesAgentAssignedConversationIds(authorization.session.userId);
-      visibleConversations = visibleConversations.filter((conversation) => assignedConversationIds.has(conversation.id) || conversation.externalSourceType === "whatsapp_personal" || conversation.externalSourceType === "whatsapp_business");
+      const agentScope = await getSalesAgentAssignedScope(authorization.session.userId);
+      visibleConversations = visibleConversations.filter((conversation) => {
+        // Direct assignment match
+        if (agentScope.conversationIds.has(conversation.id)) return true;
+        // Phone number matches assigned lead in CRM
+        const last10 = conversation.customerPhone?.replace(/\D/g, "").slice(-10);
+        if (last10 && agentScope.phones.has(last10)) return true;
+        // Personal WhatsApp: ONLY show if it belongs to this agent's connected phone line
+        if (conversation.externalSourceType === "whatsapp_personal") {
+          const sourcePhone = (conversation.externalSourcePhone || (conversation as { sourcePhone?: string }).sourcePhone || "").replace(/\D/g, "").slice(-10);
+          if (agentScope.connectedPhone && sourcePhone && agentScope.connectedPhone === sourcePhone) {
+            return true;
+          }
+        }
+        // Disallow any other conversation (including other agents' personal/business WhatsApp)
+        return false;
+      });
       if (conversationId && visibleConversations.length === 0) {
         return NextResponse.json({ ok: false, error: "This chat is not assigned to your account." }, { status: 403 });
       }

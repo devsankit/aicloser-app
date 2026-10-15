@@ -43,9 +43,21 @@ export async function GET(request: Request) {
     if (selectedAgentId && !visibleAgentIds.includes(selectedAgentId)) {
       return NextResponse.json({ ok: false, error: "That user is outside your reporting scope." }, { status: 403 });
     }
+    const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
+    const pageSize = Math.min(500, Math.max(1, Number(url.searchParams.get("pageSize") || url.searchParams.get("limit")) || 100));
+    const skip = (page - 1) * pageSize;
+    const startDateParam = url.searchParams.get("startDate");
+    const endDateParam = url.searchParams.get("endDate");
+    const dateFilter = startDateParam || endDateParam ? {
+      startedAt: {
+        ...(startDateParam ? { gte: new Date(startDateParam) } : {}),
+        ...(endDateParam ? { lte: new Date(endDateParam) } : {}),
+      },
+    } : {};
+
     const agentFilter = selectedAgentId
-      ? { tenantId, agentId: selectedAgentId }
-      : currentIsWorkspaceAdmin ? { tenantId } : { tenantId, agentId: { in: visibleAgentIds } };
+      ? { tenantId, agentId: selectedAgentId, ...dateFilter }
+      : currentIsWorkspaceAdmin ? { tenantId, ...dateFilter } : { tenantId, agentId: { in: visibleAgentIds }, ...dateFilter };
     const [totalCalls, inboundCalls, outboundCalls, missedCalls, uploadedRecordings, duration, rows] = await Promise.all([
       prisma.salesMobileCall.count({ where: agentFilter }),
       prisma.salesMobileCall.count({ where: { ...agentFilter, direction: "INBOUND" } }),
@@ -67,12 +79,17 @@ export async function GET(request: Request) {
           },
         },
         orderBy: { startedAt: "desc" },
-        take: 100,
+        skip,
+        take: pageSize,
       }),
     ]);
 
     return NextResponse.json({
       ok: true,
+      page,
+      pageSize,
+      totalCount: totalCalls,
+      totalPages: Math.ceil(totalCalls / pageSize),
       totals: {
         totalCalls,
         inboundCalls,

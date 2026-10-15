@@ -3085,75 +3085,220 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                 </div>
               </DndContext>
             ) : (
-              <div className="sales-table">
-                <div className="sales-crm-list-header" aria-hidden="true">
-                  <span>Lead</span>
-                  <span>Source &amp; activity</span>
-                  <span>Stage</span>
-                  <span>Actions</span>
-                </div>
-                {paginatedLeads.map((lead) => {
-                  const call = latestCallByLead.get(lead.id);
-                  return <article className="sales-crm-list-row" key={lead.id}>
-                    <button className="sales-crm-list-main" onClick={() => setSelectedLeadId(lead.id)} type="button">
-                      <strong>{lead.customerName}</strong>
-                      <span>{lead.customerPhone || lead.customerEmail || "No contact"} - {lead.serviceInterest || "Agency services"}</span>
-                      <span className="sales-crm-list-source"><LeadSourceBadge source={lead.source} /></span>
-                      <small>{lead.notes || call?.note || "No note added yet"}</small>
-                    </button>
-                    <div className="sales-crm-call-summary">
-                      <strong>{call ? `${formatDateTime(call.startedAt)} - ${call.durationSeconds}s` : "No call activity yet"}</strong>
-                      <span>{call?.outcome ? label(call.outcome) : "Outcome pending"}</span>
-                      <small>Follow-up {formatDate(lead.followUpAt)}</small>
-                    </div>
-                    <select disabled={!canModifyLeads} onClick={(event) => event.stopPropagation()} onChange={(event) => updateLeadStage(lead.id, event.target.value as SalesLeadStage)} value={lead.stage}>
-                      {leadStages.map((stage) => <option key={stage} value={stage}>{label(stage)}</option>)}
-                    </select>
-                    <div className="sales-crm-list-actions">
-                      {lead.customerEmail ? <a aria-label={`Email ${lead.customerName}`} className="sales-secondary-button compact crm-list-action" href={`mailto:${lead.customerEmail}`} onClick={(event) => event.stopPropagation()} title={`Email ${lead.customerEmail}`}><Mail size={13} /> Email</a> : null}
-                      {lead.customerPhone ? (
-                        isLeadFromApi(lead.source) ? (
-                          <>
+              <div className="sales-crm-sheet-container" style={{ width: "100%", overflowX: "auto", borderRadius: "10px", border: "1px solid var(--closer-line, #e2e8f0)", background: "var(--closer-surface, #ffffff)", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+                <table className="sales-crm-sheet-table" style={{ width: "100%", minWidth: "1050px", borderCollapse: "collapse", textAlign: "left", fontSize: "13px" }}>
+                  <thead style={{ position: "sticky", top: 0, zIndex: 3, background: "var(--closer-panel-bg, #f8fafc)", borderBottom: "1px solid var(--closer-line, #cbd5e1)" }}>
+                    <tr style={{ color: "var(--closer-muted, #64748b)", fontSize: "12px", textTransform: "uppercase", letterSpacing: "0.04em", fontWeight: 700 }}>
+                      <th style={{ padding: "10px 14px", position: "sticky", left: 0, background: "var(--closer-panel-bg, #f8fafc)", zIndex: 4, minWidth: "220px", boxShadow: "2px 0 4px -2px rgba(0,0,0,0.1)" }}>Lead / Contact</th>
+                      <th style={{ padding: "10px 14px", minWidth: "140px" }}>Phone</th>
+                      <th style={{ padding: "10px 14px", minWidth: "160px" }}>Email</th>
+                      <th style={{ padding: "10px 14px", minWidth: "130px" }}>Owner</th>
+                      <th style={{ padding: "10px 14px", minWidth: "120px" }}>Source</th>
+                      <th style={{ padding: "10px 14px", minWidth: "150px" }}>Stage</th>
+                      <th style={{ padding: "10px 14px", minWidth: "110px" }}>Value</th>
+                      <th style={{ padding: "10px 14px", minWidth: "160px" }}>Last Activity</th>
+                      <th style={{ padding: "10px 14px", minWidth: "200px" }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedLeads.map((lead) => {
+                      const call = latestCallByLead.get(lead.id);
+                      return (
+                        <tr
+                          key={lead.id}
+                          className="sales-crm-sheet-row"
+                          style={{ borderBottom: "1px solid var(--closer-line, #f1f5f9)", transition: "background 0.15s ease" }}
+                        >
+                          {/* Sticky Contact / Lead Name */}
+                          <td style={{ padding: "10px 14px", position: "sticky", left: 0, background: "var(--closer-surface, #ffffff)", zIndex: 2, minWidth: "220px", boxShadow: "2px 0 4px -2px rgba(0,0,0,0.08)" }}>
                             <button
-                              aria-label={`Company WhatsApp for ${lead.customerName}`}
-                              className="sales-secondary-button compact crm-list-action"
-                              onClick={() => openLeadChat(lead.id, "company")}
-                              style={{ borderColor: "rgba(16, 185, 129, 0.4)", color: "#059669" }}
-                              title="Company WhatsApp chat (Official API)"
+                              onClick={() => setSelectedLeadId(lead.id)}
+                              style={{ background: "none", border: "none", padding: 0, margin: 0, textAlign: "left", cursor: "pointer", display: "block", width: "100%" }}
                               type="button"
                             >
-                              <Building2 size={12} /> Company WA
+                              <strong style={{ display: "block", color: "var(--closer-ink, #0f172a)", fontSize: "13.5px" }}>{lead.customerName}</strong>
+                              <span style={{ fontSize: "11px", color: "var(--closer-muted, #64748b)" }}>{lead.serviceInterest || "Agency services"}</span>
                             </button>
-                            <button
-                              aria-label={`Closer Business WhatsApp for ${lead.customerName}`}
-                              className="sales-secondary-button compact crm-list-action"
-                              onClick={() => openLeadChat(lead.id, "connected_user")}
-                              style={{ borderColor: "rgba(2, 132, 199, 0.4)", color: "#0284c7" }}
-                              title="Closer Business WhatsApp chat (Synced Device)"
-                              type="button"
+                          </td>
+
+                          {/* Phone with 1-click Call Trigger */}
+                          <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>
+                            {lead.customerPhone ? (
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                <a
+                                  href={`tel:${lead.customerPhone.replace(/[^\d+]/g, "")}`}
+                                  style={{ color: "#10b981", display: "inline-flex", alignItems: "center", textDecoration: "none", padding: "2px 4px", borderRadius: "4px", background: "rgba(16, 185, 129, 0.1)" }}
+                                  title={`Call ${lead.customerName} (${lead.customerPhone})`}
+                                >
+                                  <PhoneCall size={12} />
+                                </a>
+                                <span style={{ fontWeight: 500, color: "var(--closer-ink, #0f172a)" }}>{lead.customerPhone}</span>
+                              </div>
+                            ) : (
+                              <span style={{ color: "var(--closer-muted, #94a3b8)" }}>-</span>
+                            )}
+                          </td>
+
+                          {/* Email */}
+                          <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>
+                            {lead.customerEmail ? (
+                              <a
+                                href={`mailto:${lead.customerEmail}`}
+                                style={{ color: "var(--closer-ink, #0f172a)", textDecoration: "none", fontSize: "12px" }}
+                                title={`Email ${lead.customerEmail}`}
+                              >
+                                {lead.customerEmail}
+                              </a>
+                            ) : (
+                              <span style={{ color: "var(--closer-muted, #94a3b8)" }}>-</span>
+                            )}
+                          </td>
+
+                          {/* Owner / Assigned Agent */}
+                          <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "12px", color: "var(--closer-ink, #0f172a)" }}>
+                              <User size={12} style={{ color: "var(--closer-muted, #94a3b8)" }} />
+                              {lead.assignedAgentName || "Unassigned"}
+                            </span>
+                          </td>
+
+                          {/* Source Badge */}
+                          <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>
+                            <LeadSourceBadge source={lead.source} />
+                          </td>
+
+                          {/* Stage (Interactive Dropdown) */}
+                          <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>
+                            <select
+                              disabled={!canModifyLeads}
+                              onChange={(event) => updateLeadStage(lead.id, event.target.value as SalesLeadStage)}
+                              style={{
+                                padding: "4px 8px",
+                                borderRadius: "6px",
+                                fontSize: "12px",
+                                fontWeight: 600,
+                                border: "1px solid var(--closer-line, #cbd5e1)",
+                                background: "var(--closer-surface, #ffffff)",
+                                color: "var(--closer-ink, #0f172a)",
+                                cursor: canModifyLeads ? "pointer" : "default",
+                              }}
+                              value={lead.stage}
                             >
-                              <Smartphone size={12} /> Closer Business WA
-                            </button>
-                          </>
-                        ) : (
-                          <button
-                            aria-label={`Open WhatsApp chat for ${lead.customerName}`}
-                            className="sales-secondary-button compact crm-list-action"
-                            onClick={() => openLeadChat(lead.id)}
-                            title="Open WhatsApp chat"
-                            type="button"
-                          >
-                            <MessageCircle size={13} /> WhatsApp
-                          </button>
-                        )
-                      ) : null}
-                      <button aria-label={`Add note to ${lead.customerName}`} className="sales-secondary-button compact crm-list-action" onClick={() => setSelectedLeadId(lead.id)} title="Open notes and activity" type="button"><FileText size={13} /> Notes</button>
-                      <button aria-label={`Schedule follow-up for ${lead.customerName}`} className="sales-secondary-button compact crm-list-action" onClick={() => setSelectedLeadId(lead.id)} title="Open follow-up and lead details" type="button"><CalendarPlus size={13} /> Follow-up</button>
-                      <button aria-label={`Open details for ${lead.customerName}`} className="sales-secondary-button compact crm-list-action" onClick={() => setSelectedLeadId(lead.id)} title="Open full lead details" type="button"><ExternalLink size={13} /> Details</button>
-                      {call?.recordingStatus === "UPLOADED" ? <CallRecordingPlayer callId={call.id} expectedDurationSeconds={call.durationSeconds} labelText={`${lead.customerName} recording`} /> : <span className={`sales-chip ${call?.recordingStatus === "FAILED" ? "danger" : "warning"}`}>{call ? recordingStatusLabel(call.recordingStatus) : "No recording"}</span>}
-                    </div>
-                  </article>;
-                })}
+                              {leadStages.map((stage) => (
+                                <option key={stage} value={stage}>
+                                  {label(stage)}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+
+                          {/* Budget / Value */}
+                          <td style={{ padding: "10px 14px", whiteSpace: "nowrap", fontWeight: 600, color: "var(--closer-ink, #0f172a)" }}>
+                            {lead.budgetAmount ? formatCurrency(lead.budgetAmount) : "-"}
+                          </td>
+
+                          {/* Call / Activity */}
+                          <td style={{ padding: "10px 14px", whiteSpace: "nowrap", fontSize: "12px" }}>
+                            {call ? (
+                              <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                                <span style={{ fontWeight: 600, color: "var(--closer-ink, #0f172a)" }}>
+                                  {call.durationSeconds}s ({label(call.outcome || "Call")})
+                                </span>
+                                <small style={{ color: "var(--closer-muted, #64748b)" }}>{formatDate(call.startedAt)}</small>
+                                {call?.recordingStatus === "UPLOADED" ? (
+                                  <CallRecordingPlayer callId={call.id} expectedDurationSeconds={call.durationSeconds} labelText={`${lead.customerName} recording`} />
+                                ) : (
+                                  <span className={`sales-chip ${call?.recordingStatus === "FAILED" ? "danger" : "warning"}`} style={{ fontSize: "10px", padding: "1px 6px" }}>
+                                    {call ? recordingStatusLabel(call.recordingStatus) : "No recording"}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span style={{ color: "var(--closer-muted, #94a3b8)" }}>No call</span>
+                            )}
+                          </td>
+
+                          {/* Actions */}
+                          <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>
+                            <div style={{ display: "flex", gap: "5px", alignItems: "center" }}>
+                              {lead.customerPhone ? (
+                                <a
+                                  aria-label={`Call ${lead.customerName}`}
+                                  className="sales-secondary-button compact"
+                                  href={`tel:${lead.customerPhone.replace(/[^\d+]/g, "")}`}
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "3px",
+                                    padding: "4px 8px",
+                                    color: "#10b981",
+                                    borderColor: "rgba(16, 185, 129, 0.4)",
+                                    background: "rgba(16, 185, 129, 0.08)",
+                                    textDecoration: "none",
+                                    fontSize: "11px",
+                                    fontWeight: 600,
+                                  }}
+                                  title={`Call ${lead.customerName}`}
+                                >
+                                  <PhoneCall size={11} /> Call
+                                </a>
+                              ) : null}
+
+                              {lead.customerPhone ? (
+                                isLeadFromApi(lead.source) ? (
+                                  <>
+                                    <button
+                                      aria-label={`Company WhatsApp for ${lead.customerName}`}
+                                      className="sales-secondary-button compact"
+                                      onClick={() => openLeadChat(lead.id, "company")}
+                                      style={{ borderColor: "rgba(16, 185, 129, 0.4)", color: "#059669", padding: "4px 7px", fontSize: "11px" }}
+                                      title="Company WhatsApp chat (Official API)"
+                                      type="button"
+                                    >
+                                      <Building2 size={11} /> Co. WA
+                                    </button>
+                                    <button
+                                      aria-label={`Closer Business WhatsApp for ${lead.customerName}`}
+                                      className="sales-secondary-button compact"
+                                      onClick={() => openLeadChat(lead.id, "connected_user")}
+                                      style={{ borderColor: "rgba(2, 132, 199, 0.4)", color: "#0284c7", padding: "4px 7px", fontSize: "11px" }}
+                                      title="Closer Business WhatsApp chat (Synced Device)"
+                                      type="button"
+                                    >
+                                      <Smartphone size={11} /> Rep WA
+                                    </button>
+                                  </>
+                                ) : (
+                                  <button
+                                    aria-label={`Open WhatsApp chat for ${lead.customerName}`}
+                                    className="sales-secondary-button compact"
+                                    onClick={() => openLeadChat(lead.id)}
+                                    style={{ padding: "4px 8px", fontSize: "11px" }}
+                                    title="Open WhatsApp chat"
+                                    type="button"
+                                  >
+                                    <MessageCircle size={11} /> WhatsApp
+                                  </button>
+                                )
+                              ) : null}
+
+                              <button
+                                aria-label={`Open details for ${lead.customerName}`}
+                                className="sales-secondary-button compact"
+                                onClick={() => setSelectedLeadId(lead.id)}
+                                style={{ padding: "4px 8px", fontSize: "11px" }}
+                                title="Open full lead details and notes"
+                                type="button"
+                              >
+                                <ExternalLink size={11} /> Details
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
@@ -3397,6 +3542,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
               listLabel="Sales social inbox"
               listTitle="WhatsApp and Instagram"
               mode="inbox"
+              selectedAgentId={viewingAgentId}
               tenantId={salesOperations.tenantId}
             />
           </Suspense>
@@ -3949,37 +4095,60 @@ function LeadCrmCard({
       ) : null}
       {call?.recordingStatus === "UPLOADED" ? <div onPointerDown={(event) => event.stopPropagation()}><CallRecordingPlayer callId={call.id} expectedDurationSeconds={call.durationSeconds} labelText={`${lead.customerName} recording`} /></div> : null}
       {lead.customerPhone ? (
-        isLeadFromApi(lead.source) ? (
-          <div style={{ display: "flex", gap: "6px", width: "100%" }} onPointerDown={(event) => event.stopPropagation()}>
-            <button
-              className="sales-secondary-button compact"
-              onClick={() => (onOpenChat ? onOpenChat(lead.id, "company") : onOpen(lead.id))}
-              style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "4px", fontSize: "11px", borderColor: "rgba(16, 185, 129, 0.4)", color: "#059669" }}
-              title="Open CRM chat (Company WhatsApp)"
-              type="button"
-            >
-              <Building2 size={12} /> Company WA
-            </button>
-            <button
-              className="sales-secondary-button compact"
-              onClick={() => (onOpenChat ? onOpenChat(lead.id, "connected_user") : onOpen(lead.id))}
-              style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "4px", fontSize: "11px", borderColor: "rgba(2, 132, 199, 0.4)", color: "#0284c7" }}
-              title="Open CRM chat (Closer Business WhatsApp - Synced Device)"
-              type="button"
-            >
-              <Smartphone size={12} /> Closer Business WA
-            </button>
-          </div>
-        ) : (
-          <button
+        <div style={{ display: "flex", gap: "6px", width: "100%", alignItems: "center" }} onPointerDown={(event) => event.stopPropagation()}>
+          <a
+            aria-label={`Call ${lead.customerName}`}
             className="sales-secondary-button compact"
-            onClick={() => (onOpenChat ? onOpenChat(lead.id) : onOpen(lead.id))}
-            onPointerDown={(event) => event.stopPropagation()}
-            type="button"
+            href={`tel:${lead.customerPhone.replace(/[^\d+]/g, "")}`}
+            style={{
+              flex: "0 0 auto",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "4px",
+              padding: "5px 9px",
+              color: "#10b981",
+              borderColor: "rgba(16, 185, 129, 0.4)",
+              background: "rgba(16, 185, 129, 0.08)",
+              textDecoration: "none",
+              fontWeight: 600,
+            }}
+            title={`Call ${lead.customerName} (${lead.customerPhone})`}
           >
-            <MessageCircle size={12} /> Open WhatsApp chat
-          </button>
-        )
+            <PhoneCall size={12} /> Call
+          </a>
+          {isLeadFromApi(lead.source) ? (
+            <div style={{ display: "flex", gap: "4px", flex: 1 }}>
+              <button
+                className="sales-secondary-button compact"
+                onClick={() => (onOpenChat ? onOpenChat(lead.id, "company") : onOpen(lead.id))}
+                style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "3px", fontSize: "11px", borderColor: "rgba(16, 185, 129, 0.4)", color: "#059669" }}
+                title="Open CRM chat (Company WhatsApp)"
+                type="button"
+              >
+                <Building2 size={11} /> Co. WA
+              </button>
+              <button
+                className="sales-secondary-button compact"
+                onClick={() => (onOpenChat ? onOpenChat(lead.id, "connected_user") : onOpen(lead.id))}
+                style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "3px", fontSize: "11px", borderColor: "rgba(2, 132, 199, 0.4)", color: "#0284c7" }}
+                title="Open CRM chat (Closer Business WhatsApp - Synced Device)"
+                type="button"
+              >
+                <Smartphone size={11} /> Rep WA
+              </button>
+            </div>
+          ) : (
+            <button
+              className="sales-secondary-button compact"
+              onClick={() => (onOpenChat ? onOpenChat(lead.id) : onOpen(lead.id))}
+              style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "4px" }}
+              type="button"
+            >
+              <MessageCircle size={12} /> WhatsApp
+            </button>
+          )}
+        </div>
       ) : null}
     </article>
   );
@@ -4247,6 +4416,26 @@ function LeadDetailForm({
           <button className="sales-secondary-button compact" onClick={() => onStage(lead.id, "CLOSED_WON")} type="button">
             Mark Won
           </button>
+          {lead.customerPhone ? (
+            <a
+              aria-label={`Call ${lead.customerName}`}
+              className="sales-secondary-button compact"
+              href={`tel:${lead.customerPhone.replace(/[^\d+]/g, "")}`}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "5px",
+                color: "#10b981",
+                borderColor: "rgba(16, 185, 129, 0.4)",
+                background: "rgba(16, 185, 129, 0.08)",
+                textDecoration: "none",
+                fontWeight: 600,
+              }}
+              title={`Call ${lead.customerName} (${lead.customerPhone})`}
+            >
+              <PhoneCall size={13} /> Call Customer
+            </a>
+          ) : null}
           {lead.customerPhone ? (
             isApiLead ? (
               <>

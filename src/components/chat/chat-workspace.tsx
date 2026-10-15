@@ -177,6 +177,7 @@ type ChatWorkspaceProps = {
   customerId?: string;
   serviceIdFilter?: string;
   tenantId?: string;
+  selectedAgentId?: string | null;
 };
 
 type PendingUploadTarget = "local";
@@ -1818,16 +1819,18 @@ function ChatDetailsSheet({
   title,
   eyebrow,
   onClose,
+  desktop = false,
   children,
 }: {
   title: string;
   eyebrow: string;
   onClose: () => void;
+  desktop?: boolean;
   children: ReactNode;
 }) {
-  return (
+  const sheet = (
     <div
-      className={styles.detailsBackdrop}
+      className={cx(styles.detailsBackdrop, desktop ? styles.detailsDesktop : undefined)}
       onClick={onClose}
       role="presentation"
     >
@@ -1848,6 +1851,8 @@ function ChatDetailsSheet({
       </aside>
     </div>
   );
+
+  return desktop && typeof document !== "undefined" ? createPortal(sheet, document.body) : sheet;
 }
 
 function isAbortError(error: unknown) {
@@ -1867,6 +1872,7 @@ async function fetchConversations(input: {
   limit?: number;
   serviceId?: string;
   tenantId?: string;
+  agentId?: string | null;
   signal?: AbortSignal;
 }) {
   const params = new URLSearchParams({ audience: input.audience });
@@ -1876,6 +1882,7 @@ async function fetchConversations(input: {
   if (input.limit) params.set("limit", String(input.limit));
   if (input.serviceId) params.set("serviceId", input.serviceId);
   if (input.tenantId) params.set("tenantId", input.tenantId);
+  if (input.agentId && input.agentId !== "all") params.set("agentId", input.agentId);
   const response = await fetch(`/api/conversations?${params.toString()}`, { cache: "no-store", signal: input.signal });
   const payload = (await response.json().catch(() => null)) as ({ ok?: boolean; error?: string; supportDataIncluded?: boolean } & DummyConversationListResponse) | null;
   if (!response.ok || !payload?.ok) {
@@ -1972,6 +1979,7 @@ function ChatWorkspaceInner({
   customerId = "",
   serviceIdFilter = "",
   tenantId = "",
+  selectedAgentId = null,
 }: ChatWorkspaceProps) {
   const searchParams = useSearchParams();
   const [titleActionHost, setTitleActionHost] = useState<HTMLElement | null>(null);
@@ -2338,6 +2346,12 @@ function ChatWorkspaceInner({
       isActive = false;
     };
   }, [isDetailsOpen, activeConversation?.id]);
+
+  useEffect(() => {
+    if (!isCompactChatLayout && activeConversation?.id) {
+      setIsDetailsOpen(true);
+    }
+  }, [activeConversation?.id, isCompactChatLayout]);
 
   const activeAssignedEditor = assignableEditors.find((editor) => editor.id === activeAssignment?.assignedFreelancerId) ?? null;
   const activeFreelancerLanePermission = activeConversation?.freelancerCustomerLanePermission ?? null;
@@ -3068,6 +3082,7 @@ function ChatWorkspaceInner({
           limit: 1000,
           serviceId: serviceIdFilter,
           tenantId,
+          agentId: selectedAgentId,
           signal: controller.signal,
         });
         if (!isMountedRef.current || controller.signal.aborted) {
@@ -3128,7 +3143,7 @@ function ChatWorkspaceInner({
 
     inboxLoadPromiseRef.current = request;
     return request;
-  }, [audience, customerId, notifyAboutIncomingMessages, requestedConversationId, serviceIdFilter, tenantId]);
+  }, [audience, customerId, notifyAboutIncomingMessages, requestedConversationId, serviceIdFilter, tenantId, selectedAgentId]);
 
   const loadSupportData = useCallback(() => {
     if (hasLoadedSupportData) {
@@ -3774,7 +3789,7 @@ function ChatWorkspaceInner({
       setIsAssignMenuOpen(false);
       setIsLeadStatusMenuOpen(false);
       setIsNotesMenuOpen(false);
-      setIsDetailsOpen(false);
+      setIsDetailsOpen(!isCompactChatLayout);
       if (conversation.unreadCount > 0) {
         markConversationRead(conversation.id).catch(() => undefined);
       }
@@ -5817,22 +5832,26 @@ function ChatWorkspaceInner({
       ) : null}
 
       <button
+        aria-label="More filters"
         className={isFilterMenuOpen ? "chat-filter-button active" : "chat-filter-button"}
         onClick={() => setIsFilterMenuOpen((current) => !current)}
         type="button"
         title="More filters"
       >
         <Filter size={14} strokeWidth={1.8} />
+        <span className="chat-filter-action-label">More filters</span>
       </button>
 
       {(audience === "admin" || audience === "manager" || audience === "sales") ? (
         <button
+          aria-label="New chat"
           className="chat-filter-button"
           onClick={() => { closeTransientMenus(); setIsNewChatOpen(true); }}
           type="button"
           title="New Chat"
         >
           <Plus size={14} strokeWidth={1.8} />
+          <span className="chat-filter-action-label">New chat</span>
         </button>
       ) : null}
     </ChatFilterBar>
@@ -5990,7 +6009,7 @@ function ChatWorkspaceInner({
 
   return (
     <>
-      <div className={cx(styles.shell, "aicloser-web-chat-shell")}>
+      <div className={cx(styles.shell, "aicloser-web-chat-shell", !isCompactChatLayout && isDetailsOpen ? styles.shellWithDetails : undefined)}>
         {titleNotificationAction}
         {showConversationRail ? <aside className={cx(styles.rail, isCompactChatLayout ? styles.railFullScreen : undefined)}>
           <ChatSidebarHeader
@@ -6080,8 +6099,14 @@ function ChatWorkspaceInner({
         </aside> : null}
 
         {showConversationStage && activeConversation ? <section className={cx(styles.stage, isCompactChatLayout ? styles.stageFullScreen : undefined)}>
-          <header className={cx("chat-thread-head crm-chat-head", styles.stageHeader, isCompactChatLayout ? styles.compactStageHeader : undefined)}>
-            <div className={cx("chat-thread-head-main", isCompactChatLayout ? styles.compactStageHeaderMain : undefined)}>
+          <header
+            className={cx("chat-thread-head crm-chat-head", styles.stageHeader, isCompactChatLayout ? styles.compactStageHeader : undefined)}
+            style={isCompactChatLayout ? undefined : { display: "flex", flexWrap: "wrap", alignItems: "stretch", justifyContent: "flex-start", gap: 0, padding: 0, overflow: "visible" }}
+          >
+            <div
+              className={cx("chat-thread-head-main", isCompactChatLayout ? styles.compactStageHeaderMain : undefined)}
+              style={isCompactChatLayout ? undefined : { flex: "0 0 100%", width: "100%", minWidth: 0, boxSizing: "border-box" }}
+            >
               {isCompactChatLayout ? (
                 <button
                   aria-label="Back to chats"
@@ -6453,36 +6478,70 @@ function ChatWorkspaceInner({
                       );
                     })()}
 
-                    {/* 7. WhatsApp Number Match */}
-                    <span
-                      className={cx("crm-status-icon-chip", registrationStatus.whatsappMatch === "MATCH" ? "is-on" : "is-warn")}
-                      title={`Phone Match: ${whatsappMatchLabel}`}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        width: "26px",
-                        height: "26px",
-                        borderRadius: "7px",
-                        background: registrationStatus.whatsappMatch === "MATCH"
-                          ? "rgba(34, 197, 94, 0.2)"
-                          : "rgba(245, 158, 11, 0.18)",
-                        border: registrationStatus.whatsappMatch === "MATCH"
-                          ? "1.5px solid #22c55e"
-                          : "1.5px solid #f59e0b",
-                        color: registrationStatus.whatsappMatch === "MATCH"
-                          ? "#4ade80"
-                          : "#fbbf24",
-                        boxShadow: registrationStatus.whatsappMatch === "MATCH"
-                          ? "0 0 12px rgba(34, 197, 94, 0.8), 0 0 22px rgba(34, 197, 94, 0.35), inset 0 0 8px rgba(34, 197, 94, 0.3)"
-                          : "0 0 12px rgba(245, 158, 11, 0.7), inset 0 0 6px rgba(245, 158, 11, 0.25)",
-                        opacity: 1,
-                        cursor: "help",
-                        transition: "all 0.2s ease",
-                      }}
-                    >
-                      <PhoneCall size={13} strokeWidth={2.5} />
-                    </span>
+                    {/* 7. WhatsApp Number Match & 1-Click Dialer */}
+                    {activeConversation.customerPhone ? (
+                      <a
+                        href={`tel:${activeConversation.customerPhone.replace(/[^\d+]/g, "")}`}
+                        className={cx("crm-status-icon-chip", "crm-header-dialer-action", registrationStatus.whatsappMatch === "MATCH" ? "is-on" : "is-warn")}
+                        title={`Call ${activeCustomerName} (${activeConversation.customerPhone}) • Phone Match: ${whatsappMatchLabel}`}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          width: "28px",
+                          height: "28px",
+                          borderRadius: "7px",
+                          textDecoration: "none",
+                          background: registrationStatus.whatsappMatch === "MATCH"
+                            ? "rgba(34, 197, 94, 0.2)"
+                            : "rgba(245, 158, 11, 0.18)",
+                          border: registrationStatus.whatsappMatch === "MATCH"
+                            ? "1.5px solid #22c55e"
+                            : "1.5px solid #f59e0b",
+                          color: registrationStatus.whatsappMatch === "MATCH"
+                            ? "#4ade80"
+                            : "#fbbf24",
+                          boxShadow: registrationStatus.whatsappMatch === "MATCH"
+                            ? "0 0 12px rgba(34, 197, 94, 0.8), 0 0 22px rgba(34, 197, 94, 0.35), inset 0 0 8px rgba(34, 197, 94, 0.3)"
+                            : "0 0 12px rgba(245, 158, 11, 0.7), inset 0 0 6px rgba(245, 158, 11, 0.25)",
+                          opacity: 1,
+                          cursor: "pointer",
+                          transition: "all 0.2s ease",
+                        }}
+                      >
+                        <PhoneCall size={14} strokeWidth={2.5} />
+                      </a>
+                    ) : (
+                      <span
+                        className={cx("crm-status-icon-chip", registrationStatus.whatsappMatch === "MATCH" ? "is-on" : "is-warn")}
+                        title={`Phone Match: ${whatsappMatchLabel}`}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          width: "26px",
+                          height: "26px",
+                          borderRadius: "7px",
+                          background: registrationStatus.whatsappMatch === "MATCH"
+                            ? "rgba(34, 197, 94, 0.2)"
+                            : "rgba(245, 158, 11, 0.18)",
+                          border: registrationStatus.whatsappMatch === "MATCH"
+                            ? "1.5px solid #22c55e"
+                            : "1.5px solid #f59e0b",
+                          color: registrationStatus.whatsappMatch === "MATCH"
+                            ? "#4ade80"
+                            : "#fbbf24",
+                          boxShadow: registrationStatus.whatsappMatch === "MATCH"
+                            ? "0 0 12px rgba(34, 197, 94, 0.8), 0 0 22px rgba(34, 197, 94, 0.35), inset 0 0 8px rgba(34, 197, 94, 0.3)"
+                            : "0 0 12px rgba(245, 158, 11, 0.7), inset 0 0 6px rgba(245, 158, 11, 0.25)",
+                          opacity: 1,
+                          cursor: "help",
+                          transition: "all 0.2s ease",
+                        }}
+                      >
+                        <PhoneCall size={13} strokeWidth={2.5} />
+                      </span>
+                    )}
 
                     {/* Dynamic Status Summary Badge */}
                     {(() => {
@@ -6607,7 +6666,10 @@ function ChatWorkspaceInner({
               </div>
             </div>
 
-            <div className="chat-thread-head-toolbar crm-chat-head-actions chat-focused-actions">
+            <div
+              className="chat-thread-head-toolbar crm-chat-head-actions chat-focused-actions"
+              style={isCompactChatLayout ? undefined : { flex: "0 0 100%", width: "100%", maxWidth: "none", minWidth: 0, boxSizing: "border-box" }}
+            >
               {(audience === "admin" || audience === "manager" || audience === "sales") ? (
                 <>
                   <div className="chat-thread-head-action-group chat-status-notes-actions">
@@ -7366,7 +7428,7 @@ function ChatWorkspaceInner({
           </div>
 
           {isDetailsOpen ? (
-            <ChatDetailsSheet eyebrow="Customer history" onClose={() => setIsDetailsOpen(false)} title={activeCustomerName}>
+            <ChatDetailsSheet desktop={!isCompactChatLayout} eyebrow="Customer Details" onClose={() => setIsDetailsOpen(false)} title={activeCustomerName}>
               <div className={styles.detailsGrid}>
                 {/* 1. Lead stage */}
                 <div
