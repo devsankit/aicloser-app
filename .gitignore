@@ -105,3 +105,14 @@ next-env.d.ts
 /data/uploads/
 apps/crm-mobile/emulator_screen.png
 apps/crm-mobile/.kotlin/
+ 
+# Gradle home and JVM heap dumps
+.gradle-home/
+*.hprof
+
+# Mobile backups and QA test artifacts
+apps/crm-mobile/backups/
+docs/qa/aicloser-tester/runs/
+docs/qa/aicloser-tester/screenshots/
+docs/qa/aicloser-tester/*.zip
+docs/qa/aicloser-tester/reference-pack-19-screens-*/
