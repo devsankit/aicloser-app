@@ -1292,3 +1292,210 @@
     transition: none;
   }
 }
+
+/* Desktop header: keep the customer identity and a compact actions toggle in
+   one row. The existing action controls remain mounted in the panel opened by
+   the toggle, so Notes, Status, assignment and lane actions keep their
+   current handlers and keyboard semantics. */
+@media (min-width: 861px) {
+  .shell .stageHeader {
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+    min-height: 66px !important;
+    padding: 8px 12px !important;
+    box-sizing: border-box !important;
+    position: relative !important;
+    z-index: 5 !important;
+  }
+
+  .stageHeader > :global(.chat-thread-head-main) {
+    flex: 1 1 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    min-height: 48px !important;
+    padding: 0 !important;
+    border-bottom: 0 !important;
+  }
+
+  /* Reserve the compact control's footprint while keeping it out of the
+     flex flow, so a narrow desktop chat column still has one clean row. */
+  .stageHeader:not(.has-header-actions-open) > :global(.chat-thread-head-main) {
+    padding-right: 104px !important;
+  }
+
+  .stageHeader :global(.chat-profile-trigger) {
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  .stageHeader :global(.chat-header-actions-cluster) {
+    position: relative;
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    min-width: 0;
+  }
+
+  .stageHeader:not(.has-header-actions-open) :global(.chat-header-actions-cluster) {
+    position: absolute;
+    top: 8px;
+    right: 12px;
+    z-index: 12;
+  }
+
+  .stageHeader:not(.has-header-actions-open) {
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+  }
+
+  .stageHeader:not(.has-header-actions-open) > :global(.chat-thread-head-main) {
+    padding-right: 0 !important;
+  }
+
+  .stageHeader:not(.has-header-actions-open) :global(.chat-header-actions-cluster) {
+    position: relative;
+    top: auto;
+    right: auto;
+  }
+
+  .stageHeader :global(.chat-header-actions-toggle) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-width: 36px;
+    min-height: 34px;
+    padding: 0 9px;
+    border: 1px solid color-mix(in srgb, var(--line-strong) 78%, var(--accent) 22%);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--surface) 92%, var(--accent) 8%);
+    color: var(--muted);
+    font-size: 0.7rem;
+    font-weight: 800;
+    cursor: pointer;
+    transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+  }
+
+  /* The closed state is an icon-only disclosure control. This keeps the
+     identity row readable even when the center chat column is narrow. */
+  .stageHeader:not(.has-header-actions-open) :global(.chat-header-actions-toggle) {
+    width: 34px;
+    min-width: 34px;
+    padding-inline: 0;
+  }
+
+  .stageHeader:not(.has-header-actions-open) :global(.chat-header-actions-toggle) span {
+    display: none;
+  }
+
+  .stageHeader :global(.chat-header-actions-toggle:hover),
+  .stageHeader :global(.chat-header-actions-toggle:focus-visible) {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--surface) 82%, var(--accent) 18%);
+    color: var(--foreground);
+  }
+
+  .stageHeader :global(.chat-header-actions-cluster.is-open) :global(.chat-header-actions-toggle) {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--foreground);
+  }
+
+  .stageHeader :global(.chat-thread-head-toolbar) {
+    position: absolute !important;
+    top: calc(100% + 8px) !important;
+    right: 0 !important;
+    z-index: 20 !important;
+    display: none !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    flex-wrap: wrap !important;
+    width: max-content !important;
+    max-width: min(680px, calc(100vw - 32px)) !important;
+    min-width: 0 !important;
+    padding: 9px !important;
+    border: 1px solid color-mix(in srgb, var(--line-strong) 78%, var(--accent) 22%) !important;
+    border-radius: 14px !important;
+    background: color-mix(in srgb, var(--surface) 96%, var(--accent) 4%) !important;
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.28) !important;
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+  }
+
+  .stageHeader :global(.chat-header-actions-cluster.is-open) :global(.chat-thread-head-toolbar) {
+    display: flex !important;
+  }
+
+  /* Opening the action rail expands the header itself instead of covering the
+     conversation. Closed state remains a single compact row. */
+  .stageHeader.has-header-actions-open {
+    flex-wrap: wrap !important;
+    align-items: stretch !important;
+  }
+
+  .stageHeader.has-header-actions-open :global(.chat-header-actions-cluster) {
+    flex: 0 0 100%;
+    justify-content: flex-end;
+    padding-top: 2px;
+  }
+
+  .stageHeader.has-header-actions-open :global(.chat-thread-head-toolbar) {
+    position: static !important;
+    inset: auto !important;
+    width: auto !important;
+    max-width: 100% !important;
+    margin-left: auto;
+    box-shadow: none !important;
+  }
+
+  .stageHeader :global(.chat-thread-head-toolbar) :global(.chat-status-notes-actions),
+  .stageHeader :global(.chat-thread-head-toolbar) :global(.chat-assignment-actions),
+  .stageHeader :global(.chat-thread-head-toolbar) :global(.chat-lane-actions) {
+    flex: 0 0 auto;
+  }
+}
+
+@media (max-width: 860px) {
+  .stageHeader :global(.chat-header-actions-toggle) {
+    display: none;
+  }
+
+  .stageHeader :global(.chat-header-actions-cluster) {
+    display: contents;
+  }
+}
+
+@media (min-width: 861px) {
+  /* Customer details is rendered in a fixed portal layer. Keep the header
+     action cluster visually inside the remaining conversation column even
+     when a legacy global grid rule wins the shell padding cascade. */
+  .shellWithDetails .stageHeader :global(.chat-header-actions-cluster) {
+    transform: translateX(calc(-1 * clamp(250px, 18vw, 300px)));
+  }
+}
+
+:global([data-theme="light"]) .stageHeader :global(.chat-header-actions-toggle),
+:global(.light) .stageHeader :global(.chat-header-actions-toggle) {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+}
+
+:global([data-theme="light"]) .stageHeader :global(.chat-header-actions-toggle:hover),
+:global([data-theme="light"]) .stageHeader :global(.chat-header-actions-toggle:focus-visible),
+:global(.light) .stageHeader :global(.chat-header-actions-toggle:hover),
+:global(.light) .stageHeader :global(.chat-header-actions-toggle:focus-visible) {
+  border-color: #f97316;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+:global([data-theme="light"]) .stageHeader :global(.chat-thread-head-toolbar),
+:global(.light) .stageHeader :global(.chat-thread-head-toolbar) {
+  border-color: #cbd5e1 !important;
+  background: #ffffff !important;
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.14) !important;
+}

@@ -2040,6 +2040,7 @@ function ChatWorkspaceInner({
   const [isCreateLabelModalOpen, setIsCreateLabelModalOpen] = useState(false);
   const [customLabelSelectedColor, setCustomLabelSelectedColor] = useState<WhatsAppLabelColor>(WHATSAPP_LABEL_COLORS[0]);
   const [isNotesMenuOpen, setIsNotesMenuOpen] = useState(false);
+  const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(false);
   const [notesDraft, setNotesDraft] = useState("");
   const [followUpDraft, setFollowUpDraft] = useState("");
   const [isNotesSaving, setIsNotesSaving] = useState(false);
@@ -2415,7 +2416,6 @@ function ChatWorkspaceInner({
           setRegistrationStatus(payload && typeof payload === "object" ? payload : { available: false });
           const isRegOrTrial = Boolean(
             payload?.registered === true ||
-            payload?.freelancerRegistered === true ||
             payload?.billingState === "TRIAL" ||
             payload?.billingState === "PAID" ||
             payload?.billingState === "FREE"
@@ -2429,14 +2429,8 @@ function ChatWorkspaceInner({
       .catch(() => { if (!cancelled) setRegistrationStatus({ available: false }); });
     return () => { cancelled = true; };
   }, [activeConversation?.id]);
-  const activeCustomerHeaderContact = audience === "freelancer" ? "Customer contact hidden" : activeCustomerPhone;
-  const registeredInAgency = registrationStatus?.registered;
-  const appInstalledRaw = registrationStatus?.appInstalled;
-  // The live registration endpoint explicitly answers `registered: false`
-  // when no Gigxomi account exists for the phone. In that case the account
-  // cannot have the app installed or a paid subscription, so show a useful
-  // No instead of leaving the closer with an ambiguous Unknown.
-  const appInstalled = appInstalledRaw ?? (registeredInAgency === false ? false : undefined);
+  const activeCustomerHeaderContact = activeCustomerPhone;
+  const appInstalled = Boolean(registrationStatus?.appInstalled);
   const registrationStateLabel = (value: boolean | undefined) => value === undefined ? "Unknown" : value ? "Yes" : "No";
   const registrationStateTone = (value: boolean | undefined) => value === undefined ? "neutral" : value ? "yes" : "no";
   const billingStateLabel = registrationStatus?.billingState === "PAID" ? "Paid" : registrationStatus?.billingState === "TRIAL" ? "Trial" : registrationStatus?.billingState === "TRIAL_EXPIRED" ? "Trial expired" : registrationStatus?.billingState === "PAYMENT_PENDING" ? "Payment pending" : registrationStatus?.billingState === "FREE" ? "Free" : "Unknown";
@@ -3789,6 +3783,7 @@ function ChatWorkspaceInner({
       setIsAssignMenuOpen(false);
       setIsLeadStatusMenuOpen(false);
       setIsNotesMenuOpen(false);
+      setIsHeaderActionsOpen(false);
       setIsDetailsOpen(!isCompactChatLayout);
       if (conversation.unreadCount > 0) {
         markConversationRead(conversation.id).catch(() => undefined);
@@ -5862,7 +5857,6 @@ function ChatWorkspaceInner({
       Boolean(searchValue.trim()) ||
       activeFilter !== "all" ||
       channelFilter !== "all" ||
-      agencyFilter !== "all" ||
       assignedFilter !== "all" ||
       paymentPendingOnly ||
       leadStatusFilterId !== "all";
@@ -5872,13 +5866,9 @@ function ChatWorkspaceInner({
         ? "No matching threads"
         : "No conversations ready yet";
     const emptySidebarCopy = isInboxLoading
-      ? audience === "freelancer"
-        ? "Checking your active agency assignments and synced customer threads."
-        : "Loading your latest customer conversations."
+      ? "Loading your latest customer conversations."
       : isFilteringInbox
         ? "Try clearing the current search or filters to bring matching threads back into the rail."
-        : audience === "freelancer"
-        ? "Assigned chats across your active agencies will start appearing here."
         : "New customer conversations from WhatsApp, Instagram, and your connected channels will appear here.";
     const emptyMainTitle = isInboxLoading
       ? "Loading chats"
@@ -5888,16 +5878,12 @@ function ChatWorkspaceInner({
           ? "No threads matched this view"
           : "No conversations yet";
     const emptyMainCopy = isInboxLoading
-      ? audience === "freelancer"
-        ? "We are checking the assigned agency threads and lane permissions for your editor account."
-        : ""
+      ? ""
       : composerStatus
         ? composerStatus
         : isFilteringInbox
           ? "Clear the active search or filters and the full inbox will return here."
-        : audience === "freelancer"
-          ? "When an agency assigns you a routed client thread, it will show up here with the right lane permissions."
-          : "New WhatsApp, Instagram, and internal manual intakes will land here automatically.";
+          : "New WhatsApp, Instagram, and CRM leads will land here automatically.";
 
     return (
       <div className={cx(styles.shell, "aicloser-web-chat-shell")}>
@@ -5906,38 +5892,8 @@ function ChatWorkspaceInner({
           <ChatSidebarHeader
             extra={
               <>
-                {audience === "freelancer" && agencyFilterOptions.length > 1 ? (
-                  <div className="chat-agency-filter-row">
-                    <button className={agencyFilter === "all" ? "chat-filter-chip active" : "chat-filter-chip"} onClick={() => setAgencyFilter("all")} type="button">
-                      All agencies
-                    </button>
-                    {agencyFilterOptions.map((item) => (
-                      <button
-                        className={agencyFilter === item.tenantId ? "chat-filter-chip active" : "chat-filter-chip"}
-                        key={item.tenantId}
-                        onClick={() => setAgencyFilter(item.tenantId)}
-                        type="button"
-                      >
-                        {item.agencyName}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
                 {isFilterMenuOpen ? (
                   <div className="chat-filter-popover">
-                    {audience === "freelancer" ? (
-                      <label className="chat-control-field">
-                        <span>Agency</span>
-                        <select value={agencyFilter} onChange={(event) => setAgencyFilter(event.target.value)}>
-                          <option value="all">All active agencies</option>
-                          {agencyFilterOptions.map((item) => (
-                            <option key={item.tenantId} value={item.tenantId}>
-                              {item.agencyName}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    ) : null}
                     <label className="chat-control-field">
                       <span>Lead status</span>
                       <select value={leadStatusFilterId} onChange={(event) => setLeadStatusFilterId(event.target.value)}>
@@ -6009,7 +5965,10 @@ function ChatWorkspaceInner({
 
   return (
     <>
-      <div className={cx(styles.shell, "aicloser-web-chat-shell", !isCompactChatLayout && isDetailsOpen ? styles.shellWithDetails : undefined)}>
+      <div
+        className={cx(styles.shell, "aicloser-web-chat-shell", !isCompactChatLayout && isDetailsOpen ? styles.shellWithDetails : undefined)}
+        style={!isCompactChatLayout && isDetailsOpen ? { paddingRight: "clamp(268px, 18vw, 300px)", boxSizing: "border-box" } : undefined}
+      >
         {titleNotificationAction}
         {showConversationRail ? <aside className={cx(styles.rail, isCompactChatLayout ? styles.railFullScreen : undefined)}>
           <ChatSidebarHeader
@@ -6100,7 +6059,12 @@ function ChatWorkspaceInner({
 
         {showConversationStage && activeConversation ? <section className={cx(styles.stage, isCompactChatLayout ? styles.stageFullScreen : undefined)}>
           <header
-            className={cx("chat-thread-head crm-chat-head", styles.stageHeader, isCompactChatLayout ? styles.compactStageHeader : undefined)}
+            className={cx(
+              "chat-thread-head crm-chat-head",
+              styles.stageHeader,
+              isCompactChatLayout ? styles.compactStageHeader : undefined,
+              isHeaderActionsOpen ? "has-header-actions-open" : undefined,
+            )}
             style={isCompactChatLayout ? undefined : { display: "flex", flexWrap: "wrap", alignItems: "stretch", justifyContent: "flex-start", gap: 0, padding: 0, overflow: "visible" }}
           >
             <div
@@ -6269,53 +6233,7 @@ function ChatWorkspaceInner({
                 </div>
                 {registrationStatus ? (
                   <div className="crm-status-icon-bar" style={{ display: "flex", alignItems: "center", gap: "7px", marginTop: "6px", flexWrap: "wrap" }}>
-                    {/* 1. Agency Registration */}
-                    <span
-                      className={cx("crm-status-icon-chip", registeredInAgency ? "is-on" : "is-off")}
-                      title={`Agency Registration: ${registrationStateLabel(registeredInAgency)}${registeredInAgency && registrationStatus.planName ? ` (${registrationStatus.planName})` : ""}`}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        width: "26px",
-                        height: "26px",
-                        borderRadius: "7px",
-                        background: registeredInAgency ? "rgba(6, 182, 212, 0.2)" : "rgba(255, 255, 255, 0.025)",
-                        border: registeredInAgency ? "1.5px solid #06b6d4" : "1px solid rgba(255, 255, 255, 0.08)",
-                        color: registeredInAgency ? "#22d3ee" : "rgba(255, 255, 255, 0.22)",
-                        boxShadow: registeredInAgency ? "0 0 12px rgba(6, 182, 212, 0.8), 0 0 22px rgba(6, 182, 212, 0.35), inset 0 0 8px rgba(6, 182, 212, 0.3)" : "none",
-                        opacity: registeredInAgency ? 1 : 0.38,
-                        cursor: "help",
-                        transition: "all 0.2s ease",
-                      }}
-                    >
-                      <Building2 size={13} strokeWidth={registeredInAgency ? 2.5 : 1.8} />
-                    </span>
-
-                    {/* 2. Freelancer Registration */}
-                    <span
-                      className={cx("crm-status-icon-chip", registrationStatus.freelancerRegistered ? "is-on" : "is-off")}
-                      title={`Freelancer Registration: ${registrationStateLabel(registrationStatus.freelancerRegistered)}`}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        width: "26px",
-                        height: "26px",
-                        borderRadius: "7px",
-                        background: registrationStatus.freelancerRegistered ? "rgba(168, 85, 247, 0.2)" : "rgba(255, 255, 255, 0.025)",
-                        border: registrationStatus.freelancerRegistered ? "1.5px solid #a855f7" : "1px solid rgba(255, 255, 255, 0.08)",
-                        color: registrationStatus.freelancerRegistered ? "#c084fc" : "rgba(255, 255, 255, 0.22)",
-                        boxShadow: registrationStatus.freelancerRegistered ? "0 0 12px rgba(168, 85, 247, 0.8), 0 0 22px rgba(168, 85, 247, 0.35), inset 0 0 8px rgba(168, 85, 247, 0.3)" : "none",
-                        opacity: registrationStatus.freelancerRegistered ? 1 : 0.38,
-                        cursor: "help",
-                        transition: "all 0.2s ease",
-                      }}
-                    >
-                      <User size={13} strokeWidth={registrationStatus.freelancerRegistered ? 2.5 : 1.8} />
-                    </span>
-
-                    {/* 3. Mobile App Installed */}
+                    {/* 1. Mobile App Installed */}
                     <span
                       className={cx("crm-status-icon-chip", appInstalled ? "is-on" : "is-off")}
                       title={`Mobile App: ${registrationStateLabel(appInstalled)}`}
@@ -6543,133 +6461,68 @@ function ChatWorkspaceInner({
                       </span>
                     )}
 
-                    {/* Dynamic Status Summary Badge */}
-                    {(() => {
-                      if (registeredInAgency) {
-                        return (
-                          <span
-                            className="crm-live-status-pill agency"
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "5px",
-                              fontSize: "11px",
-                              fontWeight: 600,
-                              padding: "3px 10px",
-                              borderRadius: "999px",
-                              background: "rgba(6, 182, 212, 0.16)",
-                              border: "1px solid rgba(6, 182, 212, 0.5)",
-                              color: "#22d3ee",
-                              boxShadow: "0 0 10px rgba(6, 182, 212, 0.3)",
-                            }}
-                          >
-                            <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#06b6d4", boxShadow: "0 0 6px #06b6d4" }} />
-                            <span>Account · {registrationStatus.planName || "Active"}</span>
-                            {registrationStatus.planDaysRemaining !== null ? (
-                              <span style={{ opacity: 0.8, fontSize: "10px" }}>({registrationStatus.planDaysRemaining}d left)</span>
-                            ) : null}
-                          </span>
-                        );
-                      }
-                      if (registrationStatus.freelancerRegistered) {
-                        return (
-                          <span
-                            className="crm-live-status-pill freelancer"
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "5px",
-                              fontSize: "11px",
-                              fontWeight: 600,
-                              padding: "3px 10px",
-                              borderRadius: "999px",
-                              background: "rgba(168, 85, 247, 0.16)",
-                              border: "1px solid rgba(168, 85, 247, 0.5)",
-                              color: "#c084fc",
-                              boxShadow: "0 0 10px rgba(168, 85, 247, 0.3)",
-                            }}
-                          >
-                            <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#a855f7", boxShadow: "0 0 6px #a855f7" }} />
-                            <span>Registered Contact</span>
-                          </span>
-                        );
-                      }
-                      if (registrationStatus.billingState === "TRIAL") {
-                        return (
-                          <span
-                            className="crm-live-status-pill trial"
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "5px",
-                              fontSize: "11px",
-                              fontWeight: 600,
-                              padding: "3px 10px",
-                              borderRadius: "999px",
-                              background: "rgba(56, 189, 248, 0.16)",
-                              border: "1px solid rgba(56, 189, 248, 0.5)",
-                              color: "#38bdf8",
-                              boxShadow: "0 0 10px rgba(56, 189, 248, 0.3)",
-                            }}
-                          >
-                            <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#38bdf8", boxShadow: "0 0 6px #38bdf8" }} />
-                            <span>Free Trial · {registrationStatus.planDaysRemaining !== null ? `${registrationStatus.planDaysRemaining}d left` : "Active"}</span>
-                          </span>
-                        );
-                      }
-                      if (registrationStatus.billingState === "TRIAL_EXPIRED") {
-                        return (
-                          <span
-                            className="crm-live-status-pill expired"
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "5px",
-                              fontSize: "11px",
-                              fontWeight: 600,
-                              padding: "3px 10px",
-                              borderRadius: "999px",
-                              background: "rgba(239, 68, 68, 0.16)",
-                              border: "1px solid rgba(239, 68, 68, 0.5)",
-                              color: "#f87171",
-                              boxShadow: "0 0 10px rgba(239, 68, 68, 0.3)",
-                            }}
-                          >
-                            <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#ef4444", boxShadow: "0 0 6px #ef4444" }} />
-                            <span>Trial Expired</span>
-                          </span>
-                        );
-                      }
-                      return (
-                        <span
-                          className="crm-live-status-pill unregistered"
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "5px",
-                            fontSize: "11px",
-                            fontWeight: 500,
-                            padding: "3px 10px",
-                            borderRadius: "999px",
-                            background: "rgba(255, 255, 255, 0.04)",
-                            border: "1px solid rgba(255, 255, 255, 0.1)",
-                            color: "rgba(255, 255, 255, 0.45)",
-                          }}
-                        >
-                          <span>⏳ Unregistered Lead</span>
-                        </span>
-                      );
-                    })()}
+                    {/* Dynamic CRM Lead Stage & Status Badge */}
+                    {activeConversation.leadStatusLabel ? (
+                      <span
+                        className="crm-live-status-pill lead-stage"
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "5px",
+                          fontSize: "11px",
+                          fontWeight: 600,
+                          padding: "3px 10px",
+                          borderRadius: "999px",
+                          background: "rgba(255, 107, 47, 0.16)",
+                          border: "1px solid rgba(255, 107, 47, 0.5)",
+                          color: "#ff6b2f",
+                          boxShadow: "0 0 10px rgba(255, 107, 47, 0.3)",
+                        }}
+                      >
+                        <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#ff6b2f", boxShadow: "0 0 6px #ff6b2f" }} />
+                        <span>Stage: {activeConversation.leadStatusLabel}</span>
+                      </span>
+                    ) : (
+                      <span
+                        className="crm-live-status-pill lead"
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "5px",
+                          fontSize: "11px",
+                          fontWeight: 600,
+                          padding: "3px 10px",
+                          borderRadius: "999px",
+                          background: "rgba(34, 197, 94, 0.16)",
+                          border: "1px solid rgba(34, 197, 94, 0.5)",
+                          color: "#4ade80",
+                          boxShadow: "0 0 10px rgba(34, 197, 94, 0.3)",
+                        }}
+                      >
+                        <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 6px #22c55e" }} />
+                        <span>Active Lead</span>
+                      </span>
+                    )}
                   </div>
                 ) : null}
               </div>
               </div>
             </div>
 
-            <div
-              className="chat-thread-head-toolbar crm-chat-head-actions chat-focused-actions"
-              style={isCompactChatLayout ? undefined : { flex: "0 0 100%", width: "100%", maxWidth: "none", minWidth: 0, boxSizing: "border-box" }}
-            >
+            <div className={cx("chat-header-actions-cluster", isHeaderActionsOpen && "is-open")}>
+              <button
+                aria-expanded={isHeaderActionsOpen}
+                aria-label={isHeaderActionsOpen ? "Hide conversation actions" : "Show conversation actions"}
+                className="chat-header-actions-toggle"
+                onClick={() => setIsHeaderActionsOpen((current) => !current)}
+                title={isHeaderActionsOpen ? "Hide conversation actions" : "Show conversation actions"}
+                type="button"
+              >
+                <CircleEllipsis size={17} strokeWidth={1.8} />
+                <span>Actions</span>
+              </button>
+
+              <div className="chat-thread-head-toolbar crm-chat-head-actions chat-focused-actions">
               {(audience === "admin" || audience === "manager" || audience === "sales") ? (
                 <>
                   <div className="chat-thread-head-action-group chat-status-notes-actions">
@@ -6970,19 +6823,6 @@ function ChatWorkspaceInner({
                     </button>
                     {renderAssignPopover()}
                   </div>
-
-                  {!isCompactChatLayout && canManageFreelancerCustomerAccess ? (
-                    <button
-                      aria-label={activeFreelancerLanePermission?.enabled ? "Freelancer can reply" : "Allow freelancer reply"}
-                      className={activeFreelancerLanePermission?.enabled ? "chat-head-icon active" : "chat-head-icon"}
-                      disabled={isFreelancerAccessSaving}
-                      onClick={() => handleFreelancerCustomerAccessToggle(!activeFreelancerLanePermission?.enabled).catch(() => undefined)}
-                      title={activeFreelancerLanePermission?.enabled ? "Freelancer can reply" : "Allow freelancer reply"}
-                      type="button"
-                    >
-                      {isFreelancerAccessSaving ? <CircleEllipsis size={16} strokeWidth={1.8} /> : activeFreelancerLanePermission?.enabled ? <Check size={16} strokeWidth={1.8} /> : <CircleOff size={16} strokeWidth={1.8} />}
-                    </button>
-                  ) : null}
                 </div>
               ) : null}
 
@@ -7011,6 +6851,7 @@ function ChatWorkspaceInner({
                     <Trash2 size={16} strokeWidth={1.8} />
                   </button>
                 ) : null}
+              </div>
               </div>
             </div>
           </header>
@@ -7237,85 +7078,6 @@ function ChatWorkspaceInner({
 
               {isRecording ? <p className="chat-composer-status">Recording voice note... {recordingSeconds}s</p> : null}
               {!isMessageSending && composerStatus ? <p className="chat-composer-status">{composerStatus}</p> : null}
-              {(audience === "admin" || audience === "manager") && activeConversation?.projectIntake?.opsReviewStatus === "SUBMITTED" ? (
-                <div className="chat-context-card">
-                  <p className="section-label">Project intake ready for ops review</p>
-                  <strong>{activeConversation.projectIntake.projectName || activeConversation.projectIntake.serviceTitle || "Client project"}</strong>
-                  <p>{activeConversation.projectIntake.editingNote || "Review the form details in the internal lane, then send the offer."}</p>
-                  <div className="chat-thread-head-action-group">
-                    <button className="ui-button-primary" onClick={() => handleApproveProjectIntake().catch(() => undefined)} type="button">
-                      Approve and assign to team member
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-              {audience === "freelancer" && activeLaneCapabilities?.internal.writable === false && !activePendingOffer ? (
-                <div className="chat-context-card">
-                  <p className="section-label">Read-only project viewer</p>
-                  <strong>{activeConversation?.serviceTitle || "Project lane"}</strong>
-                  <p>You can review this chat and its project context. Only the assigned team member can reply.</p>
-                </div>
-              ) : null}
-              {audience === "freelancer" && activePendingOffer?.status === "PENDING" ? (
-                <div className="chat-context-card">
-                  <p className="section-label">Project offer</p>
-                  <strong>{activeConversation?.serviceTitle || "New project"}</strong>
-                  {activePendingOffer.expiresAt && !Number.isNaN(new Date(activePendingOffer.expiresAt).getTime()) ? <p>Accept window closes at {new Date(activePendingOffer.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.</p> : null}
-                  <p>{activePendingOffer.projectDetails}</p>
-                  {isRejectingAssignment ? (
-                    <textarea
-                      className="chat-offer-reject-reason"
-                      onChange={(event) => setAssignmentRejectReason(event.target.value)}
-                      placeholder="Reason for rejection"
-                      rows={3}
-                      value={assignmentRejectReason}
-                    />
-                  ) : null}
-                  <div className="chat-thread-head-action-group">
-                    <button className="ui-button-primary" onClick={() => handleAssignmentResponse("ACCEPT").catch(() => undefined)} type="button">
-                      Accept project
-                    </button>
-                    <button
-                      className="ui-button-secondary"
-                      onClick={() => {
-                        if (!isRejectingAssignment) {
-                          setIsRejectingAssignment(true);
-                          return;
-                        }
-                        handleAssignmentResponse("PASS").catch(() => undefined);
-                      }}
-                      type="button"
-                    >
-                      {isRejectingAssignment ? "Send rejection" : "Reject"}
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-              {audience === "freelancer" && activePendingOffer && activePendingOffer.status !== "PENDING" ? (
-                <div className="chat-context-card">
-                  <p className="section-label">Project offer update</p>
-                  <strong>{activeConversation?.serviceTitle || "Project offer"}</strong>
-                  <p>
-                    {activePendingOffer.status === "ACCEPTED"
-                      ? "You accepted this project. The internal work lane is active."
-                      : activePendingOffer.status === "PASSED"
-                        ? "You rejected this project offer. It has been kept here as a normal chat update."
-                        : activePendingOffer.expiredReason === "accepted_by_other"
-                          ? "Another editor accepted this project first. You missed this offer; stay online to receive the next one."
-                          : "This project offer expired because it was not accepted within the response window."}
-                  </p>
-                </div>
-              ) : null}
-              {(audience === "admin" || audience === "manager") && resolvedLane === "customer" ? (
-                <label className="chat-composer-private-toggle">
-                  <input
-                    checked={hideCustomerMessageFromFreelancer}
-                    onChange={(event) => setHideCustomerMessageFromFreelancer(event.target.checked)}
-                    type="checkbox"
-                  />
-                  <span>Hide this customer-lane message from freelancer</span>
-                </label>
-              ) : null}
               <div className="chat-instant-reply-bar">
                 <button
                   className="chat-instant-reply-button"
@@ -7478,44 +7240,53 @@ function ChatWorkspaceInner({
                   </div>
                 </div>
 
-                {/* 2. Live customer identity and product status */}
+                {/* 2. CRM Lead & Contact Profile */}
                 <div
                   className="chat-context-card"
                   style={{
                     gridColumn: "1 / -1",
                     borderRadius: "10px",
                     padding: "14px",
-                    background: "rgba(56, 189, 248, 0.05)",
-                    border: "1px solid rgba(56, 189, 248, 0.22)",
+                    background: "rgba(255, 107, 47, 0.04)",
+                    border: "1px solid rgba(255, 107, 47, 0.22)",
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-                    <p className="section-label" style={{ margin: 0 }}>Customer status from Gigxomi</p>
-                    <span style={{ fontSize: "10px", color: registrationStatus?.available === false ? "#fbbf24" : "#34d399", fontWeight: 700 }}>
-                      {registrationStatus?.available === false ? "Live API unavailable" : "Live API checked"}
+                    <p className="section-label" style={{ margin: 0, display: "flex", alignItems: "center", gap: "6px" }}>
+                      <User size={14} /> CRM Lead & Contact Profile
+                    </p>
+                    <span style={{ fontSize: "10px", color: "#34d399", fontWeight: 700 }}>
+                      ● Pipeline Synced
                     </span>
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(125px, 1fr))", gap: "8px" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "8px" }}>
                     {[
-                      ["Registered in agency", registrationStateLabel(registeredInAgency), registrationStateTone(registeredInAgency)],
-                      ["Registered as freelancer", registrationStateLabel(registrationStatus?.freelancerRegistered), registrationStateTone(registrationStatus?.freelancerRegistered)],
-                      ["App installed", registrationStateLabel(appInstalled), registrationStateTone(appInstalled)],
-                      ["Billing", billingStateLabel, registrationStatus?.billingState === "PAID" ? "yes" : registrationStatus?.billingState === "UNKNOWN" ? "neutral" : "warning"],
-                      ["WhatsApp", whatsappChannel?.status || "Unknown", whatsappChannel?.connected ? "yes" : whatsappChannel?.hasIssue ? "no" : "neutral"],
-                      ["Instagram", instagramChannel?.status || "Unknown", instagramChannel?.connected ? "yes" : instagramChannel?.hasIssue ? "no" : "neutral"],
-                      ["WhatsApp number", whatsappMatchLabel, registrationStatus?.whatsappMatch === "MATCH" ? "yes" : registrationStatus?.whatsappMatch === "MISMATCH" ? "no" : "neutral"],
+                      ["Phone Number", activeCustomerPhone || "No number", activeCustomerPhone ? "yes" : "neutral"],
+                      ["Lead Stage", activeConversation.leadStatusLabel || "New Lead", "yes"],
+                      ["Assigned Agent", activeAssignment?.assignedFreelancerName || "Unassigned", activeAssignment?.assignedFreelancerName ? "yes" : "neutral"],
+                      ["Lead Source", activeConversation.externalSourceType === "whatsapp_personal" ? "Personal WhatsApp" : activeConversation.externalSourceType === "whatsapp_business" ? "Connected WhatsApp" : activeConversation.sourceChannel === "whatsapp" ? "WhatsApp Cloud API" : "Direct Inbound", "neutral"],
+                      ["Channel", (activeConversation.sourceChannel || "WhatsApp").toUpperCase(), "neutral"],
+                      ["Unread Messages", String(activeConversation.unreadCount ?? 0), (activeConversation.unreadCount ?? 0) > 0 ? "warning" : "neutral"],
                     ].map(([label, value, tone]) => (
                       <div key={label} style={{ padding: "10px", borderRadius: "8px", background: "rgba(0, 0, 0, 0.22)", border: "1px solid rgba(255, 255, 255, 0.08)" }}>
                         <span style={{ display: "block", fontSize: "10px", opacity: 0.65, marginBottom: "4px" }}>{label}</span>
-                        <strong style={{ color: tone === "yes" ? "#4ade80" : tone === "no" ? "#fb7185" : "#fbbf24", fontSize: "13px" }}>{value}</strong>
+                        <strong style={{ color: tone === "yes" ? "#4ade80" : tone === "warning" ? "#fb7185" : "#e2e8f0", fontSize: "12.5px", wordBreak: "break-word" }}>{value}</strong>
                       </div>
                     ))}
                   </div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 16px", marginTop: "10px", fontSize: "11px", opacity: 0.78 }}>
-                    {registrationStatus?.packageStatus ? <span>Account status: {registrationStatus.packageStatus}</span> : null}
-                    {registrationStatus?.planName ? <span>Plan: {registrationStatus.planName}</span> : null}
-                    {registrationStatus?.planExpiresAt && !Number.isNaN(new Date(registrationStatus.planExpiresAt).getTime()) ? <span>Valid until: {new Date(registrationStatus.planExpiresAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}{registrationStatus.planDaysRemaining !== null && registrationStatus.planDaysRemaining !== undefined ? ` (${registrationStatus.planDaysRemaining} days)` : ""}</span> : null}
-                    {registrationStatus?.agencyWhatsAppNumber ? <span>Agency WhatsApp: {registrationStatus.agencyWhatsAppNumber}</span> : null}
+                    {activeConversation.customerEmail ? <span>Email: {activeConversation.customerEmail}</span> : null}
+                    {activeConversation.lastActivityAt && !Number.isNaN(new Date(activeConversation.lastActivityAt).getTime()) ? (
+                      <span>Last Activity: {new Date(activeConversation.lastActivityAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+                    ) : null}
+                    {activeCustomerPhone ? (
+                      <a
+                        href={`tel:${activeCustomerPhone.replace(/[^\d+]/g, "")}`}
+                        style={{ color: "var(--color-primary)", textDecoration: "none", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: "4px" }}
+                      >
+                        <PhoneCall size={11} /> 1-Click Call
+                      </a>
+                    ) : null}
                   </div>
                 </div>
 

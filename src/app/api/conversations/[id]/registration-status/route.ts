@@ -45,8 +45,6 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
         });
 
         if (dbUser) {
-          const isAgency = dbUser.role === "ADMIN" || dbUser.packageAudience === "AGENCY";
-          const isFreelancer = dbUser.role === "FREELANCER" || dbUser.packageAudience === "FREELANCER";
           const expiresAt = dbUser.packageExpiresAt ? new Date(dbUser.packageExpiresAt) : null;
           const isExpired = expiresAt ? expiresAt.getTime() <= Date.now() : false;
           const isTrial = (dbUser.packageName || "").toLowerCase().includes("trial");
@@ -100,8 +98,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
 
           payload = {
             registered: true,
-            agencyRegistered: isAgency,
-            freelancerRegistered: isFreelancer,
+            agencyRegistered: false,
+            freelancerRegistered: false,
             appInstalled,
             billingState,
             paid: billingState === "PAID",
@@ -110,7 +108,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
             planDaysRemaining,
             packageStatus: dbUser.packageStatus,
             channels,
-            agencyWhatsAppNumber: dbUser.phone,
+            agencyWhatsAppNumber: null,
             leadWhatsAppNumber: phone,
             whatsappMatch: "MATCH",
             source: "database",
@@ -174,7 +172,6 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     // Auto-advance lead stage if user has registered or started free trial, but stage is still "NEW"
     const isRegisteredOrTrial = Boolean(
       normalized.registered === true ||
-      normalized.freelancerRegistered === true ||
       normalized.billingState === "TRIAL" ||
       normalized.billingState === "PAID" ||
       normalized.billingState === "FREE"

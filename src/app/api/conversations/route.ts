@@ -15,7 +15,6 @@ import {
 
 } from "@/lib/gigxomi/dummy-platform-file-store";
 import type { DummyLeadStatusTone } from "@/lib/gigxomi/dummy-platform-store";
-import { findConfirmedAgencyEditorForManagedUser } from "@/lib/gigxomi/agency-editor-eligibility";
 import { crmStatuses } from "@/lib/gigxomi/crm-data";
 import { getManagedAuthUsers } from "@/lib/auth/store";
 import { prisma } from "@/lib/prisma";
@@ -184,25 +183,8 @@ export async function GET(request: Request) {
 
   let assignableEditors = payload.assignableEditors;
   if (includeSupportData && (scope.audience === "admin" || scope.audience === "manager")) {
-    const [managedUsers, legacyMemberships, appMemberships, freelancerProfiles, freelancerServices, salesAgentProfiles] = await Promise.all([
+    const [managedUsers, salesAgentProfiles] = await Promise.all([
       getManagedAuthUsers(),
-      tenantId
-        ? prisma.teamMembership.findMany({
-            where: { tenantId, status: "ACTIVE", assignmentEligible: true },
-            include: { editorProfile: { include: { user: true } } },
-          })
-        : Promise.resolve([]),
-      tenantId
-        ? prisma.appTeamMembership.findMany({ where: { tenantId, status: "ACTIVE" } })
-        : Promise.resolve([]),
-      prisma.appAuthUser.findMany({
-        where: { OR: [{ role: "FREELANCER" }, { assignedRole: "FREELANCER" }] },
-        select: { id: true, lastLoginAt: true, freelancerWorkspace: { select: { profile: true, verification: true } } },
-      }),
-      prisma.appFreelancerService.findMany({
-        where: { status: { in: ["APPROVED", "PUBLISHED"] } },
-        orderBy: { updatedAt: "desc" },
-      }),
       tenantId
         ? prisma.salesAgentProfile.findMany({
             where: { tenantId, status: "ACTIVE" },
@@ -210,102 +192,20 @@ export async function GET(request: Request) {
           })
         : Promise.resolve([]),
     ]);
-    const confirmedEditors = [
-      ...legacyMemberships.map((membership) => ({
-        editorProfileId: membership.editorProfileId,
-        displayName: membership.editorProfile.user.displayName,
-        email: membership.editorProfile.user.email,
-        phone: membership.editorProfile.user.phone,
-        title: membership.editorProfile.title,
-        category: membership.editorProfile.category,
-        karmaScore: membership.editorProfile.karmaScore,
-      })),
-      ...appMemberships.map((membership) => ({
-        editorProfileId: membership.freelancerId,
-        displayName: membership.freelancerName,
-        title: membership.roleType || "Freelance editor",
-        category: membership.roleType || "Creative services",
-        karmaScore: 0,
-      })),
-    ];
 
-    const profilesByUserId = new Map(freelancerProfiles.map((profile) => [profile.id, profile]));
-    const servicesByUserId = new Map<string, typeof freelancerServices>();
-    for (const service of freelancerServices) {
-      const current = servicesByUserId.get(service.ownerId) ?? [];
-      current.push(service);
-      servicesByUserId.set(service.ownerId, current);
-    }
-
-    const freelancerAssignableEditors = managedUsers
-      .map((user: ManagedAuthUser) => ({ user, editor: findConfirmedAgencyEditorForManagedUser(user, confirmedEditors) }))
-      // Assignment must stay inside the current tenant's active team. Do not
-      // fall back to every active/seeded freelancer account; that was the
-      // source of unrelated dummy people appearing in the chat picker.
-      .filter(({ editor }) => Boolean(editor))
-      .filter((entry, index, entries) => entries.findIndex((candidate) => candidate.user.id === entry.user.id) === index)
-      .map(({ user, editor }) => {
-        const profileRecord = profilesByUserId.get(user.id);
-        const profile = record(profileRecord?.freelancerWorkspace?.profile);
-        const verification = record(profileRecord?.freelancerWorkspace?.verification);
-        const services = (servicesByUserId.get(user.id) ?? []).slice(0, 4).map((service) => {
-          const payload = record(service.payload);
-          return {
-            id: service.id,
-            slug: service.slug,
-            title: text(payload.title) || "Editing service",
-            category: text(payload.category) || text(payload.specialty) || null,
-            price: number(payload.basePrice),
-            deliveryTime: text(payload.deliveryTime) || null,
-          };
-        });
-        const servicePrices = services.map((service) => service.price).filter((price): price is number => price !== null && price > 0);
-        const portfolioLinks = Array.from(new Set([
-          ...list(profile.socialLinks),
-          ...services.map((service) => `/services/${service.slug}`),
-        ]));
-        const isOnline = Boolean(profileRecord?.lastLoginAt && profileRecord.lastLoginAt.getTime() >= Date.now() - 15 * 60 * 1000);
-        return {
-          id: user.id,
-          name: text(profile.displayName) || user.displayName,
-          specialties: Array.from(new Set([
-            ...list(profile.skills),
-            editor?.category,
-            editor?.title,
-            ...services.map((service) => service.category),
-            "Creative services",
-          ].map((value) => String(value ?? "").trim()).filter(Boolean))),
-          workloadBand: workloadBand(profile.workloadBand || profile.availability),
-          karmaScore: number(profile.karmaScore) ?? editor?.karmaScore ?? 0,
-          onlineStatus: isOnline ? ("online" as const) : ("offline" as const),
-          lastOnlineAt: profileRecord?.lastLoginAt?.toISOString(),
-          acceptingProjects: true,
-          isTeamMember: Boolean(editor),
-          offerEligible: Boolean(editor) || (user.packageStatus !== "PAUSED" && user.packageStatus !== "EXPIRED"),
-          directAssignmentEligible: Boolean(editor),
-          verificationStatus: text(verification.status) || "DRAFT",
-          startingPrice: number(profile.startingPrice) ?? (servicePrices.length ? Math.min(...servicePrices) : null),
-          portfolioLinks,
-          services,
-        };
-      });
-
-    // The CRM workspace also assigns conversations to active sales agents.
-    // They are represented by SalesAgentProfile rather than the legacy
-    // freelancer TeamMembership tables, so they must be surfaced separately
-    // instead of making an otherwise healthy team appear empty.
     const salesProfilesByUserId = new Map(
       salesAgentProfiles.map((profile) => [profile.userId, profile]),
     );
-    const salesAssignableEditors = managedUsers
-      .filter((user) => salesProfilesByUserId.has(user.id))
+
+    assignableEditors = managedUsers
+      .filter((user) => salesProfilesByUserId.has(user.id) || user.role === "ADMIN" || user.role === "MANAGER" || user.role === "SALES_AGENT")
       .map((user) => {
         const profile = salesProfilesByUserId.get(user.id);
         const isOnline = Boolean(user.lastLoginAt && new Date(user.lastLoginAt).getTime() >= Date.now() - 15 * 60 * 1000);
         return {
           id: user.id,
-          name: user.displayName || profile?.user.displayName || "Sales agent",
-          specialties: ["Sales team", "Lead follow-up"],
+          name: user.displayName || profile?.user.displayName || "Sales Agent",
+          specialties: ["Sales Agent", "CRM Follow-up"],
           workloadBand: "Moderate" as WorkloadBand,
           karmaScore: 0,
           onlineStatus: isOnline ? ("online" as const) : ("offline" as const),
@@ -319,11 +219,8 @@ export async function GET(request: Request) {
           portfolioLinks: [],
           services: [],
         };
-      });
-
-    assignableEditors = [...freelancerAssignableEditors, ...salesAssignableEditors].filter(
-      (editor, index, editors) => editors.findIndex((candidate) => candidate.id === editor.id) === index,
-    );
+      })
+      .filter((editor, index, editors) => editors.findIndex((candidate) => candidate.id === editor.id) === index);
   }
 
   // Enrich conversations with Customer 360 / Registration details for sales closer
@@ -418,14 +315,7 @@ export async function GET(request: Request) {
           formattedPhone ||
           "WhatsApp Contact";
 
-        let accountType: "AGENCY" | "FREELANCER" | "LEAD" = "LEAD";
-        if (matchedUser?.packageAudience === "AGENCY" || matchedUser?.role === "ADMIN") {
-          accountType = "AGENCY";
-        } else if (matchedUser?.packageAudience === "FREELANCER" || matchedUser?.role === "FREELANCER") {
-          accountType = "FREELANCER";
-        } else if (conv.agencyContext?.agencyName) {
-          accountType = "AGENCY";
-        }
+        const accountType: "LEAD" = "LEAD";
 
         const expiresAt = matchedUser?.packageExpiresAt ? new Date(matchedUser.packageExpiresAt) : null;
         const planDaysRemaining = expiresAt
@@ -462,11 +352,7 @@ export async function GET(request: Request) {
 
       if (scope.audience === "sales") {
         enrichedConversations = enrichedConversations.filter((conv) => {
-          // Never show agency workspace conversations or freelancer internal threads in closer desk
           if (conv.tenantId && conv.tenantId.startsWith("tenant-agency-")) {
-            return false;
-          }
-          if (conv.customerAccountType === "FREELANCER" && !conv.leadStage) {
             return false;
           }
           return true;

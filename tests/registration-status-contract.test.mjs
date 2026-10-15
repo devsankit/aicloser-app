@@ -23,11 +23,10 @@ test("registration normalization separates billing, validity, channel, and phone
   assert.match(normalizer, /normalizePhoneForMatch/);
 });
 
-test("chat shows app, audience, billing, channel, validity, and WhatsApp matching states", () => {
-  assert.match(chat, /Freelancer Registration/i);
-  assert.match(chat, /Billing/);
-  assert.match(chat, /Valid until/);
-  assert.match(chat, /WhatsApp number/);
-  assert.match(chat, /Agency WhatsApp:/);
+test("chat shows CRM lead profile, stage, channel, and mobile app states without legacy agency/freelancer badges", () => {
+  assert.doesNotMatch(chat, /Freelancer Registration/i);
+  assert.doesNotMatch(chat, /Agency WhatsApp:/);
+  assert.match(chat, /CRM Lead & Contact Profile/);
+  assert.match(chat, /Pipeline Synced/);
   assert.match(chat, /Instagram/);
 });

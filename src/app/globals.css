@@ -42651,4 +42651,13 @@ body:not(.dark) .chat-stage-menu-item.selected,
   width: auto !important;
 }
 
+/* The desktop customer sheet is portaled above the workspace. Reserve its
+   width in the live-chat grid so header actions stay inside the chat column. */
+@media (min-width: 861px) {
+  body .sales-theme-scope-chat .sales-chat-workspace .aicloser-web-chat-shell[class*="shellWithDetails"] {
+    padding-right: clamp(250px, 18vw, 300px) !important;
+    box-sizing: border-box !important;
+  }
+}
+
 
