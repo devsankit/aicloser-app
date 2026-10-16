@@ -36,6 +36,7 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
     var setupComplete by mutableStateOf(repository.sessionStore.setupComplete); private set
     var session by mutableStateOf(repository.sessionStore.session); private set
     var bootstrap by mutableStateOf<Bootstrap?>(null); private set
+    var pipelineStages by mutableStateOf<List<PipelineStage>>(defaultPipelineStages); private set
     var featurePermissions by mutableStateOf<Map<String, Boolean>>(emptyMap()); private set
     var inbox by mutableStateOf<List<InboxItem>>(emptyList()); private set
     var inboxLoading by mutableStateOf(false); private set
@@ -365,6 +366,7 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
             runCatching { repository.syncOffline() }
             runCatching { repository.uploadPendingRecording() }
             runCatching { com.gigxomi.gxclosers.call.CallLogSyncManager.syncRecentCallLogs(getApplication()) }
+            val stagesData = runCatching { repository.stages() }.getOrDefault(defaultPipelineStages)
             val raw = repository.bootstrap()
             val store = OfflineEventStore(getApplication())
             val localRecordings = store.allRecordings().associateBy { it.callId }

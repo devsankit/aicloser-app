@@ -315,7 +315,7 @@ open class ApiClient(protected val sessionStore: SessionStore) {
         fun endpoint(path: String) = "${BuildConfig.GXCLOSERS_API_BASE.trimEnd('/')}/${path.trimStart('/')}"
 
         fun parseHttpError(path: String, status: Int, payload: JSONObject): ApiException {
-            val errorCode = payload.optString("error", "").ifBlank { null }
+            val errorCode = payload.optString("code", payload.optString("error", "")).ifBlank { null }
             val errorMsg = payload.optString("message", payload.optString("error", "Request failed ($status)"))
             return when (status) {
                 401 -> {
@@ -346,10 +346,32 @@ open class ApiClient(protected val sessionStore: SessionStore) {
                         ApiException(errorMsg, 409, errorCode)
                     }
                 }
-                403 -> ForbiddenException(errorMsg)
-                404 -> NotFoundException(errorMsg)
+                403 -> {
+                    if (errorCode == "TENANT_ISOLATION_VIOLATION") {
+                        ApiException("Workspace access restricted. Cross-tenant access is blocked.", 403, errorCode)
+                    } else if (errorCode == "PERMISSION_DENIED") {
+                        ApiException(errorMsg.ifBlank { "You lack permission for this action." }, 403, errorCode)
+                    } else {
+                        ForbiddenException(errorMsg)
+                    }
+                }
+                404 -> {
+                    if (errorCode == "STAGE_NOT_FOUND") {
+                        ApiException("Pipeline stage not found in workspace.", 404, errorCode)
+                    } else if (errorCode == "AGENT_NOT_IN_WORKSPACE") {
+                        ApiException("Team member not found in this workspace.", 404, errorCode)
+                    } else {
+                        NotFoundException(errorMsg)
+                    }
+                }
                 422 -> ValidationException(errorMsg)
-                400 -> ApiException(errorMsg, 400, errorCode)
+                400 -> {
+                    if (errorCode == "AGENT_NOT_ACTIVE") {
+                        ApiException(errorMsg.ifBlank { "Target team member is not active." }, 400, errorCode)
+                    } else {
+                        ApiException(errorMsg, 400, errorCode)
+                    }
+                }
                 else -> ApiException(errorMsg, status, errorCode)
             }
         }

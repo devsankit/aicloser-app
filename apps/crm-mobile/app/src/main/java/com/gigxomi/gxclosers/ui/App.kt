@@ -3631,8 +3631,9 @@ private val dispositionStages = listOf("NEW", "CONTACTED", "INTERESTED", "QUALIF
             )
             Text("Lead status", fontWeight = FontWeight.Black)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                dispositionStages.forEach { value ->
-                    FilterChip(stageUpdate == value, { stageUpdate = value }, { Text(value.replace('_', ' '), fontSize = 10.sp) })
+                val activeStages = if (vm.pipelineStages.isNotEmpty()) vm.pipelineStages else defaultPipelineStages
+                activeStages.forEach { st ->
+                    FilterChip(stageUpdate == st.key, { stageUpdate = st.key }, { Text(st.label, fontSize = 10.sp) })
                 }
             }
             Text("Outcome", fontWeight = FontWeight.Black)
@@ -3821,23 +3822,19 @@ private val conversationStages = listOf(
                         Text(inboxItem?.lead?.stage?.replace('_', ' ') ?: "SET LABEL", fontSize = 9.sp, fontWeight = FontWeight.Black); Spacer(Modifier.width(3.dp)); Icon(Icons.Default.ArrowDropDown, null, Modifier.size(16.dp))
                     }
                     DropdownMenu(expanded = labelMenu, onDismissRequest = { labelMenu = false }) {
-                        conversationStages.forEach { stage ->
+                        val activeChatStages = if (vm.pipelineStages.isNotEmpty()) vm.pipelineStages else defaultPipelineStages
+                        activeChatStages.forEach { st ->
                             DropdownMenuItem(
-                                text = { Text(stage.replace('_', ' ')) },
-                                leadingIcon = { Icon(Icons.Default.Label, null, tint = if (stage == inboxItem?.lead?.stage) GxAccent else GxMuted) },
+                                text = { Text(st.label) },
+                                leadingIcon = {
+                                    val chipColor = runCatching {
+                                        androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(st.color))
+                                    }.getOrDefault(GxAccent)
+                                    Icon(Icons.Default.Label, null, tint = if (st.key == inboxItem?.lead?.stage) chipColor else GxMuted)
+                                },
                                 onClick = {
                                     labelMenu = false
-                                    val statusId = when (stage) {
-                                        "QUALIFIED" -> "interested"
-                                        "WEBINAR_INVITED" -> "webinar-invited"
-                                        "WEBINAR_ATTENDED" -> "interested"
-                                        "CLOSED_WON" -> "closed-won"
-                                        "CLOSED_LOST" -> "closed-lost"
-                                        "NOT_REACHABLE" -> "not-reachable"
-                                        "RECYCLED" -> "recycled"
-                                        else -> stage.lowercase().replace('_', '-')
-                                    }
-                                    vm.updateConversationStage(id, statusId)
+                                    vm.updateConversationStage(id, st.key)
                                 },
                             )
                         }

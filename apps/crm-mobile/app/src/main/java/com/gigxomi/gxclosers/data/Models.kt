@@ -133,6 +133,44 @@ data class Customer360(
     val unreadNotificationCount: Int,
 )
 
+
+data class PipelineStage(
+    val id: String,
+    val key: String,
+    val label: String,
+    val color: String = "#3B82F6",
+    val position: Int = 1,
+    val leadsCount: Int = 0,
+)
+
+val defaultPipelineStages = listOf(
+    PipelineStage("NEW", "NEW", "New Lead", "#3B82F6", 1),
+    PipelineStage("CONTACTED", "CONTACTED", "Contacted", "#8B5CF6", 2),
+    PipelineStage("IN_PROGRESS", "IN_PROGRESS", "In Progress", "#EC4899", 3),
+    PipelineStage("DEMO_SCHEDULED", "DEMO_SCHEDULED", "Demo Booked", "#EAB308", 4),
+    PipelineStage("FOLLOW_UP", "FOLLOW_UP", "Follow Up", "#F97316", 5),
+    PipelineStage("NEGOTIATION", "NEGOTIATION", "Negotiation", "#6366F1", 6),
+    PipelineStage("CLOSED_WON", "CLOSED_WON", "Closed Won", "#10B981", 7),
+    PipelineStage("CLOSED_LOST", "CLOSED_LOST", "Closed Lost", "#EF4444", 8)
+)
+
+fun parseStages(json: JSONObject): List<PipelineStage> {
+    val array = json.optJSONArray("data") ?: json.optJSONArray("stages") ?: return defaultPipelineStages
+    val list = mutableListOf<PipelineStage>()
+    for (i in 0 until array.length()) {
+        val item = array.optJSONObject(i) ?: continue
+        val key = item.optString("key", item.optString("id", "")).trim()
+        val label = item.optString("label", key.replace('_', ' ')).trim()
+        val color = item.optString("color", "#3B82F6").trim()
+        val pos = item.optInt("position", i + 1)
+        val count = item.optInt("leadsCount", 0)
+        if (key.isNotBlank()) {
+            list.add(PipelineStage(id = item.optString("id", key), key = key, label = label, color = color, position = pos, leadsCount = count))
+        }
+    }
+    return if (list.isNotEmpty()) list.sortedBy { it.position } else defaultPipelineStages
+}
+
 internal fun JSONObject.text(name: String): String = optString(name, "").takeUnless { it == "null" } ?: ""
 internal fun JSONObject.nullableText(name: String): String? = text(name).ifBlank { null }
 internal fun JSONArray.objects(): List<JSONObject> = (0 until length()).mapNotNull { optJSONObject(it) }

@@ -106,6 +106,24 @@ open class CrmRepository(
         return parseBootstrap(payload)
     }
     fun inbox(): List<InboxItem> = parseInbox(api.get("/sales/mobile/inbox"))
+
+    fun stages(): List<PipelineStage> {
+        return try {
+            val payload = try {
+                api.get("/v1/stages")
+            } catch (_: Exception) {
+                try {
+                    api.get("/sales/stages/config")
+                } catch (_: Exception) {
+                    api.get("/stages")
+                }
+            }
+            parseStages(payload)
+        } catch (_: Exception) {
+            defaultPipelineStages
+        }
+    }
+
     fun courses(): List<Course> = parseCourses(api.get("/sales/lms/courses"))
 
     fun updateLeadStage(leadId: String, stage: String) {
