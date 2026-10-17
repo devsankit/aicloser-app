@@ -5,6 +5,7 @@ import { ArrowLeft, Bell, Check, Download, GripVertical, LogOut, Menu, PanelLeft
 
 import { BrandWordmark } from "@/components/ui/brand-wordmark";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { aicloserApi } from "@/lib/api-client";
 
 type ShellNavItem = {
   id: string;
@@ -21,8 +22,6 @@ type InternalAppShellProps = {
   role?: string;
   homeHref?: string;
   profileName: string;
-  profileMeta: string;
-  profilePlan?: string;
   hideSidebarIdentity?: boolean;
   navItems: ShellNavItem[];
   activeSection: string;
@@ -66,8 +65,6 @@ export function InternalAppShell({
   title,
   homeHref = "/",
   profileName,
-  profileMeta,
-  profilePlan,
   hideSidebarIdentity = false,
   navItems,
   activeSection,
@@ -171,6 +168,7 @@ export function InternalAppShell({
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [markingReadIds, setMarkingReadIds] = useState<Set<string>>(() => new Set());
   const [notificationError, setNotificationError] = useState("");
+  const [globalApiNotice, setGlobalApiNotice] = useState<string | null>(null);
   const isChatContent = (contentClassName?.includes("internal-content-chat") || contentClassName?.includes("manager-chat-page-shell")) ?? false;
   const initials = profileName
     .split(" ")
@@ -178,6 +176,16 @@ export function InternalAppShell({
     .join("")
     .slice(0, 2)
     .toUpperCase();
+
+  useEffect(() => {
+    const handleApiError = (event: Event) => {
+      const detail = (event as CustomEvent<{ message?: string }>).detail;
+      setGlobalApiNotice(detail?.message || "You do not have permission to perform this action.");
+      window.setTimeout(() => setGlobalApiNotice(null), 4500);
+    };
+    window.addEventListener("aicloser:api-error", handleApiError);
+    return () => window.removeEventListener("aicloser:api-error", handleApiError);
+  }, []);
 
   useEffect(() => {
     if (!isMobileMenuClosing) {
@@ -198,17 +206,12 @@ export function InternalAppShell({
     }
 
     let isActive = true;
-    const controller = new AbortController();
 
     const fetchNotifications = async () => {
       try {
-        const response = await fetch("/api/notifications", { cache: "no-store", signal: controller.signal });
-        if (!response.ok) {
-          return;
-        }
-        const payload = (await response.json()) as { notifications?: ShellNotificationItem[] };
-        if (isActive) {
-          setNotifications(payload.notifications ?? []);
+        const payload = (await aicloserApi.notifications.list()) as { notifications?: ShellNotificationItem[] };
+        if (isActive && payload?.notifications) {
+          setNotifications(payload.notifications);
         }
       } catch {
         return;
@@ -216,13 +219,24 @@ export function InternalAppShell({
     };
 
     void fetchNotifications();
+
+    const unsubscribe = aicloserApi.realtime.connect({
+      onEvent: (event) => {
+        if (!isActive) return;
+        if (event.type === "NOTIFICATION" || event.type === "notification" || event.type === "NEW_MESSAGE") {
+          void fetchNotifications();
+        }
+      },
+      onError: () => {},
+    });
+
     const interval = window.setInterval(() => {
       void fetchNotifications();
     }, 30_000);
 
     return () => {
       isActive = false;
-      controller.abort();
+      unsubscribe();
       window.clearInterval(interval);
     };
   }, [showNotifications]);
@@ -348,12 +362,7 @@ export function InternalAppShell({
     setMarkingReadIds((current) => new Set(current).add(notificationId));
 
     try {
-      const response = await fetch(`/api/notifications/${encodeURIComponent(notificationId)}/read`, { method: "POST" });
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-        setNotificationError(payload?.error ?? "Could not mark this notification as read. Please try again.");
-        return;
-      }
+      await aicloserApi.notifications.markRead(notificationId);
       setNotifications((current) =>
         current.map((notification) =>
           notification.id === notificationId
@@ -376,12 +385,43 @@ export function InternalAppShell({
   };
 
   const markAllNotificationsRead = async () => {
-    const unreadIds = notifications.filter((notification) => notification.status === "UNREAD").map((notification) => notification.id);
-    await Promise.all(unreadIds.map((notificationId) => markNotificationRead(notificationId)));
+    try {
+      await aicloserApi.notifications.markAllRead();
+      setNotifications((current) =>
+        current.map((notification) => ({ ...notification, status: "READ" }))
+      );
+    } catch {
+      const unreadIds = notifications.filter((notification) => notification.status === "UNREAD").map((notification) => notification.id);
+      await Promise.all(unreadIds.map((notificationId) => markNotificationRead(notificationId)));
+    }
   };
 
   return (
     <main className={`app-shell internal-theme-root${rootClassName ? ` ${rootClassName}` : ""}`}>
+      {globalApiNotice ? (
+        <div
+          aria-live="polite"
+          role="status"
+          style={{
+            position: "fixed",
+            top: "16px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 1200,
+            maxWidth: "min(560px, calc(100vw - 32px))",
+            padding: "11px 16px",
+            borderRadius: "12px",
+            color: "var(--closer-text, #f8fafc)",
+            background: "var(--closer-surface-strong, #20252b)",
+            border: "1px solid color-mix(in srgb, var(--closer-orange, #ff6b2f) 55%, transparent)",
+            boxShadow: "0 12px 32px rgba(0,0,0,.28)",
+            fontSize: "13px",
+            fontWeight: 650,
+          }}
+        >
+          {globalApiNotice}
+        </div>
+      ) : null}
       <div className={effectiveSidebarMode === "collapsed" ? "workspace-shell internal-shell internal-shell-collapsed" : "workspace-shell internal-shell"}>
         <aside className={effectiveSidebarMode === "collapsed" ? "workspace-sidebar internal-sidebar internal-sidebar-collapsed" : "workspace-sidebar internal-sidebar"}>
           <BrandWordmark ariaLabel="Go to dashboard home" className="sidebar-brand internal-brand-block" href={dashboardHomeHref} collapsed={effectiveSidebarMode === "collapsed"} />
@@ -430,13 +470,12 @@ export function InternalAppShell({
                   aria-label={`Open ${profileName} profile`}
                   className="internal-sidebar-profile"
                   href={dashboardHomeHref}
-                  title={`${profileName}${profileMeta ? ` · ${profileMeta}` : ""}`}
+                  title={profileName}
                 >
                   <div className="internal-avatar">{initials}</div>
                   {effectiveSidebarMode !== "collapsed" ? (
                     <div className="internal-sidebar-profile-copy">
                       <strong>{profileName}</strong>
-                      <span>{profilePlan ? `Active plan · ${profilePlan}` : profileMeta}</span>
                     </div>
                   ) : null}
                 </Link>
@@ -445,7 +484,7 @@ export function InternalAppShell({
                 <a
                   aria-label="Download AIcloser mobile app"
                   className="internal-sidebar-download"
-                  href="https://aicloser.in/download/aicloser-latest.apk"
+                  href="https://aicloser.in/aicloser-latest.apk"
                   rel="noreferrer"
                   target="_blank"
                   title="Download AIcloser mobile app"

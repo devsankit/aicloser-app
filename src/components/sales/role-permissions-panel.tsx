@@ -20,6 +20,7 @@ import {
   Users,
 } from "lucide-react";
 import type { FeatureDefinition, RolePermissionsMatrix } from "@/lib/gigxomi/role-permissions-store";
+import { aicloserApi } from "@/lib/api-client";
 
 type WorkspaceUserItem = {
   id: string;
@@ -99,41 +100,80 @@ export function RolePermissionsPanel({
     setLoading(true);
     setError("");
     try {
-      const [permRes, usersRes, planRes] = await Promise.all([
-        fetch("/api/sales/roles/features", { cache: "no-store" }),
-        fetch("/api/sales/roles/users", { cache: "no-store" }),
-        fetch("/api/sales/workspace-plan", { cache: "no-store" }),
+      const [permData, usersData, planData, entitlementsData, usageData] = await Promise.all([
+        aicloserApi.team.permissionsMatrix(),
+        aicloserApi.team.list(),
+        aicloserApi.workspace.getPlan(),
+        aicloserApi.workspace.getEntitlements(),
+        aicloserApi.workspace.getUsage(),
       ]);
-      const permData = await permRes.json().catch(() => null);
-      const usersData = await usersRes.json().catch(() => null);
-      const planData = await planRes.json().catch(() => null);
+      const plan = planData as {
+        packageName?: string;
+        subscriptionStatus?: string;
+        status?: string;
+        expiryDate?: string | null;
+        seatLimit?: number;
+        activeSeats?: number;
+      };
+      const entitlementPayload = entitlementsData as { planTier?: string; entitlements?: Record<string, boolean> };
+      const usagePayload = usageData as { usage?: { seats?: { used?: number; limit?: number } } };
 
-      if (permData?.ok) {
-        setMatrix(permData.matrix);
-        setFeatures(permData.features || []);
-      } else {
-        setError(permData?.error || "Failed to load permissions");
-      }
+      const categoryMap: Record<string, FeatureDefinition["category"]> = {
+        CRM: "Core CRM",
+        Calls: "Telephony & Audio",
+        Chat: "Telephony & Audio",
+        Finance: "Administration",
+        Team: "Administration",
+        Security: "Administration",
+      };
+      const centralFeatures = (permData?.catalog || []).map((item) => ({
+        id: item.key,
+        name: item.label,
+        description: `Central permission: ${item.key}`,
+        category: categoryMap[item.category] || "Administration",
+      })) as FeatureDefinition[];
+      setFeatures(centralFeatures);
+      setMatrix((permData?.roleDefaults || {}) as RolePermissionsMatrix);
 
-      if (usersData?.ok && Array.isArray(usersData.users)) {
-        setUsers(usersData.users);
-      }
-      if (planData?.ok) {
-        setWorkspacePlan(planData);
-      } else if (usersData?.ok && Array.isArray(usersData.users)) {
-        const workspaceUsers = usersData.users as WorkspaceUserItem[];
-        const activeUsers = workspaceUsers.filter((user) => user.status === "ACTIVE").length;
-        const planCounts = workspaceUsers.reduce<Record<string, number>>((counts, user) => {
-          const planName = user.packageName || "Free plan";
-          counts[planName] = (counts[planName] ?? 0) + 1;
-          return counts;
-        }, {});
-        const currentPlan = workspaceUsers.find((user) => user.packageName)?.packageName || "Free plan";
-        setWorkspacePlan({
-          plan: { name: currentPlan, status: "ACTIVE", expiresAt: null, seatLimit: 1, isUnlimited: false },
-          usage: { totalUsers: workspaceUsers.length, activeUsers, planCounts },
-        });
-      }
+      const teamItems = Array.isArray(usersData) ? usersData : (usersData?.members ?? []);
+      setUsers(teamItems.map((user: any) => ({
+        id: String(user.id),
+        userId: String(user.userId || user.id),
+        displayName: String(user.displayName || "Workspace user"),
+        email: String(user.email || ""),
+        phone: String(user.phone || ""),
+        agentCode: String(user.agentCode || ""),
+        status: String(user.status || "ACTIVE"),
+        role: user.role === "ADMIN" || user.role === "MANAGER" || user.role === "SALES_AGENT" ? user.role : "UNASSIGNED",
+        packageName: String(plan.packageName || ""),
+        packageStatus: String(plan.subscriptionStatus || plan.status || "ACTIVE"),
+        packageExpiresAt: plan.expiryDate || null,
+        groupId: null,
+        parentAgentId: user.parentAgentId || null,
+        isCurrentUser: false,
+      })));
+
+      const planSeats = Number(plan.seatLimit ?? usagePayload.usage?.seats?.limit ?? 0);
+      const activeUsers = Number(plan.activeSeats ?? usagePayload.usage?.seats?.used ?? teamItems.filter((user: any) => user.status === "ACTIVE").length);
+      const entitlementFlags = entitlementPayload.entitlements || {};
+      setWorkspacePlan({
+        plan: {
+          name: String(plan.packageName || entitlementPayload.planTier || "AI Closer Pro"),
+          status: String(plan.subscriptionStatus || plan.status || "ACTIVE"),
+          expiresAt: plan.expiryDate || null,
+          seatLimit: planSeats || null,
+          isUnlimited: planSeats === 0,
+        },
+        usage: { totalUsers: teamItems.length, activeUsers, planCounts: {} },
+        entitlements: {
+          whatsappIntegration: Boolean(entitlementFlags.whatsappOfficialApi),
+          aiToolsAccess: Boolean(entitlementFlags.aiConsultativeSalesReply || entitlementFlags.aiLeadScoring),
+          automationTools: Boolean(entitlementFlags.whatsappAutomations),
+          analyticsAccess: Boolean(entitlementFlags.kanbanPipelines),
+          apiAccess: Boolean(entitlementFlags.developerApiKeys),
+          webhookAccess: Boolean(entitlementFlags.developerWebhooks),
+        },
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load permissions");
     } finally {
@@ -147,11 +187,8 @@ export function RolePermissionsPanel({
 
   async function refreshUsers() {
     try {
-      const res = await fetch("/api/sales/roles/users", { cache: "no-store" });
-      const data = await res.json().catch(() => null);
-      if (data?.ok && Array.isArray(data.users)) {
-        setUsers(data.users);
-      }
+      const data = await aicloserApi.team.list();
+      if (Array.isArray(data)) setUsers(data as WorkspaceUserItem[]);
     } catch {}
   }
 
@@ -217,6 +254,9 @@ export function RolePermissionsPanel({
 
   async function handleRoleChange(agentId: string, nextRole: "UNASSIGNED" | "ADMIN" | "MANAGER" | "SALES_AGENT") {
     try {
+      if (nextRole !== "UNASSIGNED") {
+        await aicloserApi.team.update(agentId, { role: nextRole }).catch(() => null);
+      }
       const res = await fetch("/api/sales/roles/users", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -233,40 +273,26 @@ export function RolePermissionsPanel({
 
   async function handleManagerChange(agentId: string, managerAgentId: string) {
     try {
-      const res = await fetch("/api/sales/roles/users", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agentId, managerAgentId: managerAgentId || null }),
-      });
-      const data = await res.json().catch(() => null);
-      if (res.ok && data?.ok) {
+      await aicloserApi.team.assignManager(agentId, managerAgentId || null);
+      {
         setUsers((prev) => prev.map((u) => (u.id === agentId ? { ...u, parentAgentId: managerAgentId || null } : u)));
         setUserNotice({ text: "Manager assignment updated.", type: "success" });
-      } else {
-        setUserNotice({ text: data?.error || "Could not update manager assignment.", type: "error" });
       }
-    } catch {
-      setUserNotice({ text: "Could not update manager assignment.", type: "error" });
+    } catch (err) {
+      setUserNotice({ text: err instanceof Error ? err.message : "Could not update manager assignment.", type: "error" });
     }
   }
 
   async function handleStatusChange(agentId: string, nextStatus: "ACTIVE" | "SUSPENDED") {
     try {
-      const res = await fetch("/api/sales/roles/users", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agentId, status: nextStatus }),
-      });
-      const data = await res.json().catch(() => null);
-      if (res.ok && data?.ok) {
+      await aicloserApi.team.updateStatus(agentId, nextStatus);
+      {
         setUsers((prev) => prev.map((user) => (user.id === agentId ? { ...user, status: nextStatus } : user)));
         setUserNotice({ text: nextStatus === "ACTIVE" ? "User access unlocked." : "User access locked.", type: "success" });
         void loadAll();
-      } else {
-        setUserNotice({ text: data?.error || "Could not update user access.", type: "error" });
       }
-    } catch {
-      setUserNotice({ text: "Could not update user access.", type: "error" });
+    } catch (err) {
+      setUserNotice({ text: err instanceof Error ? err.message : "Could not update user access.", type: "error" });
     }
   }
 
@@ -334,18 +360,15 @@ export function RolePermissionsPanel({
     setError("");
     setSaveSuccess(false);
     try {
-      const res = await fetch("/api/sales/roles/features", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ matrix }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 3500);
-      } else {
-        setError(data.error || "Failed to save permissions");
-      }
+      const updates = users
+        .filter((user) => user.role === "ADMIN" || user.role === "MANAGER" || user.role === "SALES_AGENT")
+        .map((user) => {
+          const role = user.role as "ADMIN" | "MANAGER" | "SALES_AGENT";
+          return aicloserApi.team.updatePermissions(user.id, matrix[role] || {});
+        });
+      await Promise.all(updates);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3500);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save permissions");
     } finally {

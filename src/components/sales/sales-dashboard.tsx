@@ -1,18 +1,16 @@
 "use client";
 
 import { Fragment, FormEvent, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { closestCorners, DndContext, KeyboardSensor, PointerSensor, type DragEndEvent, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
+import { closestCorners, DndContext, DragOverlay, KeyboardSensor, PointerSensor, type DragEndEvent, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
   BarChart3,
   AlertCircle,
-  ArrowDown,
-  ArrowUp,
   Bot,
   Building2,
   CalendarDays,
@@ -32,11 +30,11 @@ import {
   ExternalLink,
   Facebook,
   Flame,
-  FileText,
   FileSpreadsheet,
   GripVertical,
   Hand,
   Headphones,
+  History,
   KanbanSquare,
   LayoutDashboard,
   LayoutList,
@@ -67,8 +65,9 @@ import {
 
 import type { InstagramPluginConnectionView, InstagramSetupUrls } from "@/components/super-admin/super-admin-instagram-plugin-card";
 import { InternalAppShell } from "@/components/ui/internal-app-shell";
+import { UniversalLeadSearch, type UniversalLeadSearchResult } from "@/components/ui/universal-lead-search";
+import { CentralDashboardOverview } from "@/components/central/central-dashboard-overview";
 import { LeadNotesManager } from "@/components/sales/lead-notes-manager";
-import { LeadStatusTagsSelector } from "@/components/sales/lead-status-tags-selector";
 import { LeadCustomFieldsEditor } from "@/components/sales/lead-custom-fields-editor";
 import { UserWhatsAppSyncCard } from "@/components/sales/user-whatsapp-sync-card";
 
@@ -193,7 +192,9 @@ const SuperAdminInstagramPluginCard = dynamic(
 import type { AgencyTenant } from "@/lib/gigxomi/agency-network-data";
 import type { DummyWhatsAppConnectionState } from "@/lib/gigxomi/dummy-platform-store";
 import type { SalesOperatingSnapshot } from "@/lib/gigxomi/sales-operating-system-store";
-import type { SalesDashboardSnapshot, SalesLeadStage } from "@/lib/gigxomi/sales-store";
+import type { SalesDashboardSnapshot, SalesLeadStage, SalesLeadView } from "@/lib/gigxomi/sales-store";
+import { aicloserApi, setStoredToken, type CallLog, type LeadHistoryEntry } from "@/lib/api-client";
+import * as XLSX from "xlsx";
 import type { SuperAdminWhatsAppFlow, SuperAdminWhatsAppFlowRun } from "@/lib/gigxomi/super-admin-whatsapp-flow-store";
 
 type SalesTab =
@@ -240,21 +241,6 @@ type SalesRoundRobinAccess = {
   allowNonAdminExportData: boolean;
 };
 
-type SavedLeadView = {
-  id: string;
-  name: string;
-  search: string;
-  status: string;
-  group: string;
-  source: string;
-  segment: string;
-  ownership: "all" | "mine";
-  quickPill: "all" | "today-leads" | "today-followups";
-  dateRange: "all" | "today" | "yesterday" | "last7" | "month" | "custom";
-  customStartDate: string;
-  customEndDate: string;
-};
-
 const tabs: Array<{ id: SalesTab; label: string; icon: typeof Users; badge?: string; group?: "crm" | "growth" | "system" | "workspace" | "beta" }> = [
   { id: "dashboard", label: "Dashboard Overview", icon: LayoutDashboard, group: "crm" },
   { id: "crm", label: "CRM Pipeline & Kanban", icon: KanbanSquare, group: "crm" },
@@ -264,7 +250,7 @@ const tabs: Array<{ id: SalesTab; label: string; icon: typeof Users; badge?: str
   { id: "calls", label: "Call Recordings & Missed Call History", icon: PhoneCall, group: "crm" },
   { id: "conversations", label: "Live Multi-Channel Chat", icon: MessageSquare, group: "crm" },
   { id: "forms", label: "Lead Form Builder", icon: Edit3, badge: "Web Forms", group: "growth" },
-  { id: "plugins", label: "Plugins & Channels", icon: Users2, badge: "WA + Email + IG", group: "growth" },
+  { id: "plugins", label: "Plugins & Channels", icon: Users2, badge: "WA + IG", group: "growth" },
   { id: "whatsapp-marketing", label: "WhatsApp Marketing", icon: MessageCircle, group: "growth" },
   { id: "automations", label: "AI Bot & Automations", icon: Bot, badge: "AI + Flows", group: "growth" },
   { id: "payments", label: "Payments & Confirmations", icon: CreditCard, group: "system" },
@@ -613,16 +599,6 @@ function LeadFollowUpPicker({
   );
 }
 
-type LeadDetailSectionKey = "history" | "calls" | "information";
-
-const defaultLeadDetailOrder: LeadDetailSectionKey[] = ["history", "calls", "information"];
-
-const leadDetailSectionLabels: Record<LeadDetailSectionKey, string> = {
-  history: "Notes & activity",
-  calls: "Call recordings",
-  information: "Lead information & integrations",
-};
-
 function cleanPhone(value: string) {
   return value.replace(/\D/g, "");
 }
@@ -676,6 +652,7 @@ const pipelineColumns: Array<{
   label: string;
   stage: SalesLeadStage;
   matchingStages: SalesLeadStage[];
+  customKey?: string;
 }> = [
   { key: "NEW", label: "New Leads", stage: "NEW", matchingStages: ["NEW", "ASSIGNED"] },
   { key: "CONTACTED", label: "Contacted", stage: "CONTACTED", matchingStages: ["CONTACTED"] },
@@ -685,6 +662,94 @@ const pipelineColumns: Array<{
   { key: "CLOSED_WON", label: "Closed Won", stage: "CLOSED_WON", matchingStages: ["CLOSED_WON", "PAID", "CLOSED"] },
   { key: "CLOSED_LOST", label: "Lost / Recycled", stage: "CLOSED_LOST", matchingStages: ["CLOSED_LOST", "LOST", "NOT_REACHABLE", "RECYCLED"] },
 ];
+
+type PipelineColumn = (typeof pipelineColumns)[number];
+
+const centralStageCompatibility: Record<string, { stage: SalesLeadStage; matchingStages: SalesLeadStage[] }> = {
+  NEW: { stage: "NEW", matchingStages: ["NEW", "ASSIGNED"] },
+  ASSIGNED: { stage: "NEW", matchingStages: ["NEW", "ASSIGNED"] },
+  CONTACTED: { stage: "CONTACTED", matchingStages: ["CONTACTED"] },
+  IN_PROGRESS: { stage: "INTERESTED", matchingStages: ["INTERESTED", "QUALIFIED"] },
+  INTERESTED: { stage: "INTERESTED", matchingStages: ["INTERESTED", "QUALIFIED"] },
+  QUALIFIED: { stage: "INTERESTED", matchingStages: ["INTERESTED", "QUALIFIED"] },
+  DEMO_SCHEDULED: { stage: "WEBINAR_INVITED", matchingStages: ["WEBINAR_INVITED", "WEBINAR_ATTENDED"] },
+  WEBINAR_INVITED: { stage: "WEBINAR_INVITED", matchingStages: ["WEBINAR_INVITED", "WEBINAR_ATTENDED"] },
+  WEBINAR_ATTENDED: { stage: "WEBINAR_INVITED", matchingStages: ["WEBINAR_INVITED", "WEBINAR_ATTENDED"] },
+  FOLLOW_UP: { stage: "FOLLOW_UP", matchingStages: ["FOLLOW_UP"] },
+  NEGOTIATION: { stage: "NEGOTIATION", matchingStages: ["NEGOTIATION"] },
+  CLOSED_WON: { stage: "CLOSED_WON", matchingStages: ["CLOSED_WON", "PAID", "CLOSED"] },
+  CLOSED: { stage: "CLOSED_WON", matchingStages: ["CLOSED_WON", "PAID", "CLOSED"] },
+  PAID: { stage: "CLOSED_WON", matchingStages: ["CLOSED_WON", "PAID", "CLOSED"] },
+  CLOSED_LOST: { stage: "CLOSED_LOST", matchingStages: ["CLOSED_LOST", "LOST", "NOT_REACHABLE", "RECYCLED"] },
+  LOST: { stage: "CLOSED_LOST", matchingStages: ["CLOSED_LOST", "LOST", "NOT_REACHABLE", "RECYCLED"] },
+  NOT_REACHABLE: { stage: "CLOSED_LOST", matchingStages: ["CLOSED_LOST", "LOST", "NOT_REACHABLE", "RECYCLED"] },
+  RECYCLED: { stage: "CLOSED_LOST", matchingStages: ["CLOSED_LOST", "LOST", "NOT_REACHABLE", "RECYCLED"] },
+};
+
+function mergeCentralStageLabels(
+  definitions: Array<{ id: string; key?: string; label: string; isCustom?: boolean; position?: number }>,
+) {
+  const columns: PipelineColumn[] = [];
+  const usedCanonicalStages = new Set<string>();
+  const orderedDefinitions = [...definitions].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+
+  for (const definition of orderedDefinitions) {
+    const key = String(definition.key ?? definition.id).trim().toUpperCase();
+    const labelText = definition.label?.trim();
+    if (!key || !labelText) continue;
+
+    const compatibility = centralStageCompatibility[key];
+    if (compatibility) {
+      // The central stage API uses the newer names IN_PROGRESS/DEMO_SCHEDULED,
+      // while existing lead rows still use INTERESTED/WEBINAR_INVITED. Keep
+      // one visible column and match both values so old rows are not orphaned.
+      const canonicalKey = compatibility.stage;
+      if (usedCanonicalStages.has(canonicalKey)) continue;
+      usedCanonicalStages.add(canonicalKey);
+      columns.push({
+        key: canonicalKey,
+        label: labelText,
+        stage: compatibility.stage,
+        matchingStages: compatibility.matchingStages,
+      });
+      continue;
+    }
+
+    // Custom stages are stored in customFields.customStage by the central API.
+    // Keep them in the same board rather than silently dropping them.
+    columns.push({ key, label: labelText, stage: "NEW", matchingStages: [], customKey: key });
+  }
+
+  return columns.length ? columns : pipelineColumns;
+}
+
+function getLeadPipelineValue(column: PipelineColumn) {
+  return column.customKey ?? column.stage;
+}
+
+function leadMatchesPipelineColumn(lead: SalesLeadView, column: PipelineColumn) {
+  if (column.customKey) {
+    return String(lead.customFields?.customStage ?? "").toUpperCase() === column.customKey;
+  }
+  return column.matchingStages.includes(lead.stage);
+}
+
+function getLeadPipelineLabel(lead: SalesLeadView, columns: PipelineColumn[]) {
+  const customStage = String(lead.customFields?.customStage ?? "").toUpperCase();
+  if (customStage) {
+    const customColumn = columns.find((column) => column.customKey === customStage);
+    if (customColumn) return customColumn.label;
+  }
+  const column = columns.find((candidate) => candidate.matchingStages.includes(lead.stage));
+  return column?.label ?? label(lead.stage);
+}
+
+function getLeadPipelineValueForSelect(lead: SalesLeadView, columns: PipelineColumn[]) {
+  const customStage = String(lead.customFields?.customStage ?? "").toUpperCase();
+  if (customStage && columns.some((column) => column.customKey === customStage)) return customStage;
+  const column = columns.find((candidate) => candidate.matchingStages.includes(lead.stage));
+  return column ? getLeadPipelineValue(column) : lead.stage;
+}
 
 const CRM_LEADS_PER_PAGE = 50;
 
@@ -735,6 +800,7 @@ function formatTalkTime(totalSeconds: number) {
 
 function CallRecordingPlayer({ callId, expectedDurationSeconds = 0, labelText = "recording" }: { callId: string; expectedDurationSeconds?: number; labelText?: string }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [audioUrl, setAudioUrl] = useState("");
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(expectedDurationSeconds);
@@ -748,12 +814,16 @@ function CallRecordingPlayer({ callId, expectedDurationSeconds = 0, labelText = 
     let cancelled = false;
     let audioContext: AudioContext | null = null;
     const fallback = Array.from({ length: 56 }, (_, index) => 24 + Math.abs(Math.sin(index * 1.73)) * 54);
-    fetch(`/api/sales/mobile/calls/${callId}/recording`, { credentials: "same-origin" })
-      .then((response) => {
-        if (!response.ok) throw new Error("Waveform unavailable");
-        return response.arrayBuffer();
+    let objectUrl = "";
+    aicloserApi.calls.getRecordingBlob(callId)
+      .then(async (blob) => {
+        if (cancelled) return null;
+        objectUrl = URL.createObjectURL(blob);
+        setAudioUrl(objectUrl);
+        return blob.arrayBuffer();
       })
       .then((buffer) => {
+        if (!buffer) return null;
         if (typeof window === "undefined") throw new Error("Audio context unavailable");
         const AudioContextImpl = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
         if (!AudioContextImpl) throw new Error("Audio context unavailable");
@@ -761,7 +831,7 @@ function CallRecordingPlayer({ callId, expectedDurationSeconds = 0, labelText = 
         return audioContext.decodeAudioData(buffer.slice(0));
       })
       .then((decoded) => {
-        if (cancelled) return;
+        if (!decoded || cancelled) return;
         const samples = decoded.getChannelData(0);
         const bucketSize = Math.max(1, Math.floor(samples.length / 56));
         const peaks = Array.from({ length: 56 }, (_, index) => {
@@ -781,6 +851,8 @@ function CallRecordingPlayer({ callId, expectedDurationSeconds = 0, labelText = 
       });
     return () => {
       cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      setAudioUrl("");
       audioContext?.close().catch(() => undefined);
     };
   }, [callId]);
@@ -835,7 +907,7 @@ function CallRecordingPlayer({ callId, expectedDurationSeconds = 0, labelText = 
         }}
         preload="metadata"
         ref={audioRef}
-        src={`/api/sales/mobile/calls/${callId}/recording`}
+        src={audioUrl || undefined}
       />
       <div className="sales-recording-controls">
         <button
@@ -907,25 +979,40 @@ function CallRecordingPlayer({ callId, expectedDurationSeconds = 0, labelText = 
   );
 }
 
-export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, canManageContacts = false, sessionRole = "SALES_AGENT", rolePermissions }: { salesOperations: SalesOperationsPayload; snapshot: SalesDashboardSnapshot; canManageContacts?: boolean; sessionRole?: string; rolePermissions?: Record<string, boolean> }) {
+export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, centralAggregates = [], centralPaymentSummary = {}, canManageContacts = false, sessionRole = "SALES_AGENT", rolePermissions, centralToken = null }: { salesOperations: SalesOperationsPayload; snapshot: SalesDashboardSnapshot; centralAggregates?: Array<{ stage?: string; count?: number; totalValue?: number; weightedValue?: number }>; centralPaymentSummary?: { totalLinks?: number; totalAmount?: number; paidAmount?: number; pendingAmount?: number }; canManageContacts?: boolean; sessionRole?: string; rolePermissions?: Record<string, boolean>; centralToken?: string | null }) {
+  const usesCentralApi = Boolean(centralToken);
   const router = useRouter();
   const [snapshot, setSnapshot] = useState(initialSnapshot);
+  const [dashboardSummary, setDashboardSummary] = useState<any>(null);
+  const [centralCallbacks, setCentralCallbacks] = useState<Array<{
+    id: string;
+    conversationId?: string | null;
+    customerName: string;
+    customerPhone?: string | null;
+    stage?: string | null;
+    notes?: string | null;
+    followUpAt?: string | null;
+    assignedAgentId?: string | null;
+  }>>([]);
+  const [centralCallbacksState, setCentralCallbacksState] = useState<"idle" | "loading" | "ready" | "unavailable">("idle");
   const [operating, setOperating] = useState<SalesOperatingSnapshot | null>(null);
   const [activeTab, setActiveTab] = useState<SalesTab>("dashboard");
+  const [dashboardView, setDashboardView] = useState<"overview" | "reports">("overview");
   const [telephonyRevision, setTelephonyRevision] = useState(0);
   const [crmView, setCrmView] = useState<CrmView>("kanban");
+  const [workspacePipelineColumns, setWorkspacePipelineColumns] = useState(pipelineColumns);
   const [viewingAgentId, setViewingAgentId] = useState("all");
   const [crmSearch, setCrmSearch] = useState("");
+  const [contactsSearch, setContactsSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [groupFilter, setGroupFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [segmentFilter, setSegmentFilter] = useState("all");
   const [dateRangeFilter, setDateRangeFilter] = useState<"all" | "today" | "yesterday" | "last7" | "month" | "custom">("all");
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
-  const [quickPillFilter, setQuickPillFilter] = useState<"all" | "today-leads" | "today-followups">("all");
   const [leadPage, setLeadPage] = useState(1);
   const [status, setStatus] = useState("");
+  const [showLegacyDashboardModules, setShowLegacyDashboardModules] = useState(false);
   const [drawer, setDrawer] = useState<SalesDrawer>(null);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<{ imported: number; skipped: number; duplicate: number; invalid: number; errors?: Array<{ row: number; reason: string }> } | null>(null);
@@ -940,7 +1027,6 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     stageLabel: string;
   } | null>(null);
   const [isSubmittingStageReason, setIsSubmittingStageReason] = useState(false);
-  const [isLeadExportMenuOpen, setIsLeadExportMenuOpen] = useState(false);
   const [roundRobinAccess, setRoundRobinAccess] = useState<SalesRoundRobinAccess>({
     enabled: false,
     allowNonAdminModifyLeads: false,
@@ -948,14 +1034,89 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     allowNonAdminExportData: false,
   });
   const [liveRolePermissions, setLiveRolePermissions] = useState(rolePermissions);
+  const [activeDraggedLeadId, setActiveDraggedLeadId] = useState<string | null>(null);
+  const [isKanbanPanning, setIsKanbanPanning] = useState(false);
+  const kanbanBoardRef = useRef<HTMLDivElement>(null);
+  const kanbanPanRef = useRef<{ pointerId: number; clientX: number; scrollLeft: number } | null>(null);
   const restoredNavigation = useRef(false);
   const hydratedTabs = useRef<Set<SalesTab>>(new Set(["dashboard"]));
   const kanbanSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
+
+  const activeDraggedLead = activeDraggedLeadId
+    ? snapshot.visibleLeads.find((lead) => lead.id === activeDraggedLeadId) ?? null
+    : null;
+
+  function handleKanbanPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0 || activeDraggedLeadId) return;
+    const target = event.target as HTMLElement;
+    if (target.closest("button, a, input, select, textarea, .sales-crm-card")) return;
+    const board = kanbanBoardRef.current;
+    if (!board || board.scrollWidth <= board.clientWidth) return;
+    kanbanPanRef.current = { pointerId: event.pointerId, clientX: event.clientX, scrollLeft: board.scrollLeft };
+    board.setPointerCapture(event.pointerId);
+    setIsKanbanPanning(true);
+  }
+
+  function handleKanbanPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const pan = kanbanPanRef.current;
+    const board = kanbanBoardRef.current;
+    if (!pan || !board || pan.pointerId !== event.pointerId) return;
+    board.scrollLeft = pan.scrollLeft - (event.clientX - pan.clientX);
+  }
+
+  function stopKanbanPanning(event?: ReactPointerEvent<HTMLDivElement>) {
+    const board = kanbanBoardRef.current;
+    const pointerId = kanbanPanRef.current?.pointerId;
+    if (board && pointerId != null && board.hasPointerCapture(pointerId)) board.releasePointerCapture(pointerId);
+    kanbanPanRef.current = null;
+    setIsKanbanPanning(false);
+    if (event) event.preventDefault();
+  }
+
+  useEffect(() => {
+    if (centralToken) setStoredToken(centralToken);
+  }, [centralToken]);
+
+  useEffect(() => {
+    if (!usesCentralApi) {
+      setCentralCallbacksState("unavailable");
+      return undefined;
+    }
+
+    let isActive = true;
+    setCentralCallbacksState("loading");
+    void aicloserApi.mobile.getCallbacks({ limit: 100 })
+      .then((payload) => {
+        if (!isActive) return;
+        const callbacks = Array.isArray(payload?.callbacks) ? payload.callbacks : [];
+        setCentralCallbacks(callbacks.map((callback) => ({
+          id: String(callback.id ?? ""),
+          conversationId: callback.conversationId == null ? null : String(callback.conversationId),
+          customerName: String(callback.customerName ?? "Customer"),
+          customerPhone: callback.customerPhone == null ? null : String(callback.customerPhone),
+          stage: callback.stage == null ? null : String(callback.stage),
+          notes: callback.note == null ? null : String(callback.note),
+          followUpAt: callback.scheduledAt == null ? null : String(callback.scheduledAt),
+          assignedAgentId: null,
+        })).filter((callback) => callback.id));
+        setCentralCallbacksState("ready");
+      })
+      .catch(() => {
+        if (isActive) setCentralCallbacksState("unavailable");
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [usesCentralApi]);
+
   const currentAgent = snapshot.currentAgent;
-  const pageTitle = tabs.find((tab) => tab.id === activeTab)?.label ?? "Sales";
+  const pageTitle = activeTab === "dashboard" && dashboardView === "reports"
+    ? "Dashboard & Reports"
+    : tabs.find((tab) => tab.id === activeTab)?.label ?? "Sales";
   const currentAgentPermissions = currentAgent?.permissions as Record<string, unknown> | null | undefined;
   const isWorkspaceAdmin =
     sessionRole === "ADMIN" ||
@@ -969,12 +1130,11 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     return snapshot.visibleAgents.filter((agent) => agent.status === "ACTIVE" && agent.id !== currentAgent?.id && !isAdminSalesAgent(agent));
   }, [currentAgent?.id, isWorkspaceAdmin, snapshot.visibleAgents]);
   const reportingAgentIds = useMemo(() => new Set(reportingAgents.map((agent) => agent.id)), [reportingAgents]);
-  const dashboardLeads = useMemo(
-    () => isWorkspaceAdmin
-      ? snapshot.visibleLeads.filter((lead) => reportingAgentIds.has(lead.assignedAgentId))
-      : snapshot.visibleLeads,
-    [isWorkspaceAdmin, reportingAgentIds, snapshot.visibleLeads],
-  );
+  // The central API already applies tenant, role, and assignment visibility.
+  // Filtering again by the locally hydrated agent list hid every lead for an
+  // admin because that compatibility snapshot only contains the signed-in
+  // admin, not the full team directory.
+  const dashboardLeads = useMemo(() => snapshot.visibleLeads, [snapshot.visibleLeads]);
   const dashboardCalls = useMemo(
     () => isWorkspaceAdmin
       ? snapshot.mobileCalls.filter((call) => reportingAgentIds.has(call.agentId))
@@ -1006,6 +1166,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     : isCloser
       ? tabs.filter((tab) => ["dashboard", "crm", "calls", "grab-leads", "contacts", "lead-import", "conversations", "payments"].includes(tab.id))
       : tabs.filter((tab) => !["roles", "profile", "developer", "grab-leads"].includes(tab.id)))
+    .filter((tab) => tab.id !== "reports")
     .filter((tab) => !tabFeatureMap[tab.id] || hasFeature(tabFeatureMap[tab.id] as string));
   const canImportLeads = isWorkspaceAdmin || roundRobinAccess.allowNonAdminImportData;
   const canExportLeads = isWorkspaceAdmin || roundRobinAccess.allowNonAdminExportData;
@@ -1057,6 +1218,20 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       return true;
     }).sort((a, b) => new Date(a.followUpAt || 0).getTime() - new Date(b.followUpAt || 0).getTime());
   }, [dashboardLeads, dateRangeFilter]);
+
+  const callbackItems = useMemo(() => {
+    if (centralCallbacksState === "ready") return centralCallbacks;
+    return callbackLeads.map((lead) => ({
+      id: lead.id,
+      conversationId: lead.conversationId,
+      customerName: lead.customerName,
+      customerPhone: lead.customerPhone,
+      stage: lead.stage,
+      notes: lead.notes,
+      followUpAt: lead.followUpAt,
+      assignedAgentId: lead.assignedAgentId,
+    }));
+  }, [callbackLeads, centralCallbacks, centralCallbacksState]);
 
   // Stream of recent SIM calls (newest first)
   const recentCalls = useMemo(() => {
@@ -1140,23 +1315,12 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     return dashboardLeads;
   }, [dashboardLeads, isCloser, isWorkspaceAdmin, leadOwnershipScope]);
 
-  const todayLeadsCount = useMemo(
-    () => baseLeads.filter((lead) => isDateToday(lead.createdAt)).length,
-    [baseLeads],
-  );
-
-  const todayFollowupsCount = useMemo(
-    () => baseLeads.filter((lead) => isFollowUpDueTodayOrPast(lead.followUpAt)).length,
-    [baseLeads],
-  );
-
-  const [savedLeadViews, setSavedLeadViews] = useState<SavedLeadView[]>([]);
-  const [savedViewSelection, setSavedViewSelection] = useState("all");
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(true);
   const [enforceWorkspace2FA, setEnforceWorkspace2FA] = useState(true);
   const [requireFieldVisitGps, setRequireFieldVisitGps] = useState(true);
   const [automationsHubView, setAutomationsHubView] = useState<"all" | "workflows" | "ai-bot">("all");
   const [settingsHubView, setSettingsHubView] = useState<"all" | "channels" | "team" | "custom-fields" | "security">("all");
+  const activePipelineColumns = workspacePipelineColumns;
   const isWhatsAppConnected = Boolean(
     salesOperations.whatsAppConnection &&
       (salesOperations.whatsAppConnection.status === "Number connected" ||
@@ -1190,42 +1354,18 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       }
 
       if (statusFilter !== "all") {
-        const selectedColumn = pipelineColumns.find((column) => column.key === statusFilter);
-        if (selectedColumn && !selectedColumn.matchingStages.includes(lead.stage)) return false;
-      }
-
-      if (groupFilter !== "all") {
-        const assignedAgent = snapshot.agents.find((agent) => agent.id === lead.assignedAgentId);
-        const leadGroupId = assignedAgent?.groupId ?? "unassigned";
-        if (leadGroupId !== groupFilter) return false;
+        const selectedColumn = activePipelineColumns.find((column) => column.key === statusFilter);
+        if (selectedColumn && !leadMatchesPipelineColumn(lead, selectedColumn)) return false;
       }
 
       if (sourceFilter !== "all" && (lead.source || "manual") !== sourceFilter) return false;
 
-      // 1. Segment & Smart Reusable Cohort filter
-      if (segmentFilter === "smart:high-value") {
-        if ((lead.budgetAmount || 0) < 25000 && lead.priority !== "hot") return false;
-      } else if (segmentFilter === "smart:recaptured") {
-        const hasRecaptureTag = (lead.tags || []).some(
-          (t) => t.toLowerCase().includes("recaptur") || t.toLowerCase().includes("merged") || t.toLowerCase().includes("duplicate")
-        );
-        const hasMergedNote = (lead.notes || "").toLowerCase().includes("merged") || (lead.notes || "").toLowerCase().includes("re-inquir");
-        if (!hasRecaptureTag && !hasMergedNote) return false;
-      } else if (segmentFilter === "smart:callback-due") {
-        if (!isFollowUpDueTodayOrPast(lead.followUpAt) && lead.stage !== "FOLLOW_UP") return false;
-      } else if (segmentFilter !== "all" && lead.segment !== segmentFilter) {
+      // Segment is a real central lead field. Keep this filter tied to API data only.
+      if (segmentFilter !== "all" && lead.segment !== segmentFilter) {
         return false;
       }
 
-      // 2. Quick Pill filter
-      if (quickPillFilter === "today-leads") {
-        return isDateToday(lead.createdAt);
-      }
-      if (quickPillFilter === "today-followups") {
-        return isFollowUpDueTodayOrPast(lead.followUpAt);
-      }
-
-      // 3. Date range filter
+      // Date range filter
       if (dateRangeFilter === "today") {
         return isDateToday(lead.createdAt) || isDateToday(lead.updatedAt);
       }
@@ -1250,7 +1390,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
 
       return true;
     });
-  }, [baseLeads, crmSearch, statusFilter, groupFilter, sourceFilter, snapshot.agents, segmentFilter, quickPillFilter, dateRangeFilter, customStartDate, customEndDate]);
+  }, [activePipelineColumns, baseLeads, crmSearch, statusFilter, sourceFilter, segmentFilter, dateRangeFilter, customStartDate, customEndDate]);
   const listLeads = useMemo(
     () => [...filteredLeads].sort((left, right) => {
       const leftCall = dashboardCalls.find((call) => call.assignmentId === left.id)?.startedAt;
@@ -1266,7 +1406,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   );
   useEffect(() => {
     setLeadPage(1);
-  }, [crmSearch, statusFilter, groupFilter, sourceFilter, segmentFilter, quickPillFilter, dateRangeFilter, customStartDate, customEndDate, leadOwnershipScope, crmView]);
+  }, [crmSearch, statusFilter, sourceFilter, segmentFilter, dateRangeFilter, customStartDate, customEndDate, leadOwnershipScope, crmView]);
   useEffect(() => {
     setLeadPage((current) => Math.min(current, leadPageCount));
   }, [leadPageCount]);
@@ -1286,31 +1426,22 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     () => Array.from(new Set(baseLeads.map((lead) => lead.source || "manual"))).sort(),
     [baseLeads],
   );
-  const groupOptions = useMemo(
-    () => snapshot.groups.filter((group) => group.isActive).map((group) => ({ id: group.id, name: group.name })),
-    [snapshot.groups],
-  );
-
   useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem("gxclosers-saved-lead-views");
-      if (!stored) return;
-      const parsed = JSON.parse(stored) as unknown;
-      if (Array.isArray(parsed)) setSavedLeadViews(parsed as SavedLeadView[]);
-    } catch {
-      // Saved views are a convenience; malformed local data should not block CRM loading.
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || typeof EventSource === "undefined") return;
-    const source = new EventSource("/api/sales/realtime");
+    if (!showLegacyDashboardModules || typeof window === "undefined" || typeof EventSource === "undefined") return;
+    let streamReady = false;
     let refreshTimer: number | undefined;
     let fallbackInFlight = false;
-    const onEvent = (event: MessageEvent<string>) => {
+    const disconnect = aicloserApi.realtime.connect({
+      onOpen: () => {
+        streamReady = true;
+      },
+      onError: () => {
+        streamReady = false;
+      },
+      onEvent: (event) => {
       try {
-        const payload = JSON.parse(event.data) as { type?: string; eventType?: string };
-        const eventType = payload.eventType ?? payload.type;
+        const payload = (event.payload ?? {}) as { type?: string; eventType?: string };
+        const eventType = payload.eventType ?? payload.type ?? event.type;
         if (["call.started", "call.ended", "recording.uploaded", "recording.failed"].includes(eventType ?? "")) {
           setTelephonyRevision((revision) => revision + 1);
         }
@@ -1321,11 +1452,11 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       } catch {
         // A malformed realtime event must not interrupt the dashboard stream.
       }
-    };
-    source.addEventListener("crm", onEvent);
+      },
+    });
     const fallbackPoll = () => {
       if (activeTab !== "calls" && activeTab !== "dashboard") return;
-      if (source.readyState === EventSource.OPEN || document.visibilityState === "hidden" || fallbackInFlight) return;
+      if (streamReady || document.visibilityState === "hidden" || fallbackInFlight) return;
       fallbackInFlight = true;
       void refresh()
         .then(() => setTelephonyRevision((revision) => revision + 1))
@@ -1338,28 +1469,29 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     return () => {
       if (refreshTimer) window.clearTimeout(refreshTimer);
       window.clearInterval(fallbackTimer);
-      source.close();
+      disconnect();
     };
-  }, [activeTab, viewingAgentId]);
+  }, [activeTab, showLegacyDashboardModules, viewingAgentId]);
 
   useEffect(() => {
+    if (activeTab !== "grab-leads" && !showLegacyDashboardModules) return;
     let active = true;
-    void fetch("/api/sales/round-robin", { cache: "no-store" })
-      .then((response) => response.json())
+    void aicloserApi.roundRobin.get()
       .then((payload) => {
-        if (!active || !payload?.ok || !payload.settings) return;
+        if (!active || !payload?.settings) return;
+        const settings = payload.settings as Record<string, unknown>;
         setRoundRobinAccess({
-          enabled: payload.settings.enabled !== false,
-          allowNonAdminModifyLeads: payload.settings.allowNonAdminModifyLeads !== false,
-          allowNonAdminImportData: payload.settings.allowNonAdminImportData === true,
-          allowNonAdminExportData: payload.settings.allowNonAdminExportData === true,
+          enabled: settings.enabled !== false,
+          allowNonAdminModifyLeads: settings.allowNonAdminModifyLeads !== false,
+          allowNonAdminImportData: settings.allowNonAdminImportData !== false,
+          allowNonAdminExportData: settings.allowNonAdminExportData === true,
         });
       })
       .catch(() => undefined);
     return () => {
       active = false;
     };
-  }, []);
+  }, [activeTab, showLegacyDashboardModules]);
 
   useEffect(() => {
     const syncPermissions = () => { void refresh(viewingAgentId).catch(() => undefined); };
@@ -1386,6 +1518,9 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       } else if (savedTab === "ai-beta" || savedTab === "ai-bot" || savedTab === "referrals") {
         setActiveTab("automations");
         setAutomationsHubView("ai-bot");
+      } else if (savedTab === "reports") {
+        setActiveTab("dashboard");
+        setDashboardView("reports");
       } else if (savedTab === "roles") {
         setActiveTab(isWorkspaceAdmin ? "roles" : "dashboard");
         if (isWorkspaceAdmin) setSettingsHubView("team");
@@ -1420,11 +1555,11 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     window.sessionStorage.setItem("gigxomi-sales-tab", activeTab);
     window.sessionStorage.setItem("gigxomi-sales-crm-view", crmView);
     const url = new URL(window.location.href);
-    url.searchParams.set("tab", activeTab);
+    url.searchParams.set("tab", activeTab === "dashboard" && dashboardView === "reports" ? "reports" : activeTab);
     if (activeTab === "crm") url.searchParams.set("view", crmView);
     else url.searchParams.delete("view");
     window.history.replaceState({}, "", url);
-  }, [activeTab, crmView]);
+  }, [activeTab, crmView, dashboardView]);
 
   useEffect(() => {
     if (!restoredNavigation.current || activeTab === "dashboard" || hydratedTabs.current.has(activeTab)) return;
@@ -1435,90 +1570,169 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   function resetLeadFilters() {
     setCrmSearch("");
     setStatusFilter("all");
-    setGroupFilter("all");
     setSourceFilter("all");
     setSegmentFilter("all");
     setLeadOwnershipScope("all");
-    setQuickPillFilter("all");
     setDateRangeFilter("all");
     setCustomStartDate("");
     setCustomEndDate("");
   }
 
-  function applySavedLeadView(view: SavedLeadView) {
-    setCrmSearch(view.search);
-    setStatusFilter(view.status);
-    setGroupFilter(view.group);
-    setSourceFilter(view.source);
-    setSegmentFilter(view.segment);
-    setLeadOwnershipScope(view.ownership);
-    setQuickPillFilter(view.quickPill);
-    setDateRangeFilter(view.dateRange);
-    setCustomStartDate(view.customStartDate);
-    setCustomEndDate(view.customEndDate);
-  }
-
-  function handleSavedViewChange(value: string) {
-    setSavedViewSelection(value);
-    resetLeadFilters();
-    if (value === "all") {
-      return;
-    }
-    if (value === "builtin:high-value") {
-      setSegmentFilter("smart:high-value");
-      return;
-    }
-    if (value === "builtin:recaptured") {
-      setSegmentFilter("smart:recaptured");
-      return;
-    }
-    if (value === "builtin:callback-due") {
-      setSegmentFilter("smart:callback-due");
-      return;
-    }
-    const view = savedLeadViews.find((item) => item.id === value);
-    if (view) applySavedLeadView(view);
-  }
-
-  function saveCurrentLeadView() {
-    const name = typeof window !== "undefined" ? window.prompt("Name this saved lead view:") : null;
-    const trimmed = name?.trim();
-    if (!trimmed) return;
-    const view: SavedLeadView = {
-      id: `saved-view-${Date.now()}`,
-      name: trimmed,
-      search: crmSearch,
-      status: statusFilter,
-      group: groupFilter,
-      source: sourceFilter,
-      segment: segmentFilter,
-      ownership: leadOwnershipScope,
-      quickPill: quickPillFilter,
-      dateRange: dateRangeFilter,
-      customStartDate,
-      customEndDate,
-    };
-    const nextViews = [...savedLeadViews.filter((item) => item.name.toLowerCase() !== trimmed.toLowerCase()), view];
-    setSavedLeadViews(nextViews);
-    window.localStorage.setItem("gxclosers-saved-lead-views", JSON.stringify(nextViews));
-    setSavedViewSelection(view.id);
-    setStatus(`Saved lead view "${trimmed}".`);
-  }
-
   async function refresh(agentId = viewingAgentId) {
-    const params = new URLSearchParams();
-    if (agentId && agentId !== "all") params.set("agentId", agentId);
-    const response = await fetch(`/api/sales/dashboard${params.toString() ? `?${params.toString()}` : ""}`, { cache: "no-store" });
-    const payload = await response.json().catch(() => null);
-    if (payload?.ok) setSnapshot(payload.snapshot);
-    try {
-      const permissionsResponse = await fetch("/api/sales/roles/features", { cache: "no-store" });
-      const permissionsPayload = await permissionsResponse.json().catch(() => null);
-      if (permissionsPayload?.ok && permissionsPayload.userPermissions && typeof permissionsPayload.userPermissions === "object") {
-        setLiveRolePermissions(permissionsPayload.userPermissions as Record<string, boolean>);
+    const [result, centralPool, centralCallsResult, centralStagesResult, centralPaymentsResult] = await Promise.all([
+      aicloserApi.leads.list({
+        page: 1,
+        limit: 100,
+        assignedAgentId: agentId && agentId !== "all" ? agentId : undefined,
+        sortBy: "updatedAt",
+        sortOrder: "desc",
+      }),
+      aicloserApi.leads.getPool(),
+      aicloserApi.calls.list({
+        page: 1,
+        limit: 100,
+        agentId: agentId && agentId !== "all" ? agentId : undefined,
+      }).catch(() => null),
+      aicloserApi.stages.list().catch(() => null),
+      aicloserApi.payments.list({ page: 1, limit: 100 }).catch(() => null),
+    ]);
+    const latestPaymentByLeadId = new Map<string, { amount: number; createdAt: number }>();
+    const latestPaymentByPhone = new Map<string, { amount: number; createdAt: number }>();
+    for (const payment of centralPaymentsResult?.payments ?? []) {
+      const customFields = payment?.customFields && typeof payment.customFields === "object"
+        ? payment.customFields as Record<string, unknown>
+        : null;
+      const linkedLeadId = typeof payment?.leadId === "string"
+        ? payment.leadId
+        : typeof customFields?.leadId === "string"
+          ? customFields.leadId
+          : "";
+      const amount = Number(payment?.totalAmount ?? payment?.amount ?? 0);
+      const createdAt = new Date(payment?.createdAt ?? 0).getTime();
+      if (!Number.isFinite(amount) || amount <= 0) continue;
+      if (linkedLeadId) {
+        const current = latestPaymentByLeadId.get(linkedLeadId);
+        if (!current || createdAt >= current.createdAt) latestPaymentByLeadId.set(linkedLeadId, { amount, createdAt });
       }
-    } catch {
-      // Permission refresh is best-effort and must not block CRM data refresh.
+      const phoneKey = cleanPhone(String(payment?.customerPhone ?? "")).slice(-10);
+      if (phoneKey.length === 10) {
+        const currentPhonePayment = latestPaymentByPhone.get(phoneKey);
+        if (!currentPhonePayment || createdAt >= currentPhonePayment.createdAt) latestPaymentByPhone.set(phoneKey, { amount, createdAt });
+      }
+    }
+    const leadPhoneCounts = new Map<string, number>();
+    for (const lead of result.leads ?? []) {
+      const phoneKey = cleanPhone(String(lead.customerPhone ?? "")).slice(-10);
+      if (phoneKey.length === 10) leadPhoneCounts.set(phoneKey, (leadPhoneCounts.get(phoneKey) ?? 0) + 1);
+    }
+    if (centralStagesResult?.length) {
+      setWorkspacePipelineColumns(mergeCentralStageLabels(centralStagesResult));
+    }
+    const centralLeads: SalesLeadView[] = (result.leads ?? []).map((lead) => ({
+      id: lead.id,
+      leadId: lead.id,
+      assignedAgentId: lead.assignedAgent?.id ?? "",
+      createdById: null,
+      customerName: lead.customerName,
+      customerPhone: lead.customerPhone,
+      customerEmail: lead.customerEmail ?? "",
+      source: lead.source ?? "",
+      serviceInterest: lead.serviceInterest ?? "",
+      segment: lead.segment ?? "",
+      priority: lead.priority ?? "",
+      tags: lead.tags ?? [],
+      conversationId: lead.conversationId ?? null,
+      budgetAmount: lead.budgetAmount ?? 0,
+      paymentAmount: latestPaymentByLeadId.get(lead.id)?.amount
+        ?? (() => {
+          const phoneKey = cleanPhone(String(lead.customerPhone ?? "")).slice(-10);
+          return phoneKey.length === 10 && leadPhoneCounts.get(phoneKey) === 1 ? latestPaymentByPhone.get(phoneKey)?.amount ?? null : null;
+        })(),
+      stage: lead.stage as SalesLeadStage,
+      customFields: lead.customFields ?? null,
+      followUpAt: lead.followUpAt ?? null,
+      lastContactedAt: lead.lastContactedAt ?? null,
+      notes: lead.notes ?? "",
+      createdAt: lead.createdAt,
+      updatedAt: lead.updatedAt,
+      lastTouch: null,
+    }));
+    const centralCalls = centralCallsResult?.calls ?? null;
+    setSnapshot((current) => {
+      const pool = centralPool.map((item) => ({
+        id: item.id,
+        assignedAgentId: item.assignedAgentId ?? null,
+        claimedByAgentId: item.claimedByAgentId ?? null,
+        convertedAssignmentId: item.convertedAssignmentId ?? null,
+        customerName: item.customerName,
+        customerPhone: item.customerPhone ?? "",
+        customerEmail: item.customerEmail ?? "",
+        source: item.source ?? "",
+        serviceInterest: item.serviceInterest ?? "",
+        segment: item.segment ?? "",
+        priority: item.priority ?? "",
+        budgetAmount: Number(item.budgetAmount ?? 0),
+        status: item.status,
+        notes: item.notes ?? "",
+        claimedAt: item.claimedAt ?? null,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+      }));
+      const mobileCalls = centralCalls
+        ? centralCalls.map((call: CallLog) => ({
+            id: call.id,
+            assignmentId: call.assignment?.id ?? "",
+            agentId: call.agent?.id ?? "",
+            customerName: call.assignment?.customerName ?? "Unknown Contact",
+            phoneNumber: call.phoneNumber || call.assignment?.customerPhone || "",
+            deviceName: "",
+            deviceModel: "",
+            direction: call.direction ?? "OUTBOUND",
+            status: call.status,
+            outcome: call.outcome ?? "",
+            note: call.note ?? "",
+            durationSeconds: Number(call.durationSeconds ?? 0),
+            recordingStatus: call.recordingStatus ?? "NONE",
+            recordingError: call.recordingError ?? "",
+            noteSubmitted: Boolean(call.note),
+            startedAt: call.startedAt,
+            endedAt: call.endedAt ?? null,
+          }))
+        : current.mobileCalls;
+      return {
+        ...current,
+        mobileCalls,
+        visibleLeadPool: pool,
+        leadPool: pool,
+        visibleLeads: centralLeads,
+        leads: centralLeads,
+        reports: {
+          ...current.reports,
+          assignedLeads: centralLeads.length,
+          claimedLeads: centralLeads.length,
+          openQueueLeads: pool.filter((item) => item.status === "OPEN").length,
+        },
+      };
+    });
+  }
+
+  async function claimLeadFromPool(poolItemId: string) {
+    const previousPool = snapshot.visibleLeadPool;
+    setSnapshot((current) => ({
+      ...current,
+      visibleLeadPool: current.visibleLeadPool.filter((item) => item.id !== poolItemId),
+      leadPool: current.leadPool.filter((item) => item.id !== poolItemId),
+    }));
+    setStatus("Claiming lead...");
+    try {
+      await aicloserApi.leads.claimFromPool(poolItemId, snapshot.currentAgent?.id || undefined);
+      setStatus("Lead claimed and added to your pipeline.");
+      await refresh();
+      return true;
+    } catch (error) {
+      setSnapshot((current) => ({ ...current, visibleLeadPool: previousPool, leadPool: previousPool }));
+      setStatus(error instanceof Error ? error.message : "Unable to claim this lead.");
+      return false;
     }
   }
 
@@ -1539,7 +1753,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     }
     try {
       setStatus(`Exporting leads ${format === "excel" ? "Excel" : "CSV"}...`);
-      const res = await fetch("/api/sales/reports/export?type=leads");
+      const res = await fetch(aicloserApi.reports.getExportUrl("leads"));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
@@ -1550,7 +1764,6 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       a.click();
       a.remove();
       window.URL.revokeObjectURL(url);
-      setIsLeadExportMenuOpen(false);
       setStatus(`Leads ${format === "excel" ? "Excel" : "CSV"} exported successfully.`);
     } catch (err: any) {
       setStatus(`Export failed: ${err?.message || "Error downloading leads"}`);
@@ -1567,7 +1780,10 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   }
 
   async function refreshOperating() {
-    const conversations = await fetch("/api/sales/conversations", { cache: "no-store" }).then((item) => item.json()).catch(() => null);
+    // The old operating-system endpoint mixed legacy training data with the
+    // dashboard payload. Keep this optional panel stable, but refresh its
+    // conversation activity from the central inbox instead.
+    await aicloserApi.conversations.list({ page: 1, limit: 100 }).catch(() => null);
     setOperating((current) => ({
       courses: current?.courses ?? [],
       modules: current?.modules ?? [],
@@ -1579,7 +1795,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       webinars: current?.webinars ?? [],
       webinarInvites: current?.webinarInvites ?? [],
       learningPosts: current?.learningPosts ?? [],
-      timeline: conversations?.timeline ?? current?.timeline ?? [],
+      timeline: current?.timeline ?? [],
       roundRobinRules: current?.roundRobinRules ?? [],
     }));
   }
@@ -1594,33 +1810,38 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   }
 
   async function reassignLead(leadId: string, assignedAgentId: string) {
-    return submitJson(
-      "/api/sales/leads",
-      { action: "assign", leadId, assignedAgentId },
-      "Lead reassigned successfully.",
-    );
+    try {
+      await aicloserApi.leads.update(leadId, { assignedAgentId });
+      setStatus("Lead reassigned successfully.");
+      await refresh();
+      return true;
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Lead reassignment failed.");
+      return false;
+    }
   }
 
   async function createLead(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
-    const ok = await submitJson(
-      "/api/sales/leads",
-      {
+    try {
+      await aicloserApi.leads.create({
         customerName: String(form.get("customerName") ?? ""),
         customerPhone: String(form.get("customerPhone") ?? ""),
-        customerEmail: String(form.get("customerEmail") ?? ""),
+        customerEmail: String(form.get("customerEmail") ?? "") || undefined,
+        assignedAgentId: currentAgent?.id,
         stage: String(form.get("stage") ?? "NEW"),
         serviceInterest: "Agency services",
         segment: "agency",
         notes: String(form.get("notes") ?? ""),
-      },
-      "Lead added to your CRM.",
-    );
-    if (ok) {
+      });
+      setStatus("Lead added to your CRM.");
       formElement.reset();
       setDrawer(null);
+      await refresh();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Lead creation failed.");
     }
   }
 
@@ -1635,18 +1856,42 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     setIsImporting(true);
     setStatus("Importing contacts...");
     try {
-      const response = await fetch("/api/sales/leads/import", { method: "POST", body: formData });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.ok) {
-        setStatus(payload?.error ?? "Contact import failed.");
-        return;
+      const file = formData.get("file");
+      const googleSheetUrl = String(formData.get("googleSheetUrl") ?? "").trim();
+      let payload: any;
+      let totalRows = 0;
+      if (googleSheetUrl) {
+        payload = await aicloserApi.leads.importGoogleSheets({ spreadsheetUrl: googleSheetUrl, distributionMode: "AUTO" });
+      } else if (file instanceof File && file.size > 0) {
+        const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+        const rows = rawRows.map((row) => {
+          const normalized = Object.fromEntries(Object.entries(row).map(([key, value]) => [key.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_"), value]));
+          const pick = (...keys: string[]) => keys.map((key) => normalized[key]).find((value) => value !== undefined && value !== null && String(value).trim() !== "");
+          return {
+            customerName: String(pick("customer_name", "name", "full_name", "client_name") || "Inbound Lead").trim(),
+            customerPhone: String(pick("customer_phone", "phone", "mobile", "contact_number", "whatsapp") || "").trim(),
+            customerEmail: String(pick("customer_email", "email") || "").trim() || undefined,
+            serviceInterest: String(pick("service_interest", "service", "requirement") || "").trim() || undefined,
+            notes: String(pick("notes", "remarks") || "Imported from Lead Import").trim(),
+          };
+        }).filter((row) => row.customerPhone.length >= 7);
+        totalRows = rawRows.length;
+        if (!rows.length) throw new Error("No valid rows found. Include a name and phone/mobile column.");
+        payload = await aicloserApi.leads.import({ source: "EXCEL_OR_CSV", rows, distributionMode: "AUTO", duplicateAction: "SKIP" });
+      } else {
+        throw new Error("Select an Excel/CSV file or provide a Google Sheets link.");
       }
+      const imported = Number(payload?.createdCount ?? payload?.importedCount ?? payload?.imported ?? 0);
+      const duplicate = Number(payload?.skippedDuplicates ?? payload?.duplicate ?? 0);
+      const skipped = Number(payload?.updatedCount ?? payload?.skipped ?? 0);
       const result = {
-        imported: Number(payload.imported ?? 0),
-        skipped: Number(payload.skipped ?? 0),
-        duplicate: Number(payload.duplicate ?? 0),
-        invalid: Number(payload.invalid ?? 0),
-        errors: payload.errors ?? [],
+        imported,
+        skipped,
+        duplicate,
+        invalid: Math.max(totalRows - imported - duplicate - skipped, 0),
+        errors: [],
       };
       setImportResult(result);
       setStatus(`${result.imported} contacts imported into your CRM.`);
@@ -1659,44 +1904,56 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     }
   }
 
-  const stagesRequiringReason = useMemo(() => new Set<SalesLeadStage>(["CLOSED_LOST", "LOST", "NOT_REACHABLE", "RECYCLED"]), []);
+  const stagesRequiringReason = useMemo(() => new Set<string>(["CLOSED_LOST", "LOST", "NOT_REACHABLE", "RECYCLED"]), []);
 
-  async function updateLeadStage(leadId: string, stage: SalesLeadStage, note?: string) {
+  async function updateLeadStage(leadId: string, stage: string, note?: string) {
+    const target = snapshot.visibleLeads.find((lead) => lead.id === leadId) ?? snapshot.leads.find((lead) => lead.id === leadId);
+    const selectedColumn = activePipelineColumns.find((column) => getLeadPipelineValue(column) === stage);
+    const customStage = selectedColumn?.customKey;
     if (stagesRequiringReason.has(stage) && (!note || note.trim().length < 3)) {
-      const target = snapshot.visibleLeads.find((lead) => lead.id === leadId) ?? snapshot.leads.find((lead) => lead.id === leadId);
       if (target) {
         setStageReasonRequest({
           leadId,
-          stage,
+          stage: stage as SalesLeadStage,
           customerName: target.customerName,
           customerContact: target.customerPhone || target.customerEmail || "",
-          stageLabel: label(stage),
+          stageLabel: selectedColumn?.label ?? label(stage),
         });
         return;
       }
     }
-    await submitJson("/api/sales/leads", { action: "stage", leadId, stage, note: note || undefined }, "Lead stage updated.");
+    try {
+      if (customStage) {
+        const customFields = { ...(target?.customFields ?? {}), customStage };
+        await aicloserApi.leads.update(leadId, { customFields, notes: note || undefined });
+      } else {
+        const customFields = { ...(target?.customFields ?? {}) };
+        delete customFields.customStage;
+        await aicloserApi.leads.update(leadId, { stage: stage as SalesLeadStage, customFields, notes: note || undefined });
+      }
+      setStatus("Lead stage updated.");
+      await refresh();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Lead stage update failed.");
+    }
   }
 
   async function addQuickLeadNote(leadId: string, body: string) {
     const trimmed = body.trim();
-    const response = await fetch(`/api/sales/leads/${encodeURIComponent(leadId)}/notes`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ body: trimmed, type: "NOTE", source: "web-dashboard" }),
-    });
-    const payload = await response.json().catch(() => null);
-    const ok = Boolean(response.ok && payload?.ok);
-    setStatus(ok ? "Note saved and synced." : payload?.error ?? "Unable to save note.");
-    if (ok) {
+    try {
+      await aicloserApi.leads.addNote(leadId, trimmed);
+      setStatus("Note saved and synced.");
       setSnapshot((current) => ({
         ...current,
         visibleLeads: current.visibleLeads.map((l) => (l.id === leadId ? { ...l, notes: trimmed } : l)),
         leads: current.leads.map((l) => (l.id === leadId ? { ...l, notes: trimmed } : l)),
       }));
       await Promise.all([refresh(), refreshOperating()]);
+      return true;
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to save note.");
+      return false;
     }
-    return ok;
   }
 
   function handleTimelineNoteUpdated(leadId: string, noteText: string) {
@@ -1710,53 +1967,52 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   async function saveQuickFollowUp(leadId: string, followUpAt: string) {
     const lead = snapshot.visibleLeads.find((item) => item.id === leadId) ?? snapshot.leads.find((item) => item.id === leadId);
     if (!lead) return false;
-    return submitJson(
-      "/api/sales/leads",
-      {
-        action: "update",
-        leadId,
-        customerName: lead.customerName,
-        customerPhone: lead.customerPhone,
-        customerEmail: lead.customerEmail,
-        serviceInterest: lead.serviceInterest,
-        segment: lead.segment,
-        priority: lead.priority,
-        tags: lead.tags,
-        budgetAmount: lead.budgetAmount,
-        followUpAt,
-        notes: lead.notes,
-      },
-      "Next follow-up saved.",
-    );
+    try {
+      await aicloserApi.leads.update(leadId, { followUpAt });
+      setStatus("Next follow-up saved.");
+      await refresh();
+      return true;
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Follow-up update failed.");
+      return false;
+    }
   }
 
-  async function moveLeadStage(leadId: string, stage: SalesLeadStage, note?: string) {
+  async function moveLeadStage(leadId: string, stage: string, note?: string) {
     const target = snapshot.visibleLeads.find((lead) => lead.id === leadId) ?? snapshot.leads.find((lead) => lead.id === leadId);
     if (!target || target.stage === stage) return;
+    const selectedColumn = activePipelineColumns.find((column) => getLeadPipelineValue(column) === stage);
+    const customStage = selectedColumn?.customKey;
     if (stagesRequiringReason.has(stage) && (!note || note.trim().length < 3)) {
       setStageReasonRequest({
         leadId,
-        stage,
+        stage: stage as SalesLeadStage,
         customerName: target.customerName,
         customerContact: target.customerPhone || target.customerEmail || "",
-        stageLabel: label(stage),
+        stageLabel: selectedColumn?.label ?? label(stage),
       });
       return;
     }
     const previous = snapshot;
     setSnapshot((current) => ({
       ...current,
-      visibleLeads: current.visibleLeads.map((lead) => (lead.id === leadId ? { ...lead, stage } : lead)),
+      visibleLeads: current.visibleLeads.map((lead) => (lead.id === leadId
+        ? customStage
+          ? { ...lead, customFields: { ...(lead.customFields ?? {}), customStage } }
+          : { ...lead, stage: stage as SalesLeadStage, customFields: (() => { const next = { ...(lead.customFields ?? {}) }; delete next.customStage; return next; })() }
+        : lead)),
     }));
-    const response = await fetch("/api/sales/leads", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "stage", leadId, stage, note: note || undefined }),
-    });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok || !payload?.ok) {
+    try {
+      if (customStage) {
+        await aicloserApi.leads.update(leadId, { customFields: { ...(target.customFields ?? {}), customStage }, notes: note || undefined });
+      } else {
+        const customFields = { ...(target.customFields ?? {}) };
+        delete customFields.customStage;
+        await aicloserApi.leads.update(leadId, { stage: stage as SalesLeadStage, customFields, notes: note || undefined });
+      }
+    } catch (error) {
       setSnapshot(previous);
-      setStatus(payload?.error ?? "Lead stage update failed.");
+      setStatus(error instanceof Error ? error.message : "Lead stage update failed.");
       return;
     }
     setStatus(`Lead marked as ${label(stage)}.`);
@@ -1785,64 +2041,76 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     const leadId = String(event.active.id);
     const overId = String(event.over?.id ?? "");
     const overLead = snapshot.visibleLeads.find((lead) => lead.id === overId) ?? snapshot.leads.find((lead) => lead.id === overId);
-    const overStage = (event.over?.data.current?.stage as SalesLeadStage | undefined) ??
-      (overId.startsWith("stage:") ? overId.slice("stage:".length) as SalesLeadStage : overLead?.stage);
+    const overStage = (event.over?.data.current?.stage as string | undefined) ??
+      (overId.startsWith("stage:") ? overId.slice("stage:".length) : overLead?.stage);
     if (overStage) moveLeadStage(leadId, overStage).catch(() => setStatus("Lead stage update failed."));
   }
 
   async function updateLeadBasics(event: FormEvent<HTMLFormElement>, leadId: string) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    await submitJson(
-      "/api/sales/leads",
-      {
-        action: "update",
-        leadId,
-        customerName: String(form.get("customerName") ?? ""),
-        customerPhone: String(form.get("customerPhone") ?? ""),
-        customerEmail: String(form.get("customerEmail") ?? ""),
-        serviceInterest: String(form.get("serviceInterest") ?? ""),
-        segment: String(form.get("segment") ?? ""),
-        priority: String(form.get("priority") ?? "normal"),
-        tags: String(form.get("tags") ?? ""),
+    const followUpDate = String(form.get("followUpAt") ?? "").trim();
+    const tags = String(form.get("tags") ?? "")
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+    try {
+      await aicloserApi.leads.update(leadId, {
+        customerName: String(form.get("customerName") ?? "").trim(),
+        customerPhone: String(form.get("customerPhone") ?? "").trim() || null,
+        customerEmail: String(form.get("customerEmail") ?? "").trim() || undefined,
+        serviceInterest: String(form.get("serviceInterest") ?? "").trim() || null,
+        segment: String(form.get("segment") ?? "").trim() || null,
+        priority: String(form.get("priority") ?? "normal").trim() || "normal",
+        tags,
         budgetAmount: Number(form.get("budgetAmount") ?? 0),
-        followUpAt: String(form.get("followUpAt") ?? ""),
+        followUpAt: followUpDate ? new Date(`${followUpDate}T00:00:00`).toISOString() : null,
         notes: form.has("notes") && form.get("notes") !== null
           ? String(form.get("notes") ?? "")
           : (snapshot.visibleLeads.find((l) => l.id === leadId)?.notes ?? snapshot.leads.find((l) => l.id === leadId)?.notes ?? ""),
-      },
-      "Lead CRM details saved.",
-    );
+      });
+      setStatus("Lead CRM details saved.");
+      await refresh();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Lead CRM details could not be saved.");
+    }
   }
 
   async function sendLeadWhatsApp(event: FormEvent<HTMLFormElement>, leadId: string) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const ok = await submitJson(
-      "/api/sales/whatsapp",
-      {
-        leadId,
-        message: String(form.get("message") ?? ""),
-        transport: String(form.get("transport") ?? "company"),
-      },
-      "WhatsApp message sent from the selected connected channel.",
-    );
-    if (ok) event.currentTarget.reset();
+    try {
+      const lead = snapshot.visibleLeads.find((item) => item.id === leadId) ?? snapshot.leads.find((item) => item.id === leadId);
+      if (!lead) throw new Error("Lead not found.");
+      const channels = await aicloserApi.integrations.whatsapp.listChannels() as Array<{ id?: string }>;
+      const channelId = channels?.[0]?.id;
+      if (!channelId) throw new Error("No active WhatsApp Business channel is configured.");
+      await aicloserApi.integrations.whatsapp.sendMessage({
+        channelId,
+        recipientPhone: lead.customerPhone,
+        body: String(form.get("message") ?? ""),
+        conversationId: lead.conversationId ?? undefined,
+      });
+      setStatus("WhatsApp message sent from the selected connected channel.");
+      event.currentTarget.reset();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "WhatsApp message could not be sent.");
+    }
   }
 
   async function openLeadChat(leadId: string, transportPreference?: "company" | "connected_user") {
     setStatus("Opening WhatsApp chat...");
     try {
-      const response = await fetch(`/api/sales/conversations/${leadId}`, { method: "POST" });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.ok || !payload.conversationId) {
-        setStatus(payload?.error ?? "Unable to open WhatsApp chat.");
+      const details = await aicloserApi.leads.get360(leadId);
+      const conversationId = details.activeConversation?.id ?? details.conversation?.id;
+      if (!conversationId) {
+        setStatus("No conversation exists for this lead yet.");
         return;
       }
-      openSalesConversation(String(payload.conversationId), transportPreference);
+      openSalesConversation(String(conversationId), transportPreference);
       setStatus("WhatsApp chat ready.");
     } catch {
-      setStatus("WhatsApp chat could not reach the server. Try again.");
+      setStatus("Unable to open this lead's central conversation.");
     }
   }
 
@@ -1867,8 +2135,19 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   async function addLeadNote(event: FormEvent<HTMLFormElement>, leadId: string) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const ok = await submitOperating(`/api/sales/conversations/${leadId}/note`, { body: String(form.get("body") ?? ""), type: String(form.get("type") ?? "NOTE") }, "Conversation note saved.");
-    if (ok) event.currentTarget.reset();
+    const body = String(form.get("body") ?? "").trim();
+    if (!body) {
+      setStatus("Write a note before saving.");
+      return;
+    }
+    try {
+      await aicloserApi.leads.addNote(leadId, body);
+      setStatus("Conversation note saved.");
+      event.currentTarget.reset();
+      await Promise.all([refresh(), refreshOperating()]);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to save conversation note.");
+    }
   }
 
   const headerPills = [
@@ -1880,6 +2159,12 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
   ];
 
   function navigateSales(section: string) {
+    if (section === "reports") {
+      setActiveTab("dashboard");
+      setDashboardView("reports");
+      setStatus("");
+      return;
+    }
     const nextTab = section as SalesTab;
     if (!navigationTabs.some((tab) => tab.id === nextTab)) {
       setStatus("This page is not available for your account.");
@@ -1888,45 +2173,75 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
     }
     setActiveTab(nextTab);
     setStatus("");
-    if (!operating && nextTab === "conversations") {
-      refreshOperating().catch(() => setStatus("Unable to load sales operating system data."));
-    }
   }
+
+  function handleUniversalLeadSelect(result: UniversalLeadSearchResult) {
+    if (result.conversationId) {
+      openSalesConversation(result.conversationId);
+      return;
+    }
+
+    if (result.leadId) {
+      const leadIsLoaded = baseLeads.some((lead) => lead.id === result.leadId);
+      setSelectedLeadId(leadIsLoaded ? result.leadId : null);
+      setCrmSearch(result.name || result.phone);
+      navigateSales("crm");
+      return;
+    }
+
+    setContactsSearch(result.name || result.phone);
+    setCrmSearch(result.name || result.phone);
+    navigateSales("contacts");
+  }
+
   const salesThemeStyle = {
     "--accent": "var(--closer-orange)",
     "--color-primary": "var(--closer-orange)",
     "--gx-primary": "var(--closer-orange)",
   } as CSSProperties;
   const isConversationTab = activeTab === "conversations";
-  const activeWorkspaceUsers = reportingAgents.filter((agent) => agent.status === "ACTIVE").length;
-  const profilePlanName = currentAgent?.packageStatus === "PAUSED"
-    ? `Payment pending · ${currentAgent.packageName ?? "Workspace plan"}`
-    : currentAgent?.packageStatus === "ACTIVE" && currentAgent.packageName
-      ? currentAgent.packageName
-      : currentAgent?.packageName ?? "Free plan";
-  const profilePlan = `${profilePlanName} · ${activeWorkspaceUsers} ${activeWorkspaceUsers === 1 ? "user" : "users"}`;
 
   return (
     <InternalAppShell
-      activeSection={activeTab}
+       activeSection={activeTab === "dashboard" && dashboardView === "reports" ? "reports" : activeTab}
       appLabel="AIcloser"
       contentClassName={isConversationTab ? "sales-internal-content sales-internal-content-chat internal-content-chat" : "sales-internal-content"}
-      headerPills={activeTab === "dashboard" ? headerPills : []}
+      headerPills={[]}
       homeHref="/"
       navItems={navigationTabs}
       navigationOrderKey={`sales-${sessionRole}-${currentAgent?.id ?? "workspace"}`}
       onNavigate={navigateSales}
-      profileMeta={currentAgent?.agentCode ?? "Sales agent"}
-      profilePlan={isCloser ? undefined : profilePlan}
       profileName={currentAgent?.displayName ?? "Sales workspace"}
       showNotifications
       showTopbar
       showTopbarLabel
       title={pageTitle}
+      topbarCenter={<UniversalLeadSearch onSelect={handleUniversalLeadSelect} />}
       topbarAccessory={canViewTeamData ? <AdminViewingContext agents={reportingAgents} selectedAgentId={viewingAgentId} onChange={updateViewingAgent} /> : null}
     >
       <div className={isConversationTab ? "sales-theme-scope sales-theme-scope-chat" : "sales-theme-scope"} style={salesThemeStyle}>
       {activeTab === "dashboard" ? (
+        <>
+          <div className="sales-dashboard-view-switch" role="tablist" aria-label="Dashboard views">
+            <button type="button" role="tab" aria-selected={dashboardView === "overview"} className={dashboardView === "overview" ? "active" : ""} onClick={() => setDashboardView("overview")}>
+              Overview
+            </button>
+            <button type="button" role="tab" aria-selected={dashboardView === "reports"} className={dashboardView === "reports" ? "active" : ""} onClick={() => setDashboardView("reports")}>
+              Reporting &amp; Lead-IQ
+            </button>
+          </div>
+          {dashboardView === "reports" ? (
+            <section className="sales-tool-workspace sales-dashboard-reports-workspace" style={{ padding: "20px", width: "100%", maxWidth: "1280px", margin: "0 auto" }}>
+              <AdvancedReportsPanel selectedAgentId={viewingAgentId === "all" ? null : viewingAgentId} selectedAgentName={viewingAgent?.displayName ?? null} />
+            </section>
+          ) : (
+            <>
+          <CentralDashboardOverview snapshot={snapshot} aggregates={centralAggregates} paymentSummary={centralPaymentSummary} role={sessionRole} onOpen={navigateSales} />
+          <div className="central-legacy-details">
+            <button className="central-legacy-toggle" onClick={() => setShowLegacyDashboardModules((open) => !open)} type="button" aria-expanded={showLegacyDashboardModules}>
+              {showLegacyDashboardModules ? "Hide operational modules" : "Open operational modules"}
+            </button>
+            {showLegacyDashboardModules ? (
         <section className="sales-dashboard-overview">
           {/* 1. Executive Daily Status & Date Filter Bar */}
           <div className="sales-dashboard-hero">
@@ -1939,8 +2254,8 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                 <h2>Welcome back, {currentAgent?.displayName || "Closer"}</h2>
                 <p>
                   {isWorkspaceAdmin
-                    ? <>Today&apos;s team report: <strong>{reportingAgents.length} sales users</strong>, <strong>{simMetrics.totalCalls} calls logged</strong> (<strong>{formatTalkTime(simMetrics.totalTalkTimeSeconds)} talk time</strong>), and <strong>{callbackLeads.length} callbacks due</strong>.</>
-                    : <>Today&apos;s workspace focus: <strong>{simMetrics.totalCalls} calls logged</strong> (<strong>{formatTalkTime(simMetrics.totalTalkTimeSeconds)} talk time</strong>), <strong>{callbackLeads.length} callbacks scheduled</strong>, and <strong>{todayActionLeads.length} hot leads</strong> in active desk.</>}
+                    ? <>Today&apos;s team report: <strong>{reportingAgents.length} sales users</strong>, <strong>{simMetrics.totalCalls} calls logged</strong> (<strong>{formatTalkTime(simMetrics.totalTalkTimeSeconds)} talk time</strong>), and <strong>{callbackItems.length} callbacks due</strong>.</>
+                    : <>Today&apos;s workspace focus: <strong>{simMetrics.totalCalls} calls logged</strong> (<strong>{formatTalkTime(simMetrics.totalTalkTimeSeconds)} talk time</strong>), <strong>{callbackItems.length} callbacks scheduled</strong>, and <strong>{todayActionLeads.length} hot leads</strong> in active desk.</>}
                 </p>
               </div>
 
@@ -2081,7 +2396,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                 Callbacks Due Today
               </div>
               <div className="sales-kpi-value">
-                {callbackLeads.length}
+                {callbackItems.length}
               </div>
               <div className="sales-kpi-meta">
                 Pending follow-ups
@@ -2135,19 +2450,19 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                   </div>
                 </div>
                 <span style={{ fontSize: "13px", fontWeight: 800, padding: "4px 10px", borderRadius: "999px", background: "rgba(245, 158, 11, 0.15)", color: "#d97706", border: "1px solid rgba(245, 158, 11, 0.35)" }}>
-                  {callbackLeads.length} Due
+                  {callbackItems.length} Due
                 </span>
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "10px", maxHeight: "340px", overflowY: "auto", paddingRight: "4px" }}>
-                {callbackLeads.length === 0 ? (
+                {callbackItems.length === 0 ? (
                   <div style={{ padding: "30px 10px", textAlign: "center", color: "var(--closer-muted, #64748b)", fontSize: "13px" }}>
                     <CheckCircle2 size={28} style={{ margin: "0 auto 8px", color: "#10b981", opacity: 0.85 }} />
                     <strong style={{ display: "block", color: "var(--closer-ink, #0f172a)", marginBottom: "2px" }}>All Callbacks Completed!</strong>
                     No scheduled follow-up calls pending for this period.
                   </div>
                 ) : (
-                  callbackLeads.map((lead) => (
+                  callbackItems.map((lead) => (
                     <div
                       key={lead.id}
                       style={{
@@ -2164,8 +2479,8 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                       <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                           <strong style={{ fontSize: "14px", color: "var(--closer-ink, #0f172a)" }}>{lead.customerName}</strong>
-                          <span className={`sales-chip ${stageTone(lead.stage)}`} style={{ fontSize: "10px", padding: "1px 6px" }}>
-                            {lead.stage}
+                          <span className={`sales-chip ${stageTone((lead.stage ?? "NEW") as SalesLeadStage)}`} style={{ fontSize: "10px", padding: "1px 6px" }}>
+                            {lead.stage ?? "Callback"}
                           </span>
                         </div>
                         <div style={{ fontSize: "11px", color: "var(--closer-muted, #64748b)", display: "flex", gap: "8px", flexWrap: "wrap" }}>
@@ -2184,7 +2499,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                           ) : null}
                           <span>•</span>
                           <span style={{ color: "var(--closer-ink, #334155)", fontWeight: 600 }}>
-                            Owner: {agentName(snapshot, lead.assignedAgentId)}
+                            Owner: {lead.assignedAgentId ? agentName(snapshot, lead.assignedAgentId) : "Central schedule"}
                           </span>
                         </div>
                       </div>
@@ -2524,6 +2839,11 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
           ) : null}
 
         </section>
+            ) : null}
+          </div>
+            </>
+          )}
+        </>
       ) : null}
 
       {activeTab === "grab-leads" ? (
@@ -2651,11 +2971,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                   <button
                     className="sales-primary-button compact"
                     disabled={!snapshot.currentAgent?.id || Boolean(snapshot.currentAgent?.activeLeadQuota?.isAtCapacity)}
-                    onClick={() => void submitJson(
-                      "/api/sales/leads",
-                      { action: "claim", poolItemId: item.id, agentId: snapshot.currentAgent?.id },
-                      "Lead claimed and added to your pipeline.",
-                    )}
+                    onClick={() => void claimLeadFromPool(item.id)}
                     type="button"
                   >
                     <Hand size={15} /> Grab lead
@@ -2674,7 +2990,20 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
       ) : null}
 
       {activeTab === "crm" ? (
-        <section className="sales-crm-workspace">
+        <section className={`sales-crm-workspace ${crmView === "kanban" ? "is-kanban-view" : "is-list-view"}`}>
+          <div className="sales-crm-page-intro">
+            <div>
+              <span className="sales-section-eyebrow">Central API CRM</span>
+              <h2>Work your lead pipeline</h2>
+              <p>Move permission-scoped leads through stages, keep follow-ups current, and open the full lead history when needed.</p>
+            </div>
+            <div className="sales-crm-page-scope">
+              <span className="sales-crm-page-scope-dot" />
+              <span>{viewingAgentId === "all" ? "All team users" : viewingAgent?.displayName ?? "Selected user"}</span>
+              <strong>{filteredLeads.length}</strong>
+              <small>visible leads</small>
+            </div>
+          </div>
             <div className={`sales-toolbar sales-crm-toolbar${isCloser ? " is-closer" : ""}`} style={{ flexWrap: "wrap", gap: "10px" }}>
               <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
                 <button className={crmView === "list" ? "sales-icon-button active" : "sales-icon-button"} onClick={() => setCrmView("list")} type="button" title="List view">
@@ -2690,7 +3019,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                 <div style={{ display: "inline-flex", gap: "4px", background: "var(--closer-soft, rgba(255, 255, 255, 0.05))", padding: "2px 4px", borderRadius: "22px", border: "1px solid var(--closer-line, rgba(255, 255, 255, 0.1))" }}>
                   {!isCloser ? <button
                     type="button"
-                    onClick={() => { setSavedViewSelection("all"); setLeadOwnershipScope("all"); setQuickPillFilter("all"); }}
+                    onClick={() => { setLeadOwnershipScope("all"); }}
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
@@ -2710,7 +3039,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                   </button> : null}
                   <button
                     type="button"
-                    onClick={() => { setSavedViewSelection("all"); setLeadOwnershipScope("mine"); setQuickPillFilter("all"); }}
+                    onClick={() => { setLeadOwnershipScope("mine"); }}
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
@@ -2730,49 +3059,6 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                   </button>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => { setSavedViewSelection("all"); setQuickPillFilter("today-leads"); setDateRangeFilter("all"); }}
-                  className={`sales-filter-pill ${quickPillFilter === "today-leads" ? "active" : ""}`}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "5px",
-                    padding: "5px 12px",
-                    borderRadius: "20px",
-                    fontSize: "12px",
-                    fontWeight: 600,
-                    cursor: "pointer",
-                    background: quickPillFilter === "today-leads" ? "rgba(249, 115, 22, 0.18)" : "var(--closer-soft, rgba(255, 255, 255, 0.04))",
-                    color: quickPillFilter === "today-leads" ? "var(--closer-orange, #ea580c)" : "var(--closer-ink, rgba(255, 255, 255, 0.8))",
-                    border: quickPillFilter === "today-leads" ? "1px solid var(--closer-orange-border, rgba(249, 115, 22, 0.45))" : "1px solid var(--closer-line, rgba(255, 255, 255, 0.1))",
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  <Flame size={13} style={{ flexShrink: 0, color: "var(--closer-orange, #ff6b2f)" }} /> Today&apos;s Leads ({todayLeadsCount})
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => { setSavedViewSelection("all"); setQuickPillFilter("today-followups"); setDateRangeFilter("all"); }}
-                  className={`sales-filter-pill ${quickPillFilter === "today-followups" ? "active" : ""}`}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "5px",
-                    padding: "5px 12px",
-                    borderRadius: "20px",
-                    fontSize: "12px",
-                    fontWeight: 600,
-                    cursor: "pointer",
-                    background: quickPillFilter === "today-followups" ? "rgba(56, 189, 248, 0.18)" : "var(--closer-soft, rgba(255, 255, 255, 0.04))",
-                    color: quickPillFilter === "today-followups" ? "#0284c7" : "var(--closer-ink, rgba(255, 255, 255, 0.8))",
-                    border: quickPillFilter === "today-followups" ? "1px solid rgba(56, 189, 248, 0.45)" : "1px solid var(--closer-line, rgba(255, 255, 255, 0.1))",
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  <Clock size={13} style={{ flexShrink: 0, color: "#0284c7" }} /> Today&apos;s Follow-ups ({todayFollowupsCount})
-                </button>
               </div>
 
               {/* Date Range Selector */}
@@ -2782,9 +3068,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                   className="sales-crm-select"
                   value={dateRangeFilter}
                   onChange={(event) => {
-                    setSavedViewSelection("all");
                     setDateRangeFilter(event.target.value as any);
-                    setQuickPillFilter("all");
                   }}
                 >
                   <option value="all">All time</option>
@@ -2814,44 +3098,6 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                 ) : null}
               </div>
 
-              {/* Saved lead views */}
-              <div className="sales-saved-view-control">
-                <div className="sales-saved-view-copy">
-                  <strong>Saved lead views</strong>
-                  <span>Search presets you saved</span>
-                </div>
-                <select
-                  aria-label="Choose a saved lead view"
-                  className="sales-crm-select"
-                  value={savedViewSelection}
-                  onChange={(event) => handleSavedViewChange(event.target.value)}
-                >
-                  <option value="all">All leads</option>
-                  <optgroup label="Built-in views">
-                    <option value="builtin:high-value">Hot / high-value leads</option>
-                    <option value="builtin:recaptured">Re-engaged leads</option>
-                    <option value="builtin:callback-due">Callbacks due</option>
-                  </optgroup>
-                  {savedLeadViews.length ? (
-                    <optgroup label="Your saved views">
-                      {savedLeadViews.map((view) => (
-                        <option key={view.id} value={view.id}>
-                          {view.name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ) : null}
-                </select>
-                <button
-                  type="button"
-                  onClick={saveCurrentLeadView}
-                  className="sales-secondary-button compact sales-save-view-button"
-                  title="Save the current CRM filters for later"
-                >
-                  <Tags size={14} /> Save current
-                </button>
-              </div>
-
               <div style={{ marginLeft: "auto", display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
                 {!isCloser ? <button
                   className="sales-secondary-button compact"
@@ -2872,30 +3118,6 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                 <button className="sales-primary-button compact" onClick={() => setDrawer("lead-create")} type="button">
                   <Plus size={15} /> Add lead
                 </button>
-                {canImportLeads ? <button className="sales-secondary-button compact" onClick={() => setDrawer("lead-import")} type="button">
-                  <Upload size={15} /> Import
-                </button> : null}
-                {canExportLeads ? <div className="sales-export-menu">
-                  <button
-                    aria-expanded={isLeadExportMenuOpen}
-                    className="sales-secondary-button compact"
-                    onClick={() => setIsLeadExportMenuOpen((open) => !open)}
-                    type="button"
-                    title="Export CRM leads"
-                  >
-                    <Download size={15} /> Export Leads
-                  </button>
-                  {isLeadExportMenuOpen ? (
-                    <div aria-label="Export CRM leads" className="sales-export-popover" role="menu">
-                      <button onClick={() => void exportLeads("csv")} role="menuitem" type="button"><Download size={14} /> CSV file</button>
-                      <button onClick={() => void exportLeads("excel")} role="menuitem" type="button"><FileSpreadsheet size={14} /> Excel file</button>
-                      <small>{filteredLeads.length} filtered leads</small>
-                    </div>
-                  ) : null}
-                </div> : null}
-                <span className="sales-crm-count" style={{ marginLeft: "6px", fontWeight: 700, color: "var(--color-primary)" }}>
-                  {filteredLeads.length} leads
-                </span>
               </div>
           </div>
 
@@ -2904,7 +3126,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
               <Search size={16} aria-hidden="true" />
               <input
                 aria-label="Search CRM leads"
-                onChange={(event) => { setSavedViewSelection("all"); setCrmSearch(event.target.value); }}
+                onChange={(event) => { setCrmSearch(event.target.value); }}
                 placeholder="Search name, phone, email, source, notes..."
                 type="search"
                 value={crmSearch}
@@ -2912,43 +3134,29 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
             </label>
             <label className="sales-crm-filter-field">
               <span>Status</span>
-              <select aria-label="Filter leads by status" className="sales-crm-select" onChange={(event) => { setSavedViewSelection("all"); setStatusFilter(event.target.value); }} value={statusFilter}>
+              <select aria-label="Filter leads by status" className="sales-crm-select" onChange={(event) => { setStatusFilter(event.target.value); }} value={statusFilter}>
                 <option value="all">All statuses</option>
-                {pipelineColumns.map((column) => <option key={column.key} value={column.key}>{column.label}</option>)}
-              </select>
-            </label>
-            <label className="sales-crm-filter-field">
-              <span>Team group</span>
-              <select aria-label="Filter leads by team group" className="sales-crm-select" onChange={(event) => { setSavedViewSelection("all"); setGroupFilter(event.target.value); }} value={groupFilter}>
-                <option value="all">All groups</option>
-                {groupOptions.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
-                {baseLeads.some((lead) => {
-                  const assignedAgent = snapshot.agents.find((agent) => agent.id === lead.assignedAgentId);
-                  return !assignedAgent?.groupId;
-                }) ? <option value="unassigned">Unassigned group</option> : null}
+                {activePipelineColumns.map((column) => <option key={column.key} value={column.key}>{column.label}</option>)}
               </select>
             </label>
             <label className="sales-crm-filter-field">
               <span>Lead source</span>
-              <select aria-label="Filter leads by source" className="sales-crm-select" onChange={(event) => { setSavedViewSelection("all"); setSourceFilter(event.target.value); }} value={sourceFilter}>
+              <select aria-label="Filter leads by source" className="sales-crm-select" onChange={(event) => { setSourceFilter(event.target.value); }} value={sourceFilter}>
                 <option value="all">All sources</option>
                 {sourceOptions.map((source) => <option key={source} value={source}>{label(source)}</option>)}
               </select>
             </label>
             <label className="sales-crm-filter-field">
-              <span>Segment / cohort</span>
-              <select aria-label="Filter leads by segment or cohort" className="sales-crm-select" onChange={(event) => { setSavedViewSelection("all"); setSegmentFilter(event.target.value); }} value={segmentFilter}>
+              <span>Segment</span>
+              <select aria-label="Filter leads by segment" className="sales-crm-select" onChange={(event) => { setSegmentFilter(event.target.value); }} value={segmentFilter}>
                 <option value="all">All segments</option>
-                <option value="smart:high-value">Hot / high-value</option>
-                <option value="smart:recaptured">Re-engaged</option>
-                <option value="smart:callback-due">Callbacks due</option>
                 {leadSegments.map((segment) => <option key={segment} value={segment}>{segment}</option>)}
               </select>
             </label>
-            {(crmSearch || statusFilter !== "all" || groupFilter !== "all" || sourceFilter !== "all" || segmentFilter !== "all" || leadOwnershipScope !== "all" || quickPillFilter !== "all" || dateRangeFilter !== "all") ? (
+            {(crmSearch || statusFilter !== "all" || sourceFilter !== "all" || segmentFilter !== "all" || leadOwnershipScope !== "all" || dateRangeFilter !== "all") ? (
               <button
                 className="sales-secondary-button compact"
-                onClick={() => { setSavedViewSelection("all"); setCrmSearch(""); setStatusFilter("all"); setGroupFilter("all"); setSourceFilter("all"); setSegmentFilter("all"); setLeadOwnershipScope("all"); setQuickPillFilter("all"); setDateRangeFilter("all"); setCustomStartDate(""); setCustomEndDate(""); }}
+                onClick={() => { setCrmSearch(""); setStatusFilter("all"); setSourceFilter("all"); setSegmentFilter("all"); setLeadOwnershipScope("all"); setDateRangeFilter("all"); setCustomStartDate(""); setCustomEndDate(""); }}
                 type="button"
               >
                 Clear filters
@@ -2956,7 +3164,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
             ) : null}
           </div>
 
-          {!isCloser && openLeadPool.length ? (
+          {isCloser && openLeadPool.length ? (
             <section className="sales-lead-queue-strip" aria-label="Unclaimed lead queue">
               <div className="sales-lead-queue-heading">
                 <div>
@@ -2970,17 +3178,13 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                   <div className="sales-lead-queue-item" key={item.id}>
                     <div>
                       <strong>{item.customerName}</strong>
-                      <span>{item.source || "CRM intake"} · {item.priority || "normal"}</span>
+                        <span>{item.source || "Source not provided"}{item.priority ? ` · ${item.priority}` : ""}</span>
                     </div>
                     {snapshot.currentAgent?.canClaimLeads ? (
                       <button
                         className="sales-secondary-button compact"
                         type="button"
-                        onClick={() => void submitJson(
-                          "/api/sales/leads",
-                          { action: "claim", poolItemId: item.id, agentId: snapshot.currentAgent?.id },
-                          "Lead claimed and added to your pipeline.",
-                        )}
+                        onClick={() => void claimLeadFromPool(item.id)}
                       >
                         Grab lead
                       </button>
@@ -2991,98 +3195,76 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
             </section>
           ) : null}
 
-          <div className="sales-crm-stage-summary" aria-label="Lead status counts">
-            {pipelineColumns.map((column) => (
-              <button
-                className={crmView === "list" ? "sales-stage-summary-item" : "sales-stage-summary-item is-kanban"}
-                key={column.key}
-                onClick={() => {
-                  setSegmentFilter("all");
-                  if (crmView === "kanban") {
-                    const el = document.querySelector(`.sales-kanban-column-${column.stage.toLowerCase()}`);
-                    el?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "start" });
-                  }
-                }}
-                type="button"
-                title={crmView === "kanban" ? `Jump to ${column.label} column` : undefined}
-              >
-                <span>{column.label}</span>
-                <strong>{filteredLeads.filter((lead) => column.matchingStages.includes(lead.stage)).length}</strong>
-              </button>
-            ))}
-          </div>
-
-          {crmView === "kanban" ? (
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", background: "rgba(255, 255, 255, 0.02)", borderRadius: "8px", border: "1px solid rgba(255, 255, 255, 0.06)", margin: "0 0 8px 0", fontSize: "12px", color: "var(--closer-muted, #94a3b8)" }}>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                <KanbanSquare size={14} style={{ color: "var(--closer-orange, #ff6b2f)" }} />
-                <span>All 7 pipeline stages • Scroll horizontally or click any stage above to jump</span>
-              </span>
-              <div style={{ display: "inline-flex", gap: "6px" }}>
+          {crmView === "list" ? (
+            <div className="sales-crm-stage-summary" aria-label="Lead status counts">
+              {activePipelineColumns.map((column) => (
                 <button
+                  className="sales-stage-summary-item"
+                  key={column.key}
+                  onClick={() => { setSegmentFilter("all"); }}
                   type="button"
-                  className="sales-secondary-button compact"
-                  onClick={() => {
-                    const surface = document.querySelector(".sales-crm-surface");
-                    surface?.scrollBy({ left: -340, behavior: "smooth" });
-                  }}
-                  title="Scroll Kanban left"
-                  style={{ padding: "3px 10px", fontSize: "11px", fontWeight: 700 }}
                 >
-                  ← Left
+                  <span>{column.label}</span>
+                  <strong>{filteredLeads.filter((lead) => leadMatchesPipelineColumn(lead, column)).length}</strong>
                 </button>
-                <button
-                  type="button"
-                  className="sales-secondary-button compact"
-                  onClick={() => {
-                    const surface = document.querySelector(".sales-crm-surface");
-                    surface?.scrollBy({ left: 340, behavior: "smooth" });
-                  }}
-                  title="Scroll Kanban right"
-                  style={{ padding: "3px 10px", fontSize: "11px", fontWeight: 700 }}
-                >
-                  Right →
-                </button>
-              </div>
+              ))}
             </div>
           ) : null}
 
           <div
-            className={`sales-crm-surface ${crmView === "sheet" ? "sales-crm-surface-sheet" : ""}`}
-            onWheel={(event) => {
-              if (crmView === "kanban" && event.deltaY && !event.shiftKey) {
-                const target = event.target as HTMLElement;
-                const isColumn = target.closest(".sales-kanban-column");
-                if (!isColumn) {
-                  event.currentTarget.scrollLeft += event.deltaY;
-                }
-              }
-            }}
+            className={`sales-crm-surface ${crmView === "list" ? "sales-crm-surface-sheet" : ""}`}
+            ref={crmView === "kanban" ? kanbanBoardRef : undefined}
           >
             {crmView === "kanban" ? (
-      <DndContext collisionDetection={closestCorners} onDragEnd={handleLeadDragEnd} sensors={kanbanSensors}>
-                <div className="sales-kanban">
-                  {pipelineColumns.map((col) => {
-                    const colLeads = paginatedLeads.filter((lead) => col.matchingStages.includes(lead.stage));
-                    const totalColValue = colLeads.reduce((sum, l) => sum + (l.budgetAmount || 0), 0);
+              <DndContext
+                collisionDetection={closestCorners}
+                onDragCancel={() => setActiveDraggedLeadId(null)}
+                onDragEnd={(event) => {
+                  setActiveDraggedLeadId(null);
+                  handleLeadDragEnd(event);
+                }}
+                onDragStart={(event) => setActiveDraggedLeadId(String(event.active.id))}
+                sensors={kanbanSensors}
+              >
+                <div
+                  aria-label="Kanban pipeline board"
+                  className={`sales-kanban${isKanbanPanning ? " is-panning" : ""}`}
+                  onPointerCancel={stopKanbanPanning}
+                  onPointerDown={handleKanbanPointerDown}
+                  onPointerMove={handleKanbanPointerMove}
+                  onPointerUp={stopKanbanPanning}
+                  onLostPointerCapture={stopKanbanPanning}
+                  onWheel={(event) => {
+                    const horizontalDelta = event.deltaX || (event.shiftKey ? event.deltaY : 0);
+                    if (horizontalDelta) {
+                      event.preventDefault();
+                      event.currentTarget.scrollLeft += horizontalDelta;
+                    }
+                  }}
+                  role="region"
+                  tabIndex={0}
+                >
+                  {activePipelineColumns.map((col) => {
+                    const colLeads = paginatedLeads.filter((lead) => leadMatchesPipelineColumn(lead, col));
                     return (
                       <LeadKanbanColumn
-                        calls={latestCallByLead}
                         columnLabel={col.label}
                         key={col.key}
                         leads={colLeads}
                         onOpen={setSelectedLeadId}
-                        onOpenChat={openLeadChat}
-                        onQuickFollowUp={saveQuickFollowUp}
-                        onQuickNote={addQuickLeadNote}
-                        onStage={updateLeadStage}
-                        canModifyLeads={canModifyLeads}
-                        stage={col.stage}
-                        totalValue={totalColValue}
+                        stage={getLeadPipelineValue(col)}
                       />
                     );
                   })}
                 </div>
+                <DragOverlay dropAnimation={{ duration: 180, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" }}>
+                  {activeDraggedLead ? (
+                    <LeadDragPreview
+                      lead={activeDraggedLead}
+                      statusLabel={getLeadPipelineLabel(activeDraggedLead, activePipelineColumns)}
+                    />
+                  ) : null}
+                </DragOverlay>
               </DndContext>
             ) : (
               <div className="sales-crm-sheet-container" style={{ width: "100%", maxHeight: "calc(100vh - 240px)", overflowX: "auto", overflowY: "auto", borderRadius: "10px", border: "1px solid var(--closer-line, #e2e8f0)", background: "var(--closer-surface, #ffffff)", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
@@ -3095,7 +3277,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                       <th style={{ padding: "10px 14px", minWidth: "130px" }}>Owner</th>
                       <th style={{ padding: "10px 14px", minWidth: "120px" }}>Source</th>
                       <th style={{ padding: "10px 14px", minWidth: "150px" }}>Stage</th>
-                      <th style={{ padding: "10px 14px", minWidth: "110px" }}>Value</th>
+                      <th style={{ padding: "10px 14px", minWidth: "110px" }}>Amount</th>
                       <th style={{ padding: "10px 14px", minWidth: "160px" }}>Last Activity</th>
                       <th style={{ padding: "10px 14px", minWidth: "200px" }}>Actions</th>
                     </tr>
@@ -3117,7 +3299,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                               type="button"
                             >
                               <strong style={{ display: "block", color: "var(--closer-ink, #0f172a)", fontSize: "13.5px" }}>{lead.customerName}</strong>
-                              <span style={{ fontSize: "11px", color: "var(--closer-muted, #64748b)" }}>{lead.serviceInterest || "Agency services"}</span>
+                              <span style={{ fontSize: "11px", color: "var(--closer-muted, #64748b)" }}>{lead.serviceInterest || "Service not provided"}</span>
                             </button>
                           </td>
 
@@ -3156,10 +3338,49 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
 
                           {/* Owner / Assigned Agent */}
                           <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>
-                            <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "12px", color: "var(--closer-ink, #0f172a)" }}>
-                              <User size={12} style={{ color: "var(--closer-muted, #94a3b8)" }} />
-                              {lead.assignedAgentName || "Unassigned"}
-                            </span>
+                            {canModifyLeads ? (
+                              <label
+                                style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "12px", color: "var(--closer-ink, #0f172a)" }}
+                                title={`Assign ${lead.customerName}`}
+                              >
+                                <User size={12} style={{ color: "var(--closer-muted, #94a3b8)", flexShrink: 0 }} />
+                                <select
+                                  aria-label={`Assign ${lead.customerName}`}
+                                  onChange={(event) => {
+                                    const nextAgentId = event.target.value;
+                                    if (nextAgentId !== (lead.assignedAgentId ?? "")) void reassignLead(lead.id, nextAgentId);
+                                  }}
+                                  style={{
+                                    minWidth: "120px",
+                                    maxWidth: "150px",
+                                    padding: "5px 22px 5px 7px",
+                                    borderRadius: "6px",
+                                    border: "1px solid var(--closer-line, #cbd5e1)",
+                                    background: "var(--closer-surface, #ffffff)",
+                                    color: "var(--closer-ink, #0f172a)",
+                                    fontSize: "12px",
+                                    fontWeight: 600,
+                                    cursor: "pointer",
+                                  }}
+                                  value={lead.assignedAgentId ?? ""}
+                                >
+                                  <option disabled value="">Unassigned</option>
+                                  {[
+                                    ...reportingAgents.filter((agent) => agent.status === "ACTIVE"),
+                                    ...(lead.assignedAgentId
+                                      ? snapshot.agents.filter((agent) => agent.id === lead.assignedAgentId)
+                                      : []),
+                                  ].filter((agent, index, agents) => agents.findIndex((item) => item.id === agent.id) === index).map((agent) => (
+                                    <option key={agent.id} value={agent.id}>{agent.displayName}</option>
+                                  ))}
+                                </select>
+                              </label>
+                            ) : (
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "12px", color: "var(--closer-ink, #0f172a)" }}>
+                                <User size={12} style={{ color: "var(--closer-muted, #94a3b8)" }} />
+                                {agentName(snapshot, lead.assignedAgentId)}
+                              </span>
+                            )}
                           </td>
 
                           {/* Source Badge */}
@@ -3171,7 +3392,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                           <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>
                             <select
                               disabled={!canModifyLeads}
-                              onChange={(event) => updateLeadStage(lead.id, event.target.value as SalesLeadStage)}
+                              onChange={(event) => updateLeadStage(lead.id, event.target.value)}
                               style={{
                                 padding: "4px 8px",
                                 borderRadius: "6px",
@@ -3182,19 +3403,19 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                                 color: "var(--closer-ink, #0f172a)",
                                 cursor: canModifyLeads ? "pointer" : "default",
                               }}
-                              value={lead.stage}
+                              value={getLeadPipelineValueForSelect(lead, activePipelineColumns)}
                             >
-                              {leadStages.map((stage) => (
-                                <option key={stage} value={stage}>
-                                  {label(stage)}
+                              {activePipelineColumns.map((stage) => (
+                                <option key={stage.key} value={getLeadPipelineValue(stage)}>
+                                  {stage.label}
                                 </option>
                               ))}
                             </select>
                           </td>
 
-                          {/* Budget / Value */}
+                          {/* Only show an amount when a real UPI payment link is linked to this lead. */}
                           <td style={{ padding: "10px 14px", whiteSpace: "nowrap", fontWeight: 600, color: "var(--closer-ink, #0f172a)" }}>
-                            {lead.budgetAmount ? formatCurrency(lead.budgetAmount) : "-"}
+                            {lead.paymentAmount ? money(lead.paymentAmount) : "No payment sent"}
                           </td>
 
                           {/* Call / Activity */}
@@ -3245,7 +3466,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                               ) : null}
 
                               {lead.customerPhone ? (
-                                isLeadFromApi(lead.source) ? (
+                                getLeadMessagingChannel(lead.source) === "company" ? (
                                   <>
                                     <button
                                       aria-label={`Company WhatsApp for ${lead.customerName}`}
@@ -3268,18 +3489,29 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
                                       <Smartphone size={11} /> Rep WA
                                     </button>
                                   </>
-                                ) : (
+                                ) : getLeadMessagingChannel(lead.source) === "personal" ? (
                                   <button
-                                    aria-label={`Open WhatsApp chat for ${lead.customerName}`}
+                                    aria-label={`Personal WhatsApp for ${lead.customerName}`}
+                                    className="sales-secondary-button compact"
+                                    onClick={() => openLeadChat(lead.id, "connected_user")}
+                                    style={{ borderColor: "rgba(2, 132, 199, 0.4)", color: "#0284c7", padding: "4px 7px", fontSize: "11px" }}
+                                    title="Personal WhatsApp chat (Synced Device)"
+                                    type="button"
+                                  >
+                                    <Smartphone size={11} /> Rep WA
+                                  </button>
+                                ) : lead.conversationId ? (
+                                  <button
+                                    aria-label={`Open chat for ${lead.customerName}`}
                                     className="sales-secondary-button compact"
                                     onClick={() => openLeadChat(lead.id)}
                                     style={{ padding: "4px 8px", fontSize: "11px" }}
-                                    title="Open WhatsApp chat"
+                                    title="Open linked chat"
                                     type="button"
                                   >
-                                    <MessageCircle size={11} /> WhatsApp
+                                    <MessageCircle size={11} /> Open chat
                                   </button>
-                                )
+                                ) : null
                               ) : null}
 
                               <button
@@ -3323,12 +3555,15 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
             view={activeTab === "lead-import" ? "lead-import" : "contacts"}
             canManageContacts={canManageContacts}
             canImportData={canImportLeads}
+            canExportData={canExportLeads}
             personalWhatsAppOnly={isCloser}
             tenantId={salesOperations.tenantId}
+            initialSearchQuery={contactsSearch}
             onOpenMultiChannelChat={openSalesConversation}
             onOpenPluginsHub={() => navigateSales("plugins")}
             onOpenBulkMarketing={() => navigateSales("whatsapp-marketing")}
             onRefreshDashboard={refresh}
+            onExportLeads={(format) => void exportLeads(format)}
           />
         </section>
       ) : null}
@@ -3489,12 +3724,12 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
           className="sales-tool-workspace sales-chat-workspace"
           style={{
             display: "grid",
-            gridTemplateRows: !isWhatsAppConnected && !isInstagramConnected ? "auto minmax(0, 1fr)" : "minmax(0, 1fr)",
-            gap: "10px",
-            alignContent: "start",
+            gridTemplateRows: !usesCentralApi && !isWhatsAppConnected && !isInstagramConnected ? "auto minmax(0, 1fr)" : "minmax(0, 1fr)",
+            gap: 0,
+            alignContent: "stretch",
           }}
         >
-          {!isWhatsAppConnected && !isInstagramConnected ? (
+          {!usesCentralApi && !isWhatsAppConnected && !isInstagramConnected ? (
             <div className="chat-connection-notice">
               <div className="chat-connection-copy">
                 <div className="chat-connection-title-row">
@@ -3544,6 +3779,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
               mode="inbox"
               selectedAgentId={viewingAgentId}
               tenantId={salesOperations.tenantId}
+              centralToken={centralToken}
             />
           </Suspense>
         </section>
@@ -3620,7 +3856,6 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
             onQuickNote={addQuickLeadNote}
             onTimelineNoteUpdated={handleTimelineNoteUpdated}
             onOpenChat={openLeadChat}
-            onOpenManageLabels={() => setIsStatusLabelsModalOpen(true)}
             onSave={updateLeadBasics}
             onStage={updateLeadStage}
             onAssign={reassignLead}
@@ -3629,6 +3864,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, can
             snapshot={snapshot}
             calls={dashboardCalls}
             assignableAgents={reportingAgents}
+            stageOptions={activePipelineColumns}
           />
         </SalesSideDrawer>
       ) : null}
@@ -3818,47 +4054,54 @@ function formatDateTime(value: string | null) {
   return value ? new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Not set";
 }
 
-function isLeadFromApi(source?: string | null): boolean {
-  if (!source) return false;
-  const s = String(source).toLowerCase().trim();
-  return (
-    s.includes("api") ||
-    s.includes("webhook") ||
-    s.includes("zapier") ||
-    s.includes("pabbly") ||
-    s.includes("make") ||
-    s.includes("endpoint") ||
-    s.includes("crm_import") ||
-    s.includes("meta") ||
-    s.includes("facebook") ||
-    s.includes("lead_gen")
-  );
+function getLeadHistoryTone(kind: string) {
+  const normalized = kind.toLowerCase();
+  if (normalized.includes("call")) return "is-call";
+  if (normalized.includes("follow") || normalized.includes("task")) return "is-follow-up";
+  if (normalized.includes("note") || normalized.includes("timeline")) return "is-note";
+  if (normalized.includes("stage") || normalized.includes("status")) return "is-stage";
+  return "is-default";
+}
+
+function formatLeadHistoryDate(value?: string | null) {
+  if (!value) return "Not set";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "Not set"
+    : new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(date);
+}
+
+type LeadMessagingChannel = "company" | "personal" | "none";
+
+/**
+ * The central lead API currently exposes the intake source, not invented
+ * channel flags. Keep WhatsApp actions tied to an explicit WhatsApp source so
+ * an imported/phone lead does not get unrelated Company/Personal WA controls.
+ */
+function getLeadMessagingChannel(source?: string | null): LeadMessagingChannel {
+  const value = String(source || "").toLowerCase().trim();
+  if (!value.includes("whatsapp") && !value.includes("wa") && !value.includes("ctwa")) return "none";
+  if (
+    value.includes("qr") ||
+    value.includes("scanner") ||
+    value.includes("desktop") ||
+    value.includes("personal") ||
+    value.includes("linked") ||
+    value.includes("connected_user")
+  ) return "personal";
+  return "company";
 }
 
 function LeadKanbanColumn({
-  canModifyLeads,
-  calls,
   columnLabel,
   leads,
   onOpen,
-  onOpenChat,
-  onQuickFollowUp,
-  onQuickNote,
-  onStage,
   stage,
-  totalValue = 0,
 }: {
-  canModifyLeads: boolean;
-  calls: Map<string, SalesDashboardSnapshot["mobileCalls"][number]>;
   columnLabel?: string;
   leads: SalesDashboardSnapshot["visibleLeads"];
   onOpen: (leadId: string) => void;
-  onOpenChat?: (leadId: string, transportPreference?: "company" | "connected_user") => void;
-  onQuickFollowUp: (leadId: string, followUpAt: string) => Promise<boolean>;
-  onQuickNote: (leadId: string, body: string) => Promise<boolean>;
-  onStage: (leadId: string, stage: SalesLeadStage) => void;
-  stage: SalesLeadStage;
-  totalValue?: number;
+  stage: string;
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: `stage:${stage}`, data: { stage } });
   return (
@@ -3874,22 +4117,16 @@ function LeadKanbanColumn({
           <span>{columnLabel || label(stage)}</span>
           <strong>{leads.length}</strong>
         </div>
-        {totalValue > 0 ? (
-          <small className="sales-kanban-column-value">{money(totalValue)}</small>
-        ) : null}
+        {/* Per-lead amounts are shown on each client card; avoid a confusing
+            aggregate value badge that looked like the lead's own amount. */}
       </header>
       <SortableContext items={leads.map((lead) => lead.id)} strategy={verticalListSortingStrategy}>
         {leads.map((lead) => (
           <LeadCrmCard
-            call={calls.get(lead.id)}
-            canModifyLeads={canModifyLeads}
             key={lead.id}
             lead={lead}
             onOpen={onOpen}
-            onOpenChat={onOpenChat}
-            onQuickFollowUp={onQuickFollowUp}
-            onQuickNote={onQuickNote}
-            onStage={onStage}
+            statusLabel={columnLabel || label(stage)}
           />
         ))}
       </SortableContext>
@@ -3899,41 +4136,23 @@ function LeadKanbanColumn({
 }
 
 function LeadCrmCard({
-  canModifyLeads,
-  call,
   lead,
   onOpen,
-  onOpenChat,
-  onQuickFollowUp,
-  onQuickNote,
-  onStage,
+  statusLabel,
 }: {
-  canModifyLeads: boolean;
-  call?: SalesDashboardSnapshot["mobileCalls"][number];
   lead: SalesDashboardSnapshot["visibleLeads"][number];
   onOpen: (leadId: string) => void;
-  onOpenChat?: (leadId: string, transportPreference?: "company" | "connected_user") => void;
-  onQuickFollowUp: (leadId: string, followUpAt: string) => Promise<boolean>;
-  onQuickNote: (leadId: string, body: string) => Promise<boolean>;
-  onStage: (leadId: string, stage: SalesLeadStage) => void;
+  statusLabel: string;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: lead.id, data: { stage: lead.stage } });
-  const [quickAction, setQuickAction] = useState<"note" | "follow-up" | null>(null);
-  const [quickNote, setQuickNote] = useState("");
-  const [quickFollowUp, setQuickFollowUp] = useState(() => toDateTimeLocal(lead.followUpAt));
-  const [quickSaving, setQuickSaving] = useState(false);
-
-  useEffect(() => {
-    setQuickFollowUp(toDateTimeLocal(lead.followUpAt));
-  }, [lead.followUpAt]);
   const style = {
     opacity: isDragging ? 0.72 : 1,
     transform: CSS.Transform.toString(transform),
     transition,
   };
-  const isCreatedToday = isDateToday(lead.createdAt);
-  const isDueToday = isFollowUpDueTodayOrPast(lead.followUpAt);
-  const followUpState = !lead.followUpAt ? "empty" : isDueToday ? "due" : "scheduled";
+  const leadAmount = lead.paymentAmount ? money(lead.paymentAmount) : "No payment sent";
+  const leadContact = lead.customerPhone || lead.customerEmail || "No contact details";
+  const leadContext = `Next follow-up: ${formatLeadFollowUp(lead.followUpAt)}. Last note: ${lead.notes?.trim() || "No note yet"}`;
 
   return (
     <article
@@ -3946,34 +4165,15 @@ function LeadCrmCard({
       role="group"
       style={style}
     >
-      <div className="sales-crm-card-topbar">
-        <div className="sales-crm-card-controls">
+      <div className="sales-crm-card-compact-head">
+        <div className="sales-crm-card-compact-identity">
           <span aria-hidden="true" className="sales-crm-drag-handle" title="Drag anywhere on the card">
             <GripVertical size={13} />
           </span>
-          <select
-            aria-label={`Change ${lead.customerName} stage`}
-            className="sales-crm-card-stage-select"
-            disabled={!canModifyLeads}
-            onChange={(event) => onStage(lead.id, event.target.value as SalesLeadStage)}
-            onClick={(event) => event.stopPropagation()}
-            onPointerDown={(event) => event.stopPropagation()}
-            value={lead.stage}
-          >
-            {leadStages.map((stage) => <option key={stage} value={stage}>{label(stage)}</option>)}
-          </select>
+          <strong>{lead.customerName}</strong>
         </div>
         <div className="sales-crm-card-topbar-actions">
-          {isCreatedToday ? (
-            <span className="sales-crm-card-status-badge is-today">
-              <Flame size={10} /> Today
-            </span>
-          ) : null}
-          {isDueToday ? (
-            <span className="sales-crm-card-status-badge is-due">
-              <Clock size={10} /> Due
-            </span>
-          ) : null}
+          <LeadSourceBadge iconOnly source={lead.source} />
           <button
             aria-label={`Open full details for ${lead.customerName}`}
             className="sales-crm-card-expand-button"
@@ -3993,169 +4193,37 @@ function LeadCrmCard({
           </button>
         </div>
       </div>
-      <button className="sales-crm-card-main" onClick={() => onOpen(lead.id)} type="button">
-        <div className="sales-crm-card-head">
-          <div className="sales-crm-card-identity">
-            <div className="sales-crm-card-identity-title">
-              <strong>{lead.customerName}</strong>
-              <LeadSourceBadge iconOnly source={lead.source} />
-              {isLeadFromApi(lead.source) ? (
-                <span style={{ display: "inline-flex", gap: "4px", alignItems: "center", marginLeft: "auto" }}>
-                  <span title="Company WhatsApp available" style={{ color: "#059669", display: "inline-flex", alignItems: "center" }}><Building2 size={11} /></span>
-                  <span title="Personal WhatsApp available" style={{ color: "#0284c7", display: "inline-flex", alignItems: "center" }}><Smartphone size={11} /></span>
-                </span>
-              ) : null}
-            </div>
-            <span>{lead.customerPhone || lead.customerEmail || "No contact details"}</span>
-          </div>
-        </div>
-        <div className="sales-crm-card-signal-grid">
-          <div className={`sales-crm-card-signal ${followUpState}`}>
-            <span><CalendarClock size={13} /> Next follow-up</span>
-            <strong>{formatLeadFollowUp(lead.followUpAt)}</strong>
-          </div>
-          <div className="sales-crm-card-signal">
-            <span><PhoneCall size={13} /> Latest call</span>
-            <strong>{call ? `${call.durationSeconds}s${call.outcome ? ` · ${label(call.outcome)}` : " · Pending"}` : "No call logged"}</strong>
-          </div>
-        </div>
-        {lead.priority && lead.priority.toLowerCase() !== "normal" ? (
-          <div className="sales-crm-card-meta-row">
-            <span className={`sales-priority-pill ${lead.priority}`}>{label(lead.priority)}</span>
-          </div>
-        ) : null}
+      <button aria-label={`Open ${lead.customerName} details`} className="sales-crm-card-main sales-crm-card-compact-main" onClick={() => onOpen(lead.id)} type="button">
+        <span className="sales-crm-card-compact-contact" title={leadContext}>{leadContact}</span>
+        <span className="sales-crm-card-compact-meta">
+          <span>{statusLabel}</span>
+          <strong>{leadAmount}</strong>
+        </span>
       </button>
-      <div className="sales-crm-card-quick-actions" onPointerDown={(event) => event.stopPropagation()}>
-        <button
-          className="sales-secondary-button compact"
-          disabled={!canModifyLeads || quickSaving}
-          onClick={() => setQuickAction((current) => current === "note" ? null : "note")}
-          type="button"
-        >
-          <FileText size={12} /> Note
-        </button>
-        <button
-          className="sales-secondary-button compact"
-          disabled={!canModifyLeads || quickSaving}
-          onClick={() => setQuickAction((current) => current === "follow-up" ? null : "follow-up")}
-          type="button"
-        >
-          <CalendarPlus size={12} /> Follow-up
-        </button>
+    </article>
+  );
+}
+
+function LeadDragPreview({ lead, statusLabel }: { lead: SalesDashboardSnapshot["visibleLeads"][number]; statusLabel: string }) {
+  const leadContact = lead.customerPhone || lead.customerEmail || "No contact details";
+  const leadAmount = lead.paymentAmount ? money(lead.paymentAmount) : "No payment sent";
+  return (
+    <article className="sales-crm-card sales-crm-card-drag-preview" aria-hidden="true">
+      <div className="sales-crm-card-drag-preview-head">
+        <span className="sales-crm-drag-handle"><GripVertical size={13} /></span>
+        <strong>{lead.customerName}</strong>
       </div>
-      {quickAction === "note" ? (
-        <form
-          className="sales-crm-card-note-form"
-          onPointerDown={(event) => event.stopPropagation()}
-          onSubmit={async (event) => {
-            event.preventDefault();
-            if (!quickNote.trim()) return;
-            setQuickSaving(true);
-            const ok = await onQuickNote(lead.id, quickNote);
-            setQuickSaving(false);
-            if (ok) {
-              setQuickNote("");
-              setQuickAction(null);
-            }
-          }}
-          style={{ display: "grid", gap: "6px", marginTop: "6px" }}
-        >
-          <textarea aria-label={`Quick note for ${lead.customerName}`} onChange={(event) => setQuickNote(event.target.value)} placeholder="Add a note..." rows={2} value={quickNote} />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-            <button className="sales-secondary-button compact" onClick={() => setQuickAction(null)} type="button">Cancel</button>
-            <button className="sales-primary-button compact" disabled={quickSaving || !quickNote.trim()} type="submit">{quickSaving ? "Saving..." : "Save note"}</button>
-          </div>
-        </form>
-      ) : null}
-      {quickAction === "follow-up" ? (
-        <form
-          className="sales-crm-card-followup-form"
-          onPointerDown={(event) => event.stopPropagation()}
-          onSubmit={async (event) => {
-            event.preventDefault();
-            if (!quickFollowUp) return;
-            setQuickSaving(true);
-            const ok = await onQuickFollowUp(lead.id, new Date(quickFollowUp).toISOString());
-            setQuickSaving(false);
-            if (ok) setQuickAction(null);
-          }}
-          style={{ display: "grid", gap: "6px", marginTop: "6px" }}
-        >
-          <LeadFollowUpPicker
-            initialOpen={true}
-            labelText="Next follow-up"
-            onChange={setQuickFollowUp}
-            value={quickFollowUp}
-          />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-            <button className="sales-secondary-button compact" onClick={() => setQuickAction(null)} type="button">Cancel</button>
-            <button className="sales-primary-button compact" disabled={quickSaving || !quickFollowUp} type="submit">{quickSaving ? "Saving..." : "Save follow-up"}</button>
-          </div>
-        </form>
-      ) : null}
-      {call?.recordingStatus === "UPLOADED" ? <div onPointerDown={(event) => event.stopPropagation()}><CallRecordingPlayer callId={call.id} expectedDurationSeconds={call.durationSeconds} labelText={`${lead.customerName} recording`} /></div> : null}
-      {lead.customerPhone ? (
-        <div style={{ display: "flex", gap: "6px", width: "100%", alignItems: "center" }} onPointerDown={(event) => event.stopPropagation()}>
-          <a
-            aria-label={`Call ${lead.customerName}`}
-            className="sales-secondary-button compact"
-            href={`tel:${lead.customerPhone.replace(/[^\d+]/g, "")}`}
-            style={{
-              flex: "0 0 auto",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "4px",
-              padding: "5px 9px",
-              color: "#10b981",
-              borderColor: "rgba(16, 185, 129, 0.4)",
-              background: "rgba(16, 185, 129, 0.08)",
-              textDecoration: "none",
-              fontWeight: 600,
-            }}
-            title={`Call ${lead.customerName} (${lead.customerPhone})`}
-          >
-            <PhoneCall size={12} /> Call
-          </a>
-          {isLeadFromApi(lead.source) ? (
-            <div style={{ display: "flex", gap: "4px", flex: 1 }}>
-              <button
-                className="sales-secondary-button compact"
-                onClick={() => (onOpenChat ? onOpenChat(lead.id, "company") : onOpen(lead.id))}
-                style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "3px", fontSize: "11px", borderColor: "rgba(16, 185, 129, 0.4)", color: "#059669" }}
-                title="Open CRM chat (Company WhatsApp)"
-                type="button"
-              >
-                <Building2 size={11} /> Co. WA
-              </button>
-              <button
-                className="sales-secondary-button compact"
-                onClick={() => (onOpenChat ? onOpenChat(lead.id, "connected_user") : onOpen(lead.id))}
-                style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "3px", fontSize: "11px", borderColor: "rgba(2, 132, 199, 0.4)", color: "#0284c7" }}
-                title="Open CRM chat (Closer Business WhatsApp - Synced Device)"
-                type="button"
-              >
-                <Smartphone size={11} /> Rep WA
-              </button>
-            </div>
-          ) : (
-            <button
-              className="sales-secondary-button compact"
-              onClick={() => (onOpenChat ? onOpenChat(lead.id) : onOpen(lead.id))}
-              style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "4px" }}
-              type="button"
-            >
-              <MessageCircle size={12} /> WhatsApp
-            </button>
-          )}
-        </div>
-      ) : null}
+      <span>{leadContact}</span>
+      <div className="sales-crm-card-drag-preview-meta">
+        <span>{statusLabel}</span>
+        <strong>{leadAmount}</strong>
+      </div>
     </article>
   );
 }
 
 function LeadSourceBadge({ iconOnly = false, source }: { iconOnly?: boolean; source?: string | null }) {
-  const normalized = String(source || "manual").trim().toLowerCase();
+  const normalized = String(source || "").trim().toLowerCase();
   const descriptor = normalized.includes("whatsapp") || normalized.includes("ctwa")
     ? { key: "whatsapp", label: "WhatsApp Business", Icon: MessageCircle }
     : normalized.includes("facebook")
@@ -4176,15 +4244,17 @@ function LeadSourceBadge({ iconOnly = false, source }: { iconOnly?: boolean; sou
             label: "Meta Ads",
             Icon: Megaphone,
           }
-      : normalized.includes("sheet") || normalized.includes("spreadsheet") || normalized.includes("excel") || normalized.includes("csv") || normalized.includes("import")
-        ? { key: "import", label: normalized.includes("sheet") || normalized.includes("spreadsheet") ? "Google Sheets" : "Import", Icon: FileSpreadsheet }
+        : normalized.includes("sheet") || normalized.includes("spreadsheet")
+        ? { key: "google-sheets", label: "Google Sheets", Icon: FileSpreadsheet }
+        : normalized.includes("excel") || normalized.includes("csv") || normalized.includes("import")
+        ? { key: "import", label: "Import", Icon: FileSpreadsheet }
         : normalized.includes("google") || normalized.includes("ads")
           ? { key: "google", label: "Google Ads", Icon: Search }
           : normalized.includes("web") || normalized.includes("form")
             ? { key: "web", label: "Web form", Icon: Video }
             : normalized.includes("api") || normalized.includes("webhook")
               ? { key: "api", label: "API Lead", Icon: Webhook }
-              : { key: "manual", label: normalized.replace(/[-_]/g, " ") || "Manual", Icon: User };
+              : { key: "manual", label: normalized.replace(/[-_]/g, " ") || "Source not provided", Icon: User };
   const Icon = descriptor.Icon;
 
   return (
@@ -4216,13 +4286,13 @@ function LeadDetailForm({
   onQuickNote,
   onTimelineNoteUpdated,
   onOpenChat,
-  onOpenManageLabels,
   onSave,
   onStage,
   onAssign,
   onWhatsApp,
   operating,
   snapshot,
+  stageOptions,
 }: {
   assignableAgents: SalesDashboardSnapshot["visibleAgents"];
   calls: SalesDashboardSnapshot["mobileCalls"];
@@ -4232,29 +4302,27 @@ function LeadDetailForm({
   onQuickNote: (leadId: string, body: string) => Promise<boolean>;
   onTimelineNoteUpdated?: (leadId: string, noteText: string) => void;
   onOpenChat: (leadId: string, transportPreference?: "company" | "connected_user") => void;
-  onOpenManageLabels?: () => void;
   onSave: (event: FormEvent<HTMLFormElement>, leadId: string) => void;
-  onStage: (leadId: string, stage: SalesLeadStage) => void;
+  onStage: (leadId: string, stage: string) => void;
   onAssign: (leadId: string, assignedAgentId: string) => Promise<boolean>;
   onWhatsApp: (event: FormEvent<HTMLFormElement>, leadId: string) => void;
   operating: SalesOperatingSnapshot | null;
   snapshot: SalesDashboardSnapshot;
+  stageOptions: typeof pipelineColumns;
 }) {
   const leadTimeline = (operating?.timeline ?? []).filter((entry) => entry.leadId === lead.id);
   const leadCalls = calls.filter(
     (c) => c.assignmentId === lead.id || (lead.customerPhone && cleanPhone(c.phoneNumber) === cleanPhone(lead.customerPhone))
   );
+  const [leadHistory, setLeadHistory] = useState<LeadHistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState("");
   const [notesRevision, setNotesRevision] = useState(0);
   const [followUpDate, setFollowUpDate] = useState(() => toDateTimeLocal(lead.followUpAt).slice(0, 10));
   const [followUpTime, setFollowUpTime] = useState(() => toDateTimeLocal(lead.followUpAt).slice(11, 16));
   const [quickSaving, setQuickSaving] = useState(false);
-  const [detailOrder, setDetailOrder] = useState<LeadDetailSectionKey[]>(defaultLeadDetailOrder);
-  const [isArrangeOpen, setIsArrangeOpen] = useState(false);
-  const arrangeControlRef = useRef<HTMLDivElement | null>(null);
-  const leadSource = String(lead.source ?? "").toLowerCase();
-  const isLinkedWhatsAppLead = leadSource.includes("qr_scanner") || leadSource.includes("whatsapp_personal") || leadSource.includes("whatsapp_business");
-  const isCompanyWhatsAppLead = leadSource.includes("whatsapp") && !isLinkedWhatsAppLead;
-  const isApiLead = isLeadFromApi(lead.source);
+  const isLinkedWhatsAppLead = getLeadMessagingChannel(lead.source) === "personal";
+  const messagingChannel = getLeadMessagingChannel(lead.source);
 
   useEffect(() => {
     const nextFollowUp = toDateTimeLocal(lead.followUpAt);
@@ -4263,54 +4331,24 @@ function LeadDetailForm({
   }, [lead.followUpAt]);
 
   useEffect(() => {
-    if (!isArrangeOpen) return undefined;
-
-    const closeOnOutsideClick = (event: PointerEvent) => {
-      if (!arrangeControlRef.current?.contains(event.target as Node)) {
-        setIsArrangeOpen(false);
-      }
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setIsArrangeOpen(false);
-    };
-
-    document.addEventListener("pointerdown", closeOnOutsideClick);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutsideClick);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [isArrangeOpen]);
-
-  useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem("aicloser:lead-detail-order");
-      if (!saved) return;
-      const parsed = JSON.parse(saved) as unknown;
-      if (Array.isArray(parsed) && defaultLeadDetailOrder.every((key) => parsed.includes(key))) {
-        setDetailOrder(parsed as LeadDetailSectionKey[]);
-      }
-    } catch {
-      // Keep the safe default order when storage is unavailable or malformed.
-    }
-  }, []);
-
-  const moveDetailSection = (section: LeadDetailSectionKey, direction: -1 | 1) => {
-    setDetailOrder((current) => {
-      const index = current.indexOf(section);
-      const nextIndex = index + direction;
-      if (index < 0 || nextIndex < 0 || nextIndex >= current.length) return current;
-      const next = [...current];
-      [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
-      try {
-        window.localStorage.setItem("aicloser:lead-detail-order", JSON.stringify(next));
-      } catch {
-        // The current session order still applies if persistence is blocked.
-      }
-      return next;
-    });
-  };
-
+    let active = true;
+    setHistoryLoading(true);
+    setHistoryError("");
+    void aicloserApi.leads.get360(lead.id)
+      .then((details) => {
+        if (!active) return;
+        setLeadHistory((details.history ?? []).slice(0, 30));
+      })
+      .catch((error) => {
+        if (!active) return;
+        setLeadHistory([]);
+        setHistoryError(error instanceof Error ? error.message : "History could not be loaded.");
+      })
+      .finally(() => {
+        if (active) setHistoryLoading(false);
+      });
+    return () => { active = false; };
+  }, [lead.id, lead.updatedAt, notesRevision]);
 
   const saveQuickFollowUp = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -4338,30 +4376,27 @@ function LeadDetailForm({
             </p>
             <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap", marginTop: "6px" }}>
               <LeadSourceBadge source={lead.source} />
-              {(isApiLead || isCompanyWhatsAppLead || isLinkedWhatsAppLead || lead.customerPhone) ? (
+              {messagingChannel === "company" || messagingChannel === "personal" ? (
                 <>
-                  <span
+                  {messagingChannel === "company" ? <span
                     className="sales-chip"
                     title="Company WhatsApp (Official Cloud API)"
                     style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "11px", fontWeight: 600, padding: "2px 8px", borderRadius: "6px", background: "rgba(16, 185, 129, 0.12)", color: "#059669", border: "1px solid rgba(16, 185, 129, 0.3)" }}
                   >
                     <Building2 size={12} /> Company WhatsApp
-                  </span>
-                  <span
+                  </span> : null}
+                  {messagingChannel === "personal" ? <span
                     className="sales-chip"
                     title="Personal WhatsApp (Connected QR Scanner)"
                     style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "11px", fontWeight: 600, padding: "2px 8px", borderRadius: "6px", background: "rgba(2, 132, 199, 0.12)", color: "#0284c7", border: "1px solid rgba(2, 132, 199, 0.3)" }}
                   >
                     <Smartphone size={12} /> Personal WhatsApp
-                  </span>
+                  </span> : null}
                 </>
               ) : null}
             </div>
           </div>
           <div style={{ display: "flex", gap: "4px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-            <span className={`sales-chip ${stageTone(lead.stage)}`} style={{ fontWeight: 700, fontSize: "12px" }}>
-              {label(lead.stage)}
-            </span>
             {isDateToday(lead.createdAt) ? (
               <span style={{ fontSize: "10px", fontWeight: 700, padding: "2px 6px", borderRadius: "4px", background: "rgba(249, 115, 22, 0.12)", color: "#ea580c", border: "1px solid rgba(249, 115, 22, 0.3)", display: "inline-flex", alignItems: "center", gap: "3px" }}>
                 <Flame size={10} /> Today
@@ -4370,14 +4405,15 @@ function LeadDetailForm({
           </div>
         </div>
 
-        {/* Status Dropdown immediately at the top */}
+        {/* Single live status control shared by chat, list, and Kanban */}
         <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "10px" }}>
           <label style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", color: "var(--closer-orange, #ff6b2f)" }}>
-            Pipeline Stage (Syncs with Chat &amp; Kanban)
+            Status (Syncs with Chat &amp; Kanban)
           </label>
           <select
-            value={lead.stage}
-            onChange={(event) => onStage(lead.id, event.target.value as SalesLeadStage)}
+            aria-label={`Status for ${lead.customerName}`}
+            value={getLeadPipelineValueForSelect(lead, stageOptions)}
+            onChange={(event) => onStage(lead.id, event.target.value)}
             style={{
               padding: "8px 10px",
               borderRadius: "8px",
@@ -4388,21 +4424,12 @@ function LeadDetailForm({
               fontWeight: 600,
             }}
           >
-            {leadStages.map((stage) => (
-              <option key={stage} value={stage}>
-                {label(stage)}
+            {stageOptions.map((stage) => (
+              <option key={stage.key} value={getLeadPipelineValue(stage)}>
+                {stage.label}
               </option>
             ))}
           </select>
-        </div>
-
-        {/* Status Labels & Tags Selector with phone sync */}
-        <div style={{ marginTop: "10px", paddingTop: "10px", borderTop: "1px solid var(--closer-line, #cbd5e1)" }}>
-          <LeadStatusTagsSelector
-            currentTags={lead.tags || []}
-            leadId={lead.id}
-            onOpenManageModal={onOpenManageLabels}
-          />
         </div>
 
         {/* Quick Actions Row */}
@@ -4437,7 +4464,7 @@ function LeadDetailForm({
             </a>
           ) : null}
           {lead.customerPhone ? (
-            isApiLead ? (
+            messagingChannel === "company" ? (
               <>
                 <button
                   className="sales-secondary-button compact"
@@ -4458,11 +4485,21 @@ function LeadDetailForm({
                   <Smartphone size={12} /> Closer Business WA
                 </button>
               </>
-            ) : (
-              <button className="sales-primary-button compact" onClick={() => onOpenChat(lead.id)} type="button">
-                <MessageSquare size={13} style={{ marginRight: "4px" }} /> Open Chat
+            ) : messagingChannel === "personal" ? (
+              <button
+                className="sales-secondary-button compact"
+                onClick={() => onOpenChat(lead.id, "connected_user")}
+                style={{ display: "inline-flex", alignItems: "center", gap: "4px", borderColor: "rgba(2, 132, 199, 0.4)", color: "#0284c7" }}
+                title="Open chat via the connected personal WhatsApp device"
+                type="button"
+              >
+                <Smartphone size={12} /> Personal WhatsApp
               </button>
-            )
+            ) : lead.conversationId ? (
+              <button className="sales-primary-button compact" onClick={() => onOpenChat(lead.id)} type="button">
+                <MessageSquare size={13} style={{ marginRight: "4px" }} /> Open linked chat
+              </button>
+            ) : null
           ) : null}
         </div>
 
@@ -4511,53 +4548,10 @@ function LeadDetailForm({
           </form>
         </div>
 
-        <div className="sales-detail-arrange-control" ref={arrangeControlRef}>
-          <button
-            aria-expanded={isArrangeOpen}
-            className="sales-secondary-button compact"
-            onClick={() => setIsArrangeOpen((open) => !open)}
-            type="button"
-          >
-            <Sliders size={13} /> Arrange details <ChevronDown size={13} className={isArrangeOpen ? "is-rotated" : ""} />
-          </button>
-          {isArrangeOpen ? (
-            <div aria-label="Arrange lead detail sections" className="sales-detail-arrange-panel">
-              <div className="sales-detail-arrange-heading">
-                <strong>Detail order</strong>
-                <span>Choose what appears first in this drawer.</span>
-              </div>
-              {detailOrder.map((section, index) => (
-                <div className="sales-detail-arrange-row" key={section}>
-                  <span><GripVertical size={14} /> {index + 1}. {leadDetailSectionLabels[section]}</span>
-                  <div>
-                    <button
-                      aria-label={`Move ${leadDetailSectionLabels[section]} up`}
-                      className="sales-detail-arrange-button"
-                      disabled={index === 0}
-                      onClick={() => moveDetailSection(section, -1)}
-                      type="button"
-                    >
-                      <ArrowUp size={14} />
-                    </button>
-                    <button
-                      aria-label={`Move ${leadDetailSectionLabels[section]} down`}
-                      className="sales-detail-arrange-button"
-                      disabled={index === detailOrder.length - 1}
-                      onClick={() => moveDetailSection(section, 1)}
-                      type="button"
-                    >
-                      <ArrowDown size={14} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </div>
       </div>
 
       {/* 2. Call Recordings & Outcome History */}
-      <div className="sales-lead-detail-section" style={{ order: detailOrder.indexOf("calls") + 1 }}>
+      <div className="sales-lead-detail-section" style={{ order: 2 }}>
       <div className="sales-panel nested">
         <PanelTitle icon={PhoneCall} title={`Call Recordings & Logs (${leadCalls.length})`} />
         {leadCalls.map((c) => (
@@ -4602,7 +4596,7 @@ function LeadDetailForm({
       </div>
 
       {/* 3. Conversation & Activity Timeline with full CRUD & mobile sync */}
-      <div className="sales-lead-detail-section" style={{ order: detailOrder.indexOf("history") + 1 }}>
+      <div className="sales-lead-detail-section" style={{ order: 1 }}>
         <LeadNotesManager
           customerName={lead.customerName}
           initialNotes={leadTimeline}
@@ -4617,7 +4611,44 @@ function LeadDetailForm({
         />
       </div>
 
-      <div className="sales-lead-detail-section" style={{ order: detailOrder.indexOf("information") + 1 }}>
+      <div className="sales-lead-detail-section" style={{ order: 4 }}>
+        <section aria-label={`History for ${lead.customerName}`} className="sales-panel nested sales-inline-history">
+          <div className="sales-inline-history-header">
+            <div>
+              <PanelTitle icon={History} title={`Lead history${leadHistory.length ? ` (${leadHistory.length})` : ""}`} />
+              <p>Every status, note, call, and follow-up event from the Central API.</p>
+            </div>
+            <span className="sales-inline-history-source">Central API</span>
+          </div>
+
+          {historyLoading ? <div className="sales-inline-history-empty">Loading history...</div> : null}
+          {!historyLoading && historyError ? <div className="sales-inline-history-empty is-error">{historyError}</div> : null}
+          {!historyLoading && !historyError && !leadHistory.length ? <div className="sales-inline-history-empty">No history recorded yet.</div> : null}
+          {!historyLoading && !historyError && leadHistory.length ? (
+            <ol className="sales-inline-history-list">
+              {leadHistory.map((entry) => (
+                <li className="sales-inline-history-item" key={entry.id}>
+                  <span aria-hidden="true" className={`sales-inline-history-dot ${getLeadHistoryTone(entry.kind)}`} />
+                  <div className="sales-inline-history-content">
+                    <div className="sales-inline-history-meta">
+                      <strong>{entry.title}</strong>
+                      <time dateTime={entry.createdAt}>{formatLeadHistoryDate(entry.createdAt)}</time>
+                    </div>
+                    {entry.body ? <p>{entry.body}</p> : null}
+                    {entry.actorName || entry.status || entry.dueAt ? (
+                      <small>
+                        {[entry.actorName, entry.status, entry.dueAt ? `Due ${formatLeadHistoryDate(entry.dueAt)}` : null].filter(Boolean).join(" · ")}
+                      </small>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          ) : null}
+        </section>
+      </div>
+
+      <div className="sales-lead-detail-section" style={{ order: 3 }}>
       <details className="sales-lead-advanced-details">
         <summary>Lead information and integrations</summary>
         {/* TeleCRM Custom Schema Fields */}
@@ -4655,18 +4686,17 @@ function LeadDetailForm({
           <input defaultValue={lead.budgetAmount || ""} name="budgetAmount" placeholder="Budget" type="number" />
           <input defaultValue={lead.followUpAt ? lead.followUpAt.slice(0, 10) : ""} name="followUpAt" type="date" />
         </div>
-        <input defaultValue={lead.tags.join(", ")} name="tags" placeholder="Tags" />
         <button className="sales-primary-button" type="submit">Save lead details</button>
         </form>
 
         {/* 5. Direct WhatsApp Message Form */}
-        {lead.customerPhone ? (
+        {lead.customerPhone && (messagingChannel !== "none" || lead.conversationId) ? (
           <form className="sales-form-grid" onSubmit={(event) => onWhatsApp(event, lead.id)}>
           <PanelTitle icon={MessageCircle} title="Send WhatsApp Message" />
           <label htmlFor="lead-whatsapp-transport">Send from</label>
           <select defaultValue={isLinkedWhatsAppLead ? "connected_user" : "company"} id="lead-whatsapp-transport" name="transport">
-            <option value="company">🏢 Company WhatsApp (Official API)</option>
-            <option value="connected_user">📱 Closer Business WhatsApp (Synced Device)</option>
+            {isLinkedWhatsAppLead ? <option value="connected_user">📱 Closer Business WhatsApp (Synced Device)</option> : null}
+            {!isLinkedWhatsAppLead ? <option value="company">🏢 Company WhatsApp (Official API)</option> : null}
           </select>
           <textarea name="message" placeholder="Message customer through shared WhatsApp inbox" required />
           <div className="sales-button-row">
@@ -4981,12 +5011,41 @@ function CallReportsPanel({
     setLoading(true);
     setError("");
     try {
-      const query = selectedAgentId !== "all" ? `?agentId=${encodeURIComponent(selectedAgentId)}` : "";
-      const response = await fetch(`/api/sales/call-reports${query}`, { cache: "no-store", signal });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Call reports are temporarily unavailable.");
-      setTotals(payload.totals ?? {});
-      setCalls(Array.isArray(payload.calls) ? payload.calls : []);
+      const result = await aicloserApi.calls.list({
+        agentId: selectedAgentId !== "all" ? selectedAgentId : undefined,
+        limit: 100,
+        signal,
+      });
+      const centralCalls = result.calls as Array<CallLog & {
+        direction?: string;
+        agent?: { id?: string; user?: { displayName?: string | null } };
+        assignment?: { customerName?: string; customerPhone?: string };
+      }>;
+      const mappedCalls: CallReportRow[] = centralCalls.map((call) => ({
+        id: call.id,
+        agentId: call.agent?.id ?? "",
+        agentName: call.agent?.user?.displayName ?? "Unassigned",
+        customerName: call.assignment?.customerName ?? "Unknown Contact",
+        phoneNumber: call.phoneNumber || call.assignment?.customerPhone || "",
+        direction: call.direction ?? "OUTBOUND",
+        status: call.status,
+        durationSeconds: Number(call.durationSeconds ?? 0),
+        recordingStatus: call.recordingStatus ?? "NONE",
+        recordingError: call.recordingError ?? "",
+        outcome: call.outcome ?? "",
+        note: call.note ?? "",
+        startedAt: call.startedAt,
+        endedAt: call.endedAt ?? null,
+      }));
+      setTotals({
+        totalCalls: mappedCalls.length,
+        inboundCalls: mappedCalls.filter((call) => call.direction === "INBOUND").length,
+        outboundCalls: mappedCalls.filter((call) => call.direction === "OUTBOUND").length,
+        missedCalls: mappedCalls.filter((call) => call.status === "MISSED").length,
+        talkTimeSeconds: mappedCalls.reduce((total, call) => total + call.durationSeconds, 0),
+        uploadedRecordings: mappedCalls.filter((call) => call.recordingStatus === "UPLOADED").length,
+      });
+      setCalls(mappedCalls);
       setLastUpdated(new Date().toISOString());
     } catch (cause) {
       if (cause instanceof DOMException && cause.name === "AbortError") return;

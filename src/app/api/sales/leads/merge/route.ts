@@ -2,8 +2,20 @@ import { NextResponse } from "next/server";
 import { requireSessionRole } from "@/lib/api/require-session-role";
 import { mergeLeads } from "@/lib/gigxomi/lead-duplicates-store";
 import { getSalesSnapshotForRole } from "@/lib/gigxomi/sales-store";
+import { centralApiRequest } from "@/lib/central-api-server";
 
 export async function POST(request: Request) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const payload = await centralApiRequest("/leads/merge", {
+      method: "POST",
+      body: JSON.stringify({ primaryLeadId: body.primaryLeadId, secondaryLeadId: body.secondaryLeadId }),
+    });
+    return NextResponse.json({ ok: true, ...(payload as Record<string, unknown>) });
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Central merge API unavailable." }, { status: 502 });
+  }
+
   const auth = await requireSessionRole(["ADMIN", "SUPER_ADMIN", "MANAGER"]);
   if (!auth.ok) return auth.response;
 

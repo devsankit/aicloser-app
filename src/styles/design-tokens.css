@@ -1528,3 +1528,75 @@
   --font-family: var(--crm-font-body);
   --font-display: var(--crm-font-display);
 }
+
+/* ========================================================================
+   AI Closer Chat Theme — semantic tokens for the three-pane inbox
+   Keep chat styling on this layer so visual changes never touch data flow,
+   permissions, or conversation state.
+   ======================================================================== */
+
+:root,
+[data-theme="dark"],
+.dark {
+  --chat-canvas: #0d0e10;
+  --chat-surface: #151619;
+  --chat-surface-soft: #1b1d21;
+  --chat-surface-raised: #22252a;
+  --chat-surface-selected: rgba(255, 107, 47, 0.12);
+  --chat-border: rgba(255, 255, 255, 0.1);
+  --chat-border-strong: rgba(255, 255, 255, 0.18);
+  --chat-text: #f5f5f7;
+  --chat-text-secondary: #b0b3ba;
+  --chat-text-muted: #858891;
+  --chat-text-disabled: #5e626a;
+  --chat-accent: #ff6b2f;
+  --chat-accent-hover: #eb5a24;
+  --chat-accent-soft: rgba(255, 107, 47, 0.13);
+  --chat-accent-border: rgba(255, 107, 47, 0.34);
+  --chat-success: #10b981;
+  --chat-warning: #f59e0b;
+  --chat-danger: #ef4444;
+  --chat-info: #60a5fa;
+  --chat-radius-control: 10px;
+  --chat-radius-card: 14px;
+  --chat-radius-panel: 16px;
+  --chat-radius-pill: 999px;
+  --chat-shadow-panel: 0 8px 24px rgba(0, 0, 0, 0.24);
+  --chat-shadow-popover: 0 18px 48px rgba(0, 0, 0, 0.36);
+  --chat-sidebar-width: 264px;
+  --chat-rail-width: 360px;
+  --chat-details-width: 300px;
+  --chat-topbar-height: 64px;
+  --chat-composer-height: 76px;
+  --chat-space-1: 4px;
+  --chat-space-2: 8px;
+  --chat-space-3: 12px;
+  --chat-space-4: 16px;
+  --chat-space-5: 20px;
+  --chat-space-6: 24px;
+}
+
+[data-theme="light"],
+.light {
+  --chat-canvas: #fafaf8;
+  --chat-surface: #ffffff;
+  --chat-surface-soft: #f4f4f1;
+  --chat-surface-raised: #ffffff;
+  --chat-surface-selected: rgba(255, 107, 47, 0.1);
+  --chat-border: #e5e5e1;
+  --chat-border-strong: #c9cac4;
+  --chat-text: #101010;
+  --chat-text-secondary: #4b4d4a;
+  --chat-text-muted: #6f706e;
+  --chat-text-disabled: #a4a6a2;
+  --chat-accent: #ff6b2f;
+  --chat-accent-hover: #eb5a24;
+  --chat-accent-soft: rgba(255, 107, 47, 0.1);
+  --chat-accent-border: rgba(255, 107, 47, 0.28);
+  --chat-success: #16803c;
+  --chat-warning: #b45309;
+  --chat-danger: #b42318;
+  --chat-info: #2563eb;
+  --chat-shadow-panel: 0 8px 24px rgba(16, 16, 16, 0.07);
+  --chat-shadow-popover: 0 18px 48px rgba(16, 16, 16, 0.16);
+}

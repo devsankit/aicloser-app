@@ -156,7 +156,7 @@ test("calling campaigns contain only tenant-scoped live data", () => {
   assert.match(dashboard, /CallReportsPanel/);
   assert.doesNotMatch(dashboard, /Power Dialer & SIM Recordings Hub|Missed Queue & IVR|CallingCampaignsPanel|MissedCallsQueue/);
   assert.match(dashboard, /Call Recordings & Missed Call History/);
-  assert.match(dashboard, /api\/sales\/call-reports/);
+  assert.match(dashboard, /aicloserApi\.calls\.list/);
   assert.match(dashboard, /Incoming calls/);
   assert.match(dashboard, /Outgoing calls/);
   assert.match(dashboard, /Missed calls/);

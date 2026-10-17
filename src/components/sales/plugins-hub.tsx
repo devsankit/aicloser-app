@@ -8,7 +8,6 @@ import {
   Globe,
   Instagram,
   Layers,
-  Mail,
   MessageCircle,
   MessageSquare,
   QrCode,
@@ -21,7 +20,6 @@ type PluginCardId =
   | "whatsapp_scanner"
   | "whatsapp_cloud_api"
   | "instagram_api"
-  | "email_smtp_imap"
   | "sheets_excel_sync"
   | "ai_bot_webhook";
 
@@ -30,7 +28,7 @@ type PluginsHubProps = {
   whatsAppCloudStatus?: string;
   instagramStatus?: string;
   onOpenContactsImportDrawer?: (
-    drawer: "whatsapp_scanner" | "sheets_excel" | "email_inbox" | "manual_add",
+    drawer: "whatsapp_scanner" | "sheets_excel" | "manual_add",
   ) => void;
   onOpenTab?: (tab: string) => void;
   onNavigateTab?: (tab: string) => void;
@@ -105,28 +103,11 @@ export function PluginsHub({
       description:
         "Route Instagram Business DMs, Story Mentions, and Comment-to-DM inquiries directly into your Live Multi-Channel Chat inbox and CRM pipeline.",
       highlights: [
-        "Unified Instagram DM threads alongside WhatsApp & Email in one inbox",
+        "Unified Instagram DM threads alongside WhatsApp in one inbox",
         "Auto-captures Instagram lead handles & phone numbers into Contacts",
         "Supports 24/7 AI Sales Closer auto-replies on Instagram DMs",
       ],
       primaryCtaLabel: "Configure Instagram API",
-    },
-    {
-      id: "email_smtp_imap",
-      title: "Email Inbox & Enquiry Lead Sync (Gmail / Zoho / GoDaddy / SMTP)",
-      category: "Universal IMAP + SMTP Enquiry Engine",
-      statusLabel: "Gmail • Zoho • GoDaddy",
-      statusColor: "#8b5cf6",
-      accent: "#8b5cf6",
-      icon: Mail,
-      description:
-        "Connect Gmail, Zoho Mail (.in / .com / imappro), GoDaddy Mail (M365 & Workspace), or any custom SMTP/IMAP server to capture inbound enquiry leads and reply from the CRM.",
-      highlights: [
-        "1-Click presets for Gmail, Zoho Mail, GoDaddy Mail & Custom IMAP/SMTP",
-        "Unwraps Reply-To webforms (IndiaMART, Website Forms, JustDial) to capture the real buyer",
-        "Automatically extracts E.164 phone numbers (+91...) from email bodies & signatures",
-      ],
-      primaryCtaLabel: "Connect Gmail / Zoho / GoDaddy / SMTP",
     },
     {
       id: "sheets_excel_sync",
@@ -204,16 +185,16 @@ export function PluginsHub({
                   color: "#10b981",
                 }}
               >
-                6 Native CRM Plugins Active
+                5 Native CRM Plugins Active
               </span>
             </div>
             <h2 style={{ margin: 0, fontSize: "1.4rem", fontWeight: 800 }}>
               Plugins, Scanners & Multi-Channel Connectors
             </h2>
             <p style={{ margin: "6px 0 0", fontSize: "0.88rem", color: "var(--muted)", maxWidth: 780 }}>
-              Connect all your communication and lead generation channels in one place: <strong>WhatsApp QR Scanner & Scraper</strong>,{" "}
-              <strong>Official WhatsApp Cloud API</strong>, <strong>Instagram API</strong>, <strong>Gmail / Zoho / GoDaddy SMTP & IMAP</strong>, and{" "}
-              <strong>Google Sheets / Excel Sync</strong>.
+              Connect your communication and lead generation channels in one place: <strong>WhatsApp QR Scanner & Scraper</strong>,{" "}
+              <strong>Official WhatsApp Cloud API</strong>, <strong>Instagram API</strong>, <strong>Google Sheets / Excel Sync</strong>, and{" "}
+              <strong>AI lead automation</strong>.
             </p>
           </div>
 
@@ -378,27 +359,6 @@ export function PluginsHub({
                     }}
                   >
                     <Instagram size={14} /> {plugin.primaryCtaLabel}
-                  </button>
-                ) : null}
-
-                {plugin.id === "email_smtp_imap" ? (
-                  <button
-                    type="button"
-                    className="primary-button"
-                    onClick={() => onOpenContactsImportDrawer?.("email_inbox")}
-                    style={{
-                      flex: 1,
-                      fontSize: 12.5,
-                      background: "#8b5cf6",
-                      borderColor: "#8b5cf6",
-                      color: "#fff",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 6,
-                    }}
-                  >
-                    <Mail size={14} /> {plugin.primaryCtaLabel}
                   </button>
                 ) : null}
 

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ClipboardList, CheckCircle2 } from "lucide-react";
 import type { CustomFieldDefinition, LeadCustomValues } from "@/lib/gigxomi/custom-fields-store";
 import type { AppRole } from "@/lib/auth/types";
+import { aicloserApi } from "@/lib/api-client";
 
 type Props = {
   leadId: string;
@@ -23,15 +24,36 @@ export function LeadCustomFieldsEditor({ leadId, userRole = "SALES_AGENT", onVal
     async function load() {
       setLoading(true);
       try {
-        const [fRes, vRes] = await Promise.all([
-          fetch("/api/sales/custom-fields"),
-          fetch(`/api/sales/custom-fields/lead/${leadId}`),
+        const [centralFields, centralValues] = await Promise.all([
+          aicloserApi.customFields.list(),
+          aicloserApi.customFields.getLeadValues(leadId),
         ]);
-        const fJson = await fRes.json();
-        const vJson = await vRes.json();
         if (mounted) {
-          if (fJson.ok) setFields(fJson.fields || []);
-          if (vJson.ok) setValues(vJson.values || {});
+          const mappedFields: CustomFieldDefinition[] = Array.isArray(centralFields)
+            ? centralFields.map((field: any) => ({
+              id: String(field.id),
+              name: String(field.fieldKey),
+              label: String(field.fieldLabel),
+              type: String(field.fieldType || "text") as CustomFieldDefinition["type"],
+              options: Array.isArray(field.options) ? field.options : [],
+              required: Boolean(field.isRequired),
+              defaultValue: field.defaultValue,
+              rolePermissions: { ADMIN: "READ_WRITE", MANAGER: "READ_WRITE", SALES_AGENT: "READ_WRITE" },
+              sortOrder: Number(field.position ?? 0),
+              createdAt: String(field.createdAt || new Date().toISOString()),
+              updatedAt: String(field.updatedAt || new Date().toISOString()),
+            }))
+            : [];
+          setFields(mappedFields);
+
+          const rawValues = (centralValues as any)?.values || {};
+          const valuesByLegacyId = mappedFields.reduce<LeadCustomValues>((acc, field) => {
+            if (Object.prototype.hasOwnProperty.call(rawValues, field.name)) {
+              acc[field.id] = rawValues[field.name] as any;
+            }
+            return acc;
+          }, {});
+          setValues(valuesByLegacyId);
         }
       } catch (err) {
         console.error("Failed to load custom fields for lead", err);
@@ -61,17 +83,16 @@ export function LeadCustomFieldsEditor({ leadId, userRole = "SALES_AGENT", onVal
     setSaving(true);
     setSaveSuccess(false);
     try {
-      const res = await fetch(`/api/sales/custom-fields/lead/${leadId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 3000);
-        onValuesChanged?.();
-      }
+      const valuesByKey = fields.reduce<Record<string, unknown>>((acc, field) => {
+        if (Object.prototype.hasOwnProperty.call(values, field.id)) {
+          acc[field.name] = values[field.id];
+        }
+        return acc;
+      }, {});
+      await aicloserApi.customFields.updateLeadValues(leadId, valuesByKey);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+      onValuesChanged?.();
     } catch (err) {
       console.error("Failed to save custom field values", err);
     } finally {

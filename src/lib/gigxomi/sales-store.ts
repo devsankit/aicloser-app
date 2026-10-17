@@ -136,7 +136,10 @@ export type SalesLeadView = {
   tags: string[];
   conversationId: string | null;
   budgetAmount: number;
+  /** Amount from the latest explicitly lead-linked UPI payment link, if any. */
+  paymentAmount?: number | null;
   stage: SalesLeadStage;
+  customFields?: Record<string, unknown> | null;
   followUpAt: string | null;
   lastContactedAt: string | null;
   notes: string;
@@ -2238,7 +2241,6 @@ export async function createSalesLead(input: Partial<SalesLeadView> & { tenantId
       return mapLead(existing);
     }
   }
-
   const lead = await prisma.salesLeadAssignment.create({
     data: {
       tenantId: input.tenantId?.trim() || assignedAgent?.user.tenantId || "tenant-gigxomi",

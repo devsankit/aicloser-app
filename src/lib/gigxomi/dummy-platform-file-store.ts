@@ -574,7 +574,6 @@ export function listConversationsForAudienceFromFile(
     serviceId?: string;
     conversationId?: string;
     limit?: number;
-    includeMessages?: boolean;
   },
 ) {
   const defaultLimit = options?.limit ?? 80;

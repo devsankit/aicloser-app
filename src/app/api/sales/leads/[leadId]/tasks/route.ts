@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { requireSessionRole } from "@/lib/api/require-session-role";
 import { getSalesSnapshotForRole } from "@/lib/gigxomi/sales-store";
 import { createGxLeadTask, getGxCustomer360, updateGxLeadTask } from "@/lib/gxclosers/customer-360";
+import { centralApiRequest } from "@/lib/central-api-server";
 
 async function authorizeLead(leadId: string) {
   const authorization = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"]);
@@ -14,6 +15,14 @@ async function authorizeLead(leadId: string) {
 }
 
 export async function GET(_request: Request, context: { params: Promise<{ leadId: string }> }) {
+  try {
+    const { leadId } = await context.params;
+    const payload = await centralApiRequest<{ data?: unknown[] }>(`/leads/${encodeURIComponent(leadId)}/tasks`);
+    return NextResponse.json({ ok: true, tasks: payload.data ?? [] });
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Central tasks API unavailable." }, { status: 502 });
+  }
+
   const { leadId } = await context.params;
   const authorization = await authorizeLead(leadId);
   if (!authorization.ok) return authorization.response;
@@ -22,6 +31,27 @@ export async function GET(_request: Request, context: { params: Promise<{ leadId
 }
 
 export async function POST(request: Request, context: { params: Promise<{ leadId: string }> }) {
+  try {
+    const { leadId } = await context.params;
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!body) return NextResponse.json({ ok: false, error: "Task details are required." }, { status: 400 });
+    if (body.action === "status") {
+      const taskId = String(body.taskId ?? "").trim();
+      const payload = await centralApiRequest(`/leads/${encodeURIComponent(leadId)}/tasks/${encodeURIComponent(taskId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: body.status }),
+      });
+      return NextResponse.json({ ok: true, task: (payload as { data?: unknown }).data ?? payload });
+    }
+    const payload = await centralApiRequest(`/leads/${encodeURIComponent(leadId)}/tasks`, {
+      method: "POST",
+      body: JSON.stringify({ title: body.title, description: body.description, dueAt: body.dueAt, priority: body.priority }),
+    });
+    return NextResponse.json({ ok: true, task: (payload as { data?: unknown }).data ?? payload });
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Central tasks API unavailable." }, { status: 502 });
+  }
+
   const { leadId } = await context.params;
   const authorization = await authorizeLead(leadId);
   if (!authorization.ok) return authorization.response;

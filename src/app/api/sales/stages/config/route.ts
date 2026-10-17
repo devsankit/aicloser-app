@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSessionRole } from "@/lib/api/require-session-role";
+import { centralApiRequest } from "@/lib/central-api-server";
 import { getStageConfigs, saveStageConfigs } from "@/lib/gigxomi/custom-fields-store";
 
 export async function GET() {
@@ -7,8 +8,17 @@ export async function GET() {
   if (!auth.ok) return auth.response;
 
   try {
+    // Primary: fetch dynamic workspace stages from central API
+    const centralRes = await centralApiRequest<any>("/stages").catch(() => null);
+    if (centralRes && centralRes.success && (Array.isArray(centralRes.data) || Array.isArray(centralRes.stages))) {
+      const stages = Array.isArray(centralRes.data) ? centralRes.data : centralRes.stages;
+      if (stages.length > 0) {
+        return NextResponse.json({ ok: true, success: true, data: stages, stages });
+      }
+    }
+
     const stages = await getStageConfigs();
-    return NextResponse.json({ ok: true, stages });
+    return NextResponse.json({ ok: true, success: true, data: stages, stages });
   } catch (error: any) {
     return NextResponse.json({ ok: false, error: error?.message || "Failed to load stage configs" }, { status: 500 });
   }
@@ -23,7 +33,8 @@ export async function PUT(request: Request) {
     if (!Array.isArray(body)) {
       return NextResponse.json({ ok: false, error: "Expected an array of stage configurations" }, { status: 400 });
     }
-    await saveStageConfigs(body);
+    await centralApiRequest("/stages", { method: "PUT", body }).catch(() => null);
+    await saveStageConfigs(body).catch(() => null);
     return NextResponse.json({ ok: true, stages: body });
   } catch (error: any) {
     return NextResponse.json({ ok: false, error: error?.message || "Failed to update stage configs" }, { status: 500 });

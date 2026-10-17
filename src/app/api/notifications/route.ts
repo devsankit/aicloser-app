@@ -3,7 +3,18 @@ import { requireSessionRole } from "@/lib/api/require-session-role";
 import { listNotificationsForActor } from "@/lib/gigxomi/app-notification-service";
 
 export async function GET() {
-  const auth = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER", "FREELANCER", "SALES_AGENT"]);
+  let auth;
+  try {
+    auth = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER", "FREELANCER", "SALES_AGENT"]);
+  } catch (error) {
+    // The refactor branch is central-API first and intentionally has no local
+    // DATABASE_URL. Keep the shell's notification control stable until the
+    // central notifications contract is available instead of surfacing a 500.
+    if (error instanceof Error && error.message.includes("DATABASE_URL is not configured")) {
+      return NextResponse.json({ ok: true, unread: 0, notifications: [] });
+    }
+    throw error;
+  }
   if (!auth.ok) {
     return auth.response;
   }

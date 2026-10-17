@@ -27,6 +27,7 @@ import {
   X,
 } from "lucide-react";
 import { AdminWhatsAppSetupPanel } from "@/components/admin/admin-dummy-controls";
+import { aicloserApi } from "@/lib/api-client";
 
 type WhatsAppTab = "overview" | "templates" | "campaigns" | "contacts" | "import" | "settings";
 
@@ -206,6 +207,7 @@ export function WhatsAppMarketingDashboard() {
   const [campaigns, setCampaigns] = useState<WhatsAppCampaignItem[]>([]);
   const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false);
   const [campaignStep, setCampaignStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  const [campaignAudienceMode, setCampaignAudienceMode] = useState<"all" | "groups">("all");
   const [campaignDraft, setCampaignDraft] = useState({
     name: "",
     templateId: "",
@@ -220,6 +222,7 @@ export function WhatsAppMarketingDashboard() {
   const [campaignPreviews, setCampaignPreviews] = useState<CampaignPreviewItem[]>([]);
   const [isTestingSend, setIsTestingSend] = useState(false);
   const [testPhoneNumber, setTestPhoneNumber] = useState("");
+  const [testTemplateId, setTestTemplateId] = useState("");
 
   // Contacts & Groups State
   const [contacts, setContacts] = useState<MarketingContactItem[]>([]);
@@ -256,11 +259,9 @@ export function WhatsAppMarketingDashboard() {
   // Fetch initial channel info
   const loadChannel = useCallback(async () => {
     try {
-      const res = await fetch("/api/whatsapp-marketing/channel");
-      const data = await res.json();
-      if (data.ok) {
-        setChannelInfo(data);
-      }
+      const channels = await aicloserApi.integrations.whatsapp.listChannels() as WhatsAppChannelState[];
+      const channel = channels[0] ?? null;
+      setChannelInfo({ ok: true, connected: Boolean(channel), requestedPhone: "", tenantId: channel?.tenantId, channel });
     } catch {
       // ignore
     }
@@ -269,9 +270,8 @@ export function WhatsAppMarketingDashboard() {
   // Fetch templates
   const loadTemplates = useCallback(async () => {
     try {
-      const res = await fetch("/api/whatsapp-marketing/templates");
-      const data = await res.json();
-      if (data.ok) setTemplates(data.templates || []);
+      const data = await aicloserApi.marketing.getTemplates() as WhatsAppTemplateItem[];
+      setTemplates(data || []);
     } catch {
       // ignore
     }
@@ -280,9 +280,8 @@ export function WhatsAppMarketingDashboard() {
   // Fetch campaigns
   const loadCampaigns = useCallback(async () => {
     try {
-      const res = await fetch("/api/whatsapp-marketing/campaigns");
-      const data = await res.json();
-      if (data.ok) setCampaigns(data.campaigns || []);
+      const data = await aicloserApi.marketing.getCampaigns() as WhatsAppCampaignItem[];
+      setCampaigns(data || []);
     } catch {
       // ignore
     }
@@ -291,12 +290,19 @@ export function WhatsAppMarketingDashboard() {
   // Fetch contacts
   const loadContacts = useCallback(async () => {
     try {
-      const params = new URLSearchParams();
-      if (contactSearch) params.set("q", contactSearch);
-      if (selectedGroupFilter) params.set("groupId", selectedGroupFilter);
-      const res = await fetch(`/api/whatsapp-marketing/contacts?${params.toString()}`);
-      const data = await res.json();
-      if (data.ok) setContacts(data.contacts || []);
+      const data = await aicloserApi.marketing.getContacts({ search: contactSearch || undefined, limit: 100 }) as { contacts?: Array<Record<string, unknown>> };
+      const mapped = (data.contacts || []).map((contact) => ({
+        ...contact,
+        phone: String(contact.e164Phone ?? contact.phone ?? ""),
+        isBlocked: contact.optInStatus === "OPTED_OUT" || contact.optInStatus === "BLOCKED",
+        groups: Array.isArray(contact.groupMemberships)
+          ? contact.groupMemberships.map((membership) => ({
+              id: String((membership as Record<string, unknown>).groupId ?? ""),
+              name: String(((membership as Record<string, unknown>).group as Record<string, unknown> | undefined)?.name ?? ""),
+            }))
+          : [],
+      })) as MarketingContactItem[];
+      setContacts(selectedGroupFilter ? mapped.filter((contact) => contact.groups?.some((group) => group.id === selectedGroupFilter)) : mapped);
     } catch {
       // ignore
     }
@@ -305,9 +311,11 @@ export function WhatsAppMarketingDashboard() {
   // Fetch groups
   const loadGroups = useCallback(async () => {
     try {
-      const res = await fetch("/api/whatsapp-marketing/contacts/groups");
-      const data = await res.json();
-      if (data.ok) setGroups(data.groups || []);
+      const data = await aicloserApi.marketing.getGroups() as Array<Record<string, unknown>>;
+      setGroups((data || []).map((group) => ({
+        ...group,
+        memberCount: Number((group._count as Record<string, unknown> | undefined)?.memberships ?? group.memberCount ?? 0),
+      })) as ContactGroupItem[]);
     } catch {
       // ignore
     }
@@ -348,18 +356,9 @@ export function WhatsAppMarketingDashboard() {
   const handleSyncTemplates = async () => {
     setIsSyncingTemplates(true);
     try {
-      const res = await fetch("/api/whatsapp-marketing/templates/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        showToast(`Synced ${data.total} templates (${data.created} created, ${data.updated} updated) from Meta.`, "success");
-        await loadTemplates();
-      } else {
-        showToast(data.error || "Failed to sync templates.", "error");
-      }
+      await aicloserApi.marketing.syncTemplates();
+      showToast("Templates sync completed from Meta.", "success");
+      await loadTemplates();
     } catch {
       showToast("Network error syncing templates.", "error");
     } finally {
@@ -371,36 +370,25 @@ export function WhatsAppMarketingDashboard() {
   const handleSubmitTemplate = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/whatsapp-marketing/templates", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...templateDraft,
-          buttons: templateDraft.buttons.map((button) => ({
-            ...button,
-            example: button.example ? [button.example] : undefined,
-          })),
-          carouselCards: templateDraft.templateType === "CAROUSEL"
-            ? templateDraft.carouselCards.map((card) => ({
-                ...card,
-                buttons: card.buttons.map((button) => ({
-                  ...button,
-                  example: button.example ? [button.example] : undefined,
-                })),
-              }))
-            : undefined,
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        if (templateDraftStorageKey) window.localStorage.removeItem(templateDraftStorageKey);
-        setHasSavedTemplateDraft(false);
-        showToast(`Template "${templateDraft.name}" submitted to Meta for approval. Status: ${data.status || "PENDING"}.`, "success");
-        setIsTemplateModalOpen(false);
-        await loadTemplates();
-      } else {
-        showToast(data.error || "Failed to submit template.", "error");
+      if (templateDraft.templateType === "CAROUSEL") {
+        showToast("Carousel templates are not available in the central API contract yet.", "error");
+        return;
       }
+      const data = await aicloserApi.marketing.createTemplate({
+        name: templateDraft.name,
+        language: templateDraft.language,
+        category: templateDraft.category,
+        bodyText: templateDraft.bodyText,
+        headerType: templateDraft.headerType,
+        headerContent: templateDraft.headerType === "TEXT" ? templateDraft.headerText : templateDraft.headerHandle || undefined,
+        footerText: templateDraft.footerText,
+        buttons: templateDraft.buttons,
+      });
+      if (templateDraftStorageKey) window.localStorage.removeItem(templateDraftStorageKey);
+      setHasSavedTemplateDraft(false);
+      showToast(`Template "${templateDraft.name}" submitted to Meta for approval. Status: ${(data as Record<string, unknown>)?.status || "PENDING"}.`, "success");
+      setIsTemplateModalOpen(false);
+      await loadTemplates();
     } catch {
       showToast("Network error submitting template.", "error");
     } finally {
@@ -449,26 +437,21 @@ export function WhatsAppMarketingDashboard() {
 
     setUploadingMedia(true);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/whatsapp-marketing/templates/media", {
-        method: "POST",
-        body: fd,
-      });
-      const data = await res.json();
-      if (data.ok && data.handle) {
+      const data = await aicloserApi.marketing.uploadTemplateMedia(file) as { mediaHandle?: string };
+      const mediaHandle = data?.mediaHandle;
+      if (mediaHandle) {
         setTemplateDraft((prev) => {
-          if (carouselCardIndex === undefined) return { ...prev, headerHandle: data.handle };
+          if (carouselCardIndex === undefined) return { ...prev, headerHandle: mediaHandle };
           return {
             ...prev,
             carouselCards: prev.carouselCards.map((card, index) =>
-              index === carouselCardIndex ? { ...card, headerHandle: data.handle } : card,
+              index === carouselCardIndex ? { ...card, headerHandle: mediaHandle } : card,
             ),
           };
         });
         showToast("Header sample media uploaded to Meta successfully.", "success");
       } else {
-        showToast(data.error || "Failed to upload sample media.", "error");
+        showToast("Failed to upload sample media.", "error");
       }
     } catch {
       showToast("Network error uploading media.", "error");
@@ -480,25 +463,25 @@ export function WhatsAppMarketingDashboard() {
 
   // Send Test Message
   const handleSendTestMessage = async (templateId: string) => {
+    if (!testPhoneNumber.trim()) {
+      showToast("Add one recipient number for the test message. A contact list is not required.", "error");
+      return;
+    }
+    const selectedTemplateId = templateId || testTemplateId;
+    if (!selectedTemplateId) {
+      showToast("Choose an approved template for the test message.", "error");
+      return;
+    }
     setIsTestingSend(true);
     try {
-      const res = await fetch("/api/whatsapp-marketing/channel/test-send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          channelId: channelInfo?.channel?.id,
-          templateId,
-          testPhone: testPhoneNumber,
-        }),
+      await aicloserApi.marketing.testSend({
+        testPhone: testPhoneNumber.trim(),
+        templateId: selectedTemplateId,
+        channelId: channelInfo?.channel?.id,
       });
-      const data = await res.json();
-      if (data.ok) {
-        showToast(`Test message sent successfully to ${testPhoneNumber}!`, "success");
-      } else {
-        showToast(data.error || "Failed to send test message.", "error");
-      }
-    } catch {
-      showToast("Network error sending test message.", "error");
+      showToast(`Test message sent successfully to ${testPhoneNumber}!`, "success");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Unable to send the test message.", "error");
     } finally {
       setIsTestingSend(false);
     }
@@ -507,18 +490,9 @@ export function WhatsAppMarketingDashboard() {
   // Campaign Actions (Pause, Resume, Cancel, Retry, Dispatch)
   const handleCampaignAction = async (campaignId: string, action: string) => {
     try {
-      const res = await fetch(`/api/whatsapp-marketing/campaigns/${campaignId}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        showToast(`Campaign action '${action}' completed.`, "success");
-        await loadCampaigns();
-      } else {
-        showToast(data.error || `Failed action ${action}`, "error");
-      }
+      await aicloserApi.marketing.updateCampaignAction(campaignId, action as "PAUSE" | "RESUME" | "CANCEL" | "RETRY_FAILED");
+      showToast(`Campaign action '${action}' completed.`, "success");
+      await loadCampaigns();
     } catch {
       showToast("Network error executing campaign action.", "error");
     }
@@ -527,18 +501,9 @@ export function WhatsAppMarketingDashboard() {
   // Dispatch campaign worker batch
   const handleDispatchBatch = async (campaignId: string) => {
     try {
-      const res = await fetch(`/api/whatsapp-marketing/campaigns/${campaignId}/dispatch`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ batchLimit: 20 }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        showToast(`Dispatched batch (${data.processed} messages sent).`, "success");
-        await loadCampaigns();
-      } else {
-        showToast(data.error || "Failed to dispatch batch.", "error");
-      }
+      await aicloserApi.marketing.dispatchCampaign(campaignId);
+      showToast("Campaign dispatched to the delivery queue.", "success");
+      await loadCampaigns();
     } catch {
       showToast("Error triggering queue dispatch.", "error");
     }
@@ -548,19 +513,16 @@ export function WhatsAppMarketingDashboard() {
   const handleLoadCampaignPreview = async () => {
     if (!campaignDraft.templateId) return;
     try {
-      const res = await fetch(`/api/whatsapp-marketing/campaigns/${campaignDraft.templateId}/preview`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          templateId: campaignDraft.templateId,
-          groupIds: campaignDraft.groupIds,
-          variableMappings: campaignDraft.variableMappings,
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setCampaignPreviews(data.previews || []);
-      }
+      const data = await aicloserApi.marketing.previewTemplate(campaignDraft.templateId, {
+        groupIds: campaignAudienceMode === "groups" ? campaignDraft.groupIds : undefined,
+        variableMappings: campaignDraft.variableMappings,
+      }) as { previews?: CampaignPreviewItem[]; renderedBody?: string; samplePhone?: string };
+      setCampaignPreviews(
+        data.previews?.map((preview) => ({
+          ...preview,
+          messagePreview: preview.renderedMessage || preview.messagePreview,
+        })) || (data.renderedBody ? [{ name: "Template preview", phone: data.samplePhone || "", renderedMessage: data.renderedBody }] : []),
+      );
     } catch {
       // ignore
     }
@@ -570,20 +532,19 @@ export function WhatsAppMarketingDashboard() {
   const handleCreateCampaign = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/whatsapp-marketing/campaigns", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(campaignDraft),
+      const created = await aicloserApi.marketing.createCampaign({
+        name: campaignDraft.name,
+        templateId: campaignDraft.templateId,
+        scheduledAt: campaignDraft.scheduledAt || undefined,
+        variableMappings: campaignDraft.variableMappings,
+        groupIds: campaignAudienceMode === "groups" ? campaignDraft.groupIds : undefined,
       });
-      const data = await res.json();
-      if (data.ok) {
-        showToast(`Campaign "${campaignDraft.name}" queued successfully!`, "success");
-        setIsCampaignModalOpen(false);
-        setCampaignStep(1);
-        await loadCampaigns();
-      } else {
-        showToast(data.error || "Failed to create campaign.", "error");
-      }
+      const campaignId = String((created as { id?: string; campaign?: { id?: string } } | null)?.id || (created as { campaign?: { id?: string } } | null)?.campaign?.id || "");
+      if (campaignId) await aicloserApi.marketing.dispatchCampaign(campaignId);
+      showToast(`Campaign "${campaignDraft.name}" dispatched to the live WhatsApp queue.`, "success");
+      setIsCampaignModalOpen(false);
+      setCampaignStep(1);
+      await loadCampaigns();
     } catch {
       showToast("Network error creating campaign.", "error");
     } finally {
@@ -592,22 +553,12 @@ export function WhatsAppMarketingDashboard() {
   };
 
   // Toggle Contact Suppression
-  const handleToggleSuppression = async (phone: string, isSuppressed: boolean) => {
+  const handleToggleSuppression = async (contactId: string, phone: string, isSuppressed: boolean) => {
     try {
-      const res = await fetch("/api/whatsapp-marketing/contacts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          phone,
-          fullName: "Contact",
-          action: isSuppressed ? "UNSUPPRESS" : "SUPPRESS",
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        showToast(`Contact ${phone} ${isSuppressed ? "unblocked" : "suppressed / opted-out"}.`, "success");
-        await loadContacts();
-      }
+      if (isSuppressed) await aicloserApi.marketing.unsuppressContact(contactId);
+      else await aicloserApi.marketing.suppressContact(contactId);
+      showToast(`Contact ${phone} ${isSuppressed ? "unblocked" : "suppressed / opted-out"}.`, "success");
+      await loadContacts();
     } catch {
       showToast("Network error updating contact status.", "error");
     }
@@ -617,17 +568,10 @@ export function WhatsAppMarketingDashboard() {
   const handleCreateGroup = async () => {
     if (!newGroupName.trim()) return;
     try {
-      const res = await fetch("/api/whatsapp-marketing/contacts/groups", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newGroupName.trim() }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        showToast(`Created contact group "${newGroupName}".`, "success");
-        setNewGroupName("");
-        await loadGroups();
-      }
+      await aicloserApi.marketing.createGroup({ name: newGroupName.trim() });
+      showToast(`Created contact group "${newGroupName}".`, "success");
+      setNewGroupName("");
+      await loadGroups();
     } catch {
       showToast("Failed to create contact group.", "error");
     }
@@ -641,26 +585,27 @@ export function WhatsAppMarketingDashboard() {
     }
     setIsProcessingImport(true);
     try {
-      const res = await fetch("/api/whatsapp-marketing/contacts/import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          source: importSource === "csv" ? "CSV" : "GOOGLE_SHEETS",
-          csvText: importSource === "csv" ? csvInput : undefined,
-          googleAccessToken: importSource === "sheets" ? sheetsAccessToken : undefined,
-          spreadsheetId: importSource === "sheets" ? sheetsSpreadsheetId : undefined,
-          consentDeclared: consentConfirmed,
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setImportResult(data);
-        showToast(`Imported ${data.validRows} contacts (${data.invalidRows} invalid, ${data.duplicateRows} duplicates).`, "success");
-        await loadContacts();
-        await loadGroups();
-      } else {
-        showToast(data.error || "Import failed.", "error");
+      if (importSource !== "csv") {
+        throw new Error("Central API sheet import is handled from Lead Import with server-side Google Sheets access. Use that flow so credentials never enter the browser.");
       }
+      const lines = csvInput.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      if (lines.length < 2) throw new Error("Paste a CSV header and at least one contact row.");
+      const headers = lines[0].split(",").map((header) => header.trim().replace(/^"|"$/g, "").toLowerCase());
+      const contacts = lines.slice(1).map((line) => {
+        const values = line.split(",").map((value) => value.trim().replace(/^"|"$/g, ""));
+        const row = Object.fromEntries(headers.map((header, index) => [header, values[index] || ""]));
+        return {
+          fullName: String(row.name || row.full_name || row.customer_name || row["full name"] || "Marketing contact"),
+          phone: String(row.phone || row.mobile || row.customer_phone || ""),
+          email: String(row.email || row.customer_email || "") || undefined,
+        };
+      }).filter((contact) => contact.phone.length >= 7);
+      const data = await aicloserApi.marketing.importContacts(contacts) as any;
+      const importedCount = Number(data?.importedCount ?? data?.data?.importedCount ?? 0);
+      setImportResult({ totalRows: Math.max(lines.length - 1, 0), validRows: importedCount, invalidRows: Math.max(lines.length - 1 - importedCount, 0), duplicateRows: 0 });
+      showToast(`Imported ${importedCount} contacts through the central API.`, "success");
+      await loadContacts();
+      await loadGroups();
     } catch {
       showToast("Network error executing import.", "error");
     } finally {
@@ -1324,7 +1269,7 @@ export function WhatsAppMarketingDashboard() {
                       </td>
                       <td className="p-4 text-right">
                         <button
-                          onClick={() => handleToggleSuppression(c.e164Phone || c.phone, c.optInStatus === "OPTED_OUT")}
+                          onClick={() => handleToggleSuppression(c.id, c.e164Phone || c.phone, c.optInStatus === "OPTED_OUT")}
                           className={`text-xs px-2.5 py-1 rounded font-medium border transition ${
                             c.optInStatus === "OPTED_OUT"
                               ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
@@ -1541,8 +1486,24 @@ export function WhatsAppMarketingDashboard() {
 
             {/* Test Send Tool */}
             <div className="p-5 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
-              <h4 className="text-xs font-bold text-white uppercase tracking-wider">Test Send Message</h4>
-              <div className="flex gap-2">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider">Send a single test</h4>
+                  <p className="text-[11px] text-slate-400 mt-1">Enter one number to test a template. This path never asks for a contact list.</p>
+                </div>
+                <span className="text-[10px] rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 font-semibold text-emerald-400">Optional</span>
+              </div>
+              <div className="grid gap-2 md:grid-cols-[1fr_1.35fr_auto]">
+                <select
+                  value={testTemplateId}
+                  onChange={(e) => setTestTemplateId(e.target.value)}
+                  className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                >
+                  <option value="">Choose approved template</option>
+                  {templates.filter((template) => template.status === "APPROVED").map((template) => (
+                    <option key={template.id} value={template.id}>{template.name} ({template.language})</option>
+                  ))}
+                </select>
                 <input
                   type="text"
                   placeholder="Recipient phone number with country code"
@@ -1551,8 +1512,8 @@ export function WhatsAppMarketingDashboard() {
                   className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white flex-1 focus:outline-none"
                 />
                 <button
-                  onClick={() => templates[0] && handleSendTestMessage(templates[0].id)}
-                  disabled={isTestingSend || templates.length === 0}
+                  onClick={() => handleSendTestMessage(testTemplateId)}
+                  disabled={isTestingSend || templates.filter((template) => template.status === "APPROVED").length === 0}
                   className="px-4 py-2 bg-[#ff6b2f] hover:bg-[#e85a20] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5"
                 >
                   <Send className="w-3.5 h-3.5" /> Send Test
@@ -2093,14 +2054,14 @@ export function WhatsAppMarketingDashboard() {
       {/* MODAL: CAMPAIGN WIZARD */}
       {/* ------------------------------------------------------------- */}
       {isCampaignModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-3xl overflow-hidden shadow-2xl my-8">
+        <div className="whatsapp-campaign-wizard mt-6 w-full">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-4xl overflow-hidden shadow-2xl">
             <div className="p-6 border-b border-slate-800 flex items-center justify-between">
               <div>
-                <h3 className="font-bold text-lg text-white">Create Broadcast Campaign (Step {campaignStep} of 5)</h3>
+                <h3 className="font-bold text-lg text-white">Create broadcast campaign</h3>
                 <p className="text-xs text-slate-400">
                   {campaignStep === 1 && "Select template and name your campaign"}
-                  {campaignStep === 2 && "Choose your target audience segment"}
+                  {campaignStep === 2 && "Choose all opted-in contacts or saved groups"}
                   {campaignStep === 3 && "Map personalization variables"}
                   {campaignStep === 4 && "Preview personalized messages"}
                   {campaignStep === 5 && "Confirm scheduling and launch"}
@@ -2112,6 +2073,18 @@ export function WhatsAppMarketingDashboard() {
               >
                 <X className="w-5 h-5" />
               </button>
+            </div>
+
+            <div className="grid grid-cols-5 gap-2 border-b border-slate-800 bg-slate-950/40 px-6 py-3">
+              {["Setup", "Audience", "Personalize", "Preview", "Launch"].map((label, index) => {
+                const step = index + 1;
+                return (
+                  <div key={label} className={`flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide ${campaignStep >= step ? "text-[#ff6b2f]" : "text-slate-500"}`}>
+                    <span className={`flex h-5 w-5 items-center justify-center rounded-full border text-[10px] ${campaignStep >= step ? "border-[#ff6b2f] bg-[#ff6b2f]/15" : "border-slate-700"}`}>{step}</span>
+                    <span className="hidden sm:inline">{label}</span>
+                  </div>
+                );
+              })}
             </div>
 
             <div className="p-6 space-y-4">
@@ -2158,105 +2131,79 @@ export function WhatsAppMarketingDashboard() {
               {campaignStep === 2 && (
                 <div className="space-y-4">
                   <div>
-                    <label className="text-xs font-semibold text-slate-300 block mb-1">
-                      Choose Target Contacts for Bulk Marketing
-                    </label>
-                    <p className="text-[11px] text-slate-400 mb-3">
-                      Select which audience to broadcast to from your Unified Contacts directory (WhatsApp Scanner, Sheets, Excel, Email Enquiries, or Groups).
-                    </p>
+                    <label className="text-xs font-semibold text-slate-300 block mb-1">Choose your audience</label>
+                    <p className="text-[11px] text-slate-400">A bulk campaign sends only to opted-in, non-blocked marketing contacts. Choose one audience source below.</p>
                   </div>
 
-                  {/* Target by Ingestion Source Channel */}
-                  <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
-                    <span className="text-[11px] font-bold text-[#ff6b2f] uppercase tracking-wider block">
-                      Target by Contact Ingestion Source
-                    </span>
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      {[
-                        { label: "All Opted-In Contacts", tag: "" },
-                        { label: "WhatsApp QR Scanner (Business & Personal)", tag: "WA Business Scanner" },
-                        { label: "Google Sheets Sync", tag: "Google Sheets Sync" },
-                        { label: "Excel / CSV Import", tag: "Excel / CSV Import" },
-                        { label: "Email Enquiries (Gmail / Zoho / GoDaddy)", tag: "Email Enquiry" },
-                        { label: "Website Form Leads", tag: "Inbound Form Lead" },
-                      ].map((src, sIdx) => (
-                        <label
-                          key={sIdx}
-                          className="flex items-center gap-2 p-2 rounded-lg bg-slate-900/60 hover:bg-slate-900 cursor-pointer border border-slate-800/60"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={src.tag ? campaignDraft.groupIds.includes(`src:${src.tag}`) : campaignDraft.groupIds.length === 0}
-                            onChange={(e) => {
-                              if (!src.tag) {
-                                setCampaignDraft({ ...campaignDraft, groupIds: [] });
-                              } else {
-                                const key = `src:${src.tag}`;
-                                const next = e.target.checked
-                                  ? [...campaignDraft.groupIds.filter((g) => !g.startsWith("src:")), key]
-                                  : campaignDraft.groupIds.filter((g) => g !== key);
-                                setCampaignDraft({ ...campaignDraft, groupIds: next });
-                              }
-                            }}
-                            className="rounded border-slate-700 text-[#ff6b2f] focus:ring-[#ff6b2f]"
-                          />
-                          <span className="text-xs text-white">{src.label}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Target by Specific Contact Groups */}
-                  {groups.length > 0 && (
-                    <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
-                      <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider block">
-                        Or Target by Contact Group / Segment
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCampaignAudienceMode("all");
+                        setCampaignDraft((current) => ({ ...current, groupIds: [] }));
+                      }}
+                      className={`text-left rounded-xl border p-4 transition ${campaignAudienceMode === "all" ? "border-[#ff6b2f] bg-[#ff6b2f]/10" : "border-slate-800 bg-slate-950 hover:border-slate-700"}`}
+                    >
+                      <span className="flex items-center justify-between gap-3">
+                        <span className="text-sm font-semibold text-white">All opted-in contacts</span>
+                        <span className={`h-4 w-4 rounded-full border-2 ${campaignAudienceMode === "all" ? "border-[#ff6b2f] bg-[#ff6b2f]" : "border-slate-600"}`} />
                       </span>
-                      <div className="space-y-1.5 max-h-36 overflow-y-auto">
-                        {groups.map((g) => {
-                          const isChecked = campaignDraft.groupIds.includes(g.id);
-                          return (
-                            <label
-                              key={g.id}
-                              className="flex items-center justify-between p-1.5 rounded-lg hover:bg-slate-900 cursor-pointer text-xs"
-                            >
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="checkbox"
-                                  checked={isChecked}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      setCampaignDraft({
-                                        ...campaignDraft,
-                                        groupIds: [...campaignDraft.groupIds, g.id],
-                                      });
-                                    } else {
-                                      setCampaignDraft({
-                                        ...campaignDraft,
-                                        groupIds: campaignDraft.groupIds.filter((id) => id !== g.id),
-                                      });
-                                    }
-                                  }}
-                                  className="rounded border-slate-700 text-emerald-500 focus:ring-emerald-500"
-                                />
-                                <span className="text-white">{g.name}</span>
-                              </div>
-                              <span className="text-slate-500">{g.memberCount} members</span>
-                            </label>
-                          );
-                        })}
-                      </div>
+                      <span className="mt-1 block text-[11px] text-slate-400">Use the complete eligible audience from this workspace.</span>
+                      <span className="mt-3 block text-xs font-semibold text-emerald-400">{contacts.filter((c) => c.optInStatus === "OPTED_IN").length} eligible contacts</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setCampaignAudienceMode("groups")}
+                      className={`text-left rounded-xl border p-4 transition ${campaignAudienceMode === "groups" ? "border-[#ff6b2f] bg-[#ff6b2f]/10" : "border-slate-800 bg-slate-950 hover:border-slate-700"}`}
+                    >
+                      <span className="flex items-center justify-between gap-3">
+                        <span className="text-sm font-semibold text-white">Contact groups</span>
+                        <span className={`h-4 w-4 rounded-full border-2 ${campaignAudienceMode === "groups" ? "border-[#ff6b2f] bg-[#ff6b2f]" : "border-slate-600"}`} />
+                      </span>
+                      <span className="mt-1 block text-[11px] text-slate-400">Send to one or more saved groups only.</span>
+                      <span className="mt-3 block text-xs font-semibold text-slate-300">{groups.length} groups available</span>
+                    </button>
+                  </div>
+
+                  {campaignAudienceMode === "groups" && (
+                    <div className="rounded-xl border border-slate-800 bg-slate-950 p-3 space-y-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-[#ff6b2f]">Select groups</span>
+                      {groups.length === 0 ? (
+                        <p className="text-xs text-slate-400">No groups yet. Create one in Contacts &amp; Audiences or switch to all opted-in contacts.</p>
+                      ) : (
+                        <div className="max-h-40 space-y-1.5 overflow-y-auto">
+                          {groups.map((group) => {
+                            const isChecked = campaignDraft.groupIds.includes(group.id);
+                            return (
+                              <label key={group.id} className="flex cursor-pointer items-center justify-between rounded-lg border border-slate-800/70 p-2 text-xs hover:bg-slate-900">
+                                <span className="flex items-center gap-2 text-white">
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={(event) => setCampaignDraft((current) => ({
+                                      ...current,
+                                      groupIds: event.target.checked
+                                        ? [...current.groupIds, group.id]
+                                        : current.groupIds.filter((id) => id !== group.id),
+                                    }))}
+                                    className="rounded border-slate-700 text-[#ff6b2f] focus:ring-[#ff6b2f]"
+                                  />
+                                  {group.name}
+                                </span>
+                                <span className="text-slate-500">{group.memberCount ?? group.contactCount ?? 0} members</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   )}
 
-                  <p className="text-[11px] text-slate-400">
-                    Total eligible opted-in recipients matching this selection:{" "}
-                    <strong className="text-white">
-                      {campaignDraft.groupIds.length === 0
-                        ? contacts.filter((c) => c.optInStatus === "OPTED_IN").length
-                        : contacts.filter((c) => c.optInStatus === "OPTED_IN").length || "Segment Selected"}
-                    </strong>
-                  </p>
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                    <p className="text-[11px] text-slate-400">One phone number only? Use the optional single test flow—bulk audience selection will not be required.</p>
+                    <button type="button" onClick={() => { setIsCampaignModalOpen(false); setActiveTab("settings"); }} className="text-xs font-semibold text-[#ff6b2f] hover:text-[#ff8552]">Go to single test</button>
+                  </div>
                 </div>
               )}
 
@@ -2352,7 +2299,7 @@ export function WhatsAppMarketingDashboard() {
                     <h4 className="font-bold text-white text-sm">Campaign Summary</h4>
                     <div className="grid grid-cols-2 gap-2 text-xs text-slate-300">
                       <div>Name: <strong className="text-white">{campaignDraft.name}</strong></div>
-                      <div>Recipients: <strong className="text-emerald-400">All Opted-In</strong></div>
+                      <div>Recipients: <strong className="text-emerald-400">{campaignAudienceMode === "all" ? "All opted-in contacts" : `${campaignDraft.groupIds.length} selected group${campaignDraft.groupIds.length === 1 ? "" : "s"}`}</strong></div>
                       <div>Sender Line: <strong className="text-white">{channelInfo?.channel?.displayPhoneNumber || "Not connected"}</strong></div>
                       <div>Throttle: <strong className="text-white">20 msgs / sec</strong></div>
                     </div>

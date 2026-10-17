@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Plus, Tag, Tags } from "lucide-react";
+import { Check, Tags } from "lucide-react";
 
 interface StatusLabel {
   id: string;
@@ -25,6 +25,7 @@ export function LeadStatusTagsSelector({
   const [availableLabels, setAvailableLabels] = useState<StatusLabel[]>([]);
   const [activeTags, setActiveTags] = useState<string[]>(currentTags);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
     setActiveTags(currentTags);
@@ -32,20 +33,17 @@ export function LeadStatusTagsSelector({
 
   useEffect(() => {
     const fetchLabels = async () => {
+      setLoadError("");
       try {
         const res = await fetch("/api/sales/status-labels", { cache: "no-store" });
         const data = await res.json();
-        if (data.ok && Array.isArray(data.labels)) {
-          setAvailableLabels(data.labels);
+        if (!res.ok || !data.ok || !Array.isArray(data.labels)) {
+          throw new Error(data.error || "Status labels could not be loaded.");
         }
-      } catch {
-        // Fallback default labels
-        setAvailableLabels([
-          { id: "1", name: "Hot Prospect", color: "#ef4444" },
-          { id: "2", name: "Decision Maker", color: "#3b82f6" },
-          { id: "3", name: "Callback Needed", color: "#f59e0b" },
-          { id: "4", name: "Budget Approved", color: "#10b981" },
-        ]);
+        setAvailableLabels(data.labels);
+      } catch (error) {
+        setAvailableLabels([]);
+        setLoadError(error instanceof Error ? error.message : "Status labels could not be loaded.");
       }
     };
     void fetchLabels();
@@ -64,18 +62,16 @@ export function LeadStatusTagsSelector({
     setActiveTags(updatedTags);
 
     try {
-      const res = await fetch("/api/sales/status-labels", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          leadId,
-          tags: updatedTags,
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        onTagsChanged?.(updatedTags);
+      if (leadId) {
+        const res = await fetch("/api/sales/status-labels", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ leadId, tags: updatedTags }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || "Status label update failed.");
       }
+      onTagsChanged?.(updatedTags);
     } catch {
       // Revert on error
       setActiveTags(activeTags);
@@ -99,7 +95,7 @@ export function LeadStatusTagsSelector({
             gap: "5px",
           }}
         >
-          <Tags size={12} /> Status Labels & Tags (Tap to toggle)
+          <Tags size={12} /> Labels & Tags
         </label>
         {onOpenManageModal ? (
           <button
@@ -122,6 +118,9 @@ export function LeadStatusTagsSelector({
       </div>
 
       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+        {loadError ? (
+          <span style={{ fontSize: "11px", color: "#b91c1c" }}>{loadError}</span>
+        ) : null}
         {availableLabels.map((label) => {
           const isActive = activeTags.includes(label.name);
           return (

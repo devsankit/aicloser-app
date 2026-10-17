@@ -7,9 +7,11 @@ import { appendConversationMessageFromFile, deleteConversationMessageForEveryone
 import { getConversationById, projectConversation, type DummyMessageAttachmentInput } from "@/lib/gigxomi/dummy-platform-store";
 import { sendMobileChatPushForConversation } from "@/lib/mobile-chat-push";
 import { publishConversationRealtimeEvent } from "@/lib/gigxomi/conversation-realtime";
-import { persistRealtimeEvent } from "@/lib/realtime/event-outbox";
 import { resolveWhatsAppSetupTenantId } from "@/lib/api/resolve-session-tenant";
 import { sendLinkedWhatsAppText } from "@/lib/whatsapp/baileys-transport";
+import { centralApiRequest } from "@/lib/central-api-server";
+import { getCentralConversationMessages, mapCentralConversation } from "@/lib/central-chat-adapter";
+import { persistRealtimeEvent } from "@/lib/realtime/event-outbox";
 
 const MAX_CHAT_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 
@@ -100,6 +102,13 @@ function isLikelyRapidDuplicate(input: {
 }
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await context.params;
+    return NextResponse.json(await getCentralConversationMessages(id, new URL(request.url).searchParams));
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Central chat API unavailable." }, { status: 502 });
+  }
+
   const authorization = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER", "FREELANCER", "SALES_AGENT"]);
   if (!authorization.ok) {
     return authorization.response;
@@ -120,6 +129,33 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
 }
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await context.params;
+    const body = await request.json().catch(() => ({}));
+    const payload = await centralApiRequest<{ data: Record<string, unknown> }>(`/conversations/${encodeURIComponent(id)}/messages`, {
+      method: "POST",
+      body: JSON.stringify({
+        body: typeof body?.body === "string" ? body.body : "",
+        lane: body?.lane === "internal" ? "internal" : "customer",
+        clientMessageId: typeof body?.clientMessageId === "string" ? body.clientMessageId : undefined,
+        attachments: Array.isArray(body?.attachments) ? body.attachments : undefined,
+      }),
+    });
+    return NextResponse.json({
+      ok: true,
+      conversation: mapCentralConversation({
+        id,
+        customerName: String(payload.data?.customerName ?? "Customer"),
+        customerPhone: String(payload.data?.customerPhone ?? ""),
+        lastMessage: payload.data as never,
+      }, [payload.data as never]),
+      message: payload.data ?? null,
+      delivery: { ok: true, mode: "central-api" },
+    });
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Central chat API unavailable." }, { status: 502 });
+  }
+
   const authorization = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER", "FREELANCER", "SALES_AGENT"]);
   if (!authorization.ok) {
     return authorization.response;

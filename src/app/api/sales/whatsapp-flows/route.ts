@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 
 import { requireSessionRole } from "@/lib/api/require-session-role";
 import {
@@ -12,8 +12,19 @@ import { getSalesAgentAccess } from "@/lib/gigxomi/sales-store";
 import type { SuperAdminWhatsAppFlow } from "@/lib/gigxomi/super-admin-whatsapp-flow-store";
 import { validateWhatsAppFlowForServer } from "@/lib/gigxomi/whatsapp-flow-server-validation";
 
+const CENTRAL_API_URL = process.env.NEXT_PUBLIC_AICLOSER_API_URL || "https://api.aicloser.in/api/v1";
+
+function centralAuthHeaders(request: Request) {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const cookie = request.headers.get("cookie");
+  const auth = request.headers.get("authorization");
+  if (cookie) headers["cookie"] = cookie;
+  if (auth) headers["authorization"] = auth;
+  return headers;
+}
+
 async function requireSalesFlowScope() {
-  const authorization = await requireSessionRole(["SALES_AGENT"]);
+  const authorization = await requireSessionRole(["SALES_AGENT", "ADMIN", "SUPER_ADMIN"]);
   if (!authorization.ok) return authorization;
 
   const access = await getSalesAgentAccess(authorization.session.userId);
@@ -35,7 +46,28 @@ async function salesPayload(scopeId: string) {
   return { flows, runs };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  // 1. Try central API first
+  try {
+    const centralRes = await fetch(`${CENTRAL_API_URL}/whatsapp-flows`, {
+      headers: centralAuthHeaders(request),
+      cache: "no-store",
+    });
+    if (centralRes.ok) {
+      const data = await centralRes.json();
+      if (data.ok || data.success) {
+        return NextResponse.json({
+          ok: true,
+          flows: data.flows || data.data?.flows || [],
+          runs: data.runs || data.data?.runs || [],
+        });
+      }
+    }
+  } catch {
+    // Proceed to fallback
+  }
+
+  // 2. Fallback to local store
   const authorization = await requireSalesFlowScope();
   if (!authorization.ok) return authorization.response;
 
@@ -44,9 +76,6 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const authorization = await requireSalesFlowScope();
-  if (!authorization.ok) return authorization.response;
-
   const body = (await request.json().catch(() => null)) as
     | (Partial<SuperAdminWhatsAppFlow> & {
         action?: "save" | "deploy";
@@ -72,6 +101,32 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+
+  // 1. Try central API first
+  try {
+    const centralRes = await fetch(`${CENTRAL_API_URL}/whatsapp-flows`, {
+      method: "POST",
+      headers: centralAuthHeaders(request),
+      body: JSON.stringify(body),
+    });
+    if (centralRes.ok) {
+      const data = await centralRes.json();
+      if (data.ok || data.success) {
+        return NextResponse.json({
+          ok: true,
+          flow: data.flow || data.data,
+          flows: data.flows || [],
+          runs: data.runs || [],
+        });
+      }
+    }
+  } catch {
+    // Proceed to fallback
+  }
+
+  // 2. Fallback to local store
+  const authorization = await requireSalesFlowScope();
+  if (!authorization.ok) return authorization.response;
 
   const errors = validateWhatsAppFlowForServer({
     flow: {
@@ -107,9 +162,6 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const authorization = await requireSalesFlowScope();
-  if (!authorization.ok) return authorization.response;
-
   const body = (await request.json().catch(() => null)) as { id?: string; name?: string; summary?: string } | null;
   if (!body?.id?.trim()) {
     return NextResponse.json({ ok: false, error: "Flow id is required." }, { status: 400 });
@@ -117,6 +169,32 @@ export async function PATCH(request: Request) {
   if (body.name !== undefined && !body.name.trim()) {
     return NextResponse.json({ ok: false, error: "Flow name is required." }, { status: 400 });
   }
+
+  // 1. Try central API first
+  try {
+    const centralRes = await fetch(`${CENTRAL_API_URL}/whatsapp-flows/${encodeURIComponent(body.id)}`, {
+      method: "PATCH",
+      headers: centralAuthHeaders(request),
+      body: JSON.stringify(body),
+    });
+    if (centralRes.ok) {
+      const data = await centralRes.json();
+      if (data.ok || data.success) {
+        return NextResponse.json({
+          ok: true,
+          flow: data.flow || data.data,
+          flows: data.flows || [],
+          runs: data.runs || [],
+        });
+      }
+    }
+  } catch {
+    // Proceed to fallback
+  }
+
+  // 2. Fallback to local store
+  const authorization = await requireSalesFlowScope();
+  if (!authorization.ok) return authorization.response;
 
   try {
     const flow = await updateSalesWhatsAppFlowMeta(authorization.scopeId, {
@@ -132,13 +210,35 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const authorization = await requireSalesFlowScope();
-  if (!authorization.ok) return authorization.response;
-
   const body = (await request.json().catch(() => null)) as { id?: string } | null;
   if (!body?.id?.trim()) {
     return NextResponse.json({ ok: false, error: "Flow id is required." }, { status: 400 });
   }
+
+  // 1. Try central API first
+  try {
+    const centralRes = await fetch(`${CENTRAL_API_URL}/whatsapp-flows/${encodeURIComponent(body.id)}`, {
+      method: "DELETE",
+      headers: centralAuthHeaders(request),
+      body: JSON.stringify(body),
+    });
+    if (centralRes.ok) {
+      const data = await centralRes.json();
+      if (data.ok || data.success) {
+        return NextResponse.json({
+          ok: true,
+          flows: data.flows || [],
+          runs: data.runs || [],
+        });
+      }
+    }
+  } catch {
+    // Proceed to fallback
+  }
+
+  // 2. Fallback to local store
+  const authorization = await requireSalesFlowScope();
+  if (!authorization.ok) return authorization.response;
 
   try {
     const flow = await deleteSalesWhatsAppFlow(authorization.scopeId, body.id);

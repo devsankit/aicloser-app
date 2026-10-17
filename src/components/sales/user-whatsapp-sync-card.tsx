@@ -18,6 +18,7 @@ import {
 import type { WhatsAppScannerSessionState } from "@/app/api/sales/whatsapp-scanner/route";
 import type { SalesAgentView, SalesLeadView } from "@/lib/gigxomi/sales-store";
 import { renderDeterministicQrSvg } from "@/components/sales/contacts-hub";
+import { aicloserApi } from "@/lib/api-client";
 
 type UserWhatsAppSyncCardProps = {
   tenantId?: string;

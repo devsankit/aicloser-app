@@ -32,6 +32,7 @@ import {
 import { BrandWordmark } from "@/components/ui/brand-wordmark";
 import { MobileDiagnosticsPanel } from "./mobile-diagnostics-panel";
 import { SuperAdminReviewsPanel } from "./super-admin-reviews-panel";
+import { aicloserApi, setStoredToken } from "@/lib/api-client";
 
 export type SuperAdminUser = {
   id: string;
@@ -110,6 +111,46 @@ function formatPackageExpiry(isoString: string | null | undefined) {
   return label;
 }
 
+function mapCentralSuperAdminUsers(
+  workspaces: Array<Record<string, any>>,
+  workspaceUsers: Map<string, Array<Record<string, any>>>,
+  previousUsers: SuperAdminUser[],
+): SuperAdminUser[] {
+  const previousById = new Map(previousUsers.map((user) => [user.id, user]));
+  return workspaces.flatMap((workspace) => {
+    const members = workspaceUsers.get(String(workspace.id)) ?? [];
+    return members.map((member) => {
+      const previous = previousById.get(String(member.id));
+      const packageStatus = String(member.packageStatus ?? "ACTIVE").toUpperCase();
+      const role = String(member.role ?? "SALES_AGENT").toUpperCase();
+      return {
+        id: String(member.id),
+        displayName: String(member.displayName ?? member.email ?? "Workspace user"),
+        email: String(member.email ?? ""),
+        phone: String(member.phone ?? ""),
+        role,
+        companyName: String(workspace.name ?? workspace.slug ?? "Workspace"),
+        status: packageStatus === "ACTIVE" ? "ACTIVE" : packageStatus === "PAUSED" ? "SUSPENDED" : "SUSPENDED",
+        workspaceStatus: String(workspace.status ?? "ACTIVE"),
+        seatLimit: Number(workspace.maxSeats ?? 1),
+        workspaceSeatLimit: Number(workspace.maxSeats ?? 1),
+        paymentStatus: previous?.paymentStatus ?? "NOT_CONFIGURED",
+        paymentPendingSince: previous?.paymentPendingSince ?? null,
+        activationLocked: previous?.activationLocked ?? false,
+        packageExpiresAt: member.packageExpiresAt ?? previous?.packageExpiresAt ?? null,
+        agentCode: previous?.agentCode ?? null,
+        agentProfileId: previous?.agentProfileId ?? null,
+        tenantId: String(workspace.id),
+        packageName: String(workspace.planTier ?? "FREE"),
+        createdAt: String(member.createdAt ?? workspace.createdAt ?? new Date().toISOString()),
+        lastLoginAt: previous?.lastLoginAt ?? null,
+        isSeeded: previous?.isSeeded ?? false,
+        isSuperAdmin: role === "SUPER_ADMIN",
+      } satisfies SuperAdminUser;
+    });
+  });
+}
+
 export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats }: Props) {
   const [users, setUsers] = useState<SuperAdminUser[]>(initialUsers);
   const [stats, setStats] = useState<SuperAdminStats>(initialStats);
@@ -146,20 +187,27 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
   const refreshData = async (notify = true) => {
     setIsRefreshing(true);
     try {
-      const res = await fetch("/api/super-admin/users", { cache: "no-store" });
-      const data = await res.json();
-      if (data.ok) {
-        setUsers(data.users);
-        setStats(data.stats);
-        setWorkspaceSeatOverrides({});
-        setWorkspaceExpiryDrafts({});
-        setWorkspaceStatusOverrides({});
-        if (notify) showToast("User directory refreshed successfully");
-      } else {
-        showToast(data.error || "Failed to refresh users", "error");
-      }
-    } catch {
-      showToast("Network error while refreshing", "error");
+      const tenants = (await aicloserApi.superAdmin.getTenants()) as Array<Record<string, any>>;
+      const workspaceUsers = new Map<string, Array<Record<string, any>>>();
+      await Promise.all(tenants.map(async (tenant) => {
+        const members = (await aicloserApi.superAdmin.getTenantUsers(String(tenant.id))) as Array<Record<string, any>>;
+        workspaceUsers.set(String(tenant.id), Array.isArray(members) ? members : []);
+      }));
+      setUsers((current) => mapCentralSuperAdminUsers(tenants, workspaceUsers, current));
+      const mappedUsers = mapCentralSuperAdminUsers(tenants, workspaceUsers, users);
+      const today = new Date().toISOString().slice(0, 10);
+      setStats({
+        totalUsers: mappedUsers.length,
+        activeUsers: mappedUsers.filter((user) => user.status === "ACTIVE").length,
+        totalSeats: tenants.reduce((sum, tenant) => sum + Number(tenant.maxSeats ?? 0), 0),
+        newUsersToday: mappedUsers.filter((user) => user.createdAt.slice(0, 10) === today).length,
+      });
+      setWorkspaceSeatOverrides({});
+      setWorkspaceExpiryDrafts({});
+      setWorkspaceStatusOverrides({});
+      if (notify) showToast("Central workspace directory refreshed successfully");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Central workspace directory could not be loaded", "error");
     } finally {
       setIsRefreshing(false);
     }
@@ -184,35 +232,16 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
     }));
 
     try {
-      const res = await fetch("/api/super-admin/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "update-seats",
-          userId: user.id,
-          seats: nextSeats,
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        const committedSeats = Math.max(1, Number(data.seatLimit) || nextSeats);
-        setUsers((prev) => prev.map((u) => (u.id === user.id ? { ...u, seatLimit: committedSeats } : u)));
-        setStats((prev) => ({ ...prev, totalSeats: prev.totalSeats + (committedSeats - nextSeats) }));
-        showToast(`Updated seats to ${committedSeats} for ${user.displayName}`);
-      } else {
-        // Rollback
-        setUsers((prev) =>
-          prev.map((u) => (u.id === user.id ? { ...u, seatLimit: user.seatLimit } : u))
-        );
-        setStats((prev) => ({ ...prev, totalSeats: Math.max(0, prev.totalSeats - delta) }));
-        showToast(data.error || "Failed to update seats", "error");
-      }
-    } catch {
+      if (!user.tenantId) throw new Error("This user is missing a workspace mapping.");
+      await aicloserApi.superAdmin.updateTenantSeats(user.tenantId, nextSeats);
+      setUsers((prev) => prev.map((u) => (u.tenantId === user.tenantId ? { ...u, seatLimit: nextSeats, workspaceSeatLimit: nextSeats } : u)));
+      showToast(`Updated workspace capacity to ${nextSeats} seats.`);
+    } catch (error) {
       setUsers((prev) =>
         prev.map((u) => (u.id === user.id ? { ...u, seatLimit: user.seatLimit } : u))
       );
       setStats((prev) => ({ ...prev, totalSeats: Math.max(0, prev.totalSeats - delta) }));
-      showToast("Network error updating seats", "error");
+      showToast(error instanceof Error ? error.message : "Central API could not update seats", "error");
     }
   };
 
@@ -228,31 +257,15 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
     setStats((prev) => ({ ...prev, totalSeats: prev.totalSeats + (nextSeats - previousSeats) }));
 
     try {
-      const res = await fetch("/api/super-admin/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "update-seats",
-          userId: quickSeatModalUser.id,
-          seats: nextSeats,
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        const committedSeats = Math.max(1, Number(data.seatLimit) || nextSeats);
-        setUsers((prev) => prev.map((u) => (u.id === quickSeatModalUser.id ? { ...u, seatLimit: committedSeats } : u)));
-        setStats((prev) => ({ ...prev, totalSeats: prev.totalSeats + (committedSeats - nextSeats) }));
-        showToast(`Seats set to ${committedSeats} for ${quickSeatModalUser.displayName}`);
-        setQuickSeatModalUser(null);
-      } else {
-        setUsers((prev) => prev.map((u) => (u.id === quickSeatModalUser.id ? { ...u, seatLimit: previousSeats } : u)));
-        setStats((prev) => ({ ...prev, totalSeats: Math.max(0, prev.totalSeats - (nextSeats - previousSeats)) }));
-        showToast(data.error || "Failed to set seats", "error");
-      }
-    } catch {
+      if (!quickSeatModalUser.tenantId) throw new Error("This user is missing a workspace mapping.");
+      await aicloserApi.superAdmin.updateTenantSeats(quickSeatModalUser.tenantId, nextSeats);
+      setUsers((prev) => prev.map((u) => (u.tenantId === quickSeatModalUser.tenantId ? { ...u, seatLimit: nextSeats, workspaceSeatLimit: nextSeats } : u)));
+      showToast(`Workspace capacity set to ${nextSeats} seats.`);
+      setQuickSeatModalUser(null);
+    } catch (error) {
       setUsers((prev) => prev.map((u) => (u.id === quickSeatModalUser.id ? { ...u, seatLimit: previousSeats } : u)));
       setStats((prev) => ({ ...prev, totalSeats: Math.max(0, prev.totalSeats - (nextSeats - previousSeats)) }));
-      showToast("Network error", "error");
+      showToast(error instanceof Error ? error.message : "Central API could not update seats", "error");
     }
   };
 
@@ -268,17 +281,10 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
     setWorkspaceSeatSaving(summary.key);
     setStats((current) => ({ ...current, totalSeats: Math.max(0, current.totalSeats + delta) }));
     try {
-      const response = await fetch("/api/super-admin/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "update-workspace-seats", tenantId: summary.tenantId, seats: nextSeats }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.ok) throw new Error(payload.error || "Could not update workspace seats.");
-      const committedSeats = Math.max(1, Number(payload.seatLimit) || nextSeats);
-      setWorkspaceSeatOverrides((current) => ({ ...current, [summary.key]: committedSeats }));
-      setStats((current) => ({ ...current, totalSeats: current.totalSeats + (committedSeats - nextSeats) }));
-      showToast(`Workspace capacity updated to ${committedSeats} seats.`);
+      await aicloserApi.superAdmin.updateTenantSeats(summary.tenantId, nextSeats);
+      setWorkspaceSeatOverrides((current) => ({ ...current, [summary.key]: nextSeats }));
+      setUsers((current) => current.map((user) => user.tenantId === summary.tenantId ? { ...user, seatLimit: nextSeats, workspaceSeatLimit: nextSeats } : user));
+      showToast(`Workspace capacity updated to ${nextSeats} seats.`);
     } catch (error) {
       setWorkspaceSeatOverrides((current) => {
         const next = { ...current };
@@ -300,17 +306,12 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
     const packageExpiresAt = workspaceExpiryDrafts[summary.key] ?? summary.packageExpiresAt?.slice(0, 10) ?? "";
     setWorkspaceExpirySaving(summary.key);
     try {
-      const response = await fetch("/api/super-admin/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "update-workspace-expiry", tenantId: summary.tenantId, packageExpiresAt: packageExpiresAt || null }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.ok) throw new Error(payload.error || "Could not update workspace expiry.");
-      const committedExpiry = typeof payload.packageExpiresAt === "string" ? payload.packageExpiresAt.slice(0, 10) : "";
+      if (!packageExpiresAt) throw new Error("Central API requires a valid expiry date. Existing expiry was left unchanged.");
+      const committedExpiry = new Date(`${packageExpiresAt}T23:59:59.000Z`).toISOString();
+      await aicloserApi.superAdmin.updateTenantExpiry(summary.tenantId, committedExpiry);
       setWorkspaceExpiryDrafts((current) => ({ ...current, [summary.key]: committedExpiry }));
-      setUsers((current) => current.map((user) => user.tenantId === summary.tenantId ? { ...user, packageExpiresAt: payload.packageExpiresAt ?? null } : user));
-      showToast(committedExpiry ? `Workspace access extended until ${committedExpiry}.` : "Workspace expiry cleared.");
+      setUsers((current) => current.map((user) => user.tenantId === summary.tenantId ? { ...user, packageExpiresAt: committedExpiry } : user));
+      showToast(`Workspace access extended until ${packageExpiresAt}.`);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Could not update workspace expiry.", "error");
     } finally {
@@ -335,13 +336,7 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
       activeUsers: Math.max(0, current.activeUsers + (nextStatus === "ACTIVE" ? affectedSuspendedUsers : -affectedActiveUsers)),
     }));
     try {
-      const response = await fetch("/api/super-admin/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "update-workspace-status", tenantId: summary.tenantId, status: nextStatus }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.ok) throw new Error(payload.error || "Could not update workspace status.");
+      await aicloserApi.superAdmin.updateTenantStatus(summary.tenantId, nextStatus as "ACTIVE" | "SUSPENDED");
       showToast(`Workspace marked ${nextStatus.toLowerCase()}.`);
     } catch (error) {
       setWorkspaceStatusOverrides((current) => {
@@ -374,29 +369,10 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
     }));
 
     try {
-      const res = await fetch("/api/super-admin/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "update-status",
-          userId: user.id,
-          status: nextStatus,
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        showToast(`User marked ${nextStatus.toLowerCase()}`);
-      } else {
-        setUsers((prev) =>
-          prev.map((u) => (u.id === user.id ? { ...u, status: user.status } : u))
-        );
-        setStats((current) => ({
-          ...current,
-          activeUsers: Math.max(0, current.activeUsers + (nextStatus === "ACTIVE" ? -1 : 1)),
-        }));
-        showToast(data.error || "Failed to change status", "error");
-      }
-    } catch {
+      if (!user.tenantId) throw new Error("This user is missing a workspace mapping.");
+      await aicloserApi.superAdmin.updateTenantUser(user.tenantId, user.id, { packageStatus: nextStatus === "ACTIVE" ? "ACTIVE" : "PAUSED" });
+      showToast(`User marked ${nextStatus.toLowerCase()}`);
+    } catch (error) {
       setUsers((prev) =>
         prev.map((u) => (u.id === user.id ? { ...u, status: user.status } : u))
       );
@@ -404,7 +380,7 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
         ...current,
         activeUsers: Math.max(0, current.activeUsers + (nextStatus === "ACTIVE" ? -1 : 1)),
       }));
-      showToast("Network error", "error");
+      showToast(error instanceof Error ? error.message : "Central API could not change user status", "error");
     }
   };
 
@@ -413,17 +389,13 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
     const nextPaymentStatus = user.paymentStatus === "PAID" ? "PENDING" : "PAID";
     setUsers((prev) => prev.map((u) => (u.id === user.id ? { ...u, paymentStatus: nextPaymentStatus, activationLocked: false } : u)));
     try {
-      const res = await fetch("/api/super-admin/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "update-payment-status", userId: user.id, paymentStatus: nextPaymentStatus }),
-      });
-      const data = await res.json();
-      if (data.ok) showToast(`Payment marked ${nextPaymentStatus.toLowerCase()} for ${user.displayName}`);
-      else throw new Error(data.error || "Failed to update payment status");
+      if (!user.tenantId) throw new Error("This user is missing a workspace mapping.");
+      const nextPackageStatus = nextPaymentStatus === "PAID" ? "ACTIVE" : "PAUSED";
+      await aicloserApi.superAdmin.updateTenantUser(user.tenantId, user.id, { packageStatus: nextPackageStatus });
+      showToast(`Payment marked ${nextPaymentStatus.toLowerCase()} for ${user.displayName}`);
     } catch (error) {
       setUsers((prev) => prev.map((u) => (u.id === user.id ? { ...u, paymentStatus: user.paymentStatus, activationLocked: user.activationLocked } : u)));
-      showToast(error instanceof Error ? error.message : "Network error updating payment", "error");
+      showToast(error instanceof Error ? error.message : "Error updating payment status", "error");
     }
   };
 
@@ -433,20 +405,16 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
     showToast(`Logging into ${user.displayName}'s workspace...`);
 
     try {
-      const res = await fetch("/api/super-admin/impersonate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: user.id }),
-      });
-      const data = await res.json();
-      if (data.ok && data.redirectUrl) {
-        window.location.href = data.redirectUrl;
-      } else {
-        showToast(data.error || "Impersonation failed", "error");
-        setImpersonatingUserId(null);
-      }
-    } catch {
-      showToast("Network error during login", "error");
+      if (!user.tenantId) throw new Error("This user is missing a workspace mapping.");
+      const data = await aicloserApi.superAdmin.impersonateTenant(user.tenantId) as { token?: string };
+      if (!data?.token) throw new Error("Central impersonation did not return a session token.");
+      // The central API returns an audited, tenant-scoped token. Keep it in
+      // the shared API client before opening the workspace dashboard.
+      window.localStorage.setItem("aicloser_impersonating_tenant", user.tenantId);
+      setStoredToken(data.token);
+      window.location.assign("/");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Central API impersonation failed", "error");
       setImpersonatingUserId(null);
     }
   };
@@ -455,24 +423,14 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
   const handleDeleteUser = async () => {
     if (!deletingUser) return;
     try {
-      const res = await fetch(`/api/super-admin/users?userId=${deletingUser.id}`, {
-        method: "DELETE",
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setUsers((prev) => prev.filter((u) => u.id !== deletingUser.id));
-        setStats((prev) => ({
-          ...prev,
-          totalUsers: Math.max(0, prev.totalUsers - 1),
-          totalSeats: Math.max(0, prev.totalSeats - deletingUser.seatLimit),
-        }));
-        showToast(`Deleted ${deletingUser.displayName}`);
-        setDeletingUser(null);
-      } else {
-        showToast(data.error || "Failed to delete user", "error");
-      }
-    } catch {
-      showToast("Network error while deleting", "error");
+      if (!deletingUser.tenantId) throw new Error("This user is missing a workspace mapping.");
+      await aicloserApi.superAdmin.deleteTenantUser(deletingUser.tenantId, deletingUser.id);
+      setUsers((prev) => prev.filter((u) => u.id !== deletingUser.id));
+      setStats((prev) => ({ ...prev, totalUsers: Math.max(0, prev.totalUsers - 1) }));
+      showToast(`User deactivated in the central workspace.`);
+      setDeletingUser(null);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Central API could not deactivate this user", "error");
     }
   };
 
@@ -1482,16 +1440,9 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
                                 </button>
 
                                 {/* Increment Seat Button (+) */}
-                                <form action="/api/super-admin/users" method="post" style={{ display: "inline-flex" }}>
-                                  <input name="action" type="hidden" value="update-seats" />
-                                  <input name="userId" type="hidden" value={user.id} />
-                                  <input name="seats" type="hidden" value={user.seatLimit + 1} />
-                                  <button
-                                    type="submit"
-                                    onClick={(event) => {
-                                      event.preventDefault();
-                                      void handleUpdateSeats(user, 1);
-                                    }}
+                                <button
+                                  type="button"
+                                  onClick={() => void handleUpdateSeats(user, 1)}
                                     title="Increase 1 seat"
                                     style={{
                                       width: "28px",
@@ -1517,7 +1468,6 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
                                   >
                                     <Plus size={13} />
                                   </button>
-                                </form>
                               </div>
                             </td>
 
@@ -1845,21 +1795,27 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
                 };
 
                 try {
-                  const res = await fetch("/api/super-admin/users", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload),
-                  });
-                  const data = await res.json();
-                  if (data.ok) {
-                    showToast(`User ${data.user.displayName} created!`);
-                    setIsAddModalOpen(false);
-                    await refreshData();
-                  } else {
-                    showToast(data.error || "Failed to create user", "error");
-                  }
-                } catch {
-                  showToast("Network error creating user", "error");
+                  const companyName = String(form.get("companyName") || "");
+                  const matchingTenant = workspaceSummaries.find(
+                    (w) => w.companyName.toLowerCase() === companyName.toLowerCase() || w.tenantId === companyName
+                  )?.tenantId || users[0]?.tenantId;
+
+                  if (!matchingTenant) throw new Error("No target workspace found to attach user.");
+
+                  const userDisplayName = String(form.get("displayName") || "");
+                  const created = await aicloserApi.superAdmin.createTenantUser(matchingTenant, {
+                    displayName: userDisplayName,
+                    email: String(form.get("email") || ""),
+                    phone: String(form.get("phone") || ""),
+                    password: String(form.get("password") || ""),
+                    role: String(form.get("role") || "SALES_AGENT"),
+                  }) as any;
+
+                  showToast(`User ${created?.displayName || userDisplayName} created!`);
+                  setIsAddModalOpen(false);
+                  await refreshData();
+                } catch (err: any) {
+                  showToast(err?.message || "Failed to create user", "error");
                 }
               }}
               style={{ display: "grid", gap: "1rem" }}
@@ -2135,36 +2091,29 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
               onSubmit={async (e) => {
                 e.preventDefault();
                 const form = new FormData(e.currentTarget);
-                const payload = {
-                  action: "update",
-                  userId: editingUser.id,
-                  displayName: form.get("displayName"),
-                  email: form.get("email"),
-                  phone: form.get("phone"),
-                  companyName: form.get("companyName"),
-                  role: form.get("role"),
-                  status: form.get("status"),
-                  seats: Number(form.get("seats") || editingUser.seatLimit),
-                  password: form.get("password") || undefined,
-                  packageExpiresAt: form.get("packageExpiresAt") || null,
-                };
-
                 try {
-                  const res = await fetch("/api/super-admin/users", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload),
+                  if (!editingUser.tenantId) throw new Error("This user is missing a workspace mapping.");
+                  const packageStatus = String(form.get("status") ?? "ACTIVE").toUpperCase() === "ACTIVE" ? "ACTIVE" : "PAUSED";
+                  await aicloserApi.superAdmin.updateTenantUser(editingUser.tenantId, editingUser.id, {
+                    displayName: String(form.get("displayName") ?? editingUser.displayName),
+                    phone: String(form.get("phone") ?? editingUser.phone),
+                    role: String(form.get("role") ?? editingUser.role),
+                    packageStatus,
+                    password: String(form.get("password") ?? "") || undefined,
                   });
-                  const data = await res.json();
-                  if (data.ok) {
-                    showToast(`Updated ${editingUser.displayName}`);
-                    setEditingUser(null);
-                    await refreshData();
-                  } else {
-                    showToast(data.error || "Failed to update user", "error");
+                  const requestedSeats = Number(form.get("seats") || editingUser.seatLimit);
+                  if (requestedSeats !== editingUser.seatLimit) {
+                    await aicloserApi.superAdmin.updateTenantSeats(editingUser.tenantId, requestedSeats);
                   }
-                } catch {
-                  showToast("Network error updating user", "error");
+                  const expiry = String(form.get("packageExpiresAt") ?? "").trim();
+                  if (expiry) {
+                    await aicloserApi.superAdmin.updateTenantExpiry(editingUser.tenantId, new Date(`${expiry}T23:59:59.000Z`).toISOString());
+                  }
+                  showToast(`Updated ${editingUser.displayName} through the central API.`);
+                  setEditingUser(null);
+                  await refreshData();
+                } catch (error) {
+                  showToast(error instanceof Error ? error.message : "Central API could not update this user", "error");
                 }
               }}
               style={{ display: "grid", gap: "1rem" }}

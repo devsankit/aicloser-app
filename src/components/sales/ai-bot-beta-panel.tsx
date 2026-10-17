@@ -20,7 +20,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import type { AiBotConfig, AiProvider } from "@/lib/gigxomi/ai-beta-store";
+import { aicloserApi } from "@/lib/api-client";
 
 export function AiBotBetaPanel() {
   const [activeSubTab, setActiveSubTab] = useState<"plugins" | "training" | "playground">("plugins");
@@ -36,7 +36,6 @@ export function AiBotBetaPanel() {
   const [geminiKey, setGeminiKey] = useState("");
   const [groqKey, setGroqKey] = useState("");
   const [deepseekKey, setDeepseekKey] = useState("");
-  const [selectedProvider, setSelectedProvider] = useState<AiProvider>("openai");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [botEnabled, setBotEnabled] = useState(true);
 
@@ -69,16 +68,35 @@ export function AiBotBetaPanel() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/sales/ai-bot/config");
-      const data = await res.json();
-      if (data.ok && data.config) {
-        setConfig(data.config);
-        setSelectedProvider(data.config.activeProvider || "openai");
-        setSystemPrompt(data.config.systemPrompt || "");
-        setBotEnabled(data.config.isEnabled ?? true);
-      } else {
-        setError(data.error || "Failed to load AI configuration");
-      }
+      const [botConfig, training, corrections] = await Promise.all([
+        aicloserApi.ai.getBotConfig() as Promise<Record<string, any>>,
+        aicloserApi.ai.getBotTraining() as Promise<Record<string, any>>,
+        aicloserApi.ai.getBotCorrections() as Promise<Record<string, any>>,
+      ]);
+      const documents = Array.isArray(training?.documents)
+        ? training.documents.map((doc: any, index: number) => ({
+            ...doc,
+            id: doc.id || `central-doc-${index}-${doc.title || "document"}`,
+            fileName: doc.fileName || doc.title || "Training document",
+            status: doc.status || "Indexed",
+          }))
+        : [];
+      const normalizedCorrections = Array.isArray(corrections?.corrections)
+        ? corrections.corrections.map((item: any, index: number) => ({
+            ...item,
+            id: item.id || `central-correction-${index}`,
+            userQuery: item.userQuery || item.originalQuery || "Question",
+            correction: item.correction || item.correctedResponse || "",
+          }))
+        : [];
+      setConfig({
+        ...botConfig,
+        ...training,
+        documents,
+        corrections: normalizedCorrections,
+      });
+      setSystemPrompt(botConfig?.customKnowledgeBaseContext || "");
+      setBotEnabled(botConfig?.enabled ?? true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load AI configuration");
     } finally {
@@ -92,35 +110,18 @@ export function AiBotBetaPanel() {
     setError("");
     setSaveSuccess(false);
     try {
-      const payload: Record<string, unknown> = {
-        activeProvider: selectedProvider,
-        systemPrompt,
-        isEnabled: botEnabled,
-      };
-      if (openaiKey.trim()) payload.openaiKey = openaiKey.trim();
-      if (anthropicKey.trim()) payload.anthropicKey = anthropicKey.trim();
-      if (geminiKey.trim()) payload.geminiKey = geminiKey.trim();
-      if (groqKey.trim()) payload.groqKey = groqKey.trim();
-      if (deepseekKey.trim()) payload.deepseekKey = deepseekKey.trim();
-
-      const res = await fetch("/api/sales/ai-bot/config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setSaveSuccess(true);
-        setOpenaiKey("");
-        setAnthropicKey("");
-        setGeminiKey("");
-        setGroqKey("");
-        setDeepseekKey("");
-        setTimeout(() => setSaveSuccess(false), 3500);
-        await fetchConfig();
-      } else {
-        setError(data.error || "Failed to save configuration");
+      const providerKeyEntered = [openaiKey, anthropicKey, geminiKey, groqKey, deepseekKey].some((key) => key.trim());
+      if (providerKeyEntered) {
+        setError("Central AI API manages provider credentials on the server. The current API does not expose a client-side key-save endpoint, so no key was sent.");
+        return;
       }
+      await aicloserApi.ai.updateBotConfig({
+        enabled: botEnabled,
+        customKnowledgeBaseContext: systemPrompt,
+      });
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3500);
+      await fetchConfig();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save configuration");
     } finally {
@@ -134,18 +135,14 @@ export function AiBotBetaPanel() {
     setUploadingDoc(true);
     setError("");
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch("/api/sales/ai-bot/train", {
-        method: "POST",
-        body: formData,
-      });
-      const data = await res.json();
-      if (data.ok) {
-        await fetchConfig();
-      } else {
-        setError(data.error || "Failed to upload training document");
+      const extension = file.name.split(".").pop()?.toLowerCase();
+      if (!extension || !["txt", "csv", "md", "json"].includes(extension)) {
+        setError("Central AI training currently accepts text-based documents (.txt, .csv, .md, .json). PDF/DOCX ingestion needs a backend parser endpoint.");
+        return;
       }
+      const content = await file.text();
+      await aicloserApi.ai.trainBot({ documents: [{ title: file.name, content }] });
+      await fetchConfig();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to upload document");
     } finally {
@@ -159,22 +156,12 @@ export function AiBotBetaPanel() {
     setUploadingDoc(true);
     setError("");
     try {
-      const res = await fetch("/api/sales/ai-bot/train", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fileName: customTitle.trim(),
-          content: customSnippet.trim(),
-        }),
+      await aicloserApi.ai.trainBot({
+        documents: [{ title: customTitle.trim(), content: customSnippet.trim() }],
       });
-      const data = await res.json();
-      if (data.ok) {
-        setCustomTitle("");
-        setCustomSnippet("");
-        await fetchConfig();
-      } else {
-        setError(data.error || "Failed to add knowledge item");
-      }
+      setCustomTitle("");
+      setCustomSnippet("");
+      await fetchConfig();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to add knowledge item");
     } finally {
@@ -184,13 +171,8 @@ export function AiBotBetaPanel() {
 
   async function handleDeleteDoc(id: string) {
     if (!confirm("Are you sure you want to remove this document from AI training memory?")) return;
-    try {
-      const res = await fetch(`/api/sales/ai-bot/train?id=${encodeURIComponent(id)}`, { method: "DELETE" });
-      const data = await res.json();
-      if (data.ok) {
-        await fetchConfig();
-      }
-    } catch {}
+    void id;
+    setError("Central AI training does not expose document deletion yet. Nothing was removed.");
   }
 
   async function handleSendPlayground(e: React.FormEvent) {
@@ -206,20 +188,8 @@ export function AiBotBetaPanel() {
     setIsThinking(true);
 
     try {
-      const res = await fetch("/api/sales/ai-bot/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: prompt }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setMessages((prev) => [...prev, { id: botMsgId, role: "assistant", content: data.reply }]);
-      } else {
-        setMessages((prev) => [
-          ...prev,
-          { id: botMsgId, role: "assistant", content: `Error: ${data.error || "Bot could not reply"}` },
-        ]);
-      }
+      const data = await aicloserApi.ai.botChat({ message: prompt, channel: "WEB" }) as { reply?: string };
+      setMessages((prev) => [...prev, { id: botMsgId, role: "assistant", content: data?.reply || "The AI bot did not return a reply." }]);
     } catch (err) {
       setMessages((prev) => [
         ...prev,
@@ -233,27 +203,22 @@ export function AiBotBetaPanel() {
   async function handleSaveCorrection() {
     if (!correctingMessage || !correctionText.trim()) return;
     try {
-      const res = await fetch("/api/sales/ai-bot/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "correct",
-          userQuery: correctingMessage.query,
-          botAnswer: correctingMessage.answer,
-          correction: correctionText.trim(),
-        }),
+      await aicloserApi.ai.correctBot({
+        originalQuery: correctingMessage.query,
+        botResponse: correctingMessage.answer,
+        correctedResponse: correctionText.trim(),
+        reason: "Sales agent correction",
       });
-      const data = await res.json();
-      if (data.ok) {
-        setCorrectionSuccess(true);
-        setTimeout(() => {
-          setCorrectionSuccess(false);
-          setCorrectingMessage(null);
-          setCorrectionText("");
-        }, 2000);
-        await fetchConfig();
-      }
-    } catch {}
+      setCorrectionSuccess(true);
+      setTimeout(() => {
+        setCorrectionSuccess(false);
+        setCorrectingMessage(null);
+        setCorrectionText("");
+      }, 2000);
+      await fetchConfig();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save correction");
+    }
   }
 
   if (loading) {
@@ -350,7 +315,7 @@ export function AiBotBetaPanel() {
               </span>
             </div>
             <p style={{ margin: "2px 0 0", fontSize: "0.85rem", color: "var(--closer-muted)" }}>
-              Multi-key LLM plugins, PDF document training, and live response correction feedback loop.
+              Central API bot configuration, text knowledge training, and live response correction feedback loop.
             </p>
           </div>
         </div>
@@ -366,12 +331,11 @@ export function AiBotBetaPanel() {
               const next = !botEnabled;
               setBotEnabled(next);
               try {
-                await fetch("/api/sales/ai-bot/config", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ isEnabled: next }),
-                });
-              } catch {}
+                await aicloserApi.ai.updateBotConfig({ enabled: next });
+              } catch (err) {
+                setBotEnabled(!next);
+                setError(err instanceof Error ? err.message : "Failed to update AI bot status");
+              }
             }}
             style={{
               padding: "6px 14px",
@@ -491,45 +455,17 @@ export function AiBotBetaPanel() {
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 700, color: "var(--closer-ink)" }}>
-              <Cpu size={18} color="var(--closer-orange)" /> Select Active AI Engine
+              <Cpu size={18} color="var(--closer-orange)" /> Central AI Runtime
             </div>
             <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--closer-muted)" }}>
-              The engine used to converse with leads on WhatsApp, Instagram, and web chat.
+              The new API owns provider routing and credentials. This UI only manages the bot behavior that is exposed by the central service.
             </p>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "10px" }}>
-              {[
-                { id: "openai", name: "OpenAI GPT-4o", badge: config?.hasOpenaiKey ? "Key Configured" : "Needs Key" },
-                { id: "anthropic", name: "Claude 3.5 Sonnet", badge: config?.hasAnthropicKey ? "Key Configured" : "Needs Key" },
-                { id: "gemini", name: "Google Gemini 2.5", badge: config?.hasGeminiKey ? "Key Configured" : "Needs Key" },
-                { id: "groq", name: "Groq Llama 3.3 (Fast)", badge: config?.hasGroqKey ? "Key Configured" : "Needs Key" },
-                { id: "deepseek", name: "DeepSeek V3", badge: config?.hasDeepseekKey ? "Key Configured" : "Needs Key" },
-              ].map((p) => {
-                const isSelected = selectedProvider === p.id;
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => setSelectedProvider(p.id as AiProvider)}
-                    style={{
-                      padding: "12px 14px",
-                      borderRadius: "10px",
-                      border: isSelected ? "1px solid var(--closer-orange)" : "1px solid var(--closer-line)",
-                      background: isSelected ? "rgba(255, 107, 47, 0.08)" : "var(--closer-surface-soft)",
-                      textAlign: "left",
-                      cursor: "pointer",
-                      display: "grid",
-                      gap: "4px",
-                    }}
-                  >
-                    <div style={{ fontWeight: 700, fontSize: "0.88rem", color: isSelected ? "var(--closer-orange)" : "var(--closer-ink)" }}>
-                      {p.name}
-                    </div>
-                    <div style={{ fontSize: "0.72rem", color: "var(--closer-muted)" }}>
-                      {p.badge}
-                    </div>
-                  </button>
-                );
-              })}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", padding: "14px 16px", borderRadius: "10px", border: "1px solid rgba(16, 185, 129, 0.28)", background: "rgba(16, 185, 129, 0.08)" }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: "0.9rem", color: "var(--closer-ink)" }}>Central routing active</div>
+                <div style={{ fontSize: "0.75rem", color: "var(--closer-muted)" }}>Fallback and model selection stay server-side.</div>
+              </div>
+              <span style={{ color: "#10b981", fontSize: "0.75rem", fontWeight: 800 }}>CONNECTED</span>
             </div>
           </div>
 
@@ -545,10 +481,10 @@ export function AiBotBetaPanel() {
             }}
           >
             <div style={{ fontWeight: 700, color: "var(--closer-ink)", fontSize: "1rem" }}>
-              Multi-Provider API Keys
+              Server-managed provider access
             </div>
             <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--closer-muted)" }}>
-              Provide keys for the AI providers you want to enable. All keys are encrypted and never exposed in client bundles.
+              Provider keys are intentionally not collected in the browser. The central API manages secrets and fallback routing, so no legacy key endpoint is used here.
             </p>
 
             <div style={{ display: "grid", gap: "14px" }}>
@@ -562,6 +498,7 @@ export function AiBotBetaPanel() {
                 </label>
                 <input
                   type="password"
+                  disabled
                   placeholder={config?.hasOpenaiKey ? "Paste new key to replace" : "sk-..."}
                   value={openaiKey}
                   onChange={(e) => setOpenaiKey(e.target.value)}
@@ -579,6 +516,7 @@ export function AiBotBetaPanel() {
                 </label>
                 <input
                   type="password"
+                  disabled
                   placeholder={config?.hasAnthropicKey ? "Paste new key to replace" : "sk-ant-..."}
                   value={anthropicKey}
                   onChange={(e) => setAnthropicKey(e.target.value)}
@@ -596,6 +534,7 @@ export function AiBotBetaPanel() {
                 </label>
                 <input
                   type="password"
+                  disabled
                   placeholder={config?.hasGeminiKey ? "Paste new key to replace" : "AIza..."}
                   value={geminiKey}
                   onChange={(e) => setGeminiKey(e.target.value)}
@@ -613,6 +552,7 @@ export function AiBotBetaPanel() {
                 </label>
                 <input
                   type="password"
+                  disabled
                   placeholder={config?.hasGroqKey ? "Paste new key to replace" : "gsk_..."}
                   value={groqKey}
                   onChange={(e) => setGroqKey(e.target.value)}
@@ -630,6 +570,7 @@ export function AiBotBetaPanel() {
                 </label>
                 <input
                   type="password"
+                  disabled
                   placeholder={config?.hasDeepseekKey ? "Paste new key to replace" : "sk-..."}
                   value={deepseekKey}
                   onChange={(e) => setDeepseekKey(e.target.value)}
@@ -668,7 +609,7 @@ export function AiBotBetaPanel() {
                 }}
               >
                 {saving ? <RefreshCw className="animate-spin" size={16} /> : saveSuccess ? <Check size={16} /> : <Zap size={16} />}
-                {saving ? "Saving…" : saveSuccess ? "API Keys Saved!" : "Save Plugins & Keys"}
+                {saving ? "Saving…" : saveSuccess ? "Bot settings saved!" : "Save bot behavior"}
               </button>
             </div>
           </div>
@@ -690,10 +631,10 @@ export function AiBotBetaPanel() {
             }}
           >
             <div style={{ fontWeight: 700, color: "var(--closer-ink)", fontSize: "1rem" }}>
-              Upload Training Files (PDF, TXT, DOCX)
+              Upload Training Knowledge
             </div>
             <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--closer-muted)" }}>
-              The AI will read and index these files into its contextual grounding database to accurately answer client queries on pricing, delivery turnaround, and objection handling.
+              Text knowledge is stored by the central AI training API and used for pricing, delivery turnaround, and objection handling.
             </p>
 
             <label
@@ -712,14 +653,14 @@ export function AiBotBetaPanel() {
             >
               <UploadCloud size={32} color="var(--closer-orange)" />
               <div style={{ fontWeight: 700, fontSize: "0.9rem", color: "var(--closer-ink)" }}>
-                {uploadingDoc ? "Processing & Indexing Document…" : "Click or Drag & Drop PDF / Playbook"}
+                {uploadingDoc ? "Processing & Indexing Document…" : "Click or Drag & Drop a text playbook"}
               </div>
               <div style={{ fontSize: "0.75rem", color: "var(--closer-muted)" }}>
-                Supports .pdf, .txt, .docx, .csv up to 25 MB
+                Supports .txt, .csv, .md, and .json. PDF/DOCX parsing will be added through the backend contract.
               </div>
               <input
                 type="file"
-                accept=".pdf,.txt,.docx,.csv"
+                accept=".txt,.csv,.md,.json"
                 onChange={handleFileUpload}
                 disabled={uploadingDoc}
                 style={{ display: "none" }}

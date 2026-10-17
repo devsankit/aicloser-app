@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Check, Edit2, Plus, RefreshCw, Tag, Trash2, X } from "lucide-react";
+import { aicloserApi } from "@/lib/api-client";
 import type { StatusLabel } from "@/lib/gigxomi/status-labels-store";
 
 const PRESET_COLORS = [
@@ -200,10 +201,10 @@ export function StatusLabelsModal({
             <Tag size={20} color="var(--closer-orange)" />
             <div>
               <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, color: "var(--closer-ink)" }}>
-                Custom Status Labels & Tags
+                Custom Status Labels
               </h3>
               <p style={{ margin: 0, fontSize: "0.78rem", color: "var(--closer-muted)" }}>
-                Full CRUD control for CRM labels. Synced bidirectionally with Closer Mobile.
+                Full CRUD control for CRM status labels.
               </p>
             </div>
           </div>

@@ -30,10 +30,8 @@ import {
   X,
 } from "lucide-react";
 
-import type {
-  UnifiedContactItem,
-  UnifiedContactSourceCategory,
-} from "@/app/api/sales/contacts/route";
+import { aicloserApi, type CentralContact } from "@/lib/api-client";
+import * as XLSX from "xlsx";
 import type {
   WhatsAppAccountType,
   WhatsAppScannerSessionState,
@@ -58,12 +56,45 @@ type ContactsHubProps = {
   view?: "contacts" | "lead-import";
   canManageContacts?: boolean;
   canImportData?: boolean;
+  canExportData?: boolean;
   personalWhatsAppOnly?: boolean;
   onOpenMultiChannelChat?: (conversationId?: string) => void;
   onOpenPluginsHub?: () => void;
   onOpenBulkMarketing?: (contactIds?: string[]) => void;
   onRefreshDashboard?: () => void;
+  onExportLeads?: (format: "csv" | "excel") => void | Promise<void>;
   initialDrawer?: ActiveImportDrawer;
+  initialSearchQuery?: string;
+};
+
+type UnifiedContactSourceCategory =
+  | "WHATSAPP_SCANNER"
+  | "WHATSAPP_CLOUD_API"
+  | "EMAIL_ENQUIRY"
+  | "SHEETS_EXCEL"
+  | "INSTAGRAM_DM"
+  | "SIM_MANUAL";
+
+type UnifiedContactItem = {
+  id: string;
+  leadId?: string;
+  poolItemId?: string;
+  marketingContactId?: string;
+  conversationId?: string;
+  name: string;
+  phone: string;
+  email: string;
+  sourceRaw: string;
+  sourceLabel: string;
+  sourceCategory: UnifiedContactSourceCategory;
+  stage: SalesLeadStage | "CONTACT";
+  tags: string[];
+  assignedAgentName: string;
+  assignedAgentId?: string;
+  hasInboxThread: boolean;
+  unreadCount: number;
+  notes: string;
+  lastActivityAt: string;
 };
 
 type ImportPreview = {
@@ -128,6 +159,52 @@ const SOURCE_FILTER_TABS: Array<{
   { id: "INSTAGRAM_DM", label: "Instagram DM" },
   { id: "SIM_MANUAL", label: "CRM & SIM Calls" },
 ];
+
+function classifyCentralContactSource(sourceRaw: string, tags: string[]): { category: UnifiedContactSourceCategory; label: string } {
+  const combined = `${sourceRaw} ${tags.join(" ")}`.toLowerCase();
+  if (combined.includes("instagram") || combined.includes("ig_")) return { category: "INSTAGRAM_DM", label: "Instagram DM API" };
+  if (combined.includes("scanner") || combined.includes("scraper") || combined.includes("qr") || combined.includes("personal")) {
+    return { category: "WHATSAPP_SCANNER", label: "WhatsApp QR / linked device" };
+  }
+  if (combined.includes("email") || combined.includes("gmail") || combined.includes("zoho") || combined.includes("imap") || combined.includes("smtp")) {
+    return { category: "EMAIL_ENQUIRY", label: "Email enquiry" };
+  }
+  if (combined.includes("sheet") || combined.includes("excel") || combined.includes("xlsx") || combined.includes("csv") || combined.includes("import")) {
+    return { category: "SHEETS_EXCEL", label: "Sheets / Excel import" };
+  }
+  if (combined.includes("whatsapp") || combined.includes("waba") || combined.includes("cloud")) {
+    return { category: "WHATSAPP_CLOUD_API", label: "WhatsApp Cloud API" };
+  }
+  return { category: "SIM_MANUAL", label: "CRM / manual" };
+}
+
+function mapCentralContact(contact: CentralContact): UnifiedContactItem {
+  const tags = Array.isArray(contact.tags) ? contact.tags : [];
+  const sourceRaw = contact.source || "CENTRAL_API";
+  const source = classifyCentralContactSource(sourceRaw, tags);
+  const customFields = contact.customFields && typeof contact.customFields === "object" ? contact.customFields : {};
+  const conversationId = (contact as CentralContact & { conversationId?: string | null }).conversationId ?? undefined;
+  return {
+    id: contact.id,
+    leadId: contact.leadId ?? undefined,
+    marketingContactId: contact.id,
+    name: contact.fullName || contact.e164Phone,
+    phone: contact.e164Phone,
+    email: contact.email || "",
+    sourceRaw,
+    sourceLabel: source.label,
+    sourceCategory: source.category,
+    stage: "CONTACT",
+    tags,
+    assignedAgentName: contact.assignedAgent?.displayName || (contact.assignedAgentId ? "Assigned" : "Unassigned"),
+    assignedAgentId: contact.assignedAgentId ?? undefined,
+    conversationId,
+    hasInboxThread: Boolean(conversationId),
+    unreadCount: 0,
+    notes: typeof customFields.notes === "string" ? customFields.notes : "",
+    lastActivityAt: contact.updatedAt || contact.createdAt,
+  };
+}
 
 function ContactSourceMark({ source }: { source: UnifiedContactSourceCategory }) {
   const icon =
@@ -302,12 +379,15 @@ export function ContactsHub({
   view = "contacts",
   canManageContacts = false,
   canImportData = false,
+  canExportData = true,
   personalWhatsAppOnly = false,
   onOpenMultiChannelChat,
   onOpenPluginsHub,
   onOpenBulkMarketing,
   onRefreshDashboard,
+  onExportLeads,
   initialDrawer = null,
+  initialSearchQuery = "",
 }: ContactsHubProps) {
   const isLeadImportView = view === "lead-import";
   const [contacts, setContacts] = useState<UnifiedContactItem[]>([]);
@@ -323,7 +403,7 @@ export function ContactsHub({
   const [loading, setLoading] = useState(true);
   const [contactsLoadError, setContactsLoadError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<UnifiedContactSourceCategory | "ALL">("ALL");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [activeDrawer, setActiveDrawer] = useState<ActiveImportDrawer>(initialDrawer);
   const [banner, setBanner] = useState<{ tone: "success" | "error"; text: string } | null>(null);
@@ -333,6 +413,7 @@ export function ContactsHub({
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const [lastImportReport, setLastImportReport] = useState<ImportReport | null>(null);
+  const [pendingImportRows, setPendingImportRows] = useState<Array<{ customerName: string; customerPhone?: string; customerEmail?: string; notes?: string }>>([]);
   const [pendingImportBatch, setPendingImportBatch] = useState<{ importBatchId: string; poolItemIds: string[] } | null>(null);
   useEffect(() => {
     try {
@@ -402,19 +483,18 @@ export function ContactsHub({
   const loadAllContactsAndIntegrations = useCallback(async () => {
     setLoading(true);
     setContactsLoadError(null);
-    const qs = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : "";
-    const contactsPromise = fetchJsonWithTimeout(`/api/sales/contacts${qs}`);
-    const scannerPromise = fetchJsonWithTimeout(`/api/sales/whatsapp-scanner${qs}`);
-    const emailPromise = fetchJsonWithTimeout(`/api/sales/email-inbox${qs}`);
-    const [contactsResult] = await Promise.allSettled([contactsPromise]);
+    const contactsPromise = aicloserApi.contacts.list({ page: 1, limit: 100 });
+    const scannerPromise = aicloserApi.contacts.whatsappScanner();
+    const [contactsResult, scannerResult] = await Promise.allSettled([contactsPromise, scannerPromise]);
 
-    if (contactsResult.status === "fulfilled" && contactsResult.value.response.ok && contactsResult.value.data?.ok) {
-      const contactsJson = contactsResult.value.data;
-      setContacts(contactsJson.contacts || []);
-      if (Array.isArray(contactsJson.agents)) {
-        setWorkspaceAgents(contactsJson.agents);
-      }
-      setCounts(contactsJson.countsByCategory || {
+    if (contactsResult.status === "fulfilled") {
+      const mappedContacts = contactsResult.value.contacts.map(mapCentralContact);
+      setContacts(mappedContacts);
+      const nextCounts = mappedContacts.reduce<Record<UnifiedContactSourceCategory | "ALL", number>>((acc, contact) => {
+        acc.ALL += 1;
+        acc[contact.sourceCategory] += 1;
+        return acc;
+      }, {
         ALL: 0,
         WHATSAPP_SCANNER: 0,
         WHATSAPP_CLOUD_API: 0,
@@ -423,11 +503,10 @@ export function ContactsHub({
         INSTAGRAM_DM: 0,
         SIM_MANUAL: 0,
       });
+      setCounts(nextCounts);
     } else {
       const reason = contactsResult.status === "rejected"
-        ? contactsResult.reason instanceof Error && contactsResult.reason.name === "AbortError"
-          ? "The contacts directory timed out."
-          : "The contacts directory could not be loaded."
+        ? contactsResult.reason instanceof Error ? contactsResult.reason.message : "The contacts directory could not be loaded."
         : "The contacts directory returned an error.";
       setContactsLoadError(reason);
     }
@@ -436,23 +515,28 @@ export function ContactsHub({
     // spinner while optional integration status endpoints are still loading.
     setLoading(false);
 
-    const [scannerResult, emailResult] = await Promise.all([
-      scannerPromise.then((value) => ({ status: "fulfilled" as const, value })).catch((reason) => ({ status: "rejected" as const, reason })),
-      emailPromise.then((value) => ({ status: "fulfilled" as const, value })).catch((reason) => ({ status: "rejected" as const, reason })),
-    ]);
-
-    if (scannerResult.status === "fulfilled" && scannerResult.value.response.ok && scannerResult.value.data?.ok && scannerResult.value.data.scanner) {
-      const scannerJson = scannerResult.value.data;
-      setScannerState(scannerJson.scanner);
-      setWaAccountType(personalWhatsAppOnly ? "WHATSAPP_PERSONAL" : scannerJson.scanner.accountType || "WHATSAPP_BUSINESS");
-      setWaSyncMode(scannerJson.scanner.syncMode || "FULL_INBOX_SYNC");
-      setWaVisibility(personalWhatsAppOnly ? "PRIVATE" : scannerJson.scanner.visibilityMode || "TEAM_SHARED");
-    }
-
-    if (emailResult.status === "fulfilled" && emailResult.value.response.ok && emailResult.value.data?.ok) {
-      const emailJson = emailResult.value.data;
-      setEmailAccounts(emailJson.accounts || []);
-      setParsedEnquiries(emailJson.enquiries || []);
+    if (scannerResult.status === "fulfilled") {
+      const scanner = scannerResult.value;
+      const connected = Boolean(scanner.connected);
+      setScannerState({
+        storeVersion: 2,
+        tenantId: tenantId || "central-workspace",
+        status: connected ? "CONNECTED" : scanner.status === "PAIRING" ? "QR_READY" : "DISCONNECTED",
+        accountType: scanner.channelType === "WEB_SCANNER" ? "WHATSAPP_PERSONAL" : "WHATSAPP_BUSINESS",
+        syncMode: waSyncMode,
+        visibilityMode: personalWhatsAppOnly ? "PRIVATE" : waVisibility,
+        connectedPhone: scanner.phoneNumber || "",
+        connectedDisplayName: "",
+        qrCodeToken: "",
+        qrCodeDataUrl: scanner.qrCode || undefined,
+        qrGeneratedAt: null,
+        connectedAt: connected ? scanner.lastSyncedAt || null : null,
+        lastSyncAt: scanner.lastSyncedAt || null,
+        stats: { totalScrapedContacts: 0, totalSyncedChatThreads: Number(scanner.messagesCount || 0), totalGroupContactsScraped: 0 },
+        discoveredChats: [],
+        discoveredGroups: [],
+      });
+      setWaAccountType(personalWhatsAppOnly ? "WHATSAPP_PERSONAL" : scanner.channelType === "WEB_SCANNER" ? "WHATSAPP_PERSONAL" : "WHATSAPP_BUSINESS");
     }
 
   }, [personalWhatsAppOnly, tenantId]);
@@ -467,6 +551,10 @@ export function ContactsHub({
     }
   }, [initialDrawer]);
 
+  useEffect(() => {
+    setSearchQuery(initialSearchQuery);
+  }, [initialSearchQuery]);
+
   // Live Auto-Polling for WhatsApp Multi-Device QR and Connection Status
   useEffect(() => {
     if (activeDrawer !== "whatsapp_scanner") return;
@@ -474,23 +562,21 @@ export function ContactsHub({
 
     const pollScannerStatus = async () => {
       try {
-        const qs = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : "";
-        const res = await fetch(`/api/sales/whatsapp-scanner${qs}`, { cache: "no-store" });
-        const data = await res.json();
-        if (data?.ok && data.scanner && isMounted) {
+        const scanner = await aicloserApi.contacts.whatsappScanner();
+        if (isMounted) {
+          const nextStatus = scanner.connected ? "CONNECTED" : scanner.status === "PAIRING" ? "QR_READY" : "DISCONNECTED";
           setScannerState((prev) => {
             if (
-              prev?.status !== data.scanner.status ||
-              prev?.qrCodeDataUrl !== data.scanner.qrCodeDataUrl ||
-              prev?.pairingCode !== data.scanner.pairingCode ||
-              prev?.connectedPhone !== data.scanner.connectedPhone
+              prev?.status !== nextStatus ||
+              prev?.qrCodeDataUrl !== scanner.qrCode ||
+              prev?.connectedPhone !== (scanner.phoneNumber || "")
             ) {
-              return data.scanner;
+              return prev ? { ...prev, status: nextStatus, qrCodeDataUrl: scanner.qrCode || undefined, connectedPhone: scanner.phoneNumber || "", lastSyncAt: scanner.lastSyncedAt || null } : prev;
             }
             return prev;
           });
-          if (data.scanner.connectedPhone && (!waConnectedPhoneInput || waConnectedPhoneInput === "+91 99818 07309")) {
-            setWaConnectedPhoneInput(data.scanner.connectedPhone);
+          if (scanner.phoneNumber && (!waConnectedPhoneInput || waConnectedPhoneInput === "+91 99818 07309")) {
+            setWaConnectedPhoneInput(scanner.phoneNumber);
           }
         }
       } catch {}
@@ -687,28 +773,54 @@ export function ContactsHub({
     return formData;
   };
 
+  const parseImportRows = (rows: Array<Record<string, unknown>>) => rows.map((row) => {
+    const normalized = Object.fromEntries(Object.entries(row).map(([key, value]) => [key.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_"), value]));
+    const pick = (...keys: string[]) => keys.map((key) => normalized[key]).find((value) => value !== undefined && value !== null && String(value).trim() !== "");
+    return {
+      customerName: String(pick("customer_name", "name", "full_name", "client_name") || "Inbound Lead").trim(),
+      customerPhone: String(pick("customer_phone", "phone", "mobile", "contact_number") || "").trim(),
+      customerEmail: String(pick("customer_email", "email") || "").trim(),
+      serviceInterest: String(pick("service_interest", "service", "requirement") || "").trim(),
+      notes: String(pick("notes", "remarks") || "Imported from Contacts").trim(),
+    };
+  }).filter((row) => row.customerPhone.length >= 7);
+
+  const readImportRows = async (): Promise<Array<{ customerName: string; customerPhone?: string; customerEmail?: string; notes?: string }>> => {
+    if (sheetsTab === "raw_paste") {
+      const lines = rawPasteText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      if (!lines.length) return [];
+      const headers = lines[0].split(/[\t,]/).map((header) => header.trim());
+      const values = lines.slice(1).map((line) => {
+        const cols = line.split(/[\t,]/).map((value) => value.trim().replace(/^"|"$/g, ""));
+        return Object.fromEntries(headers.map((header, index) => [header, cols[index] || ""]));
+      });
+      return parseImportRows(values);
+    }
+    if (sheetsTab === "google_sheets") {
+      const match = googleSheetUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+      const exportUrl = match ? `https://docs.google.com/spreadsheets/d/${match[1]}/export?format=csv` : googleSheetUrl;
+      const response = await fetch(exportUrl);
+      if (!response.ok) throw new Error("Google Sheet could not be read. Make sure it is publicly readable.");
+      const csv = await response.text();
+      const lines = csv.split(/\r?\n/).filter(Boolean);
+      const headers = lines[0]?.split(",").map((header) => header.trim().replace(/^"|"$/g, "")) || [];
+      return parseImportRows(lines.slice(1).map((line) => {
+        const cols = line.split(",").map((value) => value.trim().replace(/^"|"$/g, ""));
+        return Object.fromEntries(headers.map((header, index) => [header, cols[index] || ""]));
+      }));
+    }
+    if (!selectedFile) return [];
+    const buffer = await selectedFile.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: "array" });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    return parseImportRows(XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" }));
+  };
+
   const handleImportFileOrGoogleSheet = async (event: FormEvent) => {
     event.preventDefault();
     setBusyAction("preview_import");
     setBanner(null);
     try {
-      if (sheetsTab === "raw_paste") {
-        const res = await fetch("/api/sales/contacts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tenantId, rawText: rawPasteText, sourceLabel: "csv_phone_contact_import", preview: true }),
-        });
-        const data = await res.json();
-        if (data.ok) {
-          setImportPreview(data);
-          setLastImportReport(null);
-          setBanner({ tone: "success", text: "Preview ready. Review the rows before saving them to Contacts." });
-        } else {
-          setBanner({ tone: "error", text: data.error || "Unable to preview phone contacts." });
-        }
-        return;
-      }
-
       if ((sheetsTab === "excel_file" && !selectedFile) || (sheetsTab === "google_sheets" && !googleSheetUrl.trim())) {
         setBanner({
           tone: "error",
@@ -716,16 +828,20 @@ export function ContactsHub({
         });
         return;
       }
-
-      const res = await fetch("/api/sales/leads/import", { method: "POST", body: buildImportFormData(true) });
-      const data = await res.json();
-      if (data.ok) {
-        setImportPreview(data);
-        setLastImportReport(null);
-        setBanner({ tone: "success", text: "Preview ready. Review the rows before saving them to Contacts." });
-      } else {
-        setBanner({ tone: "error", text: data.error || "Unable to preview import." });
-      }
+      const rows = await readImportRows();
+      const valid = rows.length;
+      setPendingImportRows(rows);
+      setImportPreview({
+        source: sheetsTab === "google_sheets" ? "google_sheets" : sheetsTab === "raw_paste" ? "raw_paste" : "excel_file",
+        rows: rows.map((row, index) => ({ row: index + 1, customerName: row.customerName, customerPhone: row.customerPhone || "", customerEmail: row.customerEmail || "", source: "CENTRAL_API", tags: "", notes: row.notes || "" })),
+        totalRows: valid,
+        valid,
+        duplicate: 0,
+        skipped: 0,
+        invalid: 0,
+      });
+      setLastImportReport(null);
+      setBanner({ tone: "success", text: "Preview ready. Review the rows before saving them to central Leads." });
     } finally {
       setBusyAction(null);
     }
@@ -736,39 +852,28 @@ export function ContactsHub({
     setBusyAction("commit_import");
     setBanner(null);
     try {
-      let data: Record<string, any>;
-      if (sheetsTab === "raw_paste") {
-        const res = await fetch("/api/sales/contacts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tenantId, rawText: rawPasteText, sourceLabel: "csv_phone_contact_import" }),
-        });
-        data = await res.json();
-      } else {
-        const res = await fetch("/api/sales/leads/import", { method: "POST", body: buildImportFormData(false) });
-        data = await res.json();
-      }
-      if (data.ok) {
+      const data = await aicloserApi.leads.import({
+        source: sheetsTab === "google_sheets" ? "GOOGLE_SHEETS" : sheetsTab === "raw_paste" ? "CSV" : "EXCEL",
+        rows: pendingImportRows,
+        distributionMode: "AUTO",
+        duplicateAction: "SKIP",
+      }) as any;
+      if (data) {
+        const summary = data;
         const report = {
           ...importPreview,
-          imported: Number(data.imported ?? 0),
-          duplicate: Number(data.duplicate ?? importPreview.duplicate),
-          skipped: Number(data.skipped ?? importPreview.skipped),
-          invalid: Number(data.invalid ?? importPreview.invalid),
+          imported: Number(summary.createdCount ?? 0),
+          duplicate: Number(summary.skippedDuplicates ?? importPreview.duplicate),
+          skipped: Number(summary.updatedCount ?? importPreview.skipped),
+          invalid: 0,
         };
         setLastImportReport(report);
-        if (typeof data.importBatchId === "string" && Array.isArray(data.poolItemIds) && data.poolItemIds.length) {
-          const batch = { importBatchId: data.importBatchId, poolItemIds: data.poolItemIds as string[] };
-          setPendingImportBatch(batch);
-          localStorage.setItem(`aicloser-import-batch:${tenantId}`, JSON.stringify(batch));
-        }
+        setPendingImportBatch(null);
         setImportPreview(null);
         setSelectedFile(null);
         setBanner({ tone: "success", text: `Saved ${report.imported} contacts. ${report.duplicate} duplicates were skipped.` });
         await loadAllContactsAndIntegrations();
         onRefreshDashboard?.();
-      } else {
-        setBanner({ tone: "error", text: data.error || "Import could not be saved." });
       }
     } finally {
       setBusyAction(null);
@@ -780,30 +885,7 @@ export function ContactsHub({
     setBusyAction("connect_email");
     setBanner(null);
     try {
-      const res = await fetch("/api/sales/email-inbox", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tenantId,
-          action: "connect",
-          provider: selectedEmailPreset,
-          emailAddress: emailAddressInput,
-          passwordOrToken: emailPasswordInput,
-          imapHost: customImapHost,
-          imapPort: customImapPort,
-          smtpHost: customSmtpHost,
-          smtpPort: customSmtpPort,
-          routeEnquiriesToInbox: routeEmailsToInbox,
-          extractPhonesFromBody: true,
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setEmailAccounts(data.accounts || []);
-        setBanner({ tone: "success", text: data.message });
-      } else {
-        setBanner({ tone: "error", text: data.error || "Could not connect email inbox." });
-      }
+      setBanner({ tone: "error", text: "Central API currently exposes email inbox data and lead intake, but not mailbox credential connection. No legacy mailbox call was made." });
     } finally {
       setBusyAction(null);
     }
@@ -813,25 +895,9 @@ export function ContactsHub({
     setBusyAction("sync_email_enquiries");
     setBanner(null);
     try {
-      const res = await fetch("/api/sales/email-inbox", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tenantId,
-          action: "sync_enquiries",
-          provider: selectedEmailPreset,
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setEmailAccounts(data.accounts || []);
-        setParsedEnquiries(data.enquiries || []);
-        setBanner({ tone: "success", text: data.message });
-        await loadAllContactsAndIntegrations();
-        onRefreshDashboard?.();
-      } else {
-        setBanner({ tone: "error", text: data.error || "Email enquiry sync failed." });
-      }
+      await loadAllContactsAndIntegrations();
+      setBanner({ tone: "success", text: "Central email inbox refreshed." });
+      onRefreshDashboard?.();
     } finally {
       setBusyAction(null);
     }
@@ -841,28 +907,19 @@ export function ContactsHub({
     setBusyAction("parse_custom_email");
     setBanner(null);
     try {
-      const res = await fetch("/api/sales/email-inbox", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tenantId,
-          action: "parse_custom_email",
-          provider: selectedEmailPreset,
-          rawEmail: {
-            subject: rawEmailTestSubject,
-            fromHeader: rawEmailTestFrom,
-            replyToHeader: rawEmailTestReplyTo,
-            body: rawEmailTestBody,
-          },
-        }),
+      const senderEmail = rawEmailTestReplyTo.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || rawEmailTestFrom.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0];
+      if (!senderEmail) throw new Error("Enter a valid sender email before sending this enquiry.");
+      const extractedPhone = rawEmailTestBody.match(/(?:\+?\d[\d\s-]{7,}\d)/)?.[0]?.replace(/[\s-]/g, "");
+      await aicloserApi.leads.intakeEmail({
+        senderEmail,
+        senderName: rawEmailTestReplyTo.split("<")[0]?.trim(),
+        subject: rawEmailTestSubject,
+        body: rawEmailTestBody,
+        extractedPhone,
       });
-      const data = await res.json();
-      if (data.ok) {
-        setParsedEnquiries(data.enquiries || []);
-        setBanner({ tone: "success", text: data.message });
-        await loadAllContactsAndIntegrations();
-        onRefreshDashboard?.();
-      }
+      setBanner({ tone: "success", text: "Email enquiry sent to the central lead intake API." });
+      await loadAllContactsAndIntegrations();
+      onRefreshDashboard?.();
     } finally {
       setBusyAction(null);
     }
@@ -874,30 +931,16 @@ export function ContactsHub({
     setBusyAction("manual_add");
     setBanner(null);
     try {
-      const res = await fetch("/api/sales/contacts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tenantId,
-          contacts: [
-            {
-              name: manualName.trim(),
-              phone: manualPhone.trim(),
-              email: manualEmail.trim(),
-              source: "manual_crm_contact",
-              stage: manualStage,
-              tags: manualTags
-                .split(",")
-                .map((t) => t.trim())
-                .filter(Boolean),
-              notes: manualNotes.trim(),
-            },
-          ],
-        }),
+      await aicloserApi.contacts.create({
+        fullName: manualName.trim() || manualPhone.trim(),
+        e164Phone: manualPhone.trim(),
+        email: manualEmail.trim() || null,
+        source: "MANUAL",
+        tags: manualTags.split(",").map((t) => t.trim()).filter(Boolean),
+        customFields: { notes: manualNotes.trim(), stage: manualStage },
       });
-      const data = await res.json();
-      if (data.ok) {
-        setBanner({ tone: "success", text: data.message });
+      {
+        setBanner({ tone: "success", text: "Contact saved in the central directory." });
         setManualName("");
         setManualPhone("");
         setManualEmail("");
@@ -929,25 +972,13 @@ export function ContactsHub({
     setBusyAction("edit_contact");
     setBanner(null);
     try {
-      const res = await fetch("/api/sales/contacts", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tenantId,
-          leadId: editingContact.leadId,
-          marketingContactId: editingContact.marketingContactId,
-          name: contactDraft.name,
-          phone: contactDraft.phone,
-          email: contactDraft.email,
-          tags: contactDraft.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
-          notes: contactDraft.notes,
-        }),
+      await aicloserApi.contacts.update(editingContact.marketingContactId || editingContact.id, {
+        fullName: contactDraft.name,
+        e164Phone: contactDraft.phone,
+        email: contactDraft.email || null,
+        tags: contactDraft.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
+        customFields: { notes: contactDraft.notes },
       });
-      const data = await res.json();
-      if (!data.ok) {
-        setBanner({ tone: "error", text: data.error || "Contact could not be updated." });
-        return;
-      }
       setEditingContact(null);
       setBanner({ tone: "success", text: "Contact updated successfully." });
       await loadAllContactsAndIntegrations();
@@ -998,13 +1029,8 @@ export function ContactsHub({
   const handleBulkDelete = async () => {
     if (!selectedIds.size) return;
     const selectedItems = contacts.filter((c) => selectedIds.has(c.id));
-    const leadIds = selectedItems.map((c) => c.leadId).filter(Boolean) as string[];
     const marketingContactIds = selectedItems.map((c) => c.marketingContactId).filter(Boolean) as string[];
-    await fetch("/api/sales/contacts", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tenantId, leadIds, marketingContactIds }),
-    });
+    await Promise.all(marketingContactIds.map((id) => aicloserApi.contacts.remove(id)));
     setSelectedIds(new Set());
     await loadAllContactsAndIntegrations();
     onRefreshDashboard?.();
@@ -1014,15 +1040,7 @@ export function ContactsHub({
     if (!canManageContacts || !window.confirm(`Delete ${contact.name || "this contact"}?`)) return;
     setBusyAction(`delete_contact_${contact.id}`);
     try {
-      await fetch("/api/sales/contacts", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tenantId,
-          leadIds: contact.leadId ? [contact.leadId] : [],
-          marketingContactIds: contact.marketingContactId ? [contact.marketingContactId] : [],
-        }),
-      });
+      await aicloserApi.contacts.remove(contact.marketingContactId || contact.id);
       setBanner({ tone: "success", text: "Contact deleted successfully." });
       await loadAllContactsAndIntegrations();
       onRefreshDashboard?.();
@@ -1036,28 +1054,9 @@ export function ContactsHub({
     const agent = workspaceAgents.find((a) => a.id === targetAgentId);
     setBusyAction(`assign_${contact.id}`);
     try {
-      const res = await fetch("/api/sales/contacts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "assign",
-          tenantId,
-          targetAgentId,
-          leadIds: contact.leadId ? [contact.leadId] : [],
-          contacts: [{
-            id: contact.id,
-            leadId: contact.leadId,
-            name: contact.name,
-            phone: contact.phone,
-            email: contact.email,
-            source: contact.sourceRaw,
-            tags: contact.tags,
-            notes: contact.notes,
-          }],
-        }),
-      });
-      const data = await res.json().catch(() => null);
-      if (res.ok && data?.ok) {
+      if (!contact.leadId) throw new Error("This contact is not linked to a lead yet.");
+      await aicloserApi.leads.reassign(contact.leadId, targetAgentId, "Assigned from Contacts");
+      {
         setBanner({ tone: "success", text: `Assigned "${contact.name}" to ${agent?.displayName || "sales rep"}.` });
         setContacts((current) =>
           current.map((c) =>
@@ -1067,11 +1066,9 @@ export function ContactsHub({
           )
         );
         onRefreshDashboard?.();
-      } else {
-        alert(data?.error || "Failed to assign contact.");
       }
-    } catch {
-      alert("Could not assign contact. Please check your connection.");
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not assign contact. Please check your connection.");
     } finally {
       setBusyAction(null);
     }
@@ -1083,38 +1080,18 @@ export function ContactsHub({
     const selectedItems = contacts.filter((c) => selectedIds.has(c.id));
     setDistributing(true);
     try {
-      const res = await fetch("/api/sales/contacts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "assign",
-          tenantId,
-          targetAgentId,
-          leadIds: selectedItems.map((c) => c.leadId).filter(Boolean),
-          contacts: selectedItems.map((c) => ({
-            id: c.id,
-            leadId: c.leadId,
-            name: c.name,
-            phone: c.phone,
-            email: c.email,
-            source: c.sourceRaw,
-            tags: c.tags,
-            notes: c.notes,
-          })),
-        }),
-      });
-      const data = await res.json().catch(() => null);
-      if (res.ok && data?.ok) {
+      const leadIds = selectedItems.map((c) => c.leadId).filter(Boolean) as string[];
+      if (!leadIds.length) throw new Error("Selected contacts are not linked to leads yet.");
+      await Promise.all(leadIds.map((leadId) => aicloserApi.leads.reassign(leadId, targetAgentId, "Bulk assigned from Contacts")));
+      {
         setDistributeSuccess(`Successfully assigned ${selectedItems.length} contact(s) to ${agent?.displayName || "sales rep"}!`);
         setSelectedIds(new Set());
         await loadAllContactsAndIntegrations();
         onRefreshDashboard?.();
         setTimeout(() => setDistributeSuccess(null), 8000);
-      } else {
-        alert(data?.error || "Failed to batch assign contacts.");
       }
-    } catch {
-      alert("Could not assign contacts. Please check your connection.");
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not assign contacts. Please check your connection.");
     } finally {
       setDistributing(false);
     }
@@ -1132,35 +1109,15 @@ export function ContactsHub({
 
     setDistributing(true);
     try {
-      const payload = {
-        tenantId,
-        action: "distribute",
-        leadIds: targetContacts.map((c) => c.leadId).filter(Boolean),
-        poolItemIds: selectedIds.size > 0 ? targetContacts.map((c) => c.poolItemId).filter(Boolean) : pendingImportBatch?.poolItemIds ?? [],
-        contacts: targetContacts.filter((c) => !c.poolItemId).map((c) => ({
-          id: c.id,
-          leadId: c.leadId,
-          name: c.name,
-          phone: c.phone,
-          email: c.email,
-          tags: c.tags,
-          source: c.sourceLabel,
-        })),
-      };
-
-      const res = await fetch("/api/sales/round-robin", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json().catch(() => null);
-      if (!data) {
-        alert("The server did not confirm distribution. Refresh Contacts and check the assigned reps before retrying. Your selected import batch has been kept.");
-        await loadAllContactsAndIntegrations();
-        return;
+      const leadIds = targetContacts.map((c) => c.leadId).filter(Boolean) as string[];
+      const poolItemIds = selectedIds.size > 0 ? targetContacts.map((c) => c.poolItemId).filter(Boolean) as string[] : pendingImportBatch?.poolItemIds ?? [];
+      if (!leadIds.length && !poolItemIds.length) throw new Error("Selected contacts are not ready for distribution yet.");
+      if (poolItemIds.length) {
+        await Promise.all(poolItemIds.map((poolItemId) => aicloserApi.leads.claimFromPool(poolItemId)));
       }
-      if (res.ok && data.ok) {
-        setDistributeSuccess(data.message || "Auto-distributed contacts across sales agents!");
+      const assigned = leadIds.length ? await aicloserApi.roundRobin.assign({ leadIds }) : null;
+      {
+        setDistributeSuccess((assigned as any)?.message || "Auto-distributed contacts across sales agents!");
         if (selectedIds.size === 0) {
           setPendingImportBatch(null);
           localStorage.removeItem(`aicloser-import-batch:${tenantId}`);
@@ -1169,11 +1126,9 @@ export function ContactsHub({
         await loadAllContactsAndIntegrations();
         onRefreshDashboard?.();
         setTimeout(() => setDistributeSuccess(null), 8000);
-      } else {
-        alert(data.error || "Failed to auto-distribute contacts.");
       }
     } catch (err) {
-      alert("Could not confirm distribution. Check your connection, refresh Contacts, and verify the assigned reps before retrying.");
+      alert(err instanceof Error ? err.message : "Could not confirm distribution. Check your connection, refresh Contacts, and verify the assigned reps before retrying.");
     } finally {
       setDistributing(false);
     }
@@ -1195,7 +1150,7 @@ export function ContactsHub({
   };
 
   return (
-    <div className="crm-contacts-hub" style={{ display: "grid", gap: 20 }}>
+    <div className={`crm-contacts-hub ${isLeadImportView ? "is-import-view" : "is-directory-view"}`} style={{ display: "grid", gap: 20 }}>
       {/* Shared header; source workflows live on the dedicated Lead Import page. */}
       <div
         className="crm-panel crm-contacts-hero"
@@ -1254,28 +1209,47 @@ export function ContactsHub({
                 <Plus size={15} /> Add Contact
               </button>
             ) : null}
-            <div className="crm-export-menu">
-              <button
-                aria-expanded={isExportMenuOpen}
-                type="button"
-                className="secondary-button"
-                onClick={() => setIsExportMenuOpen((open) => !open)}
-                style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13 }}
-              >
-                <Download size={15} /> Export
-              </button>
-              {isExportMenuOpen ? (
-                <div aria-label="Export contacts" className="crm-export-popover" role="menu">
-                  <button onClick={() => { handleExportCsv(); setIsExportMenuOpen(false); }} role="menuitem" type="button">
-                    <Download size={14} /> CSV file
-                  </button>
-                  <button onClick={handleExportExcel} role="menuitem" type="button">
-                    <FileSpreadsheet size={14} /> Excel file
-                  </button>
-                  <small>{filteredContacts.length} filtered contacts</small>
-                </div>
-              ) : null}
-            </div>
+            {(!isLeadImportView || canExportData) ? (
+              <div className="crm-export-menu">
+                <button
+                  aria-expanded={isExportMenuOpen}
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => setIsExportMenuOpen((open) => !open)}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13 }}
+                >
+                  <Download size={15} /> {isLeadImportView ? "Export leads" : "Export"}
+                </button>
+                {isExportMenuOpen ? (
+                  <div aria-label={isLeadImportView ? "Export leads" : "Export contacts"} className="crm-export-popover" role="menu">
+                    <button
+                      onClick={() => {
+                        if (isLeadImportView && onExportLeads) void onExportLeads("csv");
+                        else {
+                          handleExportCsv();
+                          setIsExportMenuOpen(false);
+                        }
+                      }}
+                      role="menuitem"
+                      type="button"
+                    >
+                      <Download size={14} /> CSV file
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (isLeadImportView && onExportLeads) void onExportLeads("excel");
+                        else handleExportExcel();
+                      }}
+                      role="menuitem"
+                      type="button"
+                    >
+                      <FileSpreadsheet size={14} /> Excel file
+                    </button>
+                    <small>{isLeadImportView ? "Workspace leads" : `${filteredContacts.length} filtered contacts`}</small>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {onOpenPluginsHub ? (
               <button
                 type="button"
@@ -1458,49 +1432,6 @@ export function ContactsHub({
             </p>
           </div>
 
-          {/* Card 5: Connect Email Inbox (Gmail, Zoho, GoDaddy, SMTP) */}
-          <div
-            className={`crm-import-card${activeDrawer === "email_inbox" ? " is-active" : ""}`}
-            role="button"
-            tabIndex={0}
-            onClick={() =>
-              setActiveDrawer(activeDrawer === "email_inbox" ? null : "email_inbox")
-            }
-            onKeyDown={(event) =>
-              handleImportCardKeyDown(event, () =>
-                setActiveDrawer(activeDrawer === "email_inbox" ? null : "email_inbox"),
-              )
-            }
-            style={{
-              cursor: "pointer",
-              padding: 16,
-              borderRadius: 14,
-              background:
-                activeDrawer === "email_inbox"
-                  ? "rgba(139, 92, 246, 0.14)"
-                  : "var(--surface-strong, rgba(15, 23, 42, 0.55))",
-              border:
-                activeDrawer === "email_inbox"
-                  ? "2px solid #8b5cf6"
-                  : "1px solid var(--closer-line, rgba(148, 163, 184, 0.25))",
-              transition: "all 0.16s ease",
-            }}
-          >
-            <div className="crm-import-card-top">
-              <span className="crm-import-icon crm-import-icon-neutral">
-                <Mail size={19} />
-              </span>
-              <span className="crm-import-status is-neutral">
-                {emailAccounts.length ? `${emailAccounts.length} Connected` : "Gmail • Zoho • GoDaddy"}
-              </span>
-            </div>
-            <strong className="crm-import-card-title">
-              5. Email SMTP Import
-            </strong>
-            <p className="crm-import-card-copy">
-              Connect <strong>Gmail</strong>, <strong>Zoho Mail</strong>, <strong>GoDaddy</strong>, or <strong>SMTP/IMAP</strong> to auto-extract enquiry leads & phones.
-            </p>
-          </div>
         </div>
         ) : null}
       </div>
@@ -3268,7 +3199,7 @@ export function ContactsHub({
                               <Trash2 size={13} /> Delete
                             </button>
                           ) : null}
-                          {onOpenMultiChannelChat ? (
+                          {contact.hasInboxThread && contact.conversationId && onOpenMultiChannelChat ? (
                             <button
                               type="button"
                               className="secondary-button"
@@ -3279,7 +3210,7 @@ export function ContactsHub({
                               <Inbox size={13} /> Inbox Chat
                             </button>
                           ) : null}
-                          {cleanDigits && onOpenMultiChannelChat ? (
+                          {contact.hasInboxThread && contact.conversationId && cleanDigits && onOpenMultiChannelChat ? (
                             <button
                               type="button"
                               className="secondary-button"
@@ -3313,44 +3244,6 @@ export function ContactsHub({
       </>
       ) : null}
 
-      {/* Parsed Email Enquiries Preview (when any exist) */}
-      {parsedEnquiries.length > 0 ? (
-        <div className="crm-panel" style={{ padding: 18, borderRadius: 16 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-            <strong style={{ fontSize: "0.95rem", display: "flex", alignItems: "center", gap: 8 }}>
-              <CheckCircle2 size={16} color="#10b981" />
-              Recent Email Enquiries Parsed into Contacts & Inbox ({parsedEnquiries.length})
-            </strong>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 10 }}>
-            {parsedEnquiries.slice(0, 6).map((enq) => (
-              <div
-                key={enq.id}
-                style={{
-                  padding: 12,
-                  borderRadius: 12,
-                  background: "var(--surface-strong, rgba(15, 23, 42, 0.45))",
-                  border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.22))",
-                  fontSize: 12,
-                }}
-              >
-                <div style={{ fontWeight: 700, marginBottom: 4 }}>{enq.subject}</div>
-                <div style={{ color: "var(--muted)", marginBottom: 4 }}>
-                  Lead: <strong>{enq.resolvedCustomerName}</strong> ({enq.resolvedCustomerEmail})
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontFamily: "monospace", color: "#10b981", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                    <Phone size={12} /> {enq.extractedPhone || "Email-only"}
-                  </span>
-                  <span style={{ fontSize: 11, color: "#8b5cf6", fontWeight: 600 }}>
-                    {enq.provider} • Synced
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

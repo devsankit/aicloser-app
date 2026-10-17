@@ -1,9 +1,17 @@
 import { NextResponse } from "next/server";
-
 import { provisionSaaSCloserWorkspace } from "@/lib/gigxomi/sales-store";
+import { shouldUseSecureCookies } from "@/lib/auth/cookie-security";
 
 function readString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function getApiBaseUrl() {
+  return (
+    process.env.AICLOSER_API_URL?.trim() ||
+    process.env.NEXT_PUBLIC_AICLOSER_API_URL?.trim() ||
+    "https://api.aicloser.in/api/v1"
+  ).replace(/\/$/, "");
 }
 
 export async function POST(request: Request) {
@@ -27,6 +35,53 @@ export async function POST(request: Request) {
   }
 
   const effectiveCompanyName = companyName || `${displayName || "Sales"} Team`;
+
+  // 1. First attempt Central API Provisioning
+  try {
+    const centralRes = await fetch(`${getApiBaseUrl()}/auth/signup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        companyName: effectiveCompanyName,
+        adminName: displayName || "Admin",
+        email,
+        phone,
+        password,
+        industry: "General",
+        teamSize: String(seats),
+      }),
+    }).catch(() => null);
+
+    if (centralRes?.ok) {
+      const centralData = await centralRes.json().catch(() => null);
+      if (centralData?.success && centralData?.data) {
+        const response = NextResponse.json({
+          ok: true,
+          user: centralData.data.user,
+          workspace: centralData.data.workspace,
+          redirectTo: "/login",
+        });
+
+        if (centralData.data.token) {
+          response.cookies.set("aicloser_token", centralData.data.token, {
+            httpOnly: true,
+            secure: shouldUseSecureCookies(),
+            sameSite: "lax",
+            path: "/",
+            maxAge: 30 * 24 * 60 * 60,
+          });
+        }
+        return response;
+      }
+    } else if (centralRes?.status === 409) {
+      const errorData = await centralRes.json().catch(() => null);
+      return NextResponse.json({ ok: false, error: errorData?.error || "Account with this email or phone already exists." }, { status: 409 });
+    }
+  } catch {
+    // fallback to local provision
+  }
+
+  // 2. Fallback to local store provision
   const result = await provisionSaaSCloserWorkspace({
     companyName: effectiveCompanyName,
     displayName,
@@ -50,4 +105,3 @@ export async function POST(request: Request) {
 
   return response;
 }
-

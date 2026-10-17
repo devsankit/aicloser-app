@@ -3,6 +3,7 @@
 import { use, useEffect, useState } from "react";
 import { CheckCircle2, Phone, Mail, User, Sparkles } from "lucide-react";
 import type { SalesFormDefinition, CustomFieldDefinition } from "@/lib/gigxomi/custom-fields-store";
+import { aicloserApi } from "@/lib/api-client";
 
 export default function PublicFormPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
@@ -35,9 +36,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ slug: str
           const match = formsJson.forms.find((f: SalesFormDefinition) => f.slug === slug);
           if (match) setForm(match);
         }
-        if (fieldsJson.ok && fieldsJson.fields) {
-          setFields(fieldsJson.fields);
-        }
+        if (fieldsJson.ok && fieldsJson.fields) setFields(fieldsJson.fields);
       } catch (err) {
         console.error("Failed to load form metadata", err);
       } finally {
@@ -56,22 +55,17 @@ export default function PublicFormPage({ params }: { params: Promise<{ slug: str
     }
     setSubmitting(true);
     try {
-      const res = await fetch(`/api/sales/forms/submit/${slug}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          customerName,
-          customerPhone,
-          customerEmail,
-          serviceInterest,
-          notes,
-          customValues,
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
+      const data = await aicloserApi.forms.submit(slug, {
+        customerName,
+        customerPhone,
+        customerEmail,
+        serviceInterest,
+        notes,
+        customFields: customValues,
+      }) as any;
+      if (data?.ok || data?.success) {
         setSubmitted(true);
-        setSuccessMessage(data.successMessage || form?.successMessage || "Thank you! We received your request.");
+        setSuccessMessage(data.message || data.successMessage || form?.successMessage || "Thank you! We received your request.");
         if (data.redirectUrl) {
           setTimeout(() => {
             window.location.href = data.redirectUrl;

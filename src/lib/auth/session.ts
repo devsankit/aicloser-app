@@ -2,6 +2,7 @@ import { cookies, headers } from "next/headers";
 import type { NextResponse } from "next/server";
 
 import { createSessionToken, verifySessionToken } from "@/lib/auth/token";
+import { shouldUseSecureCookies } from "@/lib/auth/cookie-security";
 import { repairAgencyTenantIsolation } from "@/lib/auth/store";
 import { isAppClientSessionActive } from "@/lib/auth/client-sessions";
 import { prisma } from "@/lib/prisma";
@@ -226,6 +227,7 @@ export async function getSessionContext(): Promise<SessionContext> {
       };
     }
     const repairedAgencyUser =
+      process.env.DATABASE_URL?.trim() &&
       verified.packageAudience === "AGENCY" && verified.tenantId === DEFAULT_TENANT_ID
         ? await repairAgencyTenantIsolation(verified.userId).catch(() => null)
         : null;
@@ -249,9 +251,14 @@ export async function getSessionContext(): Promise<SessionContext> {
     // Package expiry is editable by Super Admin while a workspace session may
     // remain open. Refresh this one billing field from the database so an old
     // stateless token cannot mask a persisted expiry extension or clear.
-    const persistedBilling = await prisma.appAuthUser
-      .findUnique({ where: { id: effectiveUser.userId }, select: { packageExpiresAt: true } })
-      .catch(() => undefined);
+    // The refactor workspace can authenticate against the central API without
+    // having a direct frontend DATABASE_URL. Keep the legacy billing refresh
+    // optional until those fields are served by the new workspace API.
+    const persistedBilling = process.env.DATABASE_URL?.trim()
+      ? await prisma.appAuthUser
+          .findUnique({ where: { id: effectiveUser.userId }, select: { packageExpiresAt: true } })
+          .catch(() => undefined)
+      : undefined;
     const packageExpiresAt =
       persistedBilling === undefined
         ? effectiveUser.packageExpiresAt ?? null
@@ -313,14 +320,14 @@ export async function applySessionCookie(response: NextResponse, session: Sessio
     path: "/",
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureCookies(),
     expires,
     maxAge,
   });
   response.cookies.set("gx_role", payload.role, {
     path: "/",
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureCookies(),
     expires,
     maxAge,
   });
@@ -328,7 +335,7 @@ export async function applySessionCookie(response: NextResponse, session: Sessio
     response.cookies.set("gx_tenant", payload.tenantId, {
       path: "/",
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: shouldUseSecureCookies(),
       expires,
       maxAge,
     });

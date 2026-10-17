@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { aicloserApi } from "@/lib/api-client";
 import {
   Star,
   MessageSquare,
@@ -48,12 +49,26 @@ export function SuperAdminReviewsPanel() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/super-admin/feedback");
-      const data = await res.json();
-      if (data.success) {
-        setItems(data.items || []);
-        setStats(data.stats || { total: 0, pending: 0, resolved: 0, avgRating: "0.0" });
-      }
+      const data = (await aicloserApi.superAdmin.listFeedback()) as any;
+      const rawItems = Array.isArray(data) ? data : (data?.items || data?.feedback || []);
+      const formattedItems: FeedbackRecord[] = rawItems.map((item: any) => ({
+        id: String(item.id),
+        rating: Number(item.rating ?? item.metadata?.rating ?? 5),
+        name: String(item.name ?? item.customerName ?? item.actorUserId ?? "Anonymous"),
+        contact: String(item.contact ?? item.phone ?? item.metadata?.contact ?? ""),
+        comment: String(item.comment ?? item.message ?? item.note ?? ""),
+        source: String(item.source ?? "web"),
+        status: (item.status ?? (item.action?.includes("RESOLVED") ? "RESOLVED" : "NEW")) as "NEW" | "CONTACTED" | "RESOLVED",
+        createdAt: String(item.createdAt ?? new Date().toISOString()),
+        resolvedAt: item.resolvedAt ?? null,
+        adminNotes: item.adminNotes ?? null,
+      }));
+      setItems(formattedItems);
+      const total = formattedItems.length;
+      const pending = formattedItems.filter((i) => i.status === "NEW" || i.status === "CONTACTED").length;
+      const resolved = formattedItems.filter((i) => i.status === "RESOLVED").length;
+      const avgRating = total > 0 ? (formattedItems.reduce((acc, i) => acc + i.rating, 0) / total).toFixed(1) : "0.0";
+      setStats(data?.stats || { total, pending, resolved, avgRating });
     } catch (err) {
       console.error("Failed to load feedback:", err);
     } finally {
@@ -67,19 +82,12 @@ export function SuperAdminReviewsPanel() {
 
   const handleUpdateStatus = async (id: string, newStatus: "NEW" | "CONTACTED" | "RESOLVED") => {
     try {
-      const res = await fetch("/api/super-admin/feedback", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, status: newStatus }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setItems((prev) =>
-          prev.map((item) => (item.id === id ? { ...item, status: newStatus } : item))
-        );
-        if (newStatus === "RESOLVED") {
-          setStats((s) => ({ ...s, pending: Math.max(0, s.pending - 1), resolved: s.resolved + 1 }));
-        }
+      await aicloserApi.superAdmin.updateFeedbackStatus(id, newStatus);
+      setItems((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, status: newStatus } : item))
+      );
+      if (newStatus === "RESOLVED") {
+        setStats((s) => ({ ...s, pending: Math.max(0, s.pending - 1), resolved: s.resolved + 1 }));
       }
     } catch (err) {
       console.error("Status update error:", err);

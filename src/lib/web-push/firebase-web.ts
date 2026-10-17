@@ -1,5 +1,6 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
 import { getMessaging, isSupported, type Messaging } from "firebase/messaging";
+import { aicloserApi } from "@/lib/api-client";
 
 type FirebaseWebConfig = {
   apiKey: string;
@@ -19,23 +20,14 @@ async function readFirebaseWebConfig(): Promise<FirebaseWebConfig | null> {
     return cachedConfig;
   }
 
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), FIREBASE_CONFIG_TIMEOUT_MS);
-  const response = await fetch("/api/mobile/push-config", {
-    method: "GET",
-    credentials: "include",
-    cache: "no-store",
-    signal: controller.signal,
-  }).catch(() => null);
-  window.clearTimeout(timeoutId);
-  if (!response?.ok) {
+  let data: { vapidKey?: string; config?: Record<string, string> } | null = null;
+  try {
+    data = await aicloserApi.mobile.getPushConfig();
+  } catch {
     return null;
   }
 
-  const data = (await response.json().catch(() => null)) as
-    | { ok?: boolean; config?: Partial<FirebaseWebConfig>; vapidKey?: string }
-    | null;
-  if (!data?.ok || !data.config) {
+  if (!data?.config) {
     return null;
   }
 

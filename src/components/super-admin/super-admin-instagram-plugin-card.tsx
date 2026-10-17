@@ -5,6 +5,7 @@ import Link from "next/link";
 
 import { PluginBrandMark } from "@/components/ui/plugin-brand-mark";
 import { StatusPill, SurfaceCard } from "@/components/ui/dashboard-primitives";
+import { aicloserApi } from "@/lib/api-client";
 
 export type InstagramPluginConnectionView = {
   accountId: string;
@@ -76,23 +77,29 @@ export function SuperAdminInstagramPluginCard({
     setIsSaving(true);
     setStatusMessage(null);
     try {
-      const response = await fetch("/api/super-admin/plugins/instagram-inbox", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pluginEnabled: nextEnabled }),
-      });
-      const payload = (await response.json().catch(() => ({}))) as ApiPayload;
-
-      if (!response.ok || payload.ok === false) {
-        setStatusMessage(payload.error ?? "Unable to update Instagram Inbox plugin. Check your admin access and try again.");
-        return;
+      await aicloserApi.integrations.updateInstagramStatus({ pluginEnabled: nextEnabled });
+      const current = (await aicloserApi.integrations.getInstagramStatus().catch(() => null)) as any;
+      if (current) {
+        setConnection({
+          accountId: current.accountId || connection?.accountId || "",
+          accountType: current.accountType || connection?.accountType || "",
+          appId: current.appId || connection?.appId || "",
+          connectedAt: current.connectedAt || connection?.connectedAt || null,
+          expiresAt: current.expiresAt || connection?.expiresAt || null,
+          lastError: current.lastError || "",
+          pluginEnabled: nextEnabled,
+          scopes: current.scopes || connection?.scopes || [],
+          status: current.status || (nextEnabled ? "Connected" : "Not connected"),
+          tenantId: current.tenantId || connection?.tenantId || "",
+          updatedAt: new Date().toISOString(),
+          username: current.username || connection?.username || "",
+        });
+      } else {
+        setConnection((prev) => (prev ? { ...prev, pluginEnabled: nextEnabled } : null));
       }
-
-      setConnection(payload.connection ?? null);
       setStatusMessage(nextEnabled ? "Instagram Inbox plugin enabled. You can connect permissions now." : "Instagram Inbox plugin disabled.");
-    } catch {
-      setStatusMessage("Instagram Inbox could not be updated. Check your connection and try again.");
+    } catch (err: any) {
+      setStatusMessage(err?.message ?? "Instagram Inbox could not be updated. Check your connection and try again.");
     } finally {
       setIsSaving(false);
     }
@@ -117,7 +124,7 @@ export function SuperAdminInstagramPluginCard({
           <StatusPill>{instagramStatus}</StatusPill>
           {!isSalesVariant ? (
             pluginEnabled ? (
-              <Link className="ui-button-primary" href="/api/meta/instagram/oauth/connect">
+              <Link className="ui-button-primary" href={aicloserApi.integrations.connectInstagram()}>
                 Connect Instagram
               </Link>
             ) : (

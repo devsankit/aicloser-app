@@ -479,6 +479,16 @@
       "decision": "Use a compact dark glass caller-context card over the active dialer, with orange accent, lead identity, live status, stage/source, last note, and a single Open AI Closer action. Prefer the enabled Accessibility overlay on Android and keep notification/standard overlay behavior as fallback.",
       "scope": "Android Caller Context Card",
       "date": "2026-10-13"
+    },
+    {
+      "decision": "LOCKED: Build the Live Multi-Channel Chat as a reference-led three-pane desktop inbox: collapsible global navigation, compact conversation rail with channel tabs/search/status filters, focused message thread with a fixed uncluttered composer, and a customer-details panel for lead stage, assignment, notes, callbacks, calls, files, and activity. Keep header actions behind a compact Actions control, remove duplicate or fake fields, preserve all existing API-backed functionality and permissions, and maintain equal light/dark theme quality.",
+      "scope": "Live Multi-Channel Chat UI Reference Direction",
+      "date": "2026-10-16"
+    },
+    {
+      "decision": "Use a compact Linear-inspired CRM lead detail drawer with one API-backed Status control, separate Labels & Tags, a fixed detail order, no per-user Arrange details control, and identical status labels across Kanban, List, and the lead drawer.",
+      "scope": "CRM Lead Detail & Kanban UI",
+      "date": "2026-10-17"
     }
   ],
   "evidence": [

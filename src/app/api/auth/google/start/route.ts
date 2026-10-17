@@ -9,6 +9,7 @@ import {
   getSafeGoogleRedirect,
 } from "@/lib/auth/google-oauth";
 import { getPublicRequestUrl } from "@/lib/auth/request-url";
+import { shouldUseSecureCookies } from "@/lib/auth/cookie-security";
 
 export const runtime = "nodejs";
 
@@ -43,7 +44,7 @@ export async function GET(request: Request) {
     path: "/",
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureCookies(),
     maxAge: GOOGLE_OAUTH_COOKIE_MAX_AGE,
   });
   return response;

@@ -4,6 +4,7 @@ import { Check, Copy, WalletCards } from "lucide-react";
 import { useState } from "react";
 
 import type { SalesDashboardSnapshot } from "@/lib/gigxomi/sales-store";
+import { aicloserApi } from "@/lib/api-client";
 
 export function ReferralCommissionPanel({
   snapshot,
@@ -33,17 +34,11 @@ export function ReferralCommissionPanel({
     setRequesting(true);
     setStatus(null);
     try {
-      const response = await fetch("/api/sales/payouts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          agentId: snapshot.currentAgent.id,
-          amount: snapshot.reports.availableBalance,
-          note: "Requested from the Referral & Commission dashboard.",
-        }),
+      await aicloserApi.payouts.requestWithdrawal({
+        agentId: snapshot.currentAgent.id,
+        amount: snapshot.reports.availableBalance,
+        note: "Requested from the Referral & Commission dashboard.",
       });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.ok) throw new Error(payload?.error ?? "Unable to request withdrawal.");
       setStatus("Withdrawal request submitted for review.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to request withdrawal.");

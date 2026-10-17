@@ -526,11 +526,16 @@ export type DummyConversationLaneCapabilities = Record<
 
 export type DummyConversationView = {
   id: string;
+  /** Canonical lead/assignment ID when the conversation comes from the central API. */
+  leadId?: string;
   contactId: string;
   serviceId: string;
   serviceSlug: string;
   serviceTitle: string;
   customerDisplayName: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  lastActivityAt?: string;
   clientAlias?: string;
   customerPhoneDisplay: string;
   businessPhoneDisplay?: string;
@@ -2469,7 +2474,7 @@ function normalizeConversation(conversation: DummyConversation, index: number): 
 export function projectConversation(
   conversation: DummyConversation,
   audience: DummyConversationRole,
-  options?: { freelancerAliasKeys?: string[]; freelancerNames?: string[]; includeMessages?: boolean },
+  options?: { freelancerAliasKeys?: string[]; freelancerNames?: string[] },
 ): DummyConversationView {
   const freelancerIds = options?.freelancerAliasKeys ?? [];
   const freelancerNames = options?.freelancerNames ?? [];
@@ -2497,12 +2502,6 @@ export function projectConversation(
     !isReadOnlyCollaborator;
   const visibleMessages = getVisibleMessages(conversation, audience);
   const latestMessage = visibleMessages.at(-1);
-  // Inbox rows only need the latest message preview. Full history is loaded
-  // when a conversation is opened, which keeps the first paint small without
-  // changing the conversation actions or permissions.
-  const messagesForView = options?.includeMessages === false
-    ? (latestMessage ? [latestMessage] : [])
-    : visibleMessages;
   const latestUnreadMessage = getUnreadMessages(conversation, audience).at(-1);
   const unreadCountByLane = getUnreadCountByLane(conversation, audience);
   const leadStatus = getLeadStatusOrFallback(conversation.leadStatusId);
@@ -2600,7 +2599,7 @@ export function projectConversation(
     ownerName: conversation.ownerName,
     ownerRole: conversation.ownerRole,
     visibleLanes,
-    messages: messagesForView,
+    messages: visibleMessages,
     typing: getVisibleTyping(conversation, audience),
     laneCounts: {
       customer: visibleMessages.filter((message) => message.lane === "customer").length,
@@ -4319,7 +4318,6 @@ export function listConversationsForAudience(
     includeSupportData?: boolean;
     conversationId?: string;
     limit?: number;
-    includeMessages?: boolean;
   },
 ): DummyConversationListResponse {
   expireStaleConversationOffers();
@@ -4424,11 +4422,7 @@ export function listConversationsForAudience(
 
   return {
     conversations: topConversations.map((conversation) =>
-      projectConversation(conversation, audience, {
-        freelancerAliasKeys,
-        freelancerNames: options?.freelancerNames,
-        includeMessages: options?.includeMessages,
-      }),
+      projectConversation(conversation, audience, { freelancerAliasKeys, freelancerNames: options?.freelancerNames }),
     ),
     assignableEditors:
       options?.includeSupportData !== false && (audience === "manager" || audience === "admin")

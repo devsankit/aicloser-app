@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowRight, CheckCircle2, Clock3, Flame, ListChecks, MessageSquare, PhoneCall, RefreshCw, Search, ShieldAlert, UserRound, Users, XCircle } from "lucide-react";
+import { aicloserApi } from "@/lib/api-client";
 
 type ReportRow = {
   id: string;
@@ -110,26 +111,25 @@ export function ResponsibilityReporting({ canViewTeam, onOpenLead, onOpenChat }:
   const [busyLeadId, setBusyLeadId] = useState<string | null>(null);
 
   useEffect(() => {
-    const controller = new AbortController();
+    let active = true;
     setLoading(true);
     const params = new URLSearchParams({ range, attention, page: String(page), view: canViewTeam ? view : "mine", pageSize: "50" });
     if (source !== "all") params.set("source", source);
     if (stage !== "all") params.set("stage", stage);
     if (audienceTab !== "all") params.set("audience", audienceTab);
-    fetch(`/api/sales/reports?${params.toString()}`, { cache: "no-store", signal: controller.signal })
-      .then(async (response) => {
-        const payload = await response.json().catch(() => null);
-        if (!response.ok || !payload?.ok) throw new Error(payload?.error ?? "Unable to load responsibility report.");
+    aicloserApi.reports.getResponsibility(Object.fromEntries(params.entries()))
+      .then((payload) => {
+        if (!active) return;
         setError("");
-        setReport(payload.report as ReportPayload);
+        setReport((payload as any)?.report ?? payload as ReportPayload);
       })
       .catch((reason: unknown) => {
-        if ((reason as Error)?.name !== "AbortError") setError(reason instanceof Error ? reason.message : "Unable to load responsibility report.");
+        if (active) setError(reason instanceof Error ? reason.message : "Unable to load responsibility report.");
       })
       .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
+        if (active) setLoading(false);
       });
-    return () => controller.abort();
+    return () => { active = false; };
   }, [canViewTeam, range, attention, audienceTab, page, view, source, stage, refreshKey]);
 
   const visibleRows = useMemo(() => {
@@ -160,9 +160,10 @@ export function ResponsibilityReporting({ canViewTeam, onOpenLead, onOpenChat }:
     if (nextStage === lead.stage) return;
     setBusyLeadId(lead.id);
     try {
-      const response = await fetch("/api/sales/leads", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "stage", leadId: lead.id, stage: nextStage, followUpAt: lead.followUpAt }) });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.ok) throw new Error(payload?.error ?? "Unable to update lead stage.");
+      await aicloserApi.leads.update(lead.id, {
+        stage: nextStage,
+        ...(lead.followUpAt ? { followUpAt: lead.followUpAt } : {}),
+      });
       setError("");
       setRefreshKey((current) => current + 1);
     } catch (reason) {

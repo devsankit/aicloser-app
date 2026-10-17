@@ -3,6 +3,7 @@
 import { getToken, onMessage, type MessagePayload, type Messaging } from "firebase/messaging";
 
 import { getFirebaseMessaging, getFirebaseWebVapidKey } from "@/lib/web-push/firebase-web";
+import { aicloserApi } from "@/lib/api-client";
 
 export type WebPushRegistrationStatus =
   | "registered"
@@ -41,22 +42,10 @@ let foregroundUnsubscribe: (() => void) | null = null;
 let shouldShowForegroundNotifications = false;
 
 async function saveWebPushToken(token: string) {
-  const response = await fetch("/api/mobile/push-token", {
-    method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      token,
-      platform: "web",
-    }),
+  await aicloserApi.mobile.registerDeviceToken({
+    token,
+    platform: "web",
   });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Push token save failed (${response.status}): ${body}`);
-  }
 }
 
 function getPayloadDeepLink(payload: MessagePayload) {

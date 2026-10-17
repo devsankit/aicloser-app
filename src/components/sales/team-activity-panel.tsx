@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { aicloserApi } from "@/lib/api-client";
 
 type ClientActivity = {
   status: string;
@@ -24,10 +25,8 @@ export function TeamActivityPanel() {
   const [message, setMessage] = useState<string | null>(null);
 
   const load = async () => {
-    const response = await fetch("/api/sales/team/activity", { cache: "no-store" });
-    const data = await response.json();
-    if (!response.ok || !data.ok) throw new Error(data.message || data.error || "Activity could not be loaded.");
-    setUsers(data.users || []);
+    const data = await aicloserApi.team.activity();
+    setUsers((data.users || []) as UserActivity[]);
   };
 
   useEffect(() => {
@@ -38,9 +37,7 @@ export function TeamActivityPanel() {
 
   const revoke = async (userId: string, channel: "MOBILE" | "DESKTOP") => {
     setMessage(null);
-    const response = await fetch("/api/sales/team/activity", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId, channel }) });
-    const data = await response.json();
-    if (!response.ok || !data.ok) { setMessage(data.message || data.error || "Session could not be revoked."); return; }
+    await aicloserApi.team.revokeSession(userId, channel);
     await load();
   };
 

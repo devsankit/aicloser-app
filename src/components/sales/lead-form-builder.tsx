@@ -23,6 +23,45 @@ import {
 } from "lucide-react";
 
 import type { SalesFormDefinition, CustomFieldDefinition } from "@/lib/gigxomi/custom-fields-store";
+import { aicloserApi } from "@/lib/api-client";
+
+function mapCentralCustomField(field: any): CustomFieldDefinition {
+  return {
+    id: String(field.id),
+    name: String(field.fieldKey),
+    label: String(field.fieldLabel),
+    type: String(field.fieldType || "text") as CustomFieldDefinition["type"],
+    options: Array.isArray(field.options) ? field.options : [],
+    required: Boolean(field.isRequired),
+    defaultValue: field.defaultValue,
+    rolePermissions: { ADMIN: "READ_WRITE", MANAGER: "READ_WRITE", SALES_AGENT: "READ_WRITE" },
+    sortOrder: Number(field.position ?? 0),
+    createdAt: String(field.createdAt || new Date().toISOString()),
+    updatedAt: String(field.updatedAt || new Date().toISOString()),
+  };
+}
+
+function formFingerprint(form: SalesFormDefinition) {
+  return JSON.stringify({
+    // Slugs are generated identifiers and may differ for duplicated API rows.
+    // Do not treat that technical identifier as a new visible form when the
+    // actual form contract is identical.
+    title: form.title.trim().toLowerCase(),
+    description: form.description.trim().toLowerCase(),
+    source: form.source.trim().toLowerCase(),
+    fieldIds: [...(form.fieldIds || [])].sort(),
+    includeCustomerName: form.includeCustomerName,
+    includeCustomerPhone: form.includeCustomerPhone,
+    includeCustomerEmail: form.includeCustomerEmail,
+    includeServiceInterest: form.includeServiceInterest,
+    assignedAgentId: form.assignedAgentId ?? null,
+    targetStage: form.targetStage,
+    tags: [...(form.tags || [])].sort(),
+    successMessage: form.successMessage,
+    redirectUrl: form.redirectUrl ?? null,
+    isActive: form.isActive,
+  });
+}
 
 type LeadFormBuilderProps = {
   isAdmin?: boolean;
@@ -89,26 +128,25 @@ export function LeadFormBuilder({ isAdmin = true, onOpenMultiChannelChat }: Lead
   const loadFormsAndFields = async () => {
     setLoading(true);
     try {
-      const [formsRes, fieldsRes, rrRes] = await Promise.all([
-        fetch("/api/sales/forms"),
-        fetch("/api/sales/custom-fields"),
-        fetch("/api/sales/round-robin"),
+      const [centralForms, fieldsRes, rrRes] = await Promise.all([
+        aicloserApi.forms.list(),
+        aicloserApi.customFields.list(),
+        aicloserApi.roundRobin.get(),
       ]);
-      const formsData = await formsRes.json();
-      const fieldsData = await fieldsRes.json();
-      const rrData = await rrRes.json();
 
-      if (formsData.ok && formsData.forms) {
-        setForms(formsData.forms);
-        if (!activeFormId && formsData.forms.length > 0) {
-          setActiveFormId(formsData.forms[0].id);
+      if (centralForms) {
+        const normalizedForms = centralForms as SalesFormDefinition[];
+        const uniqueForms = Array.from(new Map(normalizedForms.map((form) => [formFingerprint(form), form])).values());
+        setForms(uniqueForms);
+        if (!activeFormId && uniqueForms.length > 0) {
+          setActiveFormId(uniqueForms[0].id);
         }
       }
-      if (fieldsData.ok && fieldsData.fields) {
-        setAvailableFields(fieldsData.fields);
+      if (Array.isArray(fieldsRes)) {
+        setAvailableFields(fieldsRes.map(mapCentralCustomField));
       }
-      if (rrData.ok && rrData.settings) {
-        setAllowNonAdminModify(rrData.settings.allowNonAdminModifyLeads !== false);
+      if (rrRes?.settings && typeof rrRes.settings.allowNonAdminModifyLeads === "boolean") {
+        setAllowNonAdminModify(rrRes.settings.allowNonAdminModifyLeads);
       }
     } catch {
       // ignore
@@ -126,32 +164,20 @@ export function LeadFormBuilder({ isAdmin = true, onOpenMultiChannelChat }: Lead
     if (!activeForm) return;
     async function loadSubmissions() {
       try {
-        const res = await fetch("/api/sales/dashboard");
-        const data = await res.json();
-        if (data.ok && data.snapshot?.visibleLeads) {
-          const formTag = activeForm?.title;
-          const matching = data.snapshot.visibleLeads.filter(
-            (l: any) =>
-              (l.source || "").toLowerCase().includes("form") ||
-              (l.notes || "").includes(activeForm?.title || "") ||
-              (l.tags || []).some((t: string) => t.toLowerCase() === formTag?.toLowerCase()),
-          );
-          setSubmissions(
-            matching.map((l: any) => ({
-              id: l.id,
-              customerName: l.customerName,
-              customerPhone: l.customerPhone || "",
-              customerEmail: l.customerEmail || "",
-              serviceInterest: l.serviceInterest || activeForm?.title || "",
-              budgetAmount: l.budgetAmount || 0,
-              stage: l.stage,
-              assignedAgentName: l.assignedAgentName || "Round-Robin Assigned",
-              notes: l.notes || "",
-              tags: l.tags || [],
-              createdAt: l.createdAt,
-            })),
-          );
-        }
+        const leads = await aicloserApi.forms.getSubmissions(activeForm.id) as any[];
+        setSubmissions(leads.map((lead) => ({
+          id: lead.id,
+          customerName: lead.customerName,
+          customerPhone: lead.customerPhone || "",
+          customerEmail: lead.customerEmail || "",
+          serviceInterest: lead.serviceInterest || activeForm.title || "",
+          budgetAmount: lead.budgetAmount || 0,
+          stage: lead.stage,
+          assignedAgentName: lead.assignedAgent?.user?.displayName || "Round-Robin Assigned",
+          notes: lead.notes || "",
+          tags: lead.tags || [],
+          createdAt: lead.createdAt,
+        })));
       } catch {}
     }
     void loadSubmissions();
@@ -162,19 +188,14 @@ export function LeadFormBuilder({ isAdmin = true, onOpenMultiChannelChat }: Lead
     if (!formDraft.title || !formDraft.slug) return;
 
     try {
-      const res = await fetch("/api/sales/forms", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formDraft),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setBanner({ tone: "success", text: `Form "${data.form.title}" saved successfully!` });
+      const saved = formDraft.id
+        ? await aicloserApi.forms.update(formDraft.id, formDraft as Record<string, unknown>)
+        : await aicloserApi.forms.create(formDraft as Record<string, unknown>);
+      if (saved) {
+        setBanner({ tone: "success", text: `Form "${(saved as SalesFormDefinition).title}" saved successfully!` });
         setIsEditingForm(false);
         await loadFormsAndFields();
-        setActiveFormId(data.form.id);
-      } else {
-        setBanner({ tone: "error", text: data.error || "Failed to save form" });
+        setActiveFormId((saved as SalesFormDefinition).id);
       }
     } catch (err: any) {
       setBanner({ tone: "error", text: err.message || "Failed to save form" });
@@ -219,10 +240,7 @@ export function LeadFormBuilder({ isAdmin = true, onOpenMultiChannelChat }: Lead
     if (!selectedSubmission) return;
     setIsSavingLeadDetails(true);
     try {
-      const res = await fetch(`/api/sales/leads/${selectedSubmission.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      await aicloserApi.leads.update(selectedSubmission.id, {
           customerName: selectedSubmission.customerName,
           customerPhone: selectedSubmission.customerPhone,
           customerEmail: selectedSubmission.customerEmail,
@@ -230,14 +248,10 @@ export function LeadFormBuilder({ isAdmin = true, onOpenMultiChannelChat }: Lead
           budgetAmount: selectedSubmission.budgetAmount,
           stage: selectedSubmission.stage,
           notes: selectedSubmission.notes,
-        }),
       });
-      const data = await res.json();
-      if (data.ok) {
-        setBanner({ tone: "success", text: `Lead details for ${selectedSubmission.customerName} updated.` });
-        setSelectedSubmission(null);
-        await loadFormsAndFields();
-      }
+      setBanner({ tone: "success", text: `Lead details for ${selectedSubmission.customerName} updated.` });
+      setSelectedSubmission(null);
+      await loadFormsAndFields();
     } catch {
       setBanner({ tone: "error", text: "Failed to update lead details." });
     } finally {
@@ -547,11 +561,7 @@ export function LeadFormBuilder({ isAdmin = true, onOpenMultiChannelChat }: Lead
                           const updated = isIncluded
                             ? activeForm.fieldIds.filter((id) => id !== field.id)
                             : [...(activeForm.fieldIds || []), field.id];
-                          await fetch("/api/sales/forms", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ ...activeForm, fieldIds: updated }),
-                          });
+                          await aicloserApi.forms.update(activeForm.id, { ...activeForm, fieldIds: updated } as Record<string, unknown>);
                           await loadFormsAndFields();
                         }}
                         style={{

@@ -42,10 +42,23 @@ export async function handleWhatsAppSetup(request: Request, action: "state" | "f
     // WhatsApp Marketing stores the authoritative tenant channel in Prisma.
     // Hydrate the legacy onboarding snapshot for display/actions without
     // copying or exposing the encrypted access token.
-    const savedChannel = await prisma.whatsAppChannel.findFirst({
-      where: { tenantId },
-      orderBy: { updatedAt: "desc" },
-    });
+    // The local app can run with the file-backed tenant store when no direct
+    // frontend DATABASE_URL is configured. Prisma is intentionally optional
+    // here: touching the lazy Prisma proxy without a configured database
+    // throws before the setup draft can be returned.
+    let savedChannel: Awaited<ReturnType<typeof prisma.whatsAppChannel.findFirst>> = null;
+    if (process.env.DATABASE_URL?.trim()) {
+      try {
+        savedChannel = await prisma.whatsAppChannel.findFirst({
+          where: { tenantId },
+          orderBy: { updatedAt: "desc" },
+        });
+      } catch (error) {
+        // Keep the setup screen usable from the file-backed store if the
+        // optional Prisma connection is unavailable or has a stale schema.
+        console.warn("[WHATSAPP_SETUP_DB_FALLBACK]", error instanceof Error ? error.message : error);
+      }
+    }
     if (savedChannel) {
       connection = {
         ...connection,

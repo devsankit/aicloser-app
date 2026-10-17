@@ -15,6 +15,7 @@ import {
   verifyGoogleIdToken,
 } from "@/lib/auth/google-oauth";
 import { applySessionCookie, getDashboardPathForIdentity, getSafeSalesRedirectPath } from "@/lib/auth/session";
+import { shouldUseSecureCookies } from "@/lib/auth/cookie-security";
 import { getSalesAgentAccess } from "@/lib/gigxomi/sales-store";
 import { getPublicRequestUrl } from "@/lib/auth/request-url";
 import { prisma } from "@/lib/prisma";
@@ -96,7 +97,7 @@ export async function GET(request: Request) {
           path: "/",
           httpOnly: true,
           sameSite: "lax",
-          secure: process.env.NODE_ENV === "production",
+          secure: shouldUseSecureCookies(),
           maxAge: 10 * 60,
         },
       );
@@ -146,7 +147,7 @@ export async function GET(request: Request) {
       path: "/",
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: shouldUseSecureCookies(),
       maxAge: 60 * 60 * 24 * 365,
     });
     return response;

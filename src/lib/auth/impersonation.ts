@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { NextResponse } from "next/server";
+import { shouldUseSecureCookies } from "@/lib/auth/cookie-security";
 
 export const SUPER_ADMIN_RETURN_COOKIE_NAME = "gx_super_admin_return";
 export const IMPERSONATION_MARKER_COOKIE_NAME = "gx_impersonating_agency";
@@ -16,7 +17,7 @@ export function applyImpersonationCookies(
     path: "/",
     httpOnly: true,
     sameSite: "lax" as const,
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureCookies(),
     expires,
     maxAge,
   };

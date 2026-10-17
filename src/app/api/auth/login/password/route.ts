@@ -1,218 +1,190 @@
-import { createPublicRedirect, sanitizePublicAuthError } from "@/lib/auth/public-redirect";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+
+import { createPublicRedirect, sanitizePublicAuthError } from "@/lib/auth/public-redirect";
+import { shouldUseSecureCookies } from "@/lib/auth/cookie-security";
+import { applySessionCookie, getSafeRedirectPath, getSafeSalesRedirectPath } from "@/lib/auth/session";
 import { SUPER_ADMIN_HOME_ROUTE, SUPER_ADMIN_LOGIN_ROUTE } from "@/lib/auth/super-admin-config";
-import { authenticatePassword, findUserByIdentifier } from "@/lib/auth/store";
-import { applySessionCookie, getDashboardPathForIdentity, getDefaultDashboardPath, getSafeRedirectPath, getSafeSalesRedirectPath } from "@/lib/auth/session";
-import { getSalesAgentAccess } from "@/lib/gigxomi/sales-store";
-import { acquireAppClientSession, ClientSlotOccupiedError } from "@/lib/auth/client-sessions";
-import { prisma } from "@/lib/prisma";
+
+type LoginScope = "public" | "sales" | "manager" | "super-admin";
+type ClientType = "DESKTOP" | "MOBILE";
+
+type BackendLoginUser = {
+  userId: string;
+  displayName: string;
+  email?: string | null;
+  phone?: string | null;
+  role: "SUPER_ADMIN" | "ADMIN" | "MANAGER" | "SALES_AGENT";
+  tenantId: string | null;
+  sessionId: string;
+  clientType: ClientType;
+};
+
+type BackendLoginResponse = {
+  success?: boolean;
+  data?: { token?: string; user?: BackendLoginUser; resumed?: boolean };
+  error?: string | null;
+  message?: string;
+};
+
+function getApiBaseUrl() {
+  return (
+    process.env.AICLOSER_API_URL?.trim() ||
+    process.env.NEXT_PUBLIC_AICLOSER_API_URL?.trim() ||
+    "https://api.aicloser.in/api/v1"
+  ).replace(/\/$/, "");
+}
+
+function getLoginScope(value: string): LoginScope {
+  return value === "super-admin" || value === "manager" || value === "sales" ? value : "public";
+}
+
+function getLoginPath(scope: LoginScope) {
+  if (scope === "super-admin") return SUPER_ADMIN_LOGIN_ROUTE;
+  if (scope === "manager") return "/manager-login";
+  return "/login";
+}
+
+function getBackendError(payload: BackendLoginResponse, fallback: string) {
+  return payload.message?.trim() || payload.error?.trim() || fallback;
+}
+
+function isRoleAllowed(scope: LoginScope, role: BackendLoginUser["role"]) {
+  if (scope === "super-admin") return role === "SUPER_ADMIN";
+  if (scope === "manager") return role === "MANAGER";
+  if (scope === "sales") return role === "SALES_AGENT" || role === "MANAGER" || role === "ADMIN";
+  return true;
+}
 
 export async function POST(request: Request) {
   let loginPath = "/login";
+  let wantsJson = false;
+
   try {
-    let identifier = "";
-    let password = "";
-    let redirectTo = "";
-    let rawLoginScope = "";
-    let clientType: "MOBILE" | "DESKTOP" = "DESKTOP";
-    let installationId = "";
-    let forceReplace = false;
-
     const contentType = request.headers.get("content-type") || "";
-    const wantsJson = contentType.includes("application/json");
-    if (contentType.includes("application/json")) {
-      const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-      identifier = String(body.identifier ?? "").trim();
-      password = String(body.password ?? "").trim();
-      redirectTo = String(body.redirectTo ?? "").trim();
-      rawLoginScope = String(body.loginScope ?? "").trim();
-      clientType = body.clientType === "MOBILE" ? "MOBILE" : "DESKTOP";
-      installationId = String(body.installationId ?? "").trim();
-      forceReplace = String(body.forceReplace ?? "").trim() === "1";
-    } else {
-      const formData = await request.formData();
-      identifier = String(formData.get("identifier") ?? "").trim();
-      password = String(formData.get("password") ?? "").trim();
-      redirectTo = String(formData.get("redirectTo") ?? "").trim();
-      rawLoginScope = String(formData.get("loginScope") ?? "").trim();
-      clientType = String(formData.get("clientType") ?? "").trim().toUpperCase() === "MOBILE" ? "MOBILE" : "DESKTOP";
-      installationId = String(formData.get("installationId") ?? "").trim();
-      forceReplace = String(formData.get("forceReplace") ?? "").trim() === "1";
-    }
+    wantsJson = contentType.includes("application/json");
+    const input: Record<string, unknown> = wantsJson
+      ? ((await request.json().catch(() => ({}))) as Record<string, unknown>)
+      : Object.fromEntries((await request.formData()).entries());
 
+    const identifier = String(input.identifier ?? "").trim();
+    const password = String(input.password ?? "").trim();
+    const redirectTo = String(input.redirectTo ?? "").trim();
+    const scope = getLoginScope(String(input.loginScope ?? "").trim());
+    const clientType: ClientType = String(input.clientType ?? "").trim().toUpperCase() === "MOBILE" ? "MOBILE" : "DESKTOP";
+    const forceReplace = String(input.forceReplace ?? "").trim() === "1";
     const requestCookies = await cookies();
-    installationId = installationId || request.headers.get("x-installation-id")?.trim() || requestCookies.get("gx_client_installation")?.value?.trim() || (clientType === "DESKTOP" ? crypto.randomUUID() : "");
+    const installationId =
+      String(input.installationId ?? "").trim() ||
+      request.headers.get("x-installation-id")?.trim() ||
+      requestCookies.get("gx_client_installation")?.value?.trim() ||
+      `web-${crypto.randomUUID()}`;
 
-    const loginScope = rawLoginScope === "super-admin" || rawLoginScope === "manager" || rawLoginScope === "sales" ? rawLoginScope : "public";
-    loginPath = loginScope === "super-admin" ? SUPER_ADMIN_LOGIN_ROUTE : loginScope === "manager" ? "/manager-login" : "/login";
+    loginPath = getLoginPath(scope);
 
     if (!identifier || !password) {
-      if (wantsJson) {
-        return NextResponse.json(
-          { ok: false, error: "MissingCredentials", message: "Enter your email/phone and password." },
-          { status: 400 },
-        );
-      }
-      return createPublicRedirect(loginPath, { error: "Identifier and password are required." });
+      const error = "Enter your email/phone and password.";
+      return wantsJson
+        ? NextResponse.json({ ok: false, error: "MissingCredentials", message: error }, { status: 400 })
+        : createPublicRedirect(loginPath, { error });
     }
 
-    const resolvedUser = await findUserByIdentifier(identifier);
-    if (resolvedUser?.role === "SUPER_ADMIN" && loginScope !== "super-admin") {
-      return createPublicRedirect(SUPER_ADMIN_LOGIN_ROUTE, {
+    const response = await fetch(`${getApiBaseUrl()}/auth/login`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "x-installation-id": installationId,
+      },
+      body: JSON.stringify({
         identifier,
-        message: "Use the dedicated super-admin login page for the owner account.",
-      });
-    }
-
-    if (loginScope === "super-admin" && resolvedUser?.role !== "SUPER_ADMIN") {
-      return createPublicRedirect(SUPER_ADMIN_LOGIN_ROUTE, { error: "Only the authorized super-admin account can sign in here." });
-    }
-
-    const user = await authenticatePassword(identifier, password, { updateLastLogin: false });
-    if (!user) {
-      if (wantsJson) {
-        return NextResponse.json(
-          { ok: false, error: "InvalidCredentials", message: "Invalid email/phone or password." },
-          { status: 401 },
-        );
-      }
-      return createPublicRedirect(loginPath, { error: "InvalidCredentials: Invalid email/phone or password." });
-    }
-
-    if (!installationId) {
-      return createPublicRedirect(loginPath, { error: "MissingClientIdentity: This app must provide its installation ID." });
-    }
-    let effectiveRole = user.role;
-    let effectiveAssignedRole = user.assignedRole;
-    const salesAccess = ["ADMIN", "MANAGER", "SALES_AGENT"].includes(user.role)
-      ? await getSalesAgentAccess(user.id)
-      : null;
-    const workspaceRole = salesAccess?.agent?.permissions?.workspaceAdmin === true
-      ? "ADMIN"
-      : String(salesAccess?.agent?.permissions?.workspaceRole ?? "").toUpperCase();
-    if (workspaceRole === "ADMIN" || workspaceRole === "MANAGER" || workspaceRole === "SALES_AGENT") {
-      effectiveRole = workspaceRole;
-      effectiveAssignedRole = workspaceRole;
-    }
-
-    if (loginScope === "manager" && effectiveRole !== "MANAGER") {
-      return createPublicRedirect("/manager-login", { error: "Only manager accounts can sign in from the manager login page." });
-    }
-
-    if (loginScope === "sales") {
-      if (effectiveRole !== "SALES_AGENT" && effectiveRole !== "MANAGER" && effectiveRole !== "ADMIN") {
-        return createPublicRedirect("/login", { error: "Only approved sales accounts can sign in here." });
-      }
-      if (!salesAccess?.ok) {
-        return createPublicRedirect("/login", {
-          error:
-            salesAccess?.reason === "PENDING"
-              ? "Your sales account is waiting for approval."
-              : salesAccess?.reason === "SUSPENDED"
-                ? "Your sales account is suspended. Contact support."
-                : "Your sales profile was not found. Request access again or contact support.",
-        });
-      }
-    }
-
-    let clientSession;
-    try {
-      clientSession = await acquireAppClientSession({
-        userId: user.id,
-        tenantId: user.tenantId,
-        channel: clientType,
+        password,
+        clientType,
         installationId,
-        deviceId: clientType === "MOBILE" ? installationId : null,
-        deviceName: clientType === "MOBILE" ? "Mobile App" : "Desktop Web",
-        platform: clientType === "MOBILE" ? "ANDROID" : "WEB",
         replaceExisting: forceReplace,
-      });
-    } catch (error) {
-      if (error instanceof ClientSlotOccupiedError) {
-        if (wantsJson) {
-          return NextResponse.json(
-            {
-              ok: false,
-              error: error.code,
-              message: `This user already has an active ${clientType.toLowerCase()} session.`,
-              identifier,
-              clientType,
-              redirectTo,
-            },
-            { status: 409 },
-          );
-        }
-        return createPublicRedirect(loginPath, {
-          error: `ClientSlotOccupied: This user already has an active ${clientType.toLowerCase()} session.`,
-          identifier,
-          clientType,
-          redirectTo,
-        });
-      }
-      throw error;
+        deviceName: clientType === "DESKTOP" ? "Desktop Web" : "Mobile App",
+        platform: clientType === "DESKTOP" ? "WEB" : "ANDROID",
+      }),
+      cache: "no-store",
+    });
+    const payload = (await response.json().catch(() => ({}))) as BackendLoginResponse;
+    const user = payload.data?.user;
+    const token = payload.data?.token;
+
+    if (!response.ok || payload.success === false || !user || !token) {
+      const error = getBackendError(
+        payload,
+        response.status === 401 ? "Invalid email/phone or password." : "We could not sign you in right now. Please try again in a moment.",
+      );
+      const details = { error: payload.error || "LoginFailed", message: error, identifier, clientType, redirectTo };
+      return wantsJson
+        ? NextResponse.json({ ok: false, ...details }, { status: response.status || 502 })
+        : createPublicRedirect(loginPath, details);
     }
-    await prisma.appAuthUser.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 
-    const destination =
-      loginScope === "super-admin"
-        ? redirectTo.trim()
-          ? getSafeRedirectPath(redirectTo, effectiveRole)
-          : SUPER_ADMIN_HOME_ROUTE
-        : loginScope === "manager"
-          ? redirectTo.trim()
-            ? getSafeRedirectPath(redirectTo, effectiveRole)
-            : "/"
-        : loginScope === "sales"
-          ? getSafeSalesRedirectPath(redirectTo, effectiveRole)
-        : redirectTo.trim()
-          ? getSafeRedirectPath(redirectTo, effectiveRole)
-          : getDashboardPathForIdentity({
-              role: effectiveRole,
-              packageAudience: user.packageAudience,
-              workspaceMode: user.workspaceMode,
-            });
-    const resolvedDestination = destination || getDefaultDashboardPath(effectiveRole);
-    const response = wantsJson
-      ? NextResponse.json({ ok: true, redirectTo: resolvedDestination })
-      : createPublicRedirect(resolvedDestination);
+    if (!isRoleAllowed(scope, user.role)) {
+      const error = scope === "super-admin"
+        ? "Only the authorized super-admin account can sign in here."
+        : scope === "manager"
+          ? "Only manager accounts can sign in from the manager login page."
+          : "Only approved sales accounts can sign in here.";
+      return wantsJson
+        ? NextResponse.json({ ok: false, error: "RoleNotAllowed", message: error }, { status: 403 })
+        : createPublicRedirect(loginPath, { error });
+    }
 
-    await applySessionCookie(response, {
-      userId: user.id,
-      role: effectiveRole,
-      assignedRole: effectiveAssignedRole,
+    const destination = scope === "super-admin"
+      ? (redirectTo ? getSafeRedirectPath(redirectTo, user.role) : SUPER_ADMIN_HOME_ROUTE)
+      : scope === "sales"
+        ? getSafeSalesRedirectPath(redirectTo, user.role)
+        : redirectTo
+          ? getSafeRedirectPath(redirectTo, user.role)
+          : "/";
+
+    const nextResponse = wantsJson
+      ? NextResponse.json({ ok: true, token, user, resumed: payload.data?.resumed, redirectTo: destination })
+      : createPublicRedirect(destination);
+
+    // The API owns authentication. This signed cookie only lets the existing
+    // Next.js page guards recognize the API-authenticated user during migration.
+    await applySessionCookie(nextResponse, {
+      userId: user.userId,
+      role: user.role,
+      assignedRole: user.role,
       tenantId: user.tenantId,
       displayName: user.displayName,
-      email: user.email,
-      phone: user.phone,
-      packageId: user.packageId,
-      packageName: user.packageName,
-      packageAudience: user.packageAudience,
-      packageStatus: user.packageStatus,
-      packageExpiresAt: user.packageExpiresAt,
-      workspaceMode: user.workspaceMode,
-      sessionId: clientSession.session.sessionId,
-      licensedSession: true,
+      email: user.email ?? null,
+      phone: user.phone ?? null,
+      packageId: null,
+      packageName: null,
+      packageAudience: null,
+      packageStatus: null,
+      packageExpiresAt: null,
+      workspaceMode: null,
+      sessionId: user.sessionId,
+      licensedSession: false,
     });
-    response.cookies.set("gx_client_installation", installationId, {
+    nextResponse.cookies.set("gx_client_installation", installationId, {
       path: "/",
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: shouldUseSecureCookies(),
       maxAge: 60 * 60 * 24 * 365,
     });
-
-    return response;
-  } catch (error) {
-    console.error("Password login failed", error);
-    if (request.headers.get("content-type")?.includes("application/json")) {
-      return NextResponse.json(
-        { ok: false, error: "LoginFailed", message: sanitizePublicAuthError(error, "We could not sign you in right now. Please try again in a moment.") },
-        { status: 500 },
-      );
-    }
-    return createPublicRedirect(loginPath, {
-      error: sanitizePublicAuthError(error, "We could not sign you in right now. Please try again in a moment."),
+    nextResponse.cookies.set("aicloser_token", token, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: shouldUseSecureCookies(),
+      maxAge: 60 * 60 * 24 * 30,
     });
+
+    return nextResponse;
+  } catch (error) {
+    console.error("New API password login failed", error);
+    const message = sanitizePublicAuthError(error, "We could not sign you in right now. Please try again in a moment.");
+    return wantsJson
+      ? NextResponse.json({ ok: false, error: "LoginFailed", message }, { status: 502 })
+      : createPublicRedirect(loginPath, { error: message });
   }
 }

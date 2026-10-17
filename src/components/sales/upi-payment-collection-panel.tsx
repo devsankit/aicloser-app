@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
+import { aicloserApi } from "@/lib/api-client";
 
 type Role = "SALES_AGENT" | "MANAGER" | "ADMIN" | "SUPER_ADMIN";
 type PricingOperation = "ADD" | "SUBTRACT" | "MULTIPLY" | "DIVIDE";
@@ -57,18 +58,38 @@ export function UpiPaymentCollectionPanel({ sessionRole, tenantId, embedded = fa
 
   const load = async () => {
     setLoading(true);
-    const response = await fetch(`/api/payment-links?tenantId=${encodeURIComponent(tenantId)}`, { cache: "no-store" });
-    const data = await response.json().catch(() => ({}));
-    if (data.ok) { setRows(data.rows || []); setStats(data.stats || stats); setCanApprove(Boolean(data.canApprove)); setPreviewSettings(data.preview || null); }
-    if (isAdmin) {
-      const settingsResponse = await fetch(`/api/payment-links/settings?tenantId=${encodeURIComponent(tenantId)}`, { cache: "no-store" });
-      const settingsData = await settingsResponse.json().catch(() => ({}));
-      if (settingsData.ok) { setSettings(settingsData.settings); setPolicies(settingsData.policies || []); }
+    try {
+      const result = await aicloserApi.payments.list({ page: 1, limit: 100 });
+      const centralRows = (result.payments || []).map((payment: any) => ({
+        id: payment.id,
+        publicToken: payment.publicToken,
+        status: payment.status,
+        createdByName: "Workspace user",
+        customerName: payment.customerName || null,
+        totalAmount: Number(payment.totalAmount || payment.baseAmount || 0),
+        productName: payment.productName || null,
+        hasProof: Boolean(payment.proofStoragePath),
+        confirmedByName: null,
+        createdAt: payment.createdAt,
+        rejectionReason: payment.rejectionReason || null,
+      })) as LinkRow[];
+      setRows(centralRows);
+      setStats({
+        total: result.pagination?.total ?? centralRows.length,
+        pending: centralRows.filter((row) => row.status === "PENDING").length,
+        customerConfirmed: centralRows.filter((row) => row.status === "CUSTOMER_CONFIRMED").length,
+        paid: centralRows.filter((row) => row.status === "PAID").length,
+        revenue: centralRows.filter((row) => row.status === "PAID").reduce((sum, row) => sum + row.totalAmount, 0),
+      });
+      setCanApprove(isAdmin);
+      setPreviewSettings(null);
+      setSettings(null);
+      setPackages([]);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not load central payment data.");
+    } finally {
+      setLoading(false);
     }
-    const packagesResponse = await fetch("/api/payment-links/packages", { cache: "no-store" });
-    const packagesData = await packagesResponse.json().catch(() => ({}));
-    if (packagesData.ok) setPackages(packagesData.packages || []);
-    setLoading(false);
   };
   useEffect(() => {
     const style = document.createElement("style");
@@ -88,68 +109,58 @@ export function UpiPaymentCollectionPanel({ sessionRole, tenantId, embedded = fa
   }, [form.productName, previewSettings, total]);
 
   const toggleEnabled = async (checked: boolean) => {
-    const nextSettings = { ...(settings || {}), enabled: checked };
-    setSettings(nextSettings);
-    setMessage(checked ? "Enabling payment collection..." : "Disabling payment collection...");
-    const response = await fetch("/api/payment-links/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tenantId, ...nextSettings }),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (data.ok) {
-      setMessage(checked ? "✅ Payment collection is now ENABLED for this workspace." : "⚠️ Payment collection disabled.");
-      await load();
-    } else {
-      setMessage(data.error || "Could not update payment collection state.");
-    }
+    void checked;
+    setMessage("Central payment settings are managed by the backend workspace configuration API. This control will be enabled when that contract is available.");
   };
 
   const create = async (event: React.FormEvent) => {
     event.preventDefault(); setMessage("");
-    // If admin has configured upiId & payeeName but enabled is false, automatically enable it!
-    if (isAdmin && settings && settings.upiId && settings.payeeName && !settings.enabled) {
-      await fetch("/api/payment-links/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tenantId, ...settings, enabled: true }),
-      });
-      setSettings((prev: any) => ({ ...prev, enabled: true }));
+    try {
+      const payment = await aicloserApi.payments.createUpiLink({
+        amount: total,
+        customerName: form.customerName || "Guest",
+        customerPhone: form.customerPhone || "Not provided",
+        customerEmail: form.customerEmail || undefined,
+        productName: form.productName || "CRM License / Consultation",
+        customerNote: form.customerNote || undefined,
+      }) as { paymentUrl?: string; publicToken?: string };
+      const url = payment?.paymentUrl || (payment?.publicToken ? `https://app.aicloser.in/pay/${payment.publicToken}` : "");
+      if (url) await navigator.clipboard?.writeText(url);
+      setMessage(url ? `Payment link created and copied: ${url}` : "Payment link created successfully.");
+      setForm({ baseAmount: "", quantity: "1", duration: "1", durationUnit: "MONTH", customerName: "", customerPhone: "", customerEmail: "", productName: "", packageId: "", customerNote: "", validityValue: "1", validityUnit: "DAY" });
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not create payment link.");
     }
-    const response = await fetch("/api/payment-links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, tenantId }) });
-    const data = await response.json().catch(() => ({}));
-    if (!data.ok) { setMessage(data.error || "Could not create payment link."); return; }
-    const url = `${window.location.origin}/pay/${data.paymentLink.publicToken}`;
-    await navigator.clipboard?.writeText(url);
-    setMessage(`Payment link created and copied: ${url}`); setForm({ baseAmount: "", quantity: "1", duration: "1", durationUnit: "MONTH", customerName: "", customerPhone: "", customerEmail: "", productName: "", packageId: "", customerNote: "", validityValue: "1", validityUnit: "DAY" }); await load();
   };
 
   const setPricing = (key: string, value: string | number) => setSettings({ ...settings, durationMultipliers: { ...(settings?.durationMultipliers || {}), [key]: value } });
   const saveSettings = async (overrideSettings?: any) => {
-    const toSave = overrideSettings || settings;
-    const response = await fetch("/api/payment-links/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tenantId, ...toSave }) });
-    const data = await response.json().catch(() => ({})); setMessage(data.ok ? "✅ Payment settings saved successfully." : data.error || "Could not save settings."); if (data.ok) await load();
+    void overrideSettings;
+    setMessage("Central payment settings are not exposed by the new API yet. No legacy request was sent.");
   };
   const savePolicies = async () => {
-    const response = await fetch("/api/payment-links/fields", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tenantId, policies }) });
-    const data = await response.json().catch(() => ({})); setMessage(data.ok ? "Field settings saved." : data.error || "Could not save fields."); if (data.ok) setPolicies(data.policies || policies);
+    setMessage("Central payment field policies are not exposed by the new API yet. No legacy request was sent.");
   };
   const moderate = async (id: string, action: "approve" | "reject") => {
-    const response = await fetch(`/api/payment-links/${id}/${action}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason: "Proof could not be verified." }) });
-    const data = await response.json().catch(() => ({})); setMessage(data.ok ? `Payment ${action}d.` : data.error || `Could not ${action} payment.`); if (data.ok) await load();
+    try {
+      if (action === "approve") await aicloserApi.payments.approve(id);
+      else await aicloserApi.payments.reject(id, "Proof could not be verified.");
+      setMessage(`Payment ${action}d.`);
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : `Could not ${action} payment.`);
+    }
   };
   const resendConfirmation = async (id: string) => {
-    const response = await fetch(`/api/payment-links/${id}/notify`, { method: "POST" });
-    const data = await response.json().catch(() => ({}));
-    setMessage(data.ok && data.delivery?.delivered ? "Order confirmation sent." : data.ok ? "Webhook was called but did not return a successful response." : data.error || "Could not send order confirmation.");
+    void id;
+    setMessage("Central payment notifications are not exposed by the new API yet. No legacy request was sent.");
   };
   const attachProof = async (id: string, proof: File) => {
-    setProofUploadingId(id); setMessage("");
-    const form = new FormData(); form.set("proof", proof);
-    const response = await fetch(`/api/payment-links/${id}/proof`, { method: "POST", body: form });
-    const data = await response.json().catch(() => ({}));
-    setMessage(data.ok ? "Payment screenshot attached. Review it before confirming." : data.error || "Could not attach payment screenshot.");
-    setProofUploadingId(null); if (data.ok) await load();
+    void id;
+    void proof;
+    setProofUploadingId(null);
+    setMessage("Central payment proof upload is not exposed by the new API yet. No legacy request was sent.");
   };
 
   return <main className="sales-theme-scope" style={{ minHeight: embedded ? "auto" : "100vh", padding: embedded ? 0 : 28, background: embedded ? "transparent" : "var(--sales-page-bg, #0f1117)" }}><div style={{ maxWidth: 1280, margin: "0 auto", display: "grid", gap: 20 }}>
@@ -200,6 +211,6 @@ export function UpiPaymentCollectionPanel({ sessionRole, tenantId, embedded = fa
         <h3 style={{ marginBottom: 0 }}>Closer fields</h3>{policies.filter((policy) => policy.surface === "CLOSER").map((policy) => <div key={policy.fieldKey} style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 8, alignItems: "center" }}><input value={policy.label} onChange={(e) => setPolicies(policies.map((item) => item.fieldKey === policy.fieldKey ? { ...item, label: e.target.value } : item))} /><label>Show<input type="checkbox" checked={policy.visible} onChange={(e) => setPolicies(policies.map((item) => item.fieldKey === policy.fieldKey ? { ...item, visible: e.target.checked } : item))} /></label><label>Required<input type="checkbox" checked={policy.required} onChange={(e) => setPolicies(policies.map((item) => item.fieldKey === policy.fieldKey ? { ...item, required: e.target.checked } : item))} /></label></div>)}<button className="sales-secondary-button" type="button" onClick={savePolicies}>Save field settings</button><style>{`.upi-settings-divider{display:grid;gap:10px;border-top:1px solid #2b303d;padding-top:14px}.upi-settings-divider h3{margin:0;font-size:15px}.upi-settings-divider p,.upi-settings-divider small{margin:0;color:#aab1c1;font-size:12px;line-height:1.45}.upi-settings-divider label{display:grid;gap:6px;font-size:13px;font-weight:700}.upi-settings-divider input,.upi-settings-divider select,.upi-settings-divider textarea{box-sizing:border-box;width:100%;font:inherit;border:1px solid #353d4c;border-radius:9px;padding:10px;background:#10131a;color:#f8fafc;min-height:42px}.upi-settings-divider input:focus,.upi-settings-divider select:focus{border-color:#ff6b2c;outline:0;box-shadow:0 0 0 3px rgba(255,107,44,.18)}.upi-multiplier-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}`}</style></section> : <section style={{ background: "#191c24", border: "1px solid #2b303d", color: "#cbd2df", borderRadius: 18, padding: 22, display: "grid", gap: 14 }}><div><div style={{ color: "#ff6b2c", fontSize: 11, fontWeight: 800, letterSpacing: ".1em" }}>QR PREVIEW</div><h2 style={{ color: "#fff", margin: "6px 0 4px" }}>Preview before sharing</h2><p style={{ margin: 0, color: "#aab1c1", lineHeight: 1.5 }}>This is a local preview. The final QR will use the saved workspace UPI settings when you create the link.</p></div><div style={{ display: "grid", placeItems: "center", padding: 16, borderRadius: 14, background: "#fff", minHeight: 220 }}>{previewQr ? <img src={previewQr} alt="Dummy payment QR preview" style={{ width: 220, height: 220, maxWidth: "100%" }} /> : <div style={{ color: "#667085" }}>Enter an amount to preview the QR.</div>}</div><div style={{ display: "grid", gap: 5, color: "#dfe4ee", fontSize: 13 }}><span><strong>Payee:</strong> {previewSettings?.payeeName || "Business"}</span><span><strong>UPI ID:</strong> {previewSettings?.upiId || "business@upi"}</span><span><strong>Preview amount:</strong> {money(total)}</span></div><div className="upi-preview-validity" style={{ display: "grid", gap: 8, padding: 12, borderRadius: 10, background: "#10131a", border: "1px solid #353d4c" }}><div><strong style={{ display: "block", color: "#fff", fontSize: 13 }}>Link valid for</strong><span style={{ display: "block", marginTop: 3, color: "#aab1c1", fontSize: 11 }}>This expiry is saved on the link you create.</span></div><div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr", gap: 8 }}><input aria-label="Link validity value" required type="number" min="1" step="1" value={form.validityValue} onChange={(e) => setForm({ ...form, validityValue: e.target.value })} /><select aria-label="Link validity unit" value={form.validityUnit} onChange={(e) => setForm({ ...form, validityUnit: e.target.value })}><option value="MINUTE">Minutes</option><option value="HOUR">Hours</option><option value="DAY">Days</option></select></div></div><div style={{ padding: 12, borderRadius: 10, background: "rgba(255,107,44,.08)", border: "1px solid rgba(255,107,44,.28)", color: "#ffd2c0", fontSize: 12, lineHeight: 1.5 }}>Create the link to generate the final branded QR and copy the shareable payment URL.</div></section>}
     </section>
     <section style={{ background: "#191c24", border: "1px solid #2b303d", borderRadius: 18, padding: 22, overflowX: "auto" }}><h2 style={{ color: "#fff", marginTop: 0 }}>Payment links</h2>{loading ? <p style={{ color: "#aab1c1" }}>Loading…</p> : rows.length === 0 ? <p style={{ color: "#aab1c1" }}>No payment links yet.</p> : <table style={{ width: "100%", borderCollapse: "collapse", color: "#e7ebf3", minWidth: 780 }}><thead><tr style={{ textAlign: "left", color: "#9fa8b9" }}><th>Customer</th><th>Amount</th><th>Closer</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id} style={{ borderTop: "1px solid #2b303d" }}><td style={{ padding: "14px 8px" }}>{row.customerName || "Guest"}<small style={{ display: "block", color: "#9fa8b9" }}>{row.productName || "Payment"}</small></td><td>{money(row.totalAmount)}</td><td>{row.createdByName}</td><td>{row.status}{row.hasProof ? " · proof submitted" : ""}</td><td>{new Date(row.createdAt).toLocaleString()}</td><td style={{ display: "flex", gap: 8, padding: "12px 0", flexWrap: "wrap" }}><a className="sales-secondary-button compact" href={`/pay/${row.publicToken}`} target="_blank" rel="noreferrer">Open</a>{canSubmitProof && !row.hasProof && ["PENDING", "CUSTOMER_CONFIRMED"].includes(row.status) ? <><label className="sales-secondary-button compact" style={{ cursor: proofUploadingId === row.id ? "wait" : "pointer" }}>{proofUploadingId === row.id ? "Uploading…" : "Submit screenshot"}<input type="file" accept="image/png,image/jpeg,image/webp" disabled={proofUploadingId === row.id} onChange={(event) => { const file = event.target.files?.[0]; if (file) void attachProof(row.id, file); event.currentTarget.value = ""; }} style={{ display: "none" }} /></label>{isAdmin ? <button className="sales-secondary-button compact" type="button" disabled title="Attach a screenshot before confirming payment">Approve after screenshot</button> : null}</> : null}{canSubmitProof && row.hasProof && ["PENDING", "CUSTOMER_CONFIRMED"].includes(row.status) ? <><button className="sales-secondary-button compact" type="button" onClick={() => setProofRow(row)}>View screenshot</button>{canApprove ? <button className="sales-primary-button compact" type="button" onClick={() => moderate(row.id, "approve")}>Confirm payment</button> : <span style={{ color: "#aab1c1", fontSize: 11, alignSelf: "center" }}>Only Tenant Admin can approve this payment</span>}{isAdmin ? <button className="sales-secondary-button compact" type="button" onClick={() => moderate(row.id, "reject")}>Reject</button> : null}</> : null}{isAdmin && row.status === "PAID" ? <button className="sales-secondary-button compact" type="button" onClick={() => void resendConfirmation(row.id)}>Send confirmation</button> : null}</td></tr>)}</tbody></table>}</section>
-    {proofRow ? <div role="dialog" aria-modal="true" aria-label="Review payment screenshot" onClick={() => setProofRow(null)} style={{ position: "fixed", inset: 0, zIndex: 1000, display: "grid", placeItems: "center", padding: 20, background: "rgba(4,6,10,.78)" }}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(560px,100%)", maxHeight: "90vh", overflow: "auto", display: "grid", gap: 14, padding: 20, border: "1px solid #3a4353", borderRadius: 18, background: "#191c24", color: "#f8fafc", boxShadow: "0 24px 80px rgba(0,0,0,.45)" }}><div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}><div><div style={{ color: "#ff6b2c", fontSize: 11, fontWeight: 800, letterSpacing: ".1em" }}>PAYMENT REVIEW</div><h2 style={{ margin: "5px 0 0" }}>Verify payment proof</h2><p style={{ margin: "5px 0 0", color: "#aab1c1", fontSize: 13 }}>{proofRow.customerName || "Guest"} · {money(proofRow.totalAmount)}</p></div><button className="sales-secondary-button compact" type="button" onClick={() => setProofRow(null)}>Close</button></div><div style={{ display: "grid", placeItems: "center", minHeight: 220, padding: 12, borderRadius: 12, background: "#0e1117", border: "1px solid #2b303d" }}><img src={`/api/payment-links/${proofRow.id}/proof`} alt="Customer payment screenshot" style={{ display: "block", maxWidth: "100%", maxHeight: "52vh", objectFit: "contain", borderRadius: 8 }} /></div><p style={{ margin: 0, color: "#aab1c1", fontSize: 12 }}>Review the screenshot before confirming. Approval will mark this payment as paid and run the configured activation/webhook flow.</p><div style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>{isAdmin ? <button className="sales-secondary-button compact" type="button" onClick={() => { void moderate(proofRow.id, "reject"); setProofRow(null); }}>Reject proof</button> : null}{canApprove ? <button className="sales-primary-button compact" type="button" onClick={() => { void moderate(proofRow.id, "approve"); setProofRow(null); }}>Confirm payment</button> : <span style={{ color: "#aab1c1", fontSize: 12 }}>Only Tenant Admin can approve this payment</span>}</div></section></div> : null}
+    {proofRow ? <div role="dialog" aria-modal="true" aria-label="Review payment screenshot" onClick={() => setProofRow(null)} style={{ position: "fixed", inset: 0, zIndex: 1000, display: "grid", placeItems: "center", padding: 20, background: "rgba(4,6,10,.78)" }}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(560px,100%)", maxHeight: "90vh", overflow: "auto", display: "grid", gap: 14, padding: 20, border: "1px solid #3a4353", borderRadius: 18, background: "#191c24", color: "#f8fafc", boxShadow: "0 24px 80px rgba(0,0,0,.45)" }}><div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}><div><div style={{ color: "#ff6b2c", fontSize: 11, fontWeight: 800, letterSpacing: ".1em" }}>PAYMENT REVIEW</div><h2 style={{ margin: "5px 0 0" }}>Verify payment proof</h2><p style={{ margin: "5px 0 0", color: "#aab1c1", fontSize: 13 }}>{proofRow.customerName || "Guest"} · {money(proofRow.totalAmount)}</p></div><button className="sales-secondary-button compact" type="button" onClick={() => setProofRow(null)}>Close</button></div><div style={{ display: "grid", placeItems: "center", minHeight: 220, padding: 24, borderRadius: 12, background: "#0e1117", border: "1px solid #2b303d", color: "#aab1c1", textAlign: "center" }}>Payment proof is stored by the central payment service. A dedicated proof-view endpoint is still required before this preview can be displayed.</div><p style={{ margin: 0, color: "#aab1c1", fontSize: 12 }}>Approval will mark this payment as paid and run the configured activation flow when the central service confirms it.</p><div style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>{isAdmin ? <button className="sales-secondary-button compact" type="button" onClick={() => { void moderate(proofRow.id, "reject"); setProofRow(null); }}>Reject proof</button> : null}{canApprove ? <button className="sales-primary-button compact" type="button" onClick={() => { void moderate(proofRow.id, "approve"); setProofRow(null); }}>Confirm payment</button> : <span style={{ color: "#aab1c1", fontSize: 12 }}>Only Tenant Admin can approve this payment</span>}</div></section></div> : null}
   </div><style>{`@media(max-width:980px){.upi-main-grid{grid-template-columns:1fr!important}.upi-kpis{grid-template-columns:repeat(2,minmax(0,1fr))!important}.upi-primary-fields{grid-template-columns:repeat(3,minmax(0,1fr))!important}}@media(max-width:650px){.upi-kpis{grid-template-columns:1fr!important}.upi-primary-fields,.upi-customer-fields{grid-template-columns:1fr!important}.upi-multiplier-grid{grid-template-columns:1fr!important}}`}</style></main>;
 }

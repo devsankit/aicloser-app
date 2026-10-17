@@ -1,15 +1,103 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Zap, Plus, Trash2, Edit2, Play, CheckCircle2, Copy, Check, ArrowRight, Shield, Globe, ClipboardList } from "lucide-react";
+import { Zap, Plus, Trash2, Edit2, Copy, Check, ArrowRight, Shield, Globe, ClipboardList, Activity, Clock3, Database, MoreHorizontal, Workflow } from "lucide-react";
 import type { WorkflowRule, WorkflowExecutionLog, TriggerType, ActionType } from "@/lib/gigxomi/automation-engine-store";
+import { aicloserApi } from "@/lib/api-client";
 
 export type AutomationWorkflowsPanelMode = "workflows" | "developer";
+
+function normalizeAutomationRule(raw: any): WorkflowRule {
+  const rawCondition = raw?.condition ?? raw?.conditions?.[0] ?? null;
+  const rawAction = raw?.action ?? raw?.actions?.[0] ?? null;
+  const actionConfig = rawAction?.config && typeof rawAction.config === "object" ? rawAction.config : {};
+  const action = rawAction
+    ? { ...actionConfig, ...rawAction, ...actionConfig, type: rawAction.type }
+    : { type: "ASSIGN_AGENT" as ActionType };
+
+  return {
+    id: String(raw?.id ?? ""),
+    name: String(raw?.name ?? "Untitled automation"),
+    description: String(raw?.description ?? ""),
+    isActive: raw?.isActive !== false,
+    trigger: {
+      type: (raw?.trigger?.type ?? "LEAD_CREATED") as TriggerType,
+      stageFilter: raw?.trigger?.stageFilter,
+      sourceFilter: raw?.trigger?.sourceFilter,
+    },
+    conditions: rawCondition ? [rawCondition] : [],
+    actions: [action],
+    executionCount: Number(raw?.executionCount ?? 0),
+    lastRunAt: raw?.lastRunAt ?? null,
+    createdAt: String(raw?.createdAt ?? new Date().toISOString()),
+    updatedAt: String(raw?.updatedAt ?? new Date().toISOString()),
+  };
+}
+
+function normalizeAutomationLog(raw: any): WorkflowExecutionLog {
+  return {
+    id: String(raw?.id ?? `log-${Date.now()}`),
+    workflowId: String(raw?.workflowId ?? raw?.ruleId ?? ""),
+    workflowName: String(raw?.workflowName ?? raw?.ruleName ?? "Automation"),
+    leadId: raw?.leadId,
+    leadName: raw?.leadName,
+    triggerEvent: String(raw?.triggerEvent ?? raw?.triggerType ?? "EVENT"),
+    status: raw?.status === "FAILED" ? "FAILED" : "SUCCESS",
+    details: String(raw?.details ?? ""),
+    executedAt: String(raw?.executedAt ?? new Date().toISOString()),
+  };
+}
+
+function automationFingerprint(rule: WorkflowRule) {
+  return JSON.stringify({
+    name: rule.name.trim().toLowerCase(),
+    description: rule.description.trim().toLowerCase(),
+    isActive: rule.isActive,
+    trigger: rule.trigger,
+    conditions: rule.conditions,
+    actions: rule.actions,
+  });
+}
+
+function formatRunTime(value?: string | null) {
+  if (!value) return "Not run yet";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not run yet";
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function humanizeToken(value?: string | null) {
+  return String(value || "—")
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function toCentralAutomationPayload(rule: Partial<WorkflowRule>) {
+  const action = rule.actions?.[0];
+  const condition = rule.conditions?.[0] ?? null;
+  if (!action) {
+    return { ...rule, condition, action: { type: "ASSIGN_AGENT", config: {} }, conditions: undefined, actions: undefined };
+  }
+  const { type, delayMinutes, templateName, messageText, targetStage, agentId, taskTitle, webhookUrl } = action;
+  return {
+    name: rule.name,
+    description: rule.description ?? "",
+    isActive: rule.isActive !== false,
+    trigger: rule.trigger,
+    condition,
+    action: {
+      type,
+      config: { delayMinutes, templateName, messageText, targetStage, agentId, taskTitle, webhookUrl },
+    },
+  };
+}
 
 export function AutomationWorkflowsPanel({ mode = "workflows" }: { mode?: AutomationWorkflowsPanelMode }) {
   const [rules, setRules] = useState<WorkflowRule[]>([]);
   const [logs, setLogs] = useState<WorkflowExecutionLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   // Modal State
@@ -19,16 +107,21 @@ export function AutomationWorkflowsPanel({ mode = "workflows" }: { mode?: Automa
 
   const loadData = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
-      const [rRes, lRes] = await Promise.all([
-        fetch("/api/sales/automations"),
-        fetch("/api/sales/automations/logs"),
+      const [rules, logs] = await Promise.all([
+        aicloserApi.automations.list(),
+        aicloserApi.automations.getLogs(),
       ]);
-      const [rJson, lJson] = await [await rRes.json(), await lRes.json()];
-      if (rJson.ok) setRules(rJson.rules || []);
-      if (lJson.ok) setLogs(lJson.logs || []);
+      const normalizedRules = (rules || []).map(normalizeAutomationRule);
+      const normalizedLogs = (logs || []).map(normalizeAutomationLog);
+      // Protect the UI from an API page repeating the same semantic rule.
+      // Keep same-name rules when their trigger, conditions, actions, or status differ.
+      setRules(Array.from(new Map(normalizedRules.map((rule) => [automationFingerprint(rule), rule])).values()));
+      setLogs(Array.from(new Map(normalizedLogs.map((log, index) => [log.id || `log-row-${index}`, log])).values()));
     } catch (err) {
       console.error("Failed to load automations", err);
+      setLoadError(err instanceof Error ? err.message : "Unable to load automation data");
     } finally {
       setLoading(false);
     }
@@ -41,13 +134,8 @@ export function AutomationWorkflowsPanel({ mode = "workflows" }: { mode?: Automa
   const handleToggleRule = async (rule: WorkflowRule) => {
     try {
       const updated = { ...rule, isActive: !rule.isActive };
-      const res = await fetch(`/api/sales/automations/${rule.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updated),
-      });
-      const data = await res.json();
-      if (data.ok) await loadData();
+      await aicloserApi.automations.update(rule.id, toCentralAutomationPayload(updated));
+      await loadData();
     } catch (err) {
       console.error(err);
     }
@@ -60,21 +148,13 @@ export function AutomationWorkflowsPanel({ mode = "workflows" }: { mode?: Automa
     }
     setSaving(true);
     try {
-      const isEdit = Boolean(editingRule.id);
-      const url = isEdit ? `/api/sales/automations/${editingRule.id}` : "/api/sales/automations";
-      const method = isEdit ? "PUT" : "POST";
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(editingRule),
-      });
-      const data = await res.json();
-      if (data.ok) {
+      const saved = editingRule.id
+        ? await aicloserApi.automations.update(editingRule.id, toCentralAutomationPayload(editingRule))
+        : await aicloserApi.automations.create(toCentralAutomationPayload(editingRule));
+      if (saved) {
         setModalOpen(false);
         setEditingRule(null);
         await loadData();
-      } else {
-        alert(data.error || "Failed to save workflow");
       }
     } catch (err: any) {
       alert(err.message || "Failed to save workflow");
@@ -86,9 +166,8 @@ export function AutomationWorkflowsPanel({ mode = "workflows" }: { mode?: Automa
   const handleDeleteRule = async (id: string) => {
     if (!confirm("Are you sure you want to delete this workflow rule?")) return;
     try {
-      const res = await fetch(`/api/sales/automations/${id}`, { method: "DELETE" });
-      const data = await res.json();
-      if (data.ok) await loadData();
+      await aicloserApi.automations.remove(id);
+      await loadData();
     } catch (err: any) {
       alert(err.message || "Failed to delete rule");
     }
@@ -145,19 +224,25 @@ export function AutomationWorkflowsPanel({ mode = "workflows" }: { mode?: Automa
     setTimeout(() => setCopiedKey(null), 2500);
   };
 
+  const activeRules = rules.filter((rule) => rule.isActive).length;
+  const totalExecutions = rules.reduce((total, rule) => total + rule.executionCount, 0);
+  const successfulRuns = logs.filter((log) => log.status === "SUCCESS").length;
+  const successRate = logs.length ? Math.round((successfulRuns / logs.length) * 100) : 0;
+  const latestRun = logs[0]?.executedAt ?? rules.find((rule) => rule.lastRunAt)?.lastRunAt ?? null;
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+    <div className="automation-workspace">
       {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
-        <div>
-          <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 700, color: "var(--closer-ink, #0f172a)", display: "flex", alignItems: "center" }}>
-            <Zap size={20} color="var(--closer-orange, #ff6b2f)" style={{ display: "inline-block", verticalAlign: "middle", marginRight: "8px" }} />
-            {mode === "developer" ? "Developer Webhooks & API Access" : "Workflow Automation & Schedules"}
+      <div className="automation-workspace-header">
+        <div className="automation-workspace-heading">
+          <span className="automation-eyebrow"><Zap size={13} /> {mode === "developer" ? "DEVELOPER WORKSPACE" : "AUTOMATION WORKSPACE"}</span>
+          <h2>
+            {mode === "developer" ? "Developer webhooks & API access" : "Workflow automation & schedules"}
           </h2>
-          <p style={{ margin: "0.25rem 0 0", fontSize: "0.82rem", color: "var(--closer-muted, #64748b)" }}>
+          <p>
             {mode === "developer"
               ? "Inbound lead connectors, workspace API keys, and developer tokens for integrations."
-              : "Durable Event & Schedule → Condition → Action pipeline across WhatsApp, stage transitions, SIM calling, and follow-up actions."}
+              : "Build durable event → condition → action flows across leads, WhatsApp, calls, stages, and follow-ups."}
           </p>
         </div>
 
@@ -174,24 +259,20 @@ export function AutomationWorkflowsPanel({ mode = "workflows" }: { mode?: Automa
             });
             setModalOpen(true);
           }}
-          style={{
-            padding: "0.55rem 1.1rem",
-            borderRadius: "8px",
-            background: "linear-gradient(135deg, #ff6b2f, #ff8c42)",
-            color: "#fff",
-            border: "none",
-            fontWeight: 700,
-            fontSize: "0.84rem",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: "0.4rem",
-            boxShadow: "0 4px 14px rgba(255, 107, 47, 0.35)",
-          }}
+          className="automation-primary-action"
         >
           <Plus size={16} /> Create Automation Rule
         </button> : null}
       </div>
+
+      {mode === "workflows" ? <div className="automation-metric-grid" aria-label="Automation summary">
+        <div className="automation-metric-card"><span className="automation-metric-icon orange"><Workflow size={16} /></span><span className="automation-metric-label">Total workflows</span><strong>{rules.length}</strong><small>{activeRules} active now</small></div>
+        <div className="automation-metric-card"><span className="automation-metric-icon green"><Activity size={16} /></span><span className="automation-metric-label">Successful runs</span><strong>{successRate}%</strong><small>{successfulRuns} of {logs.length || 0} audit events</small></div>
+        <div className="automation-metric-card"><span className="automation-metric-icon blue"><Database size={16} /></span><span className="automation-metric-label">Total executions</span><strong>{totalExecutions}</strong><small>Across all workflows</small></div>
+        <div className="automation-metric-card"><span className="automation-metric-icon violet"><Clock3 size={16} /></span><span className="automation-metric-label">Last activity</span><strong>{latestRun ? formatRunTime(latestRun) : "—"}</strong><small>{latestRun ? "Central automation runtime" : "No execution yet"}</small></div>
+      </div> : null}
+
+      {loadError ? <div className="automation-error-state" role="alert"><div><strong>Automation data unavailable</strong><span>{loadError}</span></div><button type="button" className="automation-secondary-action" onClick={loadData}>Retry</button></div> : null}
 
       {mode === "developer" ? <>
       {/* Webhook Endpoints Strip */}
@@ -365,156 +446,48 @@ export function AutomationWorkflowsPanel({ mode = "workflows" }: { mode?: Automa
 
       {mode === "workflows" ? <>
       {/* Rules List */}
-      <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-        {rules.map((rule) => (
-          <div
-            key={rule.id}
-            style={{
-              padding: "1.25rem",
-              borderRadius: "12px",
-              background: "var(--closer-surface, #ffffff)",
-              border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.22))",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              flexWrap: "wrap",
-              gap: "1rem",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "flex-start", gap: "0.85rem", maxWidth: "650px" }}>
-              <div
-                style={{
-                  width: "36px",
-                  height: "36px",
-                  borderRadius: "8px",
-                  background: rule.isActive ? "rgba(16, 185, 129, 0.15)" : "rgba(100, 116, 139, 0.15)",
-                  color: rule.isActive ? "#10b981" : "#94a3b8",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flexShrink: 0,
-                }}
-              >
-                <Zap size={18} />
+      {loading ? <div className="automation-rules-grid" aria-label="Loading automation workflows">
+        {[1, 2, 3].map((item) => <div className="automation-skeleton-card" key={item}><span /><span /><span /><span /></div>)}
+      </div> : rules.length === 0 ? <div className="automation-empty-state"><Workflow size={24} /><strong>No workflows yet</strong><span>Create your first event → condition → action automation to get started.</span><button type="button" className="automation-primary-action" onClick={() => setEditingRule({ name: "", description: "", isActive: true, trigger: { type: "LEAD_CREATED" }, conditions: [], actions: [{ type: "SEND_WHATSAPP", delayMinutes: 1, messageText: "Hi {{name}}, thanks for your inquiry!" }] })}>Create first workflow</button></div> : <div className="automation-rules-grid">
+        {rules.map((rule) => {
+          const condition = rule.conditions[0];
+          const action = rule.actions[0];
+          return <article className="automation-rule-card" key={rule.id}>
+            <div className="automation-rule-card-header">
+              <div className="automation-rule-title-wrap">
+                <span className={`automation-rule-icon ${rule.isActive ? "is-active" : ""}`}><Zap size={17} /></span>
+                <div><h3>{rule.name}</h3><p>{rule.description || "No description added"}</p></div>
               </div>
-
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
-                  <h4 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 700, color: "var(--closer-ink, #0f172a)" }}>
-                    {rule.name}
-                  </h4>
-                  <span
-                    style={{
-                      padding: "0.15rem 0.5rem",
-                      borderRadius: "4px",
-                      background: "rgba(255, 107, 47, 0.15)",
-                      color: "#ff6b2f",
-                      fontSize: "0.7rem",
-                      fontWeight: 700,
-                    }}
-                  >
-                    Trigger: {rule.trigger.type}
-                  </span>
-                </div>
-
-                <p style={{ margin: "0.25rem 0", fontSize: "0.8rem", color: "var(--closer-muted, #64748b)" }}>
-                  {rule.description}
-                </p>
-
-                <div style={{ display: "flex", alignItems: "center", gap: "1rem", fontSize: "0.74rem", color: "var(--closer-muted, #64748b)", flexWrap: "wrap" }}>
-                  <span>Executions: <strong>{rule.executionCount}</strong></span>
-                  {rule.lastRunAt && <span>Last Run: {new Date(rule.lastRunAt).toLocaleTimeString()}</span>}
-                  <span>Actions: {rule.actions.map((a) => a.type).join(", ")}</span>
-                </div>
+              <div className="automation-rule-actions">
+                <button type="button" className={`automation-status-pill ${rule.isActive ? "is-active" : ""}`} onClick={() => handleToggleRule(rule)}>{rule.isActive ? "Active" : "Paused"}</button>
+                <button type="button" className="automation-icon-button" aria-label={`More actions for ${rule.name}`} title="More actions"><MoreHorizontal size={17} /></button>
               </div>
             </div>
-
-            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-              <button
-                type="button"
-                onClick={() => handleToggleRule(rule)}
-                style={{
-                  padding: "0.35rem 0.8rem",
-                  borderRadius: "20px",
-                  background: rule.isActive ? "rgba(16, 185, 129, 0.16)" : "rgba(148, 163, 184, 0.16)",
-                  color: rule.isActive ? "#059669" : "#64748b",
-                  border: "none",
-                  fontSize: "0.76rem",
-                  fontWeight: 700,
-                  cursor: "pointer",
-                }}
-              >
-                {rule.isActive ? "ACTIVE" : "PAUSED"}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingRule(rule);
-                  setModalOpen(true);
-                }}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "var(--closer-muted, #64748b)",
-                  cursor: "pointer",
-                }}
-              >
-                <Edit2 size={15} />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleDeleteRule(rule.id)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "#ef4444",
-                  cursor: "pointer",
-                }}
-              >
-                <Trash2 size={15} />
-              </button>
+            <div className="automation-flow" aria-label="Automation flow">
+              <div className="automation-flow-step"><span className="automation-flow-label">When</span><strong>{humanizeToken(rule.trigger.type)}</strong></div>
+              <ArrowRight className="automation-flow-arrow" size={15} />
+              <div className="automation-flow-step"><span className="automation-flow-label">If</span><strong>{condition ? `${humanizeToken(condition.field)} ${humanizeToken(condition.operator)} ${condition.value}` : "Every matching lead"}</strong></div>
+              <ArrowRight className="automation-flow-arrow" size={15} />
+              <div className="automation-flow-step"><span className="automation-flow-label">Then</span><strong>{humanizeToken(action?.type)}</strong></div>
             </div>
-          </div>
-        ))}
-      </div>
+            <div className="automation-rule-footer">
+              <div className="automation-rule-stats"><span><Activity size={13} /> {rule.executionCount} executions</span><span><Clock3 size={13} /> {formatRunTime(rule.lastRunAt)}</span></div>
+              <div className="automation-rule-footer-actions"><button type="button" className="automation-text-button" onClick={() => { setEditingRule(rule); setModalOpen(true); }}><Edit2 size={13} /> Edit</button><button type="button" className="automation-danger-button" onClick={() => handleDeleteRule(rule.id)}><Trash2 size={13} /> Delete</button></div>
+            </div>
+          </article>;
+        })}
+      </div>}
 
       {/* Execution Audit Logs */}
       {logs.length > 0 && (
-        <div
-          style={{
-            marginTop: "0.5rem",
-            padding: "1.25rem",
-            borderRadius: "12px",
-            background: "var(--closer-surface, #ffffff)",
-            border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.22))",
-          }}
-        >
-          <h4 style={{ margin: "0 0 0.75rem", fontSize: "0.88rem", fontWeight: 700, color: "var(--closer-ink, #0f172a)", display: "flex", alignItems: "center" }}>
-            <ClipboardList size={16} color="var(--closer-orange, #ff6b2f)" style={{ display: "inline-block", verticalAlign: "middle", marginRight: "6px" }} />
-            Real-Time Execution Audit Trail
-          </h4>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", maxHeight: "200px", overflowY: "auto" }}>
+        <div className="automation-audit-card">
+          <div className="automation-section-heading"><div><span className="automation-eyebrow"><ClipboardList size={13} /> EXECUTION MONITOR</span><h3>Recent automation activity</h3></div><span className="automation-live-dot">LIVE</span></div>
+          <div className="automation-audit-list">
             {logs.map((log) => (
-              <div
-                key={log.id}
-                style={{
-                  padding: "0.5rem 0.75rem",
-                  borderRadius: "6px",
-                  background: "var(--closer-bg-soft, rgba(15, 23, 42, 0.04))",
-                  border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.16))",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  fontSize: "0.76rem",
-                }}
-              >
-                <div>
-                  <strong style={{ color: "var(--closer-ink, #0f172a)" }}>{log.workflowName}</strong>
-                  <span style={{ color: "var(--closer-muted, #64748b)", marginLeft: "0.5rem" }}>{log.details}</span>
-                </div>
-                <span style={{ color: "var(--closer-muted, #64748b)" }}>{new Date(log.executedAt).toLocaleTimeString()}</span>
+              <div className="automation-audit-row" key={log.id}>
+                <span className={`automation-audit-status ${log.status === "SUCCESS" ? "is-success" : "is-failed"}`}>{log.status === "SUCCESS" ? <Check size={13} /> : "!"}</span>
+                <div className="automation-audit-copy"><strong>{log.workflowName}</strong><span>{log.details || `${humanizeToken(log.triggerEvent)} completed`}</span></div>
+                <time>{formatRunTime(log.executedAt)}</time>
               </div>
             ))}
           </div>

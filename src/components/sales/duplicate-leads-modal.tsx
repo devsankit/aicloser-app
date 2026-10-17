@@ -2,7 +2,22 @@
 
 import { useEffect, useState } from "react";
 import { Users2, GitMerge, Check, AlertCircle, X, CheckCircle2 } from "lucide-react";
-import type { DuplicateCluster } from "@/lib/gigxomi/lead-duplicates-store";
+import { aicloserApi } from "@/lib/api-client";
+
+type DuplicateCluster = {
+  key: string;
+  count: number;
+  leads: Array<{
+    id: string;
+    customerName: string;
+    customerPhone: string | null;
+    customerEmail: string | null;
+    source: string;
+    stage: string;
+    createdAt: string;
+    notes: string | null;
+  }>;
+};
 
 type Props = {
   isOpen: boolean;
@@ -18,9 +33,21 @@ export function DuplicateLeadsModal({ isOpen, onClose, onMerged }: Props) {
   const loadDuplicates = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/sales/leads/duplicates");
-      const data = await res.json();
-      if (data.ok) setClusters(data.clusters || []);
+      const data = await aicloserApi.leads.getDuplicates();
+      setClusters(data.map((cluster) => ({
+        key: `Phone: ${cluster.phone}`,
+        count: cluster.duplicateCount,
+        leads: cluster.leads.map((lead) => ({
+          id: String(lead.id ?? ""),
+          customerName: String(lead.customerName ?? "Unknown lead"),
+          customerPhone: typeof lead.customerPhone === "string" ? lead.customerPhone : null,
+          customerEmail: typeof lead.customerEmail === "string" ? lead.customerEmail : null,
+          source: String(lead.source ?? "Unknown"),
+          stage: String(lead.stage ?? "Unknown"),
+          createdAt: String(lead.createdAt ?? ""),
+          notes: typeof lead.notes === "string" ? lead.notes : null,
+        })),
+      })));
     } catch (err) {
       console.error("Failed to load duplicates", err);
     } finally {
@@ -37,18 +64,9 @@ export function DuplicateLeadsModal({ isOpen, onClose, onMerged }: Props) {
   const handleMerge = async (primaryId: string, secondaryId: string) => {
     setMerging(secondaryId);
     try {
-      const res = await fetch("/api/sales/leads/merge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ primaryLeadId: primaryId, secondaryLeadId: secondaryId }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        await loadDuplicates();
-        onMerged?.();
-      } else {
-        alert(data.error || "Failed to merge leads");
-      }
+      await aicloserApi.leads.merge(primaryId, secondaryId);
+      await loadDuplicates();
+      onMerged?.();
     } catch (err: any) {
       alert(err.message || "Failed to merge leads");
     } finally {

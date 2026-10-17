@@ -97,6 +97,15 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     tenantId: authorization.session.tenantId,
     actorUserId: authorization.session.userId,
     audienceRoles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"],
+    eventType: "lead.updated",
+    payload: { conversationId: id, nextFollowUpAt: nextFollowUpAt ?? null, notes },
+  }).catch(() => undefined);
+
+  await persistRealtimeEvent({
+    topic: `tenant:${authorization.session.tenantId ?? "tenant-gigxomi"}`,
+    tenantId: authorization.session.tenantId,
+    actorUserId: authorization.session.userId,
+    audienceRoles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"],
     eventType: "lead.note_updated",
     payload: {
       conversationId: id,

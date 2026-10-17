@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, Eye, EyeOff, LogIn, Search, Send } from "lucide-react";
 import { countryCodes } from "./country-codes";
+import { setStoredToken } from "@/lib/api-client";
 
 function CountryCodePicker({ defaultValue = "+91" }: { defaultValue?: string }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -376,6 +377,7 @@ export function SalesPasswordLoginForm({ redirectTo = "/?tab=dashboard", error =
       });
       const data = await response.json().catch(() => null);
       if (response.ok && data?.ok) {
+        if (data.token) setStoredToken(data.token);
         window.location.assign(data.redirectTo || redirectTo || "/");
         return;
       }
@@ -482,6 +484,7 @@ export function SuperAdminLoginForm({ redirectTo = "/super-admin", error = "", m
       });
       const data = await response.json().catch(() => null);
       if (response.ok && data?.ok) {
+        if (data.token) setStoredToken(data.token);
         window.location.assign(data.redirectTo || redirectTo || "/super-admin");
         return;
       }

@@ -2,14 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, Edit3, MessageSquare, PhoneCall, Plus, RefreshCw, Smartphone, X } from "lucide-react";
+import { aicloserApi, type LeadTimelineEntry } from "@/lib/api-client";
 
-interface TimelineNote {
-  id: string;
-  type: string;
-  body: string;
-  createdAt: string;
-  metadata?: any;
-}
+type TimelineNote = LeadTimelineEntry & { metadata?: any };
 
 export function LeadNotesManager({
   leadId,
@@ -56,10 +51,9 @@ export function LeadNotesManager({
   const loadNotes = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch(`/api/sales/leads/${leadId}/notes`, { cache: "no-store" });
-      const data = await res.json();
-      if (data.ok && Array.isArray(data.timelineNotes)) {
-        setNotes(data.timelineNotes);
+      const data = await aicloserApi.leads.getNotes(leadId);
+      if (Array.isArray(data.timelineNotes)) {
+        setNotes(data.timelineNotes as TimelineNote[]);
       }
     } catch {
       // fallback to initial notes if available
@@ -82,24 +76,15 @@ export function LeadNotesManager({
     setIsSaving(true);
     setStatusMessage("");
     try {
-      const res = await fetch(`/api/sales/leads/${leadId}/notes`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          body: newNoteBody.trim(),
-          type: newNoteType,
-          source: "web-dashboard",
-        }),
-      });
-      const data = await res.json();
-      if (data.ok && data.note) {
-        setNotes((prev) => [data.note, ...prev]);
+      const note = await aicloserApi.leads.addNote(leadId, newNoteBody.trim());
+      if (note) {
+        setNotes((prev) => [note as TimelineNote, ...prev]);
         setNewNoteBody("");
         setStatusMessage("Note saved and synced with mobile app.");
         setTimeout(() => setStatusMessage(""), 3500);
-        onNotesUpdated?.(data.note.body);
+        onNotesUpdated?.(note.body);
       } else {
-        setStatusMessage(data.error || "Failed to save note");
+        setStatusMessage("Failed to save note");
       }
     } catch {
       setStatusMessage("Network error saving note");
@@ -117,18 +102,10 @@ export function LeadNotesManager({
     if (!editText.trim() || isUpdating) return;
     setIsUpdating(true);
     try {
-      const res = await fetch(`/api/sales/leads/${leadId}/notes`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          noteId,
-          body: editText.trim(),
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
+      const note = await aicloserApi.leads.updateNote(leadId, noteId, editText.trim());
+      if (note) {
         setNotes((prev) =>
-          prev.map((n) => (n.id === noteId ? { ...n, body: editText.trim() } : n))
+          prev.map((n) => (n.id === noteId ? { ...n, ...note } : n))
         );
         setEditingNoteId(null);
         setEditText("");
@@ -136,7 +113,7 @@ export function LeadNotesManager({
         setTimeout(() => setStatusMessage(""), 3000);
         onNotesUpdated?.(editText.trim());
       } else {
-        setStatusMessage(data.error || "Failed to update note");
+        setStatusMessage("Failed to update note");
       }
     } catch {
       setStatusMessage("Network error updating note");

@@ -3,6 +3,23 @@
 import { useEffect, useState } from "react";
 import { Plus, Trash2, Edit2, Check, ExternalLink, Copy, Sliders, Layers, FileText } from "lucide-react";
 import type { CustomFieldDefinition, CustomFieldType, StageConfig, SalesFormDefinition } from "@/lib/gigxomi/custom-fields-store";
+import { aicloserApi } from "@/lib/api-client";
+
+function mapCentralCustomField(field: any): CustomFieldDefinition {
+  return {
+    id: String(field.id),
+    name: String(field.fieldKey),
+    label: String(field.fieldLabel),
+    type: String(field.fieldType || "text") as CustomFieldType,
+    options: Array.isArray(field.options) ? field.options : [],
+    required: Boolean(field.isRequired),
+    defaultValue: field.defaultValue,
+    rolePermissions: { ADMIN: "READ_WRITE", MANAGER: "READ_WRITE", SALES_AGENT: "READ_WRITE" },
+    sortOrder: Number(field.position ?? 0),
+    createdAt: String(field.createdAt || new Date().toISOString()),
+    updatedAt: String(field.updatedAt || new Date().toISOString()),
+  };
+}
 
 export function CustomFieldsPanel() {
   const [activeSubTab, setActiveSubTab] = useState<"fields" | "stages" | "forms">("fields");
@@ -24,14 +41,25 @@ export function CustomFieldsPanel() {
     setLoading(true);
     try {
       const [fRes, sRes, fmRes] = await Promise.all([
-        fetch("/api/sales/custom-fields"),
-        fetch("/api/sales/stages/config"),
-        fetch("/api/sales/forms"),
+        aicloserApi.customFields.list(),
+        aicloserApi.stages.list(),
+        aicloserApi.forms.list(),
       ]);
-      const [fJson, sJson, fmJson] = await [await fRes.json(), await sRes.json(), await fmRes.json()];
-      if (fJson.ok) setFields(fJson.fields || []);
-      if (sJson.ok) setStages(sJson.stages || []);
-      if (fmJson.ok) setForms(fmJson.forms || []);
+      if (Array.isArray(fRes)) setFields(fRes.map(mapCentralCustomField));
+      if (Array.isArray(sRes)) {
+        setStages(sRes.map((stage) => ({
+          stageKey: String(stage.key || stage.id),
+          label: String(stage.label),
+          color: String(stage.color),
+          leadsCount: stage.leadsCount,
+          // SLA configuration is intentionally not fabricated: the central API
+          // owns pipeline stages, but does not expose an SLA field yet.
+          slaHours: 0,
+          requiredFieldIds: [],
+          isDefault: !stage.isCustom,
+        })));
+      }
+      if (Array.isArray(fmRes)) setForms(fmRes as SalesFormDefinition[]);
     } catch (err) {
       console.error("Failed to load schema data", err);
     } finally {
@@ -50,21 +78,19 @@ export function CustomFieldsPanel() {
     }
     try {
       const isEdit = Boolean(editingField.id);
-      const url = isEdit ? `/api/sales/custom-fields/${editingField.id}` : "/api/sales/custom-fields";
-      const method = isEdit ? "PUT" : "POST";
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(editingField),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setFieldModalOpen(false);
-        setEditingField(null);
-        await loadData();
-      } else {
-        alert(data.error || "Failed to save field");
-      }
+      const payload = {
+        fieldKey: editingField.name,
+        fieldLabel: editingField.label,
+        fieldType: editingField.type,
+        options: editingField.options || [],
+        isRequired: editingField.required || false,
+        defaultValue: editingField.defaultValue == null ? undefined : String(editingField.defaultValue),
+      };
+      if (isEdit) await aicloserApi.customFields.update(String(editingField.id), payload);
+      else await aicloserApi.customFields.create(payload);
+      setFieldModalOpen(false);
+      setEditingField(null);
+      await loadData();
     } catch (err: any) {
       alert(err.message || "Failed to save field");
     }
@@ -73,23 +99,19 @@ export function CustomFieldsPanel() {
   const handleDeleteField = async (id: string) => {
     if (!confirm("Are you sure you want to delete this custom field? Existing values for this field will remain untouched.")) return;
     try {
-      const res = await fetch(`/api/sales/custom-fields/${id}`, { method: "DELETE" });
-      const data = await res.json();
-      if (data.ok) await loadData();
+      await aicloserApi.customFields.remove(id);
+      await loadData();
     } catch (err: any) {
       alert(err.message || "Failed to delete field");
     }
   };
 
   const handleUpdateStage = async (stageKey: string, field: keyof StageConfig, val: any) => {
+    if (field !== "color") return;
     const updated = stages.map((s) => (s.stageKey === stageKey ? { ...s, [field]: val } : s));
     setStages(updated);
     try {
-      await fetch("/api/sales/stages/config", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updated),
-      });
+      await aicloserApi.stages.updateStage(stageKey, { color: val });
     } catch (err) {
       console.error("Failed to save stage changes", err);
     }
@@ -101,21 +123,13 @@ export function CustomFieldsPanel() {
       return;
     }
     try {
-      const isEdit = Boolean(editingForm.id);
-      const url = isEdit ? `/api/sales/forms/${editingForm.id}` : "/api/sales/forms";
-      const method = isEdit ? "PUT" : "POST";
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(editingForm),
-      });
-      const data = await res.json();
-      if (data.ok) {
+      const saved = editingForm.id
+        ? await aicloserApi.forms.update(String(editingForm.id), editingForm as Record<string, unknown>)
+        : await aicloserApi.forms.create(editingForm as Record<string, unknown>);
+      if (saved) {
         setFormModalOpen(false);
         setEditingForm(null);
         await loadData();
-      } else {
-        alert(data.error || "Failed to save sales form");
       }
     } catch (err: any) {
       alert(err.message || "Failed to save sales form");
@@ -125,9 +139,8 @@ export function CustomFieldsPanel() {
   const handleDeleteForm = async (id: string) => {
     if (!confirm("Are you sure you want to delete this sales form?")) return;
     try {
-      const res = await fetch(`/api/sales/forms/${id}`, { method: "DELETE" });
-      const data = await res.json();
-      if (data.ok) await loadData();
+      await aicloserApi.forms.remove(id);
+      await loadData();
     } catch (err: any) {
       alert(err.message || "Failed to delete form");
     }
@@ -148,10 +161,10 @@ export function CustomFieldsPanel() {
         <div>
           <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 700, color: "var(--closer-ink, #0f172a)", display: "flex", alignItems: "center" }}>
             <Sliders size={20} color="var(--closer-orange, #ff6b2f)" style={{ display: "inline-block", verticalAlign: "middle", marginRight: "8px" }} />
-            CRM Schema, Stage SLAs, Field Permissions &amp; Sales Forms
+            CRM Schema, Pipeline Stages, Field Permissions &amp; Sales Forms
           </h2>
           <p style={{ margin: "0.25rem 0 0", fontSize: "0.82rem", color: "var(--closer-muted, #64748b)" }}>
-            TeleCRM-grade custom fields, role permissions, stage SLAs, and embeddable sales intake forms.
+            Central custom fields, pipeline stage configuration, role permissions, and embeddable sales intake forms.
           </p>
         </div>
 
@@ -192,7 +205,7 @@ export function CustomFieldsPanel() {
               gap: "0.4rem",
             }}
           >
-            <Layers size={14} /> Stage Discipline & SLAs
+            <Layers size={14} /> Pipeline Stages
           </button>
           <button
             type="button"
@@ -358,7 +371,7 @@ export function CustomFieldsPanel() {
         /* ================= SUB-TAB 2: STAGE DISCIPLINE & SLAS ================= */
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           <p style={{ margin: 0, fontSize: "0.84rem", color: "var(--closer-muted, #64748b)" }}>
-            Define response time SLAs (hours) and stage colors. Leads exceeding SLA thresholds are flagged on Kanban with overdue badges.
+            Configure the central pipeline stages used by Kanban, lead detail, forms, and reporting. Changes are synced to every workspace screen through the central API.
           </p>
 
           <div
@@ -399,24 +412,9 @@ export function CustomFieldsPanel() {
                   </span>
                 </div>
 
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
-                  <label style={{ fontSize: "0.75rem", color: "var(--closer-muted, #64748b)" }}>
-                    SLA Max Duration ({stage.slaHours ? `${stage.slaHours} hours` : "No limit"})
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={stage.slaHours || 0}
-                    onChange={(e) => handleUpdateStage(stage.stageKey, "slaHours", Number(e.target.value))}
-                    style={{
-                      padding: "0.4rem 0.6rem",
-                      borderRadius: "6px",
-                      background: "var(--closer-bg-soft, rgba(15, 23, 42, 0.04))",
-                      border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.3))",
-                      color: "var(--closer-ink, #0f172a)",
-                      fontSize: "0.82rem",
-                    }}
-                  />
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem", padding: "0.5rem 0", fontSize: "0.75rem", color: "var(--closer-muted, #64748b)" }}>
+                  <span>Leads in stage</span>
+                  <strong style={{ color: "var(--closer-ink, #0f172a)" }}>{(stage as StageConfig & { leadsCount?: number }).leadsCount ?? "—"}</strong>
                 </div>
 
                 <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>

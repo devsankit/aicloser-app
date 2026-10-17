@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { resolveSessionTenantId } from "@/lib/api/resolve-session-tenant";
 import { requireSessionRole } from "@/lib/api/require-session-role";
 import { prisma } from "@/lib/prisma";
+import { centralApiRequest } from "@/lib/central-api-server";
 
 function isWorkspaceAdmin(permissions: unknown) {
   if (!permissions || typeof permissions !== "object" || Array.isArray(permissions)) return false;
@@ -11,6 +12,31 @@ function isWorkspaceAdmin(permissions: unknown) {
 }
 
 export async function GET(request: Request) {
+  try {
+    const url = new URL(request.url);
+    const query = new URLSearchParams({
+      page: String(Math.max(1, Number(url.searchParams.get("page")) || 1)),
+      limit: String(Math.min(100, Math.max(1, Number(url.searchParams.get("pageSize") || url.searchParams.get("limit")) || 50))),
+    });
+    for (const key of ["outcome", "recordingStatus"]) {
+      const value = url.searchParams.get(key);
+      if (value) query.set(key, value);
+    }
+    const payload = await centralApiRequest<{ data?: Array<Record<string, unknown>>; pagination?: { total?: number; page?: number; limit?: number; totalPages?: number } }>(`/calls?${query.toString()}`);
+    const calls = payload.data ?? [];
+    const totals = {
+      totalCalls: payload.pagination?.total ?? calls.length,
+      inboundCalls: calls.filter((call) => String(call.direction).toUpperCase() === "INBOUND").length,
+      outboundCalls: calls.filter((call) => String(call.direction).toUpperCase() === "OUTBOUND").length,
+      missedCalls: calls.filter((call) => String(call.status).toUpperCase() === "MISSED").length,
+      talkTimeSeconds: calls.reduce((sum, call) => sum + Number(call.durationSeconds ?? call.durationSec ?? 0), 0),
+      uploadedRecordings: calls.filter((call) => String(call.recordingStatus).toUpperCase() === "UPLOADED").length,
+    };
+    return NextResponse.json({ ok: true, page: payload.pagination?.page ?? 1, pageSize: payload.pagination?.limit ?? calls.length, totalCount: payload.pagination?.total ?? calls.length, totalPages: payload.pagination?.totalPages ?? 1, totals, calls });
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Central calls API unavailable." }, { status: 502 });
+  }
+
   const auth = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"]);
   if (!auth.ok) return auth.response;
 

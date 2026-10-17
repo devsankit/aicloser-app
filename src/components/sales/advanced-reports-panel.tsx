@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { BarChart3, Download, Clock, Award, Users, Filter, Sparkles, Mail, Send, CheckCircle2, Loader2, Contact } from "lucide-react";
 import type { HourlyCallBucket, AgentProductivityRow, SourcePerformanceRow } from "@/lib/gigxomi/advanced-reports-store";
+import { aicloserApi } from "@/lib/api-client";
 
 type AdvancedReportsPanelProps = {
   selectedAgentId?: string | null;
@@ -34,15 +35,40 @@ export function AdvancedReportsPanel({ selectedAgentId = null, selectedAgentName
     async function load() {
       setLoading(true);
       try {
-        const params = new URLSearchParams();
-        if (selectedAgentId) params.set("agentId", selectedAgentId);
-        const res = await fetch(`/api/sales/reports/custom${params.toString() ? `?${params.toString()}` : ""}`);
-        const data = await res.json();
-        if (data.ok) {
-          setHourly(data.hourly || []);
-          setLeaderboard(data.leaderboard || []);
-          setSources(data.sources || []);
-        }
+        const data = await aicloserApi.reports.getCustom({ agentId: selectedAgentId ?? undefined }) as {
+          hourly?: HourlyCallBucket[];
+          leaderboard?: AgentProductivityRow[];
+          sources?: SourcePerformanceRow[];
+        };
+        setHourly((data.hourly || []).map((item: any, index: number) => {
+          const rawHour = typeof item.hour === "string" ? Number.parseInt(item.hour, 10) : Number(item.hour);
+          const hour = Number.isFinite(rawHour) ? rawHour : index;
+          const period = hour < 12 ? `${hour || 12} AM` : hour === 12 ? "12 PM" : `${hour - 12} PM`;
+          return {
+            hour,
+            label: `${period} - ${hour === 23 ? "12 AM" : `${(hour + 1) % 12 || 12} ${hour + 1 >= 12 ? "PM" : "AM"}`}`,
+            totalCalls: Number(item.totalCalls || 0),
+            connectedCalls: Number(item.connectedCalls || 0),
+            totalDurationSeconds: Number(item.totalDurationSeconds || 0),
+          };
+        }));
+        setLeaderboard((data.leaderboard || []).map((item: any) => ({
+          agentId: String(item.agentId || item.id || "unknown-agent"),
+          agentName: item.agentName || item.name || "Sales Closer",
+          totalCalls: Number(item.totalCalls || 0),
+          connectedCalls: Number(item.connectedCalls || 0),
+          totalDurationMinutes: Number(item.totalDurationMinutes || 0),
+          avgCallDurationSeconds: Number(item.avgCallDurationSeconds ?? item.avgCallSeconds ?? 0),
+          leadsAssigned: Number(item.leadsAssigned ?? item.totalLeads ?? 0),
+          dealsWon: Number(item.dealsWon ?? item.wonLeads ?? 0),
+          conversionRatePercent: Number(item.conversionRatePercent ?? item.conversionRate ?? 0),
+        })));
+        setSources((data.sources || []).map((item: any) => ({
+          source: item.source || "Direct",
+          leadsCount: Number(item.leadsCount ?? item.totalLeads ?? 0),
+          wonCount: Number(item.wonCount ?? item.wonLeads ?? 0),
+          conversionPercent: Number(item.conversionPercent ?? item.conversionRate ?? 0),
+        })));
       } catch (err) {
         console.error("Failed to load reports", err);
       } finally {
@@ -58,13 +84,8 @@ export function AdvancedReportsPanel({ selectedAgentId = null, selectedAgentName
     setMcpQuery(promptToRun);
     setMcpLoading(true);
     try {
-      const res = await fetch("/api/sales/ai-bot/crm-query", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: promptToRun }),
-      });
-      const data = await res.json();
-      if (data.ok && data.answer) {
+      const data = await aicloserApi.ai.copilot(promptToRun) as { answer?: string };
+      if (data.answer) {
         setMcpAnswer(data.answer);
       } else {
         setMcpAnswer("No live Lead-IQ insight is available for this query right now.");
@@ -81,9 +102,7 @@ export function AdvancedReportsPanel({ selectedAgentId = null, selectedAgentName
   const handleDownload = async (type: "leads" | "calls" | "contacts") => {
     try {
       setDownloadingType(type);
-      const params = new URLSearchParams({ type });
-      if (selectedAgentId) params.set("agentId", selectedAgentId);
-      const res = await fetch(`/api/sales/reports/export?${params.toString()}`, {
+      const res = await fetch(aicloserApi.reports.getExportUrl(type, selectedAgentId ? { agentId: selectedAgentId } : undefined), {
         headers: { Accept: "text/csv, application/json" },
       });
       if (!res.ok) {
@@ -102,12 +121,8 @@ export function AdvancedReportsPanel({ selectedAgentId = null, selectedAgentName
       setTimeout(() => setScheduleToast(null), 5000);
     } catch (err: any) {
       console.error(`Export ${type} error:`, err);
-      // Fallback: window.open
-      const params = new URLSearchParams({ type });
-      if (selectedAgentId) params.set("agentId", selectedAgentId);
-      window.open(`/api/sales/reports/export?${params.toString()}`, "_blank");
-      setScheduleToast(`Initiated ${type.toUpperCase()} CSV download in a new tab.`);
-      setTimeout(() => setScheduleToast(null), 4000);
+      setScheduleToast(`Unable to export ${type.toUpperCase()} CSV from the central API.`);
+      setTimeout(() => setScheduleToast(null), 5000);
     } finally {
       setDownloadingType(null);
     }

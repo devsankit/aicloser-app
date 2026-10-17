@@ -19,6 +19,7 @@ type AuthorizedResult =
 
 export async function requireSessionRole(allowedRoles: AppRole[]): Promise<AuthorizedResult> {
   const session = await getSessionContext();
+  const hasDatabase = Boolean(process.env.DATABASE_URL?.trim());
 
   if (session.role === "GUEST" || !session.userId || !session.sessionId || !session.expiresAt) {
     return {
@@ -32,7 +33,7 @@ export async function requireSessionRole(allowedRoles: AppRole[]): Promise<Autho
     (allowedRoles.includes("SALES_AGENT") && session.role === "ADMIN") ||
     (allowedRoles.includes("ADMIN") && session.role === "SUPER_ADMIN");
 
-  if (!isAuthorizedRole && allowedRoles.includes("ADMIN") && session.userId) {
+  if (!isAuthorizedRole && hasDatabase && allowedRoles.includes("ADMIN") && session.userId) {
     const access = await getSalesAgentAccess(session.userId);
     const permissions = access.agent?.permissions as Record<string, unknown> | null | undefined;
     const isProfileWorkspaceAdmin =
@@ -50,7 +51,7 @@ export async function requireSessionRole(allowedRoles: AppRole[]): Promise<Autho
     };
   }
 
-  if (session.userId && session.role !== "SUPER_ADMIN") {
+  if (hasDatabase && session.userId && session.role !== "SUPER_ADMIN") {
     const paymentState = await getWorkspacePaymentState(session.userId);
     if (paymentState.locked) {
       return {
@@ -60,7 +61,7 @@ export async function requireSessionRole(allowedRoles: AppRole[]): Promise<Autho
     }
   }
 
-  if (session.role === "SALES_AGENT" || session.role === "ADMIN") {
+  if (hasDatabase && (session.role === "SALES_AGENT" || session.role === "ADMIN")) {
     const access = await getSalesAgentAccess(session.userId);
     if (access.agent && !access.ok) {
       return {

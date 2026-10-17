@@ -4,12 +4,20 @@ import { requireSessionRole } from "@/lib/api/require-session-role";
 import { claimSalesLeadPoolItem, createSalesLead, createSalesLeadPoolItem, getSalesSnapshotForRole, reassignSalesLead, updateSalesLead, updateSalesLeadStage, type SalesLeadStage } from "@/lib/gigxomi/sales-store";
 import { readRoundRobinSettings } from "@/lib/gigxomi/round-robin-service";
 import { resolveSessionTenantId } from "@/lib/api/resolve-session-tenant";
+import { centralApiRequest } from "@/lib/central-api-server";
 
 const salesLeadStages = new Set<SalesLeadStage>([
   "NEW", "ASSIGNED", "CONTACTED", "INTERESTED", "WEBINAR_INVITED", "WEBINAR_ATTENDED", "FOLLOW_UP", "NEGOTIATION", "CLOSED_WON", "CLOSED_LOST", "NOT_REACHABLE", "RECYCLED", "QUALIFIED", "QUOTE_SENT", "PAYMENT_PENDING", "PAID", "HANDOFF", "CONVERTED_FREE", "CLOSED", "LOST",
 ]);
 
 export async function GET() {
+  try {
+    const payload = await centralApiRequest<{ data: unknown[]; pagination?: unknown }>("/leads?page=1&limit=100");
+    return NextResponse.json({ ok: true, leadPool: [], leads: payload.data ?? [], agents: [], pagination: payload.pagination });
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Central leads API unavailable." }, { status: 502 });
+  }
+
   const authorization = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"]);
   if (!authorization.ok) return authorization.response;
 
@@ -18,6 +26,59 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  try {
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!body) return NextResponse.json({ ok: false, error: "Send valid lead details." }, { status: 400 });
+    const leadId = String(body.leadId ?? "").trim();
+    if (body.action === "stage" || body.action === "update") {
+      if (!leadId) return NextResponse.json({ ok: false, error: "Lead id is required." }, { status: 400 });
+      const payload = await centralApiRequest(`/leads/${encodeURIComponent(leadId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          ...(body.action === "stage" ? { stage: body.stage, followUpAt: body.followUpAt || undefined, notes: body.note || body.reason || undefined } : {}),
+          ...(body.action === "update" ? {
+            customerName: body.customerName, customerPhone: body.customerPhone, customerEmail: body.customerEmail,
+            priority: body.priority, budgetAmount: body.budgetAmount, followUpAt: body.followUpAt || undefined,
+            notes: body.notes, customFields: body.customFields,
+          } : {}),
+        }),
+      });
+      return NextResponse.json({ ok: true, lead: (payload as { data?: unknown }).data ?? payload });
+    }
+    if (body.action === "claim") {
+      const poolItemId = String(body.poolItemId ?? body.leadId ?? "").trim();
+      const payload = await centralApiRequest(`/leads/${encodeURIComponent(poolItemId)}/claim`, { method: "POST" });
+      return NextResponse.json({ ok: true, ...(payload as Record<string, unknown>) });
+    }
+    if (body.action === "assign") {
+      if (!leadId || !String(body.assignedAgentId ?? "").trim()) return NextResponse.json({ ok: false, error: "Lead and assignee are required." }, { status: 400 });
+      const payload = await centralApiRequest(`/leads/${encodeURIComponent(leadId)}/reassign`, {
+        method: "POST",
+        body: JSON.stringify({ assignedAgentId: String(body.assignedAgentId), reason: body.reason }),
+      });
+      return NextResponse.json({ ok: true, lead: (payload as { data?: unknown }).data ?? payload });
+    }
+    const payload = await centralApiRequest("/leads", {
+      method: "POST",
+      body: JSON.stringify({
+        customerName: body.customerName,
+        customerPhone: body.customerPhone,
+        customerEmail: body.customerEmail,
+        assignedAgentId: body.assignedAgentId,
+        stage: body.stage || "NEW",
+        priority: body.priority || "normal",
+        notes: body.notes,
+        budgetAmount: body.budgetAmount,
+        source: body.source || "manual",
+        serviceInterest: body.serviceInterest,
+        segment: body.segment,
+      }),
+    });
+    return NextResponse.json({ ok: true, lead: (payload as { data?: unknown }).data ?? payload });
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Central leads API unavailable." }, { status: 502 });
+  }
+
   const authorization = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"]);
   if (!authorization.ok) return authorization.response;
 

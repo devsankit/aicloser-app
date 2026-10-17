@@ -9,6 +9,7 @@ import {
 } from "@/lib/auth/google-oauth";
 import { applySessionCookie } from "@/lib/auth/session";
 import { provisionSaaSCloserWorkspace } from "@/lib/gigxomi/sales-store";
+import { shouldUseSecureCookies } from "@/lib/auth/cookie-security";
 
 function readString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -81,7 +82,7 @@ export async function POST(request: Request) {
     path: "/",
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+      secure: shouldUseSecureCookies(),
     maxAge: 60 * 60 * 24 * 365,
   });
   return response;

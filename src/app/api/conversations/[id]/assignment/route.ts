@@ -15,6 +15,7 @@ import {
 } from "@/lib/gigxomi/dummy-platform-file-store";
 import { resolveFreelancerPushRecipients } from "@/lib/gigxomi/freelancer-push-recipient";
 import { prisma } from "@/lib/prisma";
+import { centralApiRequest } from "@/lib/central-api-server";
 import {
   getRequestOrigin,
   sendAssignmentPushToUser,
@@ -180,6 +181,16 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     // while the conversation editor lane is still stored in the legacy file
     // snapshot. Keep both records aligned when an admin assigns a chat to a
     // real sales-team member so Kanban, mobile, and chat show the same owner.
+    // Delegate direct assignment to central API endpoint
+    try {
+      await centralApiRequest(`/conversations/${encodeURIComponent(id)}/assign`, {
+        method: "POST",
+        body: { assignedAgentId: freelancer.editorId },
+      });
+    } catch (centralErr) {
+      console.warn("Central API direct assignment sync error:", centralErr);
+    }
+
     const salesProfile = salesAgentProfiles.find((profile) => profile.userId === freelancer.editorId);
     if (salesProfile) {
       const dbConversation = await prisma.appConversation.findUnique({
@@ -509,6 +520,15 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
     ),
   );
   const hadEditorAccess = removedFreelancerIds.length > 0 || pendingOffers.length > 0;
+
+  // Delegate unassign to central API endpoint
+  try {
+    await centralApiRequest(`/conversations/${encodeURIComponent(id)}/assign`, {
+      method: "DELETE",
+    });
+  } catch (centralErr) {
+    console.warn("Central API direct unassign sync error:", centralErr);
+  }
 
   const conversation = await unassignConversationEditorsFromFile(id, assignedBy, {
     removedByName: authorization.session.displayName,

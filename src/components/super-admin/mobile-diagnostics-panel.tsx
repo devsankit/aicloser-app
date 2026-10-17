@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { aicloserApi } from "@/lib/api-client";
 import {
   Smartphone,
   PhoneCall,
@@ -119,10 +120,24 @@ export function MobileDiagnosticsPanel() {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch("/api/super-admin/mobile-telemetry", { cache: "no-store" });
-      const json = await res.json();
-      if (!res.ok || !json.success) throw new Error(json.error || "Failed to load telemetry");
-      setData(json);
+      const telemetry = await aicloserApi.mobile.getTelemetry();
+      if (!telemetry) {
+        throw new Error("Failed to load telemetry from Central API");
+      }
+      setData({
+        summary: {
+          totalDevices: telemetry.summary?.totalDevices ?? telemetry.devices?.total ?? telemetry.workspaces?.total ?? 0,
+          totalCalls: telemetry.summary?.totalCalls ?? telemetry.calls?.total ?? 0,
+          uploadedRecordings: telemetry.summary?.uploadedRecordings ?? telemetry.calls?.uploaded ?? 0,
+          failedRecordings: telemetry.summary?.failedRecordings ?? telemetry.calls?.failed ?? 0,
+          pendingRecordings: telemetry.summary?.pendingRecordings ?? telemetry.calls?.pending ?? 0,
+          healthyRate: telemetry.summary?.healthyRate ?? 100,
+        },
+        actionItems: Array.isArray(telemetry.actionItems) ? telemetry.actionItems : [],
+        devices: Array.isArray(telemetry.devices) ? telemetry.devices : (telemetry.devices?.list ?? []),
+        calls: Array.isArray(telemetry.calls) ? telemetry.calls : (telemetry.calls?.list ?? []),
+        diagnosticEvents: Array.isArray(telemetry.diagnosticEvents) ? telemetry.diagnosticEvents : [],
+      });
     } catch (err: any) {
       setError(err.message || "Failed to connect to telemetry API");
     } finally {

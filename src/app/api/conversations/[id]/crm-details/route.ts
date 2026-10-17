@@ -44,6 +44,22 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
               createdAt: entry.at,
             }))
           : [],
+        // The local Customer 360 service exposes its combined audit stream as
+        // `timeline`, while the chat drawer consumes the central API's
+        // normalized `history` shape. Keep both paths identical so opening a
+        // conversation without a direct lead id does not hide its history.
+        history: Array.isArray((customer360 as unknown as { history?: unknown }).history)
+          ? (customer360 as unknown as { history: unknown[] }).history
+          : "timeline" in customer360 && Array.isArray(customer360.timeline)
+            ? customer360.timeline.map((entry) => ({
+                id: entry.id,
+                kind: entry.type,
+                title: entry.title || entry.type || "Activity",
+                body: entry.detail || "",
+                createdAt: entry.at,
+                metadata: entry.metadata ?? null,
+              }))
+            : [],
       }
     : null;
 

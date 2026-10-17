@@ -2,8 +2,17 @@ import { NextResponse } from "next/server";
 import { requireSessionRole } from "@/lib/api/require-session-role";
 import { prisma } from "@/lib/prisma";
 import { updateConversationInternalNotesFromFile } from "@/lib/gigxomi/dummy-platform-file-store";
+import { centralApiRequest } from "@/lib/central-api-server";
 
 export async function GET(request: Request, { params }: { params: Promise<{ leadId: string }> }) {
+  try {
+    const { leadId } = await params;
+    const payload = await centralApiRequest<{ data?: { summaryNotes?: string; timelineNotes?: unknown[] } }>(`/leads/${encodeURIComponent(leadId)}/notes`);
+    return NextResponse.json({ ok: true, leadNotes: payload.data?.summaryNotes ?? "", timelineNotes: payload.data?.timelineNotes ?? [] });
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Central notes API unavailable." }, { status: 502 });
+  }
+
   const auth = await requireSessionRole(["SALES_AGENT", "ADMIN", "SUPER_ADMIN", "MANAGER"]);
   if (!auth.ok) return auth.response;
 
@@ -33,6 +42,18 @@ export async function GET(request: Request, { params }: { params: Promise<{ lead
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ leadId: string }> }) {
+  try {
+    const { leadId } = await params;
+    const body = await request.json().catch(() => ({}));
+    const payload = await centralApiRequest(`/leads/${encodeURIComponent(leadId)}/notes`, {
+      method: "POST",
+      body: JSON.stringify({ body: String(body.body || body.note || "").trim() }),
+    });
+    return NextResponse.json({ ok: true, note: (payload as { data?: unknown }).data ?? payload });
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Central notes API unavailable." }, { status: 502 });
+  }
+
   const auth = await requireSessionRole(["SALES_AGENT", "ADMIN", "SUPER_ADMIN", "MANAGER"]);
   if (!auth.ok) return auth.response;
 

@@ -1,17 +1,17 @@
 .shell {
   display: grid;
-  grid-template-columns: 390px minmax(0, 1fr);
+  grid-template-columns: var(--chat-rail-width) minmax(0, 1fr);
   width: 100%;
   height: 100%;
   min-height: 0;
-  background: transparent;
-  color: var(--foreground);
+  background: var(--chat-canvas);
+  color: var(--chat-text);
   overflow: hidden;
   align-self: stretch;
 }
 
 .shellWithDetails {
-  padding-right: clamp(268px, 18vw, 300px) !important;
+  padding-right: var(--chat-details-width) !important;
   box-sizing: border-box !important;
 }
 
@@ -19,8 +19,8 @@
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   min-height: 0;
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
-  background: transparent;
+  border-right: 1px solid var(--chat-border);
+  background: var(--chat-surface);
   overflow: hidden;
 }
 
@@ -83,7 +83,7 @@
   min-width: 0;
   min-height: 0;
   height: 100%;
-  background: transparent;
+  background: var(--chat-canvas);
   overflow: hidden;
 }
 
@@ -96,8 +96,8 @@
   gap: 0 !important;
   min-width: 0 !important;
   padding: 0 !important;
-  background: transparent;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  background: var(--chat-surface);
+  border-bottom: 1px solid var(--chat-border);
   backdrop-filter: none;
 }
 
@@ -108,7 +108,7 @@
   min-height: 72px;
   padding: 13px 16px 11px;
   box-sizing: border-box;
-  border-bottom: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border-bottom: 1px solid var(--chat-border);
 }
 
 .stageHeader :global(.chat-profile-trigger) {
@@ -128,7 +128,7 @@
   gap: 10px;
   flex-wrap: wrap;
   overflow: visible;
-  background: color-mix(in srgb, var(--surface) 96%, var(--accent) 4%);
+  background: var(--chat-surface-soft);
 }
 
 .stageHeader :global(.chat-status-notes-actions) {
@@ -172,7 +172,7 @@
   flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
-  background: transparent;
+  background: var(--chat-canvas);
 }
 
 .messageViewportFrame :global(.chat-message-scroll) {
@@ -281,6 +281,23 @@
   padding: 14px;
   background: rgba(5, 8, 12, 0.38);
   backdrop-filter: blur(6px);
+}
+
+.detailsBackdropClose {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: default;
+}
+
+.detailsBackdrop > .detailsSheet {
+  position: relative;
+  z-index: 1;
 }
 
 .detailsDesktop {
@@ -639,12 +656,15 @@
   border-radius: 10px;
 }
 
+.shell :global(.chat-focused-actions .chat-notes-action),
 .shell :global(.chat-focused-actions .chat-callback-action) {
   color: #fed7aa;
   border-color: rgba(251, 146, 60, 0.42);
   background: rgba(124, 45, 18, 0.2);
 }
 
+.shell :global(.chat-focused-actions .chat-notes-action:hover),
+.shell :global(.chat-focused-actions .chat-notes-action.active),
 .shell :global(.chat-focused-actions .chat-callback-action:hover),
 .shell :global(.chat-focused-actions .chat-callback-action.active) {
   color: #fff7ed;
@@ -916,6 +936,8 @@
   border-color: #e2e8f0 !important;
 }
 
+:global([data-theme="light"]) .shell :global(.chat-notes-action),
+:global(.light) .shell :global(.chat-notes-action),
 :global([data-theme="light"]) .shell :global(.chat-callback-action),
 :global(.light) .shell :global(.chat-callback-action) {
   background: #fff7ed !important;
@@ -923,6 +945,8 @@
   color: #c2410c !important;
 }
 
+:global([data-theme="light"]) .shell :global(.chat-notes-action.active),
+:global(.light) .shell :global(.chat-notes-action.active),
 :global([data-theme="light"]) .shell :global(.chat-callback-action.active),
 :global(.light) .shell :global(.chat-callback-action.active) {
   background: #ffedd5 !important;
@@ -1107,14 +1131,19 @@
 }
 
 .shell :global(.chat-top-channel-tab.tab-personal .chat-top-tab-label) {
-  font-size: 0.61rem !important;
-  letter-spacing: -0.015em !important;
+  font-size: 0 !important;
+  letter-spacing: 0 !important;
 }
 
 .shell :global(.chat-top-tab-label) {
   min-width: 0 !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
+}
+
+.shell :global(.chat-top-channel-tab.tab-company .chat-top-tab-label > span),
+.shell :global(.chat-top-channel-tab.tab-personal .chat-top-tab-label > span) {
+  font-size: 0 !important;
 }
 
 .shell :global(.chat-top-tab-badge) {
@@ -1498,4 +1527,954 @@
   border-color: #cbd5e1 !important;
   background: #ffffff !important;
   box-shadow: 0 16px 36px rgba(15, 23, 42, 0.14) !important;
+}
+
+/* -------------------------------------------------------------------------
+   Central CRM theme pass
+
+   This layer is intentionally presentation-only. The inbox buttons, tabs,
+   selects, composer and customer-sheet controls stay mounted with their
+   existing handlers and API contracts; these rules only give them a calmer
+   visual rhythm and a clearer three-pane hierarchy.
+---------------------------------------------------------------------------- */
+.shell {
+  grid-template-columns: minmax(320px, 350px) minmax(0, 1fr) !important;
+  background: var(--crm-canvas, var(--surface)) !important;
+}
+
+.rail {
+  border-right-color: var(--crm-border, var(--line)) !important;
+  background: var(--crm-surface, var(--surface)) !important;
+}
+
+.stage {
+  background: var(--crm-canvas, var(--surface)) !important;
+}
+
+.stageHeader {
+  background: var(--crm-surface, var(--surface)) !important;
+  border-bottom-color: var(--crm-border, var(--line)) !important;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--crm-border, var(--line)) 45%, transparent);
+}
+
+.stageHeader > :global(.chat-thread-head-main) {
+  min-height: 76px !important;
+  padding: 13px 18px 11px !important;
+  border-bottom-color: var(--crm-border, var(--line)) !important;
+}
+
+.stageHeader :global(.chat-thread-head-toolbar) {
+  min-height: 50px !important;
+  padding: 8px 14px !important;
+  border-color: var(--crm-border, var(--line)) !important;
+  border-radius: 12px !important;
+  background: var(--crm-surface-soft, var(--surface-soft)) !important;
+  box-shadow: none !important;
+}
+
+.messageViewportFrame,
+.messageViewport {
+  background: var(--crm-canvas, var(--surface)) !important;
+}
+
+.messageViewportFrame :global(.chat-message-scroll) {
+  padding: 20px 22px 18px !important;
+  scrollbar-gutter: stable;
+}
+
+.messageViewport :global(.chat-message-group) {
+  gap: 12px !important;
+}
+
+.messageViewport :global(.chat-bubble) {
+  border: 1px solid var(--crm-border, var(--line)) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08) !important;
+}
+
+.messageViewport :global(.chat-bubble-row.outgoing .chat-bubble) {
+  border-color: color-mix(in srgb, var(--crm-primary, var(--accent)) 30%, var(--crm-border, var(--line))) !important;
+  background: color-mix(in srgb, var(--crm-primary, var(--accent)) 12%, var(--crm-surface, var(--surface))) !important;
+}
+
+.messageViewport :global(.chat-bubble-row.incoming .chat-bubble) {
+  background: var(--crm-surface, var(--surface)) !important;
+}
+
+.composerDock {
+  padding: 10px 14px 14px !important;
+  border-top: 1px solid var(--crm-border, var(--line)) !important;
+  background: var(--crm-surface, var(--surface)) !important;
+}
+
+.shell :global(.chat-composer-shell) {
+  border: 1px solid var(--crm-border, var(--line)) !important;
+  border-radius: 14px !important;
+  background: var(--crm-surface-soft, var(--surface-soft)) !important;
+  box-shadow: none !important;
+}
+
+.shell :global(.chat-composer-bar) {
+  min-height: 54px !important;
+  border-radius: 12px !important;
+  background: transparent !important;
+}
+
+.shell .detailsDesktop {
+  padding: 10px 10px 10px 0 !important;
+}
+
+.shell .detailsDesktop .detailsSheet {
+  border-color: var(--crm-border, var(--line)) !important;
+  border-radius: 16px !important;
+  background: var(--crm-surface, var(--surface)) !important;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12) !important;
+}
+
+@media (max-width: 1100px) and (min-width: 861px) {
+  .shell {
+    grid-template-columns: minmax(290px, 320px) minmax(0, 1fr) !important;
+  }
+
+  .messageViewportFrame :global(.chat-message-scroll) {
+    padding-inline: 16px !important;
+  }
+}
+
+@media (max-width: 860px) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .stageHeader > :global(.chat-thread-head-main) {
+    padding-inline: 14px !important;
+  }
+
+  .messageViewportFrame :global(.chat-message-scroll) {
+    padding: 14px 12px !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell :global(.chat-thread-row),
+  .shell :global(.chat-filter-button),
+  .shell :global(.chat-filter-chip),
+  .shell :global(.chat-profile-trigger) {
+    transition: none !important;
+  }
+}
+
+/* -------------------------------------------------------------------------
+   Chat inbox v1 composition
+
+   Keep the desktop header to one predictable row. Notes, dynamic status and
+   assignment remain mounted in the Actions disclosure; only their visual
+   placement changes here.
+---------------------------------------------------------------------------- */
+@media (min-width: 1101px) {
+  .shell .stageHeader {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    align-items: center !important;
+    min-height: 72px !important;
+    padding: 10px 14px !important;
+    gap: var(--chat-space-3) !important;
+    overflow: visible !important;
+  }
+
+  .stageHeader > :global(.chat-thread-head-main) {
+    width: auto !important;
+    min-width: 0 !important;
+    min-height: 48px !important;
+    padding: 0 !important;
+    border-bottom: 0 !important;
+  }
+
+  .stageHeader :global(.chat-header-actions-cluster) {
+    position: relative !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    min-width: 0 !important;
+    transform: none !important;
+  }
+
+  .stageHeader:not(:global(.has-header-actions-open)) :global(.chat-thread-head-toolbar) {
+    display: none !important;
+  }
+
+  .stageHeader :global(.chat-header-actions-cluster.is-open) :global(.chat-thread-head-toolbar) {
+    display: flex !important;
+    position: absolute !important;
+    top: calc(100% + var(--chat-space-2)) !important;
+    right: 0 !important;
+    transform: translateX(calc(-100% + 36px)) !important;
+    width: max-content !important;
+    max-width: min(680px, calc(100vw - 32px)) !important;
+    padding: var(--chat-space-2) !important;
+    border: 1px solid var(--chat-border-strong) !important;
+    border-radius: var(--chat-radius-card) !important;
+    background: var(--chat-surface-raised) !important;
+    box-shadow: var(--chat-shadow-popover) !important;
+  }
+
+  .stageHeader :global(.chat-header-actions-cluster.is-open) {
+    z-index: 30 !important;
+  }
+}
+
+.shell :global(.chat-header-actions-toggle) {
+  min-width: 36px !important;
+  min-height: 36px !important;
+  border-color: var(--chat-border) !important;
+  border-radius: var(--chat-radius-control) !important;
+  background: var(--chat-surface-soft) !important;
+  color: var(--chat-text-secondary) !important;
+}
+
+.shell :global(.chat-header-actions-toggle:hover),
+.shell :global(.chat-header-actions-toggle:focus-visible),
+.shell :global(.chat-header-actions-cluster.is-open .chat-header-actions-toggle) {
+  border-color: var(--chat-accent-border) !important;
+  background: var(--chat-accent-soft) !important;
+  color: var(--chat-text) !important;
+}
+
+/* The toolbar lives inside the Actions cluster. Tie its visibility directly
+   to that cluster state so legacy header display rules cannot leave a thin
+   empty strip behind when the disclosure is closed. */
+.shell :global(.chat-header-actions-cluster:not(.is-open)) :global(.chat-thread-head-toolbar) {
+  display: none !important;
+}
+
+.shell :global(.chat-header-actions-cluster.is-open) :global(.chat-thread-head-toolbar) {
+  display: flex !important;
+}
+
+/* Match the specificity of the legacy CRM skin rules that style this same
+   toolbar, so the closed disclosure state always wins the cascade. */
+.shell .stageHeader.stageHeader :global(.chat-header-actions-cluster:not(.is-open)) :global(.chat-thread-head-toolbar) {
+  display: none !important;
+}
+
+.shell .stageHeader.stageHeader :global(.chat-header-actions-cluster.is-open) :global(.chat-thread-head-toolbar) {
+  display: flex !important;
+  width: min(500px, calc(100vw - 32px)) !important;
+  max-width: calc(100vw - 32px) !important;
+  transform: none !important;
+}
+
+.shell :global(.chat-status-notes-actions),
+.shell :global(.chat-assignment-actions) {
+  gap: var(--chat-space-2) !important;
+}
+
+.shell :global(.chat-status-control),
+.shell :global(.chat-notes-action),
+.shell :global(.chat-callback-action),
+.shell :global(.chat-assignment-actions .chat-head-icon) {
+  min-height: var(--chat-control-height-sm, 34px) !important;
+  border-color: var(--chat-border) !important;
+  border-radius: var(--chat-radius-control) !important;
+  background: var(--chat-surface-soft) !important;
+  color: var(--chat-text-secondary) !important;
+}
+
+/* Keep selection visible without turning the entire conversation row into a
+   saturated button. The active lead remains obvious through the rail edge,
+   accent wash and its existing status pill. */
+.shell .rail .railBody :global(.chat-thread-row.active) {
+  border-color: var(--chat-border-strong) !important;
+  background: var(--chat-surface-soft) !important;
+  box-shadow: inset 3px 0 0 var(--chat-accent) !important;
+  transform: none !important;
+}
+
+/* Keep hover and focus quiet as well; the accent is reserved for the rail
+   edge and tiny controls instead of filling an entire conversation card. */
+.shell .rail .railBody :global(.chat-thread-row:hover),
+.shell .rail .railBody :global(.chat-thread-row:focus-visible) {
+  border-color: var(--chat-border) !important;
+  background: var(--chat-surface-soft) !important;
+  transform: none !important;
+}
+
+/* Give the thread enough typographic scale for real customer messages while
+   retaining safe wrapping for long URLs and imported text. */
+.shell :global(.chat-bubble) {
+  min-width: 0 !important;
+  max-width: min(760px, 82%) !important;
+}
+
+.shell :global(.chat-bubble p) {
+  font-size: 0.9rem !important;
+  line-height: 1.5 !important;
+  overflow-wrap: anywhere !important;
+  word-break: normal !important;
+}
+
+.shell :global(.chat-bubble .message-role) {
+  font-size: 0.72rem !important;
+}
+
+.shell :global(.chat-bubble small),
+.shell :global(.chat-bubble-meta small) {
+  font-size: 0.7rem !important;
+}
+
+.shell :global(.chat-status-control:focus-within),
+.shell :global(.chat-notes-action:hover),
+.shell :global(.chat-notes-action:focus-visible),
+.shell :global(.chat-notes-action.active),
+.shell :global(.chat-callback-action:hover),
+.shell :global(.chat-callback-action:focus-visible),
+.shell :global(.chat-assignment-actions .chat-head-icon:hover),
+.shell :global(.chat-assignment-actions .chat-head-icon.active) {
+  border-color: var(--chat-accent-border) !important;
+  background: var(--chat-accent-soft) !important;
+  color: var(--chat-text) !important;
+}
+
+.shell :global(.chat-notes-action-group) {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.shell :global(.chat-notes-action),
+.shell :global(.chat-callback-action) {
+  width: 40px !important;
+  min-width: 40px !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  padding: 0 !important;
+  justify-content: center !important;
+  gap: 0 !important;
+}
+
+.shell :global(.chat-notes-action svg),
+.shell :global(.chat-callback-action svg) {
+  width: 18px;
+  height: 18px;
+}
+
+.shell :global(.chat-status-select) {
+  color: var(--chat-text) !important;
+}
+
+.shell :global(.chat-status-select option) {
+  background: var(--chat-surface-raised) !important;
+  color: var(--chat-text) !important;
+}
+
+/* The details sheet is portaled beside the workspace, so style it through
+   its own module scope. Keep its information cards compact enough to show
+   stage, assignment, notes, files and activity without feeling like a second
+   dashboard. */
+.detailsDesktop .detailsSheet {
+  gap: var(--chat-space-3) !important;
+  padding: var(--chat-space-3) !important;
+  border-color: var(--chat-border) !important;
+  border-radius: var(--chat-radius-panel) 0 0 var(--chat-radius-panel) !important;
+  background: var(--chat-surface) !important;
+  box-shadow: var(--chat-shadow-panel) !important;
+}
+
+.detailsDesktop :global(.chat-context-card) {
+  gap: 10px !important;
+  padding: 14px !important;
+  border: 1px solid var(--chat-border) !important;
+  border-radius: var(--chat-radius-card) !important;
+  background: var(--chat-surface-soft) !important;
+  color: var(--chat-text) !important;
+  box-shadow: none !important;
+}
+
+.detailsDesktop :global(.chat-context-card .section-label) {
+  color: var(--chat-text-muted) !important;
+}
+
+.detailsDesktop :global(.chat-context-card strong),
+.detailsDesktop :global(.chat-context-card b) {
+  color: var(--chat-text) !important;
+}
+
+.detailsDesktop :global(.chat-context-card input),
+.detailsDesktop :global(.chat-context-card textarea),
+.detailsDesktop :global(.chat-context-card select) {
+  border-color: var(--chat-border) !important;
+  border-radius: var(--chat-radius-control) !important;
+  background: var(--chat-surface-raised) !important;
+  color: var(--chat-text) !important;
+}
+
+/* The CRM profile grid still carries presentation-only inline colors from
+   the MVP. Override those colors at the theme boundary so light mode does
+   not inherit dark gray field tiles or low-contrast neutral values. */
+.detailsDesktop :global(.chat-context-card) > div[style*="grid-template-columns"] > div {
+  border-color: var(--chat-border) !important;
+  background: var(--chat-surface-raised) !important;
+}
+
+.detailsDesktop :global(.chat-context-card) > div[style*="grid-template-columns"] > div > span {
+  color: var(--chat-text-muted) !important;
+  opacity: 1 !important;
+}
+
+.detailsDesktop :global(.chat-context-card) > div[style*="grid-template-columns"] > div > strong {
+  color: var(--chat-text) !important;
+}
+
+.detailsDesktop :global(.chat-context-card) > div[style*="grid-template-columns"] > div > strong[style*="#4ade80"] {
+  color: var(--chat-success) !important;
+}
+
+.detailsDesktop :global(.chat-context-card) > div[style*="grid-template-columns"] > div > strong[style*="#fb7185"] {
+  color: var(--chat-danger) !important;
+}
+
+/* Reference rail row: identity, one compact status tag and time on the same
+   line. The channel remains represented by the existing WhatsApp/Instagram
+   avatar badge; phone/source metadata stays available in the lead details. */
+.shell :global(.chat-thread-name-group) {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  min-width: 0 !important;
+}
+
+.shell :global(.chat-thread-name) {
+  flex: 0 1 auto !important;
+  max-width: 150px !important;
+  font-size: 0.8rem !important;
+  font-weight: 700 !important;
+}
+
+.shell :global(.chat-thread-stage-pill) {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  flex: 0 1 auto !important;
+  max-width: 118px !important;
+  min-height: 18px !important;
+  padding: 1px 5px !important;
+  border: 1px solid var(--chat-border) !important;
+  border-radius: 5px !important;
+  background: var(--chat-surface-soft) !important;
+  color: var(--chat-text-muted) !important;
+  box-shadow: none !important;
+  font-size: 0.6rem !important;
+  font-weight: 700 !important;
+  line-height: 1.1 !important;
+}
+
+.shell :global(.chat-thread-stage-dot) {
+  width: 4px !important;
+  height: 4px !important;
+  box-shadow: none !important;
+}
+
+.shell :global(.chat-thread-stage-label) {
+  max-width: 102px !important;
+}
+
+.shell :global(.chat-thread-badge-row) {
+  display: none !important;
+}
+
+/* -------------------------------------------------------------------------
+   Desktop CRM context column
+
+   Customer details are part of the inbox composition on desktop. They must
+   reserve their own grid column so opening the profile never covers the
+   conversation, hides the composer, or creates a floating overlay over the
+   lead history.
+---------------------------------------------------------------------------- */
+@media (min-width: 861px) {
+  .shell.shellWithDetails {
+    grid-template-columns: var(--chat-rail-width) minmax(0, 1fr) clamp(270px, 24vw, 340px) !important;
+    padding-right: 0 !important;
+  }
+
+  .detailsDesktop {
+    position: relative !important;
+    inset: auto !important;
+    z-index: 1 !important;
+    grid-column: 3 !important;
+    grid-row: 1 !important;
+    width: auto !important;
+    height: 100% !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    pointer-events: auto !important;
+    border-left: 1px solid var(--chat-border) !important;
+    background: var(--chat-surface) !important;
+  }
+
+  .detailsDesktop .detailsSheet {
+    width: auto !important;
+    height: 100% !important;
+    max-height: none !important;
+    padding: 14px !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: var(--chat-surface) !important;
+    box-shadow: none !important;
+  }
+
+  .detailsDesktop .sheetHeader {
+    min-height: 42px;
+    align-items: center;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--chat-border);
+  }
+
+  .detailsDesktop .detailsScroll {
+    padding: 12px 2px 4px 0;
+  }
+
+  .stageHeader {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    align-items: center !important;
+    min-height: 78px !important;
+    padding: 10px 14px !important;
+    gap: var(--chat-space-3) !important;
+    overflow: visible !important;
+  }
+
+  .stageHeader > :global(.chat-thread-head-main) {
+    flex: 1 1 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    min-height: 48px !important;
+    padding: 0 !important;
+    border-bottom: 0 !important;
+  }
+
+  .stageHeader :global(.chat-profile-trigger) {
+    max-width: 100% !important;
+  }
+
+  .stageHeader :global(.chat-thread-head-copy) {
+    min-width: 0 !important;
+    display: grid !important;
+    gap: 4px !important;
+  }
+
+  .stageHeader :global(.chat-thread-head-title),
+  .stageHeader :global(.chat-thread-head-subtitle) {
+    min-width: 0 !important;
+    align-items: center !important;
+  }
+
+  .stageHeader :global(.chat-thread-head-title) {
+    gap: 7px !important;
+    flex-wrap: nowrap !important;
+  }
+
+  .stageHeader :global(.chat-thread-head-title strong) {
+    max-width: min(28vw, 250px) !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  .stageHeader :global(.chat-thread-head-subtitle) {
+    gap: 6px !important;
+    flex-wrap: wrap !important;
+  }
+
+  .stageHeader :global(.chat-header-actions-cluster) {
+    align-self: center !important;
+    flex: 0 0 auto !important;
+  }
+}
+
+@media (min-width: 861px) and (max-width: 1400px) {
+  .shell.shellWithDetails {
+    grid-template-columns: 340px minmax(0, 1fr) 250px !important;
+  }
+}
+
+@media (max-width: 860px) {
+  .detailsBackdrop {
+    padding: 10px !important;
+    background: rgba(5, 8, 12, 0.38) !important;
+  }
+
+  .detailsBackdrop .detailsSheet {
+    width: min(360px, calc(100vw - 20px)) !important;
+  }
+}
+
+/* Compact lead header pass: keep the same identity and live metadata, but
+   let the header behave like a dense inbox row instead of a stacked card. */
+@media (min-width: 861px) {
+  .shell .stageHeader {
+    min-height: 64px !important;
+    padding: 6px 10px !important;
+    gap: 8px !important;
+  }
+
+  .shell .stageHeader > :global(.chat-thread-head-main) {
+    min-height: 42px !important;
+  }
+
+  .shell .stageHeader :global(.chat-profile-trigger) {
+    gap: 8px !important;
+    padding: 2px 4px 2px 0 !important;
+  }
+
+  .shell .stageHeader :global(.chat-thread-head-avatar) {
+    width: 32px !important;
+    height: 32px !important;
+    flex: 0 0 32px !important;
+  }
+
+  .shell .stageHeader :global(.chat-thread-head-copy) {
+    gap: 2px !important;
+  }
+
+  .shell .stageHeader :global(.chat-thread-head-title) {
+    gap: 5px !important;
+    line-height: 1.1 !important;
+  }
+
+  .shell .stageHeader :global(.chat-thread-head-title strong) {
+    max-width: min(24vw, 190px) !important;
+    font-size: 0.84rem !important;
+  }
+
+  .shell .stageHeader :global(.chat-source-chip) {
+    min-height: 17px !important;
+    padding: 1px 5px !important;
+    border-radius: 999px !important;
+    font-size: 0.62rem !important;
+    line-height: 1.1 !important;
+    white-space: nowrap !important;
+  }
+
+  .shell .stageHeader :global(.chat-thread-head-subtitle) {
+    gap: 4px !important;
+    flex-wrap: nowrap !important;
+    min-width: 0 !important;
+    min-height: 18px !important;
+    overflow: hidden !important;
+    white-space: nowrap !important;
+  }
+
+  .shell .stageHeader :global(.chat-thread-contact-number) {
+    gap: 3px !important;
+    padding: 1px 4px !important;
+    font-size: 0.7rem !important;
+    line-height: 1.15 !important;
+    flex: 0 1 auto !important;
+    min-width: 0 !important;
+  }
+
+  .shell .stageHeader :global(.chat-thread-contact-number svg) {
+    width: 10px !important;
+    height: 10px !important;
+    flex: 0 0 auto !important;
+  }
+
+  .shell .stageHeader :global(.chat-thread-head-subtitle > button) {
+    flex: 0 0 auto !important;
+    padding: 1px 5px !important;
+    font-size: 0.62rem !important;
+    line-height: 1.2 !important;
+  }
+
+  .shell .stageHeader :global(.chat-thread-presence) {
+    min-width: 0 !important;
+    max-width: 108px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    font-size: 0.65rem !important;
+    line-height: 1.2 !important;
+  }
+
+  .shell .stageHeader :global(.chat-reply-window) {
+    max-width: 132px !important;
+    min-height: 17px !important;
+    padding: 1px 5px !important;
+    gap: 3px !important;
+    font-size: 0.62rem !important;
+    line-height: 1.15 !important;
+    flex: 0 1 auto !important;
+    overflow: hidden !important;
+    white-space: nowrap !important;
+  }
+
+  .shell .stageHeader :global(.chat-reply-window > span) {
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+}
+
+/* Keep the lead controls in the header. Notes, callback, status and
+   assignment are primary work actions; hiding them behind an ellipsis makes
+   the inbox feel like a patched drawer and costs useful context. */
+@media (min-width: 861px) {
+  .shell .stageHeader :global(.chat-header-actions-toggle) {
+    display: none !important;
+  }
+
+  .shell .stageHeader :global(.chat-header-actions-cluster) {
+    position: static !important;
+    top: auto !important;
+    right: auto !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    flex: 0 1 auto !important;
+    max-width: 100% !important;
+    transform: none !important;
+  }
+
+  .shell .stageHeader :global(.chat-thread-head-toolbar),
+  .shell .stageHeader :global(.chat-header-actions-cluster:not(.is-open) .chat-thread-head-toolbar),
+  .shell .stageHeader :global(.chat-header-actions-cluster.is-open .chat-thread-head-toolbar) {
+    position: static !important;
+    inset: auto !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    flex-wrap: wrap !important;
+    width: auto !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    transform: none !important;
+    overflow: visible !important;
+  }
+
+  .shell .stageHeader :global(.chat-status-notes-actions),
+  .shell .stageHeader :global(.chat-assignment-actions) {
+    display: inline-flex !important;
+    align-items: center !important;
+    flex: 0 1 auto !important;
+    flex-wrap: wrap !important;
+  }
+}
+
+/* Unread counts sit on the orange notification surface. Keep the numeral
+   white in light mode as well; dark text here reads like an accidental theme
+   leak and fails the contrast hierarchy of the inbox rail. */
+.shell :global(.chat-thread-unread-pill) {
+  color: #ffffff !important;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.18);
+}
+
+/* Final desktop header contract: keep lead actions in a compact, visible
+   second row. The inbox header stays in-flow, so Notes, Status and Assign
+   never become an overlay or disappear behind the customer-details pane. */
+@media (min-width: 861px) {
+  .shell .stageHeader.stageHeader {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: stretch !important;
+    gap: 0 !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+  }
+
+  .shell .stageHeader.stageHeader > :global(.chat-thread-head-main) {
+    flex: 0 0 100% !important;
+    width: 100% !important;
+    min-height: 64px !important;
+    padding: 8px 12px !important;
+    border-bottom: 1px solid var(--chat-border) !important;
+  }
+
+  .shell .stageHeader.stageHeader :global(.chat-header-actions-cluster) {
+    position: static !important;
+    display: flex !important;
+    flex: 0 0 100% !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    justify-content: flex-start !important;
+    transform: none !important;
+    padding: 6px 12px !important;
+    border-bottom: 1px solid var(--chat-border) !important;
+  }
+
+  .shell .stageHeader.stageHeader :global(.chat-header-actions-toggle) {
+    display: none !important;
+  }
+
+  .shell .stageHeader.stageHeader :global(.chat-header-actions-cluster:not(.is-open) .chat-thread-head-toolbar),
+  .shell .stageHeader.stageHeader :global(.chat-header-actions-cluster.is-open .chat-thread-head-toolbar),
+  .shell .stageHeader.stageHeader :global(.chat-thread-head-toolbar) {
+    position: static !important;
+    inset: auto !important;
+    display: flex !important;
+    flex: 1 1 auto !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    transform: none !important;
+    justify-content: flex-start !important;
+    overflow: visible !important;
+  }
+
+  .shell .stageHeader.stageHeader :global(.chat-thread-head-toolbar .chat-status-notes-actions),
+  .shell .stageHeader.stageHeader :global(.chat-thread-head-toolbar .chat-assignment-actions) {
+    display: inline-flex !important;
+    align-items: center !important;
+    flex: 0 1 auto !important;
+  }
+}
+
+/* Compact rail rhythm: keep the channel selector and status filters close
+   enough to read as one control group, while preserving their hit areas. */
+.shell :global(.chat-inbox-sidebar-head) {
+  gap: 4px !important;
+  padding-top: 8px !important;
+  padding-bottom: 6px !important;
+}
+
+.shell :global(.chat-top-tabs-container) {
+  position: relative !important;
+  z-index: 80 !important;
+  padding-top: 4px !important;
+  padding-bottom: 2px !important;
+}
+
+.shell :global(.chat-filter-wrapper) {
+  margin-top: 2px !important;
+  gap: 2px !important;
+}
+
+.shell :global(.chat-filter-row) {
+  padding-top: 2px !important;
+  padding-bottom: 3px !important;
+}
+
+/* Keep the two primary inbox filters together. Dropdowns must escape the
+   scroll rail so the menu is never clipped by the conversation list. */
+.shell.rail {
+  overflow: visible !important;
+}
+
+.shell :global(.chat-inbox-sidebar-head) {
+  overflow: visible !important;
+}
+
+.shell :global(.chat-rail-top-controls) {
+  position: relative !important;
+  z-index: 30 !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  align-items: start !important;
+  gap: 6px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+.shell :global(.chat-rail-top-controls) :global(.chat-channel-picker) {
+  min-width: 0 !important;
+  width: 100% !important;
+}
+
+.shell :global(.chat-rail-top-controls) :global(.chat-channel-picker-trigger) {
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+.shell :global(.chat-rail-top-controls) :global(.chat-stage-picker) {
+  position: relative !important;
+  z-index: 31 !important;
+  min-width: 0 !important;
+}
+
+.shell :global(.chat-filter-wrapper) {
+  position: relative !important;
+  z-index: 1 !important;
+}
+
+.shell :global(.chat-rail-top-controls) :global(.chat-stage-picker) > button {
+  max-width: 156px !important;
+  min-height: 32px !important;
+}
+
+.shell :global(.chat-rail-top-controls) :global(.chat-stage-menu) {
+  position: absolute !important;
+  top: calc(100% + 6px) !important;
+  left: auto !important;
+  right: 0 !important;
+  z-index: 120 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 3px !important;
+  width: min(280px, calc(100vw - 32px)) !important;
+  min-width: 220px !important;
+  max-width: calc(100vw - 32px) !important;
+  box-sizing: border-box !important;
+  padding: 6px !important;
+  border: 1px solid var(--color-border-strong) !important;
+  border-radius: 10px !important;
+  background: var(--color-surface-elevated) !important;
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.16) !important;
+}
+
+.shell :global(.chat-rail-top-controls) :global(.chat-stage-menu) :global(.chat-filter-chip) {
+  width: 100% !important;
+  min-height: 30px !important;
+  justify-content: flex-start !important;
+  margin: 0 !important;
+}
+
+.shell :global(.chat-rail-top-controls) :global(.chat-stage-popover-footer) {
+  display: flex !important;
+  margin-top: 4px !important;
+  padding-top: 6px !important;
+  border-top: 1px solid var(--color-border) !important;
+}
+
+.shell :global(.chat-rail-top-controls) :global(.chat-stage-popover-footer) :global(.chat-filter-chip) {
+  justify-content: center !important;
+}
+
+.shell :global(.chat-rail-top-controls) :global(.chat-stage-empty) {
+  margin: 4px 6px !important;
+  color: var(--color-text-muted) !important;
+  font-size: 0.75rem !important;
+  line-height: 1.35 !important;
+}
+
+.shell :global(.chat-rail-top-controls) :global(.chat-channel-picker-menu) {
+  z-index: 120 !important;
+  width: min(320px, calc(100vw - 32px)) !important;
+  min-width: 260px !important;
+  max-width: calc(100vw - 32px) !important;
+  box-sizing: border-box !important;
+}
+
+@media (max-width: 520px) {
+  .shell :global(.chat-rail-top-controls) {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .shell :global(.chat-rail-top-controls) :global(.chat-stage-menu) {
+    left: 0 !important;
+    right: auto !important;
+  }
 }

@@ -31,6 +31,7 @@ import {
   FileText,
   Filter,
   Flame,
+  History,
   Instagram,
   MessageSquare,
   MessageSquareText,
@@ -71,7 +72,6 @@ import type {
   DummyLeadStatusTone,
   DummyMessageAttachmentInput,
   DummyPaymentProvider,
-  DummyPaymentStatus,
 } from "@/lib/gigxomi/dummy-platform-store";
 import { broadcastChatWorkspaceSync, subscribeToChatWorkspaceSync } from "@/components/chat/chat-sync";
 import styles from "./chat-workspace.module.css";
@@ -87,6 +87,8 @@ import {
 } from "@/lib/gigxomi/chat-message-normalization";
 import { buildInboundAttachmentAcknowledgement } from "@/lib/gigxomi/closer-message-safety";
 import type { NormalizedRegistrationStatus } from "@/lib/gigxomi/registration-status";
+import { aicloserApi, getStoredToken, setStoredToken, type Lead360Response, type LeadHistoryEntry } from "@/lib/api-client";
+import { toCentralStageValue } from "@/lib/central-chat-mapper";
 
 export interface ChatErrorBoundaryProps {
   children: ReactNode;
@@ -178,6 +180,7 @@ type ChatWorkspaceProps = {
   serviceIdFilter?: string;
   tenantId?: string;
   selectedAgentId?: string | null;
+  centralToken?: string | null;
 };
 
 type PendingUploadTarget = "local";
@@ -229,18 +232,6 @@ const MAX_CHAT_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const CHAT_MEDIA_ACCEPT = "image/*,video/*";
 const CHAT_DOCUMENT_ACCEPT = ".pdf,.doc,.docx,.txt,.rtf,.xls,.xlsx,.ppt,.pptx,.csv,.zip,.rar,.7z,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/csv,application/rtf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/zip,application/x-zip-compressed,application/x-rar-compressed,application/x-7z-compressed";
 
-export const CLOSER_CANONICAL_LEAD_STATUSES: DummyLeadStatus[] = [
-  { id: "new", label: "New Leads", tone: "accent", order: 1, active: true },
-  { id: "contacted", label: "Contacted", tone: "accent", order: 2, active: true },
-  { id: "qualified", label: "Interested / Qualified", tone: "success", order: 3, active: true },
-  { id: "training-booked", label: "Training Booked", tone: "warning", order: 4, active: true },
-  { id: "follow-up", label: "Follow-up Needed", tone: "warning", order: 5, active: true },
-  { id: "closed", label: "Closed Won", tone: "success", order: 6, active: true },
-  { id: "lost", label: "Lost / Recycled", tone: "neutral", order: 7, active: true },
-];
-
-export const DEFAULT_LEAD_STATUSES: DummyLeadStatus[] = CLOSER_CANONICAL_LEAD_STATUSES;
-
 export interface WhatsAppLabelColor {
   tone: DummyLeadStatusTone;
   name: string;
@@ -261,132 +252,16 @@ export const WHATSAPP_LABEL_COLORS: WhatsAppLabelColor[] = [
 ];
 
 export function getLeadBadgeConfig(statusId?: string, label?: string, tone?: string) {
-  const normId = (statusId || "").toLowerCase();
-  const normLabel = (label || "").toLowerCase();
-
-  // Interested / Qualified leads
-  if (normId === "qualified" || normLabel.includes("interested") || normLabel.includes("qualified") || normLabel.includes("hot")) {
-    return {
-      bg: "rgba(16, 185, 129, 0.18)",
-      border: "rgba(16, 185, 129, 0.55)",
-      text: "#34d399",
-      dot: "#10b981",
-      glow: "0 0 10px rgba(16, 185, 129, 0.35)",
-      label: label || "Interested / Qualified",
-    };
-  }
-
-  // Training Booked / Trial
-  if (normId === "training-booked" || normLabel.includes("training") || normLabel.includes("trial") || normLabel.includes("booked") || normLabel.includes("demo")) {
-    return {
-      bg: "rgba(168, 85, 247, 0.2)",
-      border: "rgba(168, 85, 247, 0.55)",
-      text: "#c084fc",
-      dot: "#a855f7",
-      glow: "0 0 10px rgba(168, 85, 247, 0.35)",
-      label: label || "Training Booked",
-    };
-  }
-
-  // Follow-up
-  if (normId === "follow-up" || normLabel.includes("follow")) {
-    return {
-      bg: "rgba(245, 158, 11, 0.18)",
-      border: "rgba(245, 158, 11, 0.5)",
-      text: "#fbbf24",
-      dot: "#f59e0b",
-      glow: "0 0 8px rgba(245, 158, 11, 0.3)",
-      label: label || "Follow-up",
-    };
-  }
-
-  // Closed Won / Paid
-  if (normId === "closed" || normId === "paid" || normLabel.includes("closed") || normLabel.includes("won") || normLabel.includes("paid")) {
-    return {
-      bg: "rgba(34, 197, 94, 0.2)",
-      border: "rgba(34, 197, 94, 0.55)",
-      text: "#4ade80",
-      dot: "#22c55e",
-      glow: "0 0 10px rgba(34, 197, 94, 0.35)",
-      label: label || "Closed Won",
-    };
-  }
-
-  // Contacted
-  if (normId === "contacted" || normLabel.includes("contacted")) {
-    return {
-      bg: "rgba(14, 165, 233, 0.18)",
-      border: "rgba(14, 165, 233, 0.45)",
-      text: "#38bdf8",
-      dot: "#0ea5e9",
-      glow: "0 0 8px rgba(14, 165, 233, 0.25)",
-      label: label || "Contacted",
-    };
-  }
-
-  // Lost
-  if (normId === "lost" || normLabel.includes("lost")) {
-    return {
-      bg: "rgba(244, 63, 94, 0.15)",
-      border: "rgba(244, 63, 94, 0.4)",
-      text: "#fb7185",
-      dot: "#f43f5e",
-      glow: "none",
-      label: label || "Lost",
-    };
-  }
-
-  // Tone fallback for custom labels
-  if (tone === "success") {
-    return {
-      bg: "rgba(16, 185, 129, 0.18)",
-      border: "rgba(16, 185, 129, 0.45)",
-      text: "#34d399",
-      dot: "#10b981",
-      glow: "0 0 8px rgba(16, 185, 129, 0.3)",
-      label: label || "Success",
-    };
-  }
-  if (tone === "danger") {
-    return {
-      bg: "rgba(244, 63, 94, 0.18)",
-      border: "rgba(244, 63, 94, 0.45)",
-      text: "#fb7185",
-      dot: "#f43f5e",
-      glow: "0 0 8px rgba(244, 63, 94, 0.3)",
-      label: label || "Danger",
-    };
-  }
-  if (tone === "warning") {
-    return {
-      bg: "rgba(245, 158, 11, 0.18)",
-      border: "rgba(245, 158, 11, 0.45)",
-      text: "#fbbf24",
-      dot: "#f59e0b",
-      glow: "0 0 8px rgba(245, 158, 11, 0.3)",
-      label: label || "Warning",
-    };
-  }
-  if (tone === "accent") {
-    return {
-      bg: "rgba(255, 107, 47, 0.16)",
-      border: "rgba(255, 107, 47, 0.45)",
-      text: "#ff6b2f",
-      dot: "#ff6b2f",
-      glow: "0 0 8px rgba(255, 107, 47, 0.3)",
-      label: label || "Accent",
-    };
-  }
-
-  // Neutral / New Leads
-  return {
-    bg: "rgba(255, 255, 255, 0.05)",
-    border: "rgba(255, 255, 255, 0.12)",
-    text: "#94a3b8",
-    dot: "#64748b",
-    glow: "none",
-    label: label || "New Leads",
-  };
+  void statusId;
+  const palette = {
+    neutral: { bg: "rgba(148, 163, 184, 0.10)", border: "rgba(148, 163, 184, 0.30)", text: "#64748b", dot: "#64748b", glow: "none" },
+    accent: { bg: "rgba(59, 130, 246, 0.10)", border: "rgba(59, 130, 246, 0.32)", text: "#2563eb", dot: "#3b82f6", glow: "none" },
+    warning: { bg: "rgba(234, 179, 8, 0.10)", border: "rgba(234, 179, 8, 0.30)", text: "#a16207", dot: "#ca8a04", glow: "none" },
+    success: { bg: "rgba(16, 185, 129, 0.10)", border: "rgba(16, 185, 129, 0.30)", text: "#047857", dot: "#10b981", glow: "none" },
+    danger: { bg: "rgba(244, 63, 94, 0.10)", border: "rgba(244, 63, 94, 0.30)", text: "#be123c", dot: "#e11d48", glow: "none" },
+  } as const;
+  const selected = palette[tone as keyof typeof palette] ?? palette.neutral;
+  return { ...selected, label: label || "" };
 }
 
 
@@ -1109,7 +984,8 @@ function describeAttachment(attachment: DummyConversationAttachment) {
   if (attachment.kind === "payment-request") {
     return attachment.note ?? "Payment request";
   }
-  return `${attachment.name} - ${attachment.sizeLabel}`;
+  const sizeLabel = attachment.sizeLabel?.trim();
+  return sizeLabel ? `${attachment.name} - ${sizeLabel}` : attachment.name;
 }
 
 function displayAttachmentName(attachment: DummyConversationAttachment) {
@@ -1134,24 +1010,47 @@ function attachmentHasInlinePreview(attachment: DummyConversationAttachment) {
   );
 }
 
+function getAttachmentUrl(externalUrl: string): string;
+function getAttachmentUrl(externalUrl: undefined): undefined;
+function getAttachmentUrl(externalUrl: string | undefined) {
+  if (!externalUrl || typeof window === "undefined") return externalUrl;
+
+  try {
+    const url = new URL(externalUrl, window.location.origin);
+    if (url.origin !== window.location.origin || !url.pathname.includes("/api/meta/whatsapp/media/")) {
+      return externalUrl;
+    }
+
+    const token = getStoredToken();
+    if (token && !url.searchParams.has("token")) {
+      url.searchParams.set("token", token);
+    }
+    return url.toString();
+  } catch {
+    return externalUrl;
+  }
+}
+
 function AttachmentPreview({ attachment }: { attachment: DummyConversationAttachment }) {
   if (!attachment.externalUrl) {
     return null;
   }
 
+  const attachmentUrl = getAttachmentUrl(attachment.externalUrl);
+
   if (attachment.kind === "voice-note") {
-    return <VoiceNotePlayer src={attachment.externalUrl} />;
+    return <VoiceNotePlayer src={attachmentUrl} />;
   }
 
   if (attachment.kind === "image") {
     return (
-      <a className="chat-attachment-preview-link" href={attachment.externalUrl} rel="noreferrer" target="_blank">
+      <a className="chat-attachment-preview-link" href={attachmentUrl} rel="noreferrer" target="_blank">
         <Image
           alt={attachment.name}
           className="chat-attachment-image"
           height={720}
           loading="lazy"
-          src={attachment.externalUrl}
+          src={attachmentUrl}
           unoptimized
           width={960}
         />
@@ -1160,18 +1059,18 @@ function AttachmentPreview({ attachment }: { attachment: DummyConversationAttach
   }
 
   if (attachment.kind === "video") {
-    return <video className="chat-attachment-video" controls preload="metadata" src={attachment.externalUrl} />;
+    return <video className="chat-attachment-video" controls preload="metadata" src={attachmentUrl} />;
   }
 
   if (attachment.kind === "audio") {
-    return <audio className="chat-attachment-audio" controls preload="metadata" src={attachment.externalUrl} />;
+    return <audio className="chat-attachment-audio" controls preload="metadata" src={attachmentUrl} />;
   }
 
   if (attachment.mimeType === "application/pdf") {
     return (
       <a
         className="chat-attachment-document-preview chat-attachment-preview-link"
-        href={attachment.externalUrl}
+        href={attachmentUrl}
         rel="noreferrer"
         target="_blank"
         style={{ textDecoration: "none", cursor: "pointer", display: "flex" }}
@@ -1191,7 +1090,7 @@ function AttachmentPreview({ attachment }: { attachment: DummyConversationAttach
     return (
       <a
         className="chat-attachment-document-preview chat-attachment-preview-link"
-        href={attachment.externalUrl}
+        href={attachmentUrl}
         rel="noreferrer"
         target="_blank"
         style={{ textDecoration: "none", cursor: "pointer", display: "flex" }}
@@ -1463,6 +1362,7 @@ type ChatSidebarHeaderProps = {
   searchValue: string;
   searchPlaceholder: string;
   searchDisabled?: boolean;
+  hideSearch?: boolean;
   filterRow?: ReactNode;
   extra?: ReactNode;
   onSearchChange?: (value: string) => void;
@@ -1476,15 +1376,21 @@ function ChatSidebarHeader({
   searchValue,
   searchPlaceholder,
   searchDisabled = false,
+  hideSearch = false,
   filterRow,
   extra,
   onSearchChange,
 }: ChatSidebarHeaderProps) {
+  const [isSearchOpen, setIsSearchOpen] = useState(Boolean(searchValue.trim()));
   const normalizedTitle = title.trim();
   const normalizedSubtitle = subtitle.trim();
   const primaryHeading = normalizedTitle || normalizedSubtitle;
   const secondaryHeading = normalizedTitle && normalizedSubtitle ? normalizedSubtitle : "";
   const hasHeading = Boolean(primaryHeading || secondaryHeading);
+
+  useEffect(() => {
+    if (searchValue.trim()) setIsSearchOpen(true);
+  }, [searchValue]);
 
   return (
     <div className="chat-inbox-sidebar-head">
@@ -1504,19 +1410,46 @@ function ChatSidebarHeader({
 
       {topTabs ? <div className="chat-top-tabs-container">{topTabs}</div> : null}
 
-      <label className={searchDisabled ? "chat-search-field disabled" : "chat-search-field"}>
-        <input
-          disabled={searchDisabled}
-          onChange={
-            onSearchChange
-              ? (event) => onSearchChange(event.target.value)
-              : undefined
-          }
-          placeholder={searchPlaceholder}
-          value={searchValue}
-        />
-        <Search size={16} strokeWidth={1.8} />
-      </label>
+      {!hideSearch ? <div className={isSearchOpen ? "chat-search-shell is-open" : "chat-search-shell"}>
+        {isSearchOpen ? (
+          <div className={searchDisabled ? "chat-search-field disabled" : "chat-search-field"}>
+            <input
+              disabled={searchDisabled}
+              onChange={
+                onSearchChange
+                  ? (event) => onSearchChange(event.target.value)
+                  : undefined
+              }
+              placeholder={searchPlaceholder}
+              value={searchValue}
+            />
+            <Search size={16} strokeWidth={1.8} />
+            <button
+              type="button"
+              className="chat-search-close"
+              aria-label="Close chat search"
+              title="Close search"
+              onClick={() => {
+                onSearchChange?.("");
+                setIsSearchOpen(false);
+              }}
+            >
+              <X size={14} strokeWidth={1.8} />
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className={searchDisabled ? "chat-search-trigger disabled" : "chat-search-trigger"}
+            aria-label="Open chat search"
+            title="Search conversations"
+            disabled={searchDisabled}
+            onClick={() => setIsSearchOpen(true)}
+          >
+            <Search size={16} strokeWidth={1.8} />
+          </button>
+        )}
+      </div> : null}
 
       {filterRow}
       {extra}
@@ -1638,20 +1571,11 @@ const ChatThreadRow = memo(function ChatThreadRow({
       : conversation.summary?.trim() || "";
   const summaryLabel = sanitizeChatSnippet(summaryPreview) || "Open chat";
 
-  const leadStage = (conversation as any).leadStage;
-  const stageMapping = leadStage ? ({
-    NEW: { id: "new", label: "New Lead", tone: "accent" },
-    CONTACTED: { id: "contacted", label: "Contacted", tone: "accent" },
-    INTERESTED: { id: "qualified", label: "Interested / Qualified", tone: "success" },
-    WEBINAR_INVITED: { id: "training-booked", label: "Training Booked", tone: "accent" },
-    FOLLOW_UP: { id: "follow-up", label: "Follow-up", tone: "warning" },
-    CLOSED_WON: { id: "closed", label: "Closed Won", tone: "success" },
-    CLOSED_LOST: { id: "lost", label: "Lost / Recycled", tone: "danger" },
-  } as Record<string, { id: string; label: string; tone: string }>)[leadStage as string] : null;
-
-  const effectiveStatusId = stageMapping?.id || conversation.leadStatusId;
-  const effectiveStatusLabel = stageMapping?.label || conversation.leadStatusLabel;
-  const effectiveStatusTone = stageMapping?.tone || conversation.leadStatusTone;
+  // The inbox badge is driven only by the workspace stage returned by the API.
+  // Do not translate old MVP labels here; that was the source of stale stages.
+  const effectiveStatusId = conversation.leadStatusId;
+  const effectiveStatusLabel = conversation.leadStatusLabel;
+  const effectiveStatusTone = conversation.leadStatusTone;
 
   const badgeCfg = getLeadBadgeConfig(
     effectiveStatusId,
@@ -1694,31 +1618,34 @@ const ChatThreadRow = memo(function ChatThreadRow({
                 Ad
               </span>
             ) : null}
+            {effectiveStatusLabel ? (
+              <span
+                className="chat-thread-stage-pill"
+                style={{
+                  background: badgeCfg.bg,
+                  borderColor: badgeCfg.border,
+                  color: badgeCfg.text,
+                  boxShadow: badgeCfg.glow,
+                }}
+                title={`Lead Stage: ${badgeCfg.label}`}
+              >
+                <span
+                  className="chat-thread-stage-dot"
+                  style={{
+                    backgroundColor: badgeCfg.dot,
+                    boxShadow: badgeCfg.dot ? `0 0 6px ${badgeCfg.dot}` : undefined,
+                  }}
+                />
+                <span className="chat-thread-stage-label">{badgeCfg.label}</span>
+              </span>
+            ) : null}
           </div>
           {threadTime ? <span className="chat-thread-time">{threadTime}</span> : null}
         </div>
 
-        {/* Line 2: CRM status & Customer phone number always visible */}
+        {/* Secondary source/contact metadata remains mounted for existing data
+            flows, but the reference rail keeps it visually quiet. */}
         <div className="chat-thread-badge-row" style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
-          <span
-            className="chat-thread-stage-pill"
-            style={{
-              background: badgeCfg.bg,
-              borderColor: badgeCfg.border,
-              color: badgeCfg.text,
-              boxShadow: badgeCfg.glow,
-            }}
-            title={`Lead Stage: ${badgeCfg.label}`}
-          >
-            <span
-              className="chat-thread-stage-dot"
-              style={{
-                backgroundColor: badgeCfg.dot,
-                boxShadow: badgeCfg.dot ? `0 0 6px ${badgeCfg.dot}` : undefined,
-              }}
-            />
-            <span className="chat-thread-stage-label">{badgeCfg.label}</span>
-          </span>
           {cleanDisplayPhone(conversation.customerPhoneDisplay) ? (
             <span
               className="chat-thread-phone-display"
@@ -1829,15 +1756,11 @@ function ChatDetailsSheet({
   children: ReactNode;
 }) {
   const sheet = (
-    <div
-      className={cx(styles.detailsBackdrop, desktop ? styles.detailsDesktop : undefined)}
-      onClick={onClose}
-      role="presentation"
+    <aside
+      className={styles.detailsSheet}
+      onClick={(event) => event.stopPropagation()}
+      aria-label={eyebrow}
     >
-      <aside
-        className={styles.detailsSheet}
-        onClick={(event) => event.stopPropagation()}
-      >
         <div className={styles.sheetHeader}>
           <div className={styles.sheetTitleGroup}>
             <p className="section-label">{eyebrow}</p>
@@ -1848,11 +1771,26 @@ function ChatDetailsSheet({
           </button>
         </div>
         <div className={styles.detailsScroll}>{children}</div>
-      </aside>
-    </div>
+    </aside>
   );
 
-  return desktop && typeof document !== "undefined" ? createPortal(sheet, document.body) : sheet;
+  if (desktop) {
+    // Desktop details are a real third workspace column, not a portal or
+    // overlay. This keeps the inbox, thread, and CRM context visible together.
+    return <aside className={styles.detailsDesktop}>{sheet}</aside>;
+  }
+
+  return (
+    <div className={styles.detailsBackdrop} role="presentation">
+      <button
+        aria-label="Close customer details"
+        className={styles.detailsBackdropClose}
+        onClick={onClose}
+        type="button"
+      />
+      {sheet}
+    </div>
+  );
 }
 
 function isAbortError(error: unknown) {
@@ -1869,28 +1807,201 @@ async function fetchConversations(input: {
   customerId?: string;
   conversationId?: string;
   includeSupportData?: boolean;
-  includeMessages?: boolean;
+  supportOnly?: boolean;
   limit?: number;
   serviceId?: string;
   tenantId?: string;
   agentId?: string | null;
   signal?: AbortSignal;
 }) {
-  const params = new URLSearchParams({ audience: input.audience });
-  if (input.customerId) params.set("customerId", input.customerId);
-  if (input.conversationId) params.set("conversationId", input.conversationId);
-  if (input.includeSupportData === false) params.set("includeSupportData", "0");
-  if (input.includeMessages) params.set("includeMessages", "1");
-  if (input.limit) params.set("limit", String(input.limit));
-  if (input.serviceId) params.set("serviceId", input.serviceId);
-  if (input.tenantId) params.set("tenantId", input.tenantId);
-  if (input.agentId && input.agentId !== "all") params.set("agentId", input.agentId);
-  const response = await fetch(`/api/conversations?${params.toString()}`, { cache: "no-store", signal: input.signal });
-  const payload = (await response.json().catch(() => null)) as ({ ok?: boolean; error?: string; supportDataIncluded?: boolean } & DummyConversationListResponse) | null;
-  if (!response.ok || !payload?.ok) {
-    throw new Error(payload?.error ?? "Chat inbox could not be loaded.");
+  if (input.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+  let conversations: DummyConversationView[] = [];
+  let pagination: DummyConversationListResponse["pagination"];
+  if (!input.supportOnly) {
+    const payload = await aicloserApi.conversations.listViews({ limit: Math.min(input.limit ?? 100, 100), search: undefined });
+    conversations = payload.conversations;
+    pagination = payload.pagination;
+    if (input.conversationId) {
+      const selected = conversations.find((conversation) => conversation.id === input.conversationId);
+      try {
+        // A deep-linked chat may fall outside the first page of the central inbox.
+        // Hydrate it directly so refresh never silently opens the wrong conversation.
+        const hydrated = await aicloserApi.conversations.getView(input.conversationId, 100, selected as unknown as Record<string, unknown>);
+        conversations = selected
+          ? conversations.map((conversation) => conversation.id === selected.id ? { ...conversation, ...hydrated } : conversation)
+          : [hydrated, ...conversations];
+      } catch {
+        // Keep the first-page summaries visible if history hydration is temporarily unavailable.
+      }
+    }
   }
-  return payload as { ok: boolean; supportDataIncluded?: boolean } & DummyConversationListResponse;
+
+  if (input.includeSupportData) {
+    // These workspace resources use the same-origin server bridge so the
+    // authenticated session cookie reaches the live API reliably. Calling the
+    // live host directly from the browser silently dropped that cookie.
+    const [supportResponse, stageResponse] = await Promise.all([
+      fetch("/api/v1/chat/support", {
+        credentials: "include",
+        cache: "no-store",
+      }).catch(() => null),
+      // Use the authenticated same-origin bridge so Chat and CRM Kanban read
+      // the same Central API workspace stages without dropping the session.
+      fetch("/api/v1/stages", {
+        credentials: "include",
+        cache: "no-store",
+      }).catch(() => null),
+    ]);
+    const supportPayload = supportResponse?.ok
+      ? await supportResponse.json().catch(() => null) as {
+          data?: { team?: unknown[]; stages?: unknown[] | { stages?: unknown[] }; templates?: unknown[] };
+        } | null
+      : null;
+
+    const rawTeam = Array.isArray(supportPayload?.data?.team) ? supportPayload.data.team : [];
+    const assignableEditors: DummyAssignableEditor[] = rawTeam
+      .filter((member: any) => {
+        const role = String(member?.role ?? "").toUpperCase();
+        const status = String(member?.status ?? "").toUpperCase();
+        return role !== "ADMIN" && role !== "SUPER_ADMIN" && status !== "SUSPENDED" && status !== "INACTIVE";
+      })
+      .map((member: any) => {
+        const assigned = Math.max(0, Number(member?.assignedLeadsCount ?? 0));
+        const capacity = Math.max(0, Number(member?.maxActiveLeads ?? 0));
+        const utilization = capacity > 0 ? assigned / capacity : 0;
+        const workloadBand: DummyAssignableEditor["workloadBand"] = utilization >= 0.9
+          ? "Near Capacity"
+          : utilization >= 0.7
+            ? "Busy"
+            : utilization >= 0.35
+              ? "Moderate"
+              : "Low";
+
+        return {
+          id: String(member?.id ?? member?.userId ?? ""),
+          name: String(member?.displayName ?? member?.email ?? "Team member"),
+          specialties: [],
+          workloadBand,
+          karmaScore: 0,
+          onlineStatus: String(member?.status ?? "").toUpperCase() === "ACTIVE" ? "online" : "offline",
+          acceptingProjects: member?.canClaimLeads !== false && String(member?.status ?? "").toUpperCase() === "ACTIVE",
+        };
+      })
+      .filter((member) => member.id);
+
+    const stageJson = stageResponse?.ok
+      ? await stageResponse.json().catch(() => null) as { data?: unknown; stages?: unknown } | null
+      : null;
+    const liveStages = Array.isArray(stageJson?.data)
+      ? stageJson.data
+      : Array.isArray(stageJson?.stages)
+        ? stageJson.stages
+        : [];
+    const stagePayload = liveStages.length > 0 ? liveStages : supportPayload?.data?.stages;
+    const rawStages = Array.isArray(stagePayload)
+      ? stagePayload
+      : stagePayload && typeof stagePayload === "object" && Array.isArray((stagePayload as { stages?: unknown[] }).stages)
+        ? (stagePayload as { stages: unknown[] }).stages
+        : [];
+    const leadStatuses: DummyLeadStatus[] = (Array.isArray(rawStages) ? rawStages : [])
+      .map((stage: any, index) => {
+        const id = String(stage?.key ?? stage?.id ?? "").trim();
+        const label = String(stage?.label ?? stage?.name ?? "").trim();
+        const normalized = `${id} ${label}`.toLowerCase();
+        const tone: DummyLeadStatusTone = /closed|won|paid|qualified|interested/.test(normalized)
+          ? "success"
+          : /lost|recycled/.test(normalized)
+            ? "neutral"
+            : /follow|training|booked|demo|pending/.test(normalized)
+              ? "warning"
+              : "accent";
+        return {
+          id,
+          label,
+          tone,
+          order: Number(stage?.order ?? stage?.position ?? index + 1),
+          active: stage?.active !== false && stage?.isActive !== false,
+        };
+      })
+      .filter((status) => status.id && status.label);
+
+    const liveStageByAlias = new Map<string, DummyLeadStatus>();
+    leadStatuses.forEach((status) => {
+      [status.id, status.label]
+        .map((value) => value.toLowerCase().replace(/[\s-]+/g, "_"))
+        .filter(Boolean)
+        .forEach((alias) => liveStageByAlias.set(alias, status));
+
+      // Conversations created before the workspace pipeline was centralized
+      // can still carry the older status vocabulary. Point those values at
+      // the matching live stage without creating a second/fake stage list.
+      const liveKeys = [status.id, status.label]
+        .map((value) => value.toLowerCase().replace(/[\s-]+/g, "_"));
+      const compatibilityAliases: Record<string, string[]> = {
+        new: ["new_lead", "new_leads", "assigned"],
+        in_progress: ["interested", "qualified", "interested_qualified"],
+        demo_scheduled: ["demo_booked", "training_booked", "webinar_invited", "webinar_attended"],
+        follow_up: ["follow_up_needed", "followup"],
+        closed_won: ["closed", "won"],
+        closed_lost: ["lost", "recycled"],
+      };
+      Object.entries(compatibilityAliases).forEach(([liveKey, aliases]) => {
+        if (liveKeys.some((key) => key === liveKey || key.startsWith(`${liveKey}_`))) {
+          aliases.forEach((alias) => liveStageByAlias.set(alias, status));
+        }
+      });
+    });
+    conversations = conversations.map((conversation) => {
+      const rawStage = String(conversation.leadStage || conversation.leadStatusId || "").trim();
+      const liveStage = liveStageByAlias.get(rawStage.toLowerCase().replace(/[\s-]+/g, "_"));
+      if (!liveStage) {
+        const derivedLabel = rawStage
+          ? rawStage.replace(/[_-]+/g, " ").replace(/\b\w/g, (character) => character.toUpperCase())
+          : "";
+        return rawStage
+          ? { ...conversation, leadStatusId: rawStage.toUpperCase().replace(/[\s-]+/g, "_"), leadStatusLabel: derivedLabel, leadStatusTone: "neutral" as DummyLeadStatusTone }
+          : { ...conversation, leadStatusId: "", leadStatusLabel: "", leadStatusTone: "neutral" as DummyLeadStatusTone };
+      }
+      return {
+        ...conversation,
+        leadStatusId: liveStage.id,
+        leadStatusLabel: liveStage.label,
+        leadStatusTone: liveStage.tone,
+      };
+    });
+
+    const rawTemplates = Array.isArray(supportPayload?.data?.templates)
+      ? supportPayload.data.templates
+      : [];
+    const templates: DummyConversationTemplate[] = rawTemplates
+      .map((template: any) => ({
+        id: String(template?.id ?? ""),
+        title: String(template?.name ?? template?.title ?? "Untitled template"),
+        category: String(template?.category ?? "UTILITY"),
+        content: String(template?.bodyText ?? template?.body ?? template?.versions?.[0]?.bodyText ?? ""),
+      }))
+      .filter((template) => template.id);
+
+    return {
+      ok: true,
+      supportDataIncluded: true,
+      conversations,
+      assignableEditors,
+      leadStatuses,
+      templates,
+      pagination,
+    } as { ok: boolean; supportDataIncluded?: boolean } & DummyConversationListResponse;
+  }
+
+  return {
+    ok: true,
+    supportDataIncluded: false,
+    conversations,
+    assignableEditors: [],
+    leadStatuses: [],
+    templates: [],
+    pagination,
+  } as { ok: boolean; supportDataIncluded?: boolean } & DummyConversationListResponse;
 }
 
 function buildAgencyDirectPreview(amount: number) {
@@ -1976,15 +2087,49 @@ function getPreferredConversationLane(conversation: DummyConversationView, audie
   return visibleLanes.includes(preferredLane) ? preferredLane : (visibleLanes[0] ?? "customer");
 }
 
+function CentralRecordingAudio({ callId }: { callId: string }) {
+  const [source, setSource] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl = "";
+    setSource("");
+    setError("");
+    aicloserApi.calls.getRecordingBlob(callId)
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setSource(objectUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Recording unavailable");
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [callId]);
+
+  if (error) return <span style={{ fontSize: "10px", color: "#fca5a5" }}>{error}</span>;
+  if (!source) return <span style={{ fontSize: "10px", opacity: 0.6 }}>Loading recording...</span>;
+  return <audio controls preload="metadata" src={source} style={{ width: "100%", height: "30px", marginTop: "4px" }} />;
+}
+
 function ChatWorkspaceInner({
   audience,
   customerId = "",
   serviceIdFilter = "",
   tenantId = "",
   selectedAgentId = null,
+  centralToken = null,
 }: ChatWorkspaceProps) {
+  if (centralToken) {
+    setStoredToken(centralToken);
+  }
   const searchParams = useSearchParams();
   const [titleActionHost, setTitleActionHost] = useState<HTMLElement | null>(null);
+  const [chatSearchHost, setChatSearchHost] = useState<HTMLElement | null>(null);
   const requestedConversationId = searchParams?.get("conversationId") ?? "";
   const phonePePaymentStatus = searchParams?.get("phonepePaymentStatus") ?? "";
   const phonePePaymentMessage = searchParams?.get("phonepePaymentMessage") ?? "";
@@ -1992,7 +2137,9 @@ function ChatWorkspaceInner({
   const instagramError = searchParams?.get("instagramError") ?? "";
   const [conversations, setConversations] = useState<DummyConversationView[]>([]);
   const [assignableEditors, setAssignableEditors] = useState<DummyAssignableEditor[]>([]);
-  const [leadStatuses, setLeadStatuses] = useState<DummyLeadStatus[]>(() => DEFAULT_LEAD_STATUSES);
+  // Statuses are workspace data. Keep the initial state empty so legacy
+  // labels can never appear before the live API responds.
+  const [leadStatuses, setLeadStatuses] = useState<DummyLeadStatus[]>([]);
   const [templates, setTemplates] = useState<DummyConversationTemplate[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState("");
   const [isCompactChatLayout, setIsCompactChatLayout] = useState(false);
@@ -2000,6 +2147,7 @@ function ChatWorkspaceInner({
   const [activeLane, setActiveLane] = useState<DummyConversationLane>(audience === "freelancer" ? "customer" : "customer");
   const [activeFilter, setActiveFilter] = useState<QuickFilter>("all");
   const [channelFilter, setChannelFilter] = useState<ChannelFilter>(() => parseChannelFilter(searchParams?.get("channel") ?? null));
+  const [isChannelMenuOpen, setIsChannelMenuOpen] = useState(false);
   const [agencyFilter, setAgencyFilter] = useState<AgencyFilter>("all");
   const [searchValue, setSearchValue] = useState("");
   const deferredSearchValue = useDeferredValue(searchValue);
@@ -2023,6 +2171,7 @@ function ChatWorkspaceInner({
 
   useEffect(() => {
     setTitleActionHost(document.querySelector<HTMLElement>("[data-chat-title-actions]"));
+    setChatSearchHost(document.querySelector<HTMLElement>("[data-chat-search-host]"));
   }, []);
 
   const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
@@ -2039,9 +2188,12 @@ function ChatWorkspaceInner({
   const [assignmentDetailsDraft, setAssignmentDetailsDraft] = useState("");
   const [assignmentMode, setAssignmentMode] = useState<"replace" | "viewer">("replace");
   const [isLeadStatusMenuOpen, setIsLeadStatusMenuOpen] = useState(false);
+  const leadStatusPickerRef = useRef<HTMLDivElement | null>(null);
+  const [leadStatusMenuPosition, setLeadStatusMenuPosition] = useState<{ top: number; left: number } | null>(null);
   const [isCreateLabelModalOpen, setIsCreateLabelModalOpen] = useState(false);
   const [customLabelSelectedColor, setCustomLabelSelectedColor] = useState<WhatsAppLabelColor>(WHATSAPP_LABEL_COLORS[0]);
   const [isNotesMenuOpen, setIsNotesMenuOpen] = useState(false);
+  const [notesPopoverMode, setNotesPopoverMode] = useState<"notes" | "callback">("notes");
   const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(false);
   const [notesDraft, setNotesDraft] = useState("");
   const [followUpDraft, setFollowUpDraft] = useState("");
@@ -2052,6 +2204,30 @@ function ChatWorkspaceInner({
   const [editingStatusActive, setEditingStatusActive] = useState(true);
   const [newStatusLabel, setNewStatusLabel] = useState("");
   const [newStatusTone, setNewStatusTone] = useState<DummyLeadStatusTone>("accent");
+
+  useEffect(() => {
+    if (!isLeadStatusMenuOpen) {
+      setLeadStatusMenuPosition(null);
+      return;
+    }
+
+    const updateLeadStatusMenuPosition = () => {
+      const picker = leadStatusPickerRef.current;
+      if (!picker) return;
+      const rect = picker.getBoundingClientRect();
+      const menuWidth = Math.min(280, Math.max(220, window.innerWidth - 32));
+      const left = Math.min(Math.max(16, rect.right - menuWidth), Math.max(16, window.innerWidth - menuWidth - 16));
+      setLeadStatusMenuPosition({ top: rect.bottom + 6, left });
+    };
+
+    updateLeadStatusMenuPosition();
+    window.addEventListener("resize", updateLeadStatusMenuPosition);
+    window.addEventListener("scroll", updateLeadStatusMenuPosition, true);
+    return () => {
+      window.removeEventListener("resize", updateLeadStatusMenuPosition);
+      window.removeEventListener("scroll", updateLeadStatusMenuPosition, true);
+    };
+  }, [isLeadStatusMenuOpen]);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [crmDetails, setCrmDetails] = useState<{
     lead: any;
@@ -2063,9 +2239,11 @@ function ChatWorkspaceInner({
       outcome: string;
       note: string;
       recordingStatus: string;
+      recordingUploadId?: string | null;
       startedAt: string;
     }>;
     salesTimeline: Array<{ id: string; type: string; body: string; createdAt: string }>;
+    history: LeadHistoryEntry[];
     deals: any[];
     tasks: any[];
     webinars: any[];
@@ -2097,6 +2275,7 @@ function ChatWorkspaceInner({
   } | null>(null);
   const [isDripSaving, setIsDripSaving] = useState(false);
   const [isInboxLoading, setIsInboxLoading] = useState(true);
+  const [hydratingConversationId, setHydratingConversationId] = useState("");
   const [isMessageSending, setIsMessageSending] = useState(false);
   const [isNotificationSetupSaving, setIsNotificationSetupSaving] = useState(false);
   const [notificationSetupStatus, setNotificationSetupStatus] = useState<ChatNotificationSetupStatus>("idle");
@@ -2104,12 +2283,116 @@ function ChatWorkspaceInner({
   const [isSupportDataLoading, setIsSupportDataLoading] = useState(false);
   const [presenceNowMs, setPresenceNowMs] = useState(() => Date.now());
 
+  function buildLeadHistory(response: Lead360Response, calls: Array<{ id: string; outcome: string; note: string; durationSeconds: number; startedAt: string }>) {
+    const history: LeadHistoryEntry[] = [];
+    const seen = new Set<string>();
+    const add = (entry: LeadHistoryEntry) => {
+      if (!entry.id || seen.has(entry.id)) return;
+      seen.add(entry.id);
+      history.push({ ...entry, kind: entry.kind || "ACTIVITY", title: entry.title || "Activity" });
+    };
+
+    // Central API history is authoritative for audit events. The additional
+    // collections below are deliberately merged as a compatibility fallback
+    // for older API responses that returned notes/calls/tasks separately.
+    for (const entry of response.history ?? []) add(entry);
+    for (const entry of response.timelineNotes ?? response.timeline ?? []) {
+      add({
+        id: `timeline:${entry.id}`,
+        kind: entry.type ?? "NOTE",
+        title: entry.type === "NOTE" ? "Note added" : entry.type ?? "Activity",
+        body: entry.body,
+        createdAt: entry.createdAt,
+        actorName: entry.author?.name ?? null,
+      });
+    }
+    for (const rawEntry of response.activityLogs ?? []) {
+      const entry = rawEntry as Record<string, unknown>;
+      const action = String(entry.action ?? "Activity").replace(/_/g, " ");
+      const actor = entry.actor as Record<string, unknown> | undefined;
+      add({
+        id: `activity:${String(entry.id ?? history.length)}`,
+        kind: "ACTIVITY",
+        title: action,
+        body: String(entry.note ?? action),
+        createdAt: String(entry.createdAt ?? new Date().toISOString()),
+        actorName: actor ? String(actor.displayName ?? actor.email ?? "") || null : null,
+        metadata: (entry.metadata as Record<string, unknown> | null | undefined) ?? null,
+      });
+    }
+    for (const task of response.tasks ?? []) {
+      if (!task.id || !task.createdAt) continue;
+      add({
+        id: `task:${task.id}`,
+        kind: "CALLBACK",
+        title: task.title || "Follow-up scheduled",
+        body: task.description || "Follow-up task created for this lead.",
+        createdAt: task.createdAt,
+        dueAt: task.dueAt ?? null,
+        status: task.status,
+      });
+    }
+    for (const call of calls) {
+      add({
+        id: `call:${call.id}`,
+        kind: "CALL",
+        title: "Call completed",
+        body: [call.outcome, call.note, call.durationSeconds ? `${call.durationSeconds}s` : null].filter(Boolean).join(" · ") || "Call activity recorded.",
+        createdAt: call.startedAt,
+      });
+    }
+    for (const payment of response.payments ?? []) {
+      add({
+        id: `payment:${payment.id}`,
+        kind: "PAYMENT",
+        title: "Payment request updated",
+        body: `${payment.status}${payment.totalAmount != null ? ` · ${payment.currency} ${payment.totalAmount}` : ""}`,
+        createdAt: payment.createdAt,
+      });
+    }
+
+    return history.sort((left, right) => {
+      const leftTime = new Date(left.createdAt).getTime();
+      const rightTime = new Date(right.createdAt).getTime();
+      return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
+    });
+  }
+
+  function mapCentralCrmDetails(response: Lead360Response) {
+    const calls = (response.callLogs ?? response.calls ?? []).map((call) => ({
+      id: call.id,
+      customerName: call.assignment?.customerName ?? response.lead.customerName,
+      phoneNumber: call.phoneNumber || call.assignment?.customerPhone || response.lead.customerPhone,
+      durationSeconds: Number(call.durationSeconds ?? 0),
+      outcome: call.outcome ?? "",
+      note: call.note ?? "",
+      recordingStatus: call.recordingStatus ?? "NONE",
+      recordingUploadId: call.recordingUploadId ?? null,
+      startedAt: call.startedAt,
+    }));
+    return {
+      lead: response.lead,
+      calls,
+      salesTimeline: (response.timelineNotes ?? response.timeline ?? []).map((entry) => ({
+        id: entry.id,
+        type: entry.type ?? "NOTE",
+        body: entry.body,
+        createdAt: entry.createdAt,
+      })),
+      history: buildLeadHistory(response, calls),
+      deals: response.payments ?? [],
+      tasks: response.tasks ?? [],
+      webinars: [],
+    };
+  }
+
   const recordingIntervalRef = useRef<number | null>(null);
   const lastPayloadSignatureRef = useRef("");
   const readRequestRef = useRef("");
   const messageSendLockRef = useRef(false);
   const inboxLoadPromiseRef = useRef<Promise<void> | null>(null);
   const inboxAbortControllerRef = useRef<AbortController | null>(null);
+  const conversationHydrationRequestRef = useRef(0);
   const supportDataLoadPromiseRef = useRef<Promise<void> | null>(null);
   const syncBurstTimeoutsRef = useRef<number[]>([]);
   const latestConversationsRef = useRef<DummyConversationView[]>([]);
@@ -2129,7 +2412,6 @@ function ChatWorkspaceInner({
   const localFileInputRef = useRef<HTMLInputElement | null>(null);
   const mediaFileInputRef = useRef<HTMLInputElement | null>(null);
   const documentFileInputRef = useRef<HTMLInputElement | null>(null);
-  const paymentProofInputRef = useRef<HTMLInputElement | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const railScrollRef = useRef<HTMLDivElement | null>(null);
   const messageScrollRef = useRef<HTMLDivElement | null>(null);
@@ -2152,7 +2434,6 @@ function ChatWorkspaceInner({
   const lastConversationIdRef = useRef<string | null>(null);
   const laneSyncConversationIdRef = useRef<string | null>(null);
   const requestedConversationAppliedRef = useRef("");
-  const conversationDetailRequestRef = useRef(0);
   const requestedProfilePictureIdsRef = useRef<Set<string>>(new Set());
   const refreshedProfilePictureIdsRef = useRef<Set<string>>(new Set());
   const failedProfilePictureRetryAtRef = useRef<Map<string, number>>(new Map());
@@ -2237,6 +2518,11 @@ function ChatWorkspaceInner({
 
   const filteredConversations = useMemo(() => {
     const query = deferredSearchValue.trim().toLowerCase();
+    const selectedStage = leadStatuses.find((status) => status.id === leadStatusFilterId);
+    const normalizeStageAlias = (value: unknown) => String(value ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+    const selectedStageAliases = selectedStage
+      ? new Set([selectedStage.id, selectedStage.label].map(normalizeStageAlias).filter(Boolean))
+      : new Set<string>();
     return conversations.filter((conversation) => {
       const assignmentSummary = conversation.assignmentSummary;
       const sourceChannel = getConversationSourceChannel(conversation);
@@ -2273,14 +2559,19 @@ function ChatWorkspaceInner({
       if (assignedFilter === "assigned" && !assignmentSummary?.assignedFreelancerId) return false;
       if (assignedFilter === "unassigned" && assignmentSummary?.assignedFreelancerId) return false;
       if (paymentPendingOnly && conversation.leadStatusId !== "payment-pending") return false;
-      if (leadStatusFilterId !== "all" && conversation.leadStatusId !== leadStatusFilterId) return false;
+      if (leadStatusFilterId !== "all") {
+        const conversationStageAliases = [conversation.leadStatusId, conversation.leadStatusLabel, conversation.leadStage]
+          .map(normalizeStageAlias)
+          .filter(Boolean);
+        if (!selectedStage || !conversationStageAliases.some((alias) => selectedStageAliases.has(alias))) return false;
+      }
       return true;
     }).sort((a, b) => {
       const timeA = a.messages?.at(-1)?.createdAt || a.lastCustomerActivityAt || a.updatedAt || "";
       const timeB = b.messages?.at(-1)?.createdAt || b.lastCustomerActivityAt || b.updatedAt || "";
       return timeB.localeCompare(timeA);
     });
-  }, [activeFilter, agencyFilter, assignedFilter, audience, channelFilter, conversations, deferredSearchValue, leadStatusFilterId, paymentPendingOnly]);
+  }, [activeFilter, agencyFilter, assignedFilter, audience, channelFilter, conversations, deferredSearchValue, leadStatusFilterId, leadStatuses, paymentPendingOnly]);
 
   const activeConversation = selectedConversationId
     ? filteredConversations.find((conversation) => conversation.id === selectedConversationId) ?? null
@@ -2335,13 +2626,16 @@ function ChatWorkspaceInner({
     if (!isDetailsOpen || !activeConversation?.id) return;
     let isActive = true;
     setIsCrmDetailsLoading(true);
-    fetch(`/api/conversations/${encodeURIComponent(activeConversation.id)}/crm-details`, { cache: "no-store" })
-      .then((res) => res.json())
-      .then((data) => {
-        if (isActive && data?.ok) {
-          setCrmDetails(data.customer360);
-        }
-      })
+    const load = activeConversation.leadId
+      ? aicloserApi.leads.get360(activeConversation.leadId).then((data) => {
+          if (isActive) setCrmDetails(mapCentralCrmDetails(data));
+        })
+      : fetch(`/api/conversations/${encodeURIComponent(activeConversation.id)}/crm-details`, { cache: "no-store" })
+          .then((res) => res.json())
+          .then((data) => {
+            if (isActive && data?.ok) setCrmDetails(data.customer360);
+          });
+    load
       .catch(() => undefined)
       .finally(() => {
         if (isActive) setIsCrmDetailsLoading(false);
@@ -2351,13 +2645,37 @@ function ChatWorkspaceInner({
     };
   }, [isDetailsOpen, activeConversation?.id]);
 
+  // Load the same CRM timeline for the compact notes/callback popover. The
+  // customer drawer is intentionally closed while these actions are open.
+  useEffect(() => {
+    if (!isNotesMenuOpen || !activeConversation?.id) return;
+    let isActive = true;
+    setIsCrmDetailsLoading(true);
+    const load = activeConversation.leadId
+      ? aicloserApi.leads.get360(activeConversation.leadId).then((data) => {
+          if (isActive) setCrmDetails(mapCentralCrmDetails(data));
+        })
+      : fetch(`/api/conversations/${encodeURIComponent(activeConversation.id)}/crm-details`, { cache: "no-store" })
+          .then((res) => res.json())
+          .then((data) => {
+            if (isActive && data?.ok) setCrmDetails(data.customer360);
+          });
+    load
+      .catch(() => undefined)
+      .finally(() => {
+        if (isActive) setIsCrmDetailsLoading(false);
+      });
+    return () => {
+      isActive = false;
+    };
+  }, [isNotesMenuOpen, activeConversation?.id, activeConversation?.leadId]);
+
   useEffect(() => {
     if (!isCompactChatLayout && activeConversation?.id) {
       setIsDetailsOpen(true);
     }
   }, [activeConversation?.id, isCompactChatLayout]);
 
-  const activeAssignedEditor = assignableEditors.find((editor) => editor.id === activeAssignment?.assignedFreelancerId) ?? null;
   const activeFreelancerLanePermission = activeConversation?.freelancerCustomerLanePermission ?? null;
   const activePendingOffer = activeConversation?.myAssignmentOffer ?? activeAssignment?.myOffer ?? null;
   const activeCustomerName = sanitizeChatDisplayName(
@@ -2457,6 +2775,9 @@ function ChatWorkspaceInner({
     return buildSplitPreview(Number(paymentAmount || 0), activeAssignment?.assignedFreelancerId);
   }, [activeAssignment?.assignedFreelancerId, audience, paymentAmount, resolvedLane]);
   const laneMessages = (Array.isArray(activeConversation?.messages) ? activeConversation.messages : []).filter((message) => message.lane === resolvedLane);
+  const isHydratingActiveConversation = Boolean(
+    activeConversation?.id && hydratingConversationId === activeConversation.id && laneMessages.length === 0,
+  );
   const typingMessage = (Array.isArray(activeConversation?.typing) ? activeConversation.typing : []).find((entry) => {
     if (entry.lane !== resolvedLane || entry.role === audience) {
       return false;
@@ -3057,6 +3378,22 @@ function ChatWorkspaceInner({
     return Array.from(serviceMap.values());
   }, [conversations]);
 
+  const applySupportData = useCallback((payload: Awaited<ReturnType<typeof fetchConversations>>) => {
+    if (payload.supportDataIncluded === false) {
+      return;
+    }
+
+    setAssignableEditors(payload.assignableEditors ?? []);
+    if (Array.isArray(payload.leadStatuses) && payload.leadStatuses.length > 0) {
+      const clean = payload.leadStatuses.filter(
+        (s: DummyLeadStatus) => s.id !== "for-review" && s.id !== "delivered" && !s.label?.includes("Editor Assigned"),
+      );
+      setLeadStatuses(clean);
+    }
+    setTemplates(payload.templates ?? []);
+    setHasLoadedSupportData(true);
+  }, []);
+
   const loadConversations = useCallback((options?: { silent?: boolean; includeSupportData?: boolean }) => {
     if (inboxLoadPromiseRef.current) {
       return inboxLoadPromiseRef.current;
@@ -3085,22 +3422,7 @@ function ChatWorkspaceInner({
         if (!isMountedRef.current || controller.signal.aborted) {
           return;
         }
-        if (payload.supportDataIncluded !== false) {
-          setAssignableEditors(payload.assignableEditors ?? []);
-          if (Array.isArray(payload.leadStatuses) && payload.leadStatuses.length > 0) {
-            const clean = payload.leadStatuses.filter(
-              (s: DummyLeadStatus) => s.id !== "for-review" && s.id !== "delivered" && !s.label?.includes("Editor Assigned")
-            );
-            setLeadStatuses(clean.length > 0 ? clean : CLOSER_CANONICAL_LEAD_STATUSES);
-          }
-          setTemplates(payload.templates ?? []);
-          setHasLoadedSupportData(true);
-        } else if (Array.isArray(payload.leadStatuses) && payload.leadStatuses.length > 0) {
-          const clean = payload.leadStatuses.filter(
-            (s: DummyLeadStatus) => s.id !== "for-review" && s.id !== "delivered" && !s.label?.includes("Editor Assigned")
-          );
-          setLeadStatuses(clean.length > 0 ? clean : CLOSER_CANONICAL_LEAD_STATUSES);
-        }
+        if (includeSupportData) applySupportData(payload);
         const signature = makeConversationSignature(payload);
         if (signature === lastPayloadSignatureRef.current) {
           return;
@@ -3140,7 +3462,7 @@ function ChatWorkspaceInner({
 
     inboxLoadPromiseRef.current = request;
     return request;
-  }, [audience, customerId, notifyAboutIncomingMessages, requestedConversationId, serviceIdFilter, tenantId, selectedAgentId]);
+  }, [applySupportData, audience, customerId, notifyAboutIncomingMessages, requestedConversationId, serviceIdFilter, tenantId, selectedAgentId]);
 
   const loadSupportData = useCallback(() => {
     if (hasLoadedSupportData) {
@@ -3155,41 +3477,24 @@ function ChatWorkspaceInner({
       if (inboxLoadPromiseRef.current) {
         await inboxLoadPromiseRef.current;
       }
-      await loadConversations({ silent: true, includeSupportData: true });
+      const payload = await fetchConversations({
+        audience,
+        customerId: audience === "customer" ? customerId : undefined,
+        includeSupportData: true,
+        supportOnly: true,
+        tenantId,
+        agentId: selectedAgentId,
+      });
+      if (isMountedRef.current) {
+        applySupportData(payload);
+      }
     })().finally(() => {
       supportDataLoadPromiseRef.current = null;
       setIsSupportDataLoading(false);
     });
     supportDataLoadPromiseRef.current = request;
     return request;
-  }, [hasLoadedSupportData, loadConversations]);
-
-  const loadConversationDetail = useCallback(async (conversationId: string) => {
-    const requestId = conversationDetailRequestRef.current + 1;
-    conversationDetailRequestRef.current = requestId;
-    try {
-      const payload = await fetchConversations({
-        audience,
-        customerId: audience === "customer" ? customerId : undefined,
-        conversationId,
-        includeSupportData: false,
-        includeMessages: true,
-        limit: 1,
-        serviceId: serviceIdFilter,
-        tenantId,
-        agentId: selectedAgentId,
-      });
-      if (!isMountedRef.current || requestId !== conversationDetailRequestRef.current) {
-        return;
-      }
-      const detail = payload.conversations?.find((conversation) => conversation.id === conversationId);
-      if (detail) {
-        setConversations((current) => current.map((conversation) => conversation.id === conversationId ? detail : conversation));
-      }
-    } catch {
-      // The summary row remains usable if the detail request is interrupted.
-    }
-  }, [audience, customerId, selectedAgentId, serviceIdFilter, tenantId]);
+  }, [applySupportData, audience, customerId, hasLoadedSupportData, selectedAgentId, tenantId]);
 
   const requestChatRefresh = useCallback(() => {
     if (inboxLoadPromiseRef.current) {
@@ -3304,11 +3609,7 @@ function ChatWorkspaceInner({
   const postTypingStateUpdate = useCallback(
     async (conversationId: string, lane: DummyConversationLane, active: boolean) => {
       try {
-        await fetch(`/api/conversations/${conversationId}/typing`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ role: audience, lane, active }),
-        });
+        await aicloserApi.conversations.setTyping(conversationId, active);
       } catch {
         // Typing signals are best-effort only.
       }
@@ -3374,14 +3675,7 @@ function ChatWorkspaceInner({
       },
     });
     try {
-      const response = await fetch(`/api/conversations/${conversationId}/read`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ audience }),
-      });
-      if (!response.ok) {
-        throw new Error(`Read sync failed with ${response.status}`);
-      }
+      await aicloserApi.conversations.markRead(conversationId);
       scheduleChatSyncBurst();
     } catch {
       // Silently continue so the user is not disrupted
@@ -3391,17 +3685,13 @@ function ChatWorkspaceInner({
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
-      loadConversations({ includeSupportData: false }).catch(() => undefined);
+      // Render the inbox first. Workspace support data is independent and loads
+      // in the background so a slow team/stage endpoint cannot hold the chat rail.
+      loadConversations().catch(() => undefined);
+      loadSupportData().catch(() => undefined);
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, [loadConversations]);
-
-  useEffect(() => {
-    if (!selectedConversationId) {
-      return;
-    }
-    void loadConversationDetail(selectedConversationId);
-  }, [loadConversationDetail, selectedConversationId]);
+  }, [loadConversations, loadSupportData]);
 
   useEffect(() => {
     if (hasLoadedSupportData) {
@@ -3486,35 +3776,19 @@ function ChatWorkspaceInner({
       return;
     }
 
-    const params = new URLSearchParams({ audience });
-    if (tenantId) params.set("tenantId", tenantId);
-    const source = new EventSource(`/api/conversations/events?${params.toString()}`, {
-      withCredentials: true,
+    const disconnect = aicloserApi.realtime.connect({
+      onEvent: (event) => {
+        const signature = typeof event.payload?.signature === "string" ? event.payload.signature : "";
+        if (signature && conversationEventsLastSignatureRef.current === signature) {
+          return;
+        }
+        conversationEventsLastSignatureRef.current = signature;
+        scheduleRealtimeChatRefresh();
+      },
     });
 
-    source.addEventListener("ready", () => {
-      conversationEventsLastSignatureRef.current = "";
-    });
-
-    source.addEventListener("sync", (event) => {
-      let payload: { signature?: string };
-      try {
-        payload = JSON.parse(event.data || "{}") as { signature?: string };
-      } catch {
-        payload = {};
-      }
-      const signature = payload.signature ?? "";
-      if (conversationEventsLastSignatureRef.current && conversationEventsLastSignatureRef.current === signature) {
-        return;
-      }
-      conversationEventsLastSignatureRef.current = signature;
-      scheduleRealtimeChatRefresh();
-    });
-
-    return () => {
-      source.close();
-    };
-  }, [audience, scheduleRealtimeChatRefresh, tenantId]);
+    return disconnect;
+  }, [audience, scheduleRealtimeChatRefresh]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -3759,6 +4033,7 @@ function ChatWorkspaceInner({
     setIsAssignMenuOpen(false);
     setIsLeadStatusMenuOpen(false);
     setIsNotesMenuOpen(false);
+    setIsChannelMenuOpen(false);
   }
 
   function resetInboxFilters() {
@@ -3786,9 +4061,41 @@ function ChatWorkspaceInner({
     setIsMobileThreadViewOpen(false);
   }
 
+  const hydrateConversationHistory = useCallback(async (conversation: DummyConversationView) => {
+    if (conversation.messages?.length || hydratingConversationId === conversation.id) {
+      return;
+    }
+
+    const requestId = conversationHydrationRequestRef.current + 1;
+    conversationHydrationRequestRef.current = requestId;
+    setHydratingConversationId(conversation.id);
+    try {
+      const hydrated = await aicloserApi.conversations.getView(
+        conversation.id,
+        100,
+        conversation as unknown as Record<string, unknown>,
+      );
+      if (!isMountedRef.current || conversationHydrationRequestRef.current !== requestId) {
+        return;
+      }
+      setConversations((current) => current.map((item) => (
+        item.id === conversation.id ? { ...item, ...hydrated, messages: hydrated.messages } : item
+      )));
+    } catch {
+      if (isMountedRef.current && conversationHydrationRequestRef.current === requestId) {
+        setComposerStatus("We could not load this chat history right now. Please retry once.");
+      }
+    } finally {
+      if (conversationHydrationRequestRef.current === requestId) {
+        setHydratingConversationId("");
+      }
+    }
+  }, [hydratingConversationId]);
+
   const handleSelectConversation = useCallback(
     (conversation: DummyConversationView) => {
       setSelectedConversationId(conversation.id);
+      void hydrateConversationHistory(conversation);
       setActiveLane(getPreferredConversationLane(conversation, audience));
       if (typeof window !== "undefined") {
         const nextUrl = new URL(window.location.href);
@@ -3826,7 +4133,7 @@ function ChatWorkspaceInner({
         markConversationRead(conversation.id).catch(() => undefined);
       }
     },
-    [audience, isCompactChatLayout, markConversationRead, requestedConversationId],
+    [audience, hydrateConversationHistory, isCompactChatLayout, markConversationRead, requestedConversationId],
   );
 
   const [isDeletingConversation, setIsDeletingConversation] = useState(false);
@@ -3896,52 +4203,19 @@ function ChatWorkspaceInner({
     }
 
     try {
-      const response = await fetch(`/api/conversations/${conversationId}/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          role: audience,
-          lane,
-          body: trimmedBody,
-          transport: lane === "customer" && activeConversation.sourceChannel === "whatsapp" ? whatsappTransport : undefined,
-          visibility: (audience === "admin" || audience === "manager") && lane === "customer" && hideCustomerMessageFromFreelancer ? "client_private" : undefined,
-          attachments,
-        }),
-      });
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        if (optimisticMessage) {
-          removeOptimisticMessageLocally(conversationId, optimisticMessage.id);
-        }
-        setMessageDraft(previousDraft);
-        setIsAttachMenuOpen(previousAttachMenuState);
-        setIsEmojiTrayOpen(previousEmojiTrayState);
-        setComposerStatus(payload?.error ?? "Message send failed.");
-        lastPayloadSignatureRef.current = "";
-        return;
-      }
-
-      if (payload?.delivery?.mode === "whatsapp-sent") {
-        setComposerStatus("");
-      } else if (payload?.delivery?.mode === "local-only" && audience !== "customer" && resolvedLane === "customer") {
-        setComposerStatus(
-          attachments.length
-            ? `${attachments.map(summarizeAttachmentForStatus).join(", ")} sent.`
-            : payload?.delivery?.error || "Message saved locally. Open WhatsApp setup to finish the Cloud API connection for this line.",
-        );
-      } else if (payload?.delivery?.mode === "whatsapp-failed") {
-        setComposerStatus(payload?.delivery?.error ?? "WhatsApp send failed.");
-      } else {
-        setComposerStatus("");
-      }
-
-      if (payload?.conversation) {
-        syncConversationLocally(payload.conversation, "message");
-      } else {
-        void loadConversations({ silent: true }).catch(() => undefined);
-      }
+      await aicloserApi.conversations.sendMessage(conversationId, trimmedBody || " ", attachments);
+      setComposerStatus("");
+      void loadConversations({ silent: true }).catch(() => undefined);
       scheduleChatSyncBurst();
+    } catch (error) {
+      if (optimisticMessage) {
+        removeOptimisticMessageLocally(conversationId, optimisticMessage.id);
+      }
+      setMessageDraft(previousDraft);
+      setIsAttachMenuOpen(previousAttachMenuState);
+      setIsEmojiTrayOpen(previousEmojiTrayState);
+      setComposerStatus(error instanceof Error ? error.message : "Message send failed.");
+      lastPayloadSignatureRef.current = "";
     } finally {
       setIsMessageSending(false);
       messageSendLockRef.current = false;
@@ -4715,20 +4989,22 @@ function ChatWorkspaceInner({
     if (!activeConversation) return;
     setIsDripSaving(true);
     try {
-      const response = await fetch(`/api/conversations/${activeConversation.id}/drip`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paused }),
-      });
-      const data = await response.json().catch(() => null);
-      if (data?.drip) {
-        setDripState(data.drip);
-        setComposerStatus(
-          paused
-            ? "WhatsApp lead drip paused for this lead."
-            : "WhatsApp lead drip active. Context-aware follow-ups scheduled."
-        );
-      }
+      await aicloserApi.conversations.triggerDrip(activeConversation.id, paused ? "PAUSE" : "RESUME");
+      // The central mutation endpoint returns an acknowledgement rather than
+      // the legacy drip projection. Keep the current UI projection intact and
+      // update only the state changed by this action.
+      setDripState((current) => ({
+        audienceCategory: current?.audienceCategory ?? "LEAD",
+        currentStage: current?.currentStage ?? 1,
+        paused,
+        completed: current?.completed ?? false,
+        lastDripSentAt: current?.lastDripSentAt,
+      }));
+      setComposerStatus(
+        paused
+          ? "WhatsApp lead drip paused for this lead."
+          : "WhatsApp lead drip active. Context-aware follow-ups scheduled."
+      );
     } catch {
       setComposerStatus("Could not update lead drip status.");
     } finally {
@@ -4763,7 +5039,7 @@ function ChatWorkspaceInner({
       return;
     }
     setIsLeadStatusMenuOpen(false);
-    const targetStatus = (leadStatuses && leadStatuses.length > 0 ? leadStatuses : DEFAULT_LEAD_STATUSES).find((s) => s.id === leadStatusId);
+    const targetStatus = leadStatuses.find((s) => s.id === leadStatusId);
     // Update the selected thread immediately. Meta delivery and the background
     // inbox refresh must never make the closer wait for the visual change.
     syncConversationLocally(
@@ -4777,21 +5053,14 @@ function ChatWorkspaceInner({
       "lead-status",
     );
     setComposerStatus(`Saving stage: ${targetStatus?.label ?? leadStatusId}...`);
-    const response = await fetch(`/api/conversations/${activeConversation.id}/lead-status`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ leadStatusId }),
-    });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      setComposerStatus(payload?.error ?? "Lead status could not be updated.");
+    try {
+      await aicloserApi.conversations.updateStage(activeConversation.id, toCentralStageValue(leadStatusId));
+    } catch (error) {
+      setComposerStatus(error instanceof Error ? error.message : "Lead status could not be updated.");
       return;
     }
     const statusLabel = targetStatus?.label ?? leadStatusId;
     setComposerStatus(`Lead stage updated to "${statusLabel}".`);
-    if (payload?.conversation) {
-      syncConversationLocally(payload.conversation, "lead-status");
-    }
     // Auto-pause automated follow-up drip when lead is booked or converted
     if (
       leadStatusId === "closed" ||
@@ -4807,27 +5076,33 @@ function ChatWorkspaceInner({
   }
 
   async function handleLeadStatusCrud(action: "create" | "update" | "delete" | "reorder", input?: Partial<DummyLeadStatus> & { statusId?: string; orderedIds?: string[] }) {
-    if (!activeConversation) {
+    const toneColors: Record<DummyLeadStatusTone, string> = {
+      neutral: "#64748B",
+      accent: "#3B82F6",
+      warning: "#F59E0B",
+      success: "#10B981",
+    };
+    try {
+      if (action === "create" && input?.label?.trim()) {
+        await aicloserApi.stages.create({
+          label: input.label.trim(),
+          color: toneColors[input.tone ?? "accent"],
+          probability: 0.5,
+        });
+      } else if (action === "update" && input?.statusId && input.label?.trim()) {
+        await aicloserApi.stages.updateStage(input.statusId, {
+          label: input.label.trim(),
+          color: toneColors[input.tone ?? "neutral"],
+        });
+      } else if (action === "delete" && input?.statusId) {
+        await aicloserApi.stages.remove(input.statusId);
+      } else if (action === "reorder" && input?.orderedIds?.length) {
+        await aicloserApi.stages.update({ stageIds: input.orderedIds });
+      }
+    } catch (error) {
+      setComposerStatus(error instanceof Error ? error.message : "Could not update live lead stages.");
       return;
     }
-    const response = await fetch(`/api/conversations/${activeConversation.id}/lead-statuses`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action,
-        statusId: input?.statusId,
-        label: input?.label,
-        tone: input?.tone,
-        active: input?.active,
-        orderedIds: input?.orderedIds,
-      }),
-    });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      setComposerStatus(payload?.error ?? "Could not update lead statuses.");
-      return;
-    }
-    setLeadStatuses(payload?.statuses ?? []);
     setComposerStatus("Lead status settings updated.");
     if (action === "create") {
       setNewStatusLabel("");
@@ -4839,7 +5114,7 @@ function ChatWorkspaceInner({
       setEditingStatusTone("neutral");
       setEditingStatusActive(true);
     }
-    await loadConversations({ silent: true });
+    await loadConversations({ silent: true, includeSupportData: true });
   }
 
   function startEditingStatus(status: DummyLeadStatus) {
@@ -4974,66 +5249,6 @@ function ChatWorkspaceInner({
     await loadConversations({ silent: true });
   }
 
-  async function handlePaymentStatusUpdate(status: DummyPaymentStatus) {
-    if (!latestPaymentRequest || !activeConversation) {
-      return;
-    }
-
-    const response = await fetch(`/api/conversations/${activeConversation.id}/payment-request`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "mark-status", paymentRequestId: latestPaymentRequest.id, status }),
-    });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      setComposerStatus(payload?.error ?? "Payment status could not be updated.");
-      return;
-    }
-
-    setComposerStatus(`Payment request marked ${status.toLowerCase()}.`);
-    if (payload?.conversation) {
-      syncConversationLocally(payload.conversation, "payment");
-    }
-    await loadConversations({ silent: true });
-  }
-
-  async function handlePaymentProofPicked(files: FileList | null) {
-    if (!files?.length || !latestPaymentRequest || !activeConversation) {
-      return;
-    }
-
-    const attachments = Array.from(files)
-      .filter((file) => file.size <= MAX_CHAT_ATTACHMENT_BYTES)
-      .map((file) => ({
-        name: file.name,
-        mimeType: file.type || "application/octet-stream",
-        sizeBytes: file.size,
-      }));
-
-    if (!attachments.length) {
-      setComposerStatus("Proof file must be 20 MB or smaller.");
-      return;
-    }
-
-    const response = await fetch(`/api/conversations/${activeConversation.id}/payment-request`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "submit-proof", paymentRequestId: latestPaymentRequest.id, status: "Viewed", attachments }),
-    });
-
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      setComposerStatus(payload?.error ?? "Payment proof could not be uploaded.");
-      return;
-    }
-
-    setComposerStatus("Payment proof uploaded.");
-    if (payload?.conversation) {
-      syncConversationLocally(payload.conversation, "payment");
-    }
-    await loadConversations({ silent: true });
-  }
-
   function copyPaymentUpiId(upiId: string) {
     const value = upiId.trim();
     if (!value) {
@@ -5129,12 +5344,32 @@ function ChatWorkspaceInner({
     ? createPortal(renderNotificationButton(), titleActionHost)
     : null;
 
+  const titleSearchAction = chatSearchHost
+    ? createPortal(
+        <div className="chat-topbar-search">
+          <Search size={15} strokeWidth={1.8} aria-hidden="true" />
+          <input
+            aria-label="Search conversations"
+            onChange={(event) => setSearchValue(event.target.value)}
+            placeholder="Search conversations"
+            value={searchValue}
+          />
+          {searchValue ? (
+            <button type="button" aria-label="Clear conversation search" onClick={() => setSearchValue("")}>
+              <X size={13} strokeWidth={1.8} />
+            </button>
+          ) : null}
+        </div>,
+        chatSearchHost,
+      )
+    : null;
+
   function renderLeadStatusPopover() {
     if (!isLeadStatusMenuOpen) {
       return null;
     }
 
-    const statusesToRender = CLOSER_CANONICAL_LEAD_STATUSES;
+    const statusesToRender = leadStatuses.filter((status) => status.active);
 
     return (
       <div
@@ -5161,13 +5396,8 @@ function ChatWorkspaceInner({
           </div>
           <div className="chat-status-list" style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
             {statusesToRender.map((status) => {
-              const currentStatusId = activeConversation?.leadStatusId || "new";
-              const isCurrent =
-                currentStatusId === status.id ||
-                (currentStatusId === "new-leads" && status.id === "new") ||
-                (currentStatusId === "closed-won" && status.id === "closed") ||
-                (currentStatusId === "interested" && status.id === "qualified") ||
-                (currentStatusId === "webinar-invited" && status.id === "training-booked");
+              const currentStatusId = activeConversation?.leadStatusId || "";
+              const isCurrent = currentStatusId === status.id;
 
               return (
                 <button
@@ -5204,6 +5434,11 @@ function ChatWorkspaceInner({
               );
             })}
           </div>
+          {!statusesToRender.length ? (
+            <p className="chat-picker-empty">
+              {isSupportDataLoading ? "Loading workspace stages…" : "No live workspace stages are configured."}
+            </p>
+          ) : null}
         </div>
 
         {audience !== "sales" ? (
@@ -5313,38 +5548,37 @@ function ChatWorkspaceInner({
       "notes",
     );
     try {
-      const response = await fetch(`/api/conversations/${activeConversation.id}/notes`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notes: notesToSave, nextFollowUpAt: followUpToSave }),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        setComposerStatus(payload?.error ?? "Unable to save notes.");
-        return;
+      if (notesToSave.trim()) {
+        await aicloserApi.conversations.addNote(activeConversation.id, notesToSave);
+      }
+      if (followUpToSave) {
+        await aicloserApi.conversations.scheduleCallback(
+          activeConversation.id,
+          followUpToSave,
+          notesToSave.trim() || undefined,
+        );
       }
       setComposerStatus(followUpToSave ? "Note & follow-up reminder saved." : "Internal note saved.");
-      if (payload?.conversation) {
-        syncConversationLocally(payload.conversation, "notes");
-      } else {
-        replaceConversationLocally({
-          ...activeConversation,
-          internalNotes: notesToSave,
-          nextFollowUpAt: followUpToSave,
-          updatedAt: new Date().toISOString(),
-        });
-        broadcastChatWorkspaceSync({ reason: "notes", conversationId: activeConversation.id });
-      }
+      replaceConversationLocally({
+        ...activeConversation,
+        internalNotes: notesToSave,
+        nextFollowUpAt: followUpToSave,
+        updatedAt: new Date().toISOString(),
+      });
+      broadcastChatWorkspaceSync({ reason: "notes", conversationId: activeConversation.id });
       setNotesDraft(notesToSave);
       setFollowUpDraft(followUpToSave ? followUpToSave.slice(0, 16) : "");
       // Refresh the 360 panel so the saved note appears in its activity
       // timeline immediately, without closing and reopening the drawer.
-      if (isDetailsOpen) {
-        void fetch(`/api/conversations/${encodeURIComponent(activeConversation.id)}/crm-details`, { cache: "no-store" })
-          .then((crmResponse) => crmResponse.json().catch(() => null))
-          .then((crmPayload) => {
-            if (crmPayload?.ok) setCrmDetails(crmPayload.customer360);
-          })
+      if (isDetailsOpen || isNotesMenuOpen) {
+        const refreshDetails = activeConversation.leadId
+          ? aicloserApi.leads.get360(activeConversation.leadId).then((data) => setCrmDetails(mapCentralCrmDetails(data)))
+          : fetch(`/api/conversations/${encodeURIComponent(activeConversation.id)}/crm-details`, { cache: "no-store" })
+              .then((crmResponse) => crmResponse.json().catch(() => null))
+              .then((crmPayload) => {
+                if (crmPayload?.ok) setCrmDetails(crmPayload.customer360);
+              });
+        void refreshDetails
           .catch(() => undefined);
       }
       // The selected conversation is synchronized locally above. Refresh the
@@ -5384,8 +5618,12 @@ function ChatWorkspaceInner({
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "7px" }}>
-            <StickyNote size={15} style={{ color: "#38bdf8" }} />
-            <strong style={{ fontSize: "13px" }}>Notes & Callback</strong>
+            {notesPopoverMode === "notes" ? (
+              <StickyNote size={15} style={{ color: "#38bdf8" }} />
+            ) : (
+              <CalendarClock size={15} style={{ color: "#ff6b2f" }} />
+            )}
+            <strong style={{ fontSize: "13px" }}>{notesPopoverMode === "notes" ? "Private notes" : "Schedule follow-up"}</strong>
           </div>
           <button
             type="button"
@@ -5397,33 +5635,37 @@ function ChatWorkspaceInner({
           </button>
         </div>
         <p style={{ fontSize: "11px", opacity: 0.7, margin: "0 0 8px", lineHeight: "1.4" }}>
-          Save private notes and a callback time. Both stay synced with the mobile app.
+          {notesPopoverMode === "notes"
+            ? "Keep private context synced with the mobile app."
+            : "Set the next follow-up time for this conversation."}
         </p>
-        <textarea
-          aria-label="Internal lead notes"
-          className="chat-notes-textarea"
-          value={notesDraft}
-          onChange={(event) => setNotesDraft(event.target.value)}
-          placeholder="Client requirement, budget, objections, discussion notes..."
-          rows={4}
-          style={{
-            width: "100%",
-            boxSizing: "border-box",
-            padding: "8px 10px",
-            borderRadius: "8px",
-            fontSize: "12px",
-            lineHeight: "1.5",
-            resize: "vertical",
-            border: "1px solid rgba(255, 255, 255, 0.15)",
-            background: "rgba(0, 0, 0, 0.35)",
-            color: "#fff",
-            outline: "none",
-            marginBottom: "10px",
-            fontFamily: "inherit",
-          }}
-        />
+        {notesPopoverMode === "notes" ? (
+          <textarea
+            aria-label="Internal lead notes"
+            className="chat-notes-textarea"
+            value={notesDraft}
+            onChange={(event) => setNotesDraft(event.target.value)}
+            placeholder="Client requirement, budget, objections, discussion notes..."
+            rows={4}
+            style={{
+              width: "100%",
+              boxSizing: "border-box",
+              padding: "8px 10px",
+              borderRadius: "8px",
+              fontSize: "12px",
+              lineHeight: "1.5",
+              resize: "vertical",
+              border: "1px solid rgba(255, 255, 255, 0.15)",
+              background: "rgba(0, 0, 0, 0.35)",
+              color: "#fff",
+              outline: "none",
+              marginBottom: "10px",
+              fontFamily: "inherit",
+            }}
+          />
+        ) : null}
 
-        <div style={{ marginBottom: "12px", background: "rgba(255, 255, 255, 0.03)", padding: "10px", borderRadius: "8px", border: "1px solid rgba(255, 255, 255, 0.08)" }}>
+        {notesPopoverMode === "callback" ? <div style={{ marginBottom: "12px", background: "rgba(255, 255, 255, 0.03)", padding: "10px", borderRadius: "8px", border: "1px solid rgba(255, 255, 255, 0.08)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
             <label style={{ fontSize: "11px", fontWeight: 600, color: "rgba(255, 255, 255, 0.85)", display: "flex", alignItems: "center", gap: "5px" }}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
@@ -5511,7 +5753,61 @@ function ChatWorkspaceInner({
               + In 2 Days 3 PM
             </button>
           </div>
-        </div>
+        </div> : null}
+
+        {(() => {
+          const notesHistory = (crmDetails?.salesTimeline ?? []).filter((item) => String(item.body ?? "").trim());
+          const callbackHistory = (crmDetails?.tasks ?? []).filter((task) => task.dueAt || /callback|follow[ -]?up/i.test(String(task.title ?? "")));
+          const hasHistory = notesHistory.length > 0 || callbackHistory.length > 0;
+          return (
+            <div
+              aria-label="Notes and callback history"
+              style={{
+                marginBottom: "12px",
+                border: "1px solid rgba(255, 255, 255, 0.1)",
+                borderRadius: "8px",
+                background: "rgba(255, 255, 255, 0.035)",
+                overflow: "hidden",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderBottom: "1px solid rgba(255, 255, 255, 0.08)" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "11px", fontWeight: 700 }}>
+                  <History size={13} /> Notes & callback history
+                </span>
+                <span style={{ fontSize: "10px", opacity: 0.55 }}>{notesHistory.length + callbackHistory.length}</span>
+              </div>
+              <div style={{ maxHeight: "132px", overflowY: "auto", padding: "4px 10px" }}>
+                {isCrmDetailsLoading ? (
+                  <p style={{ margin: "8px 0", fontSize: "11px", opacity: 0.6 }}>Loading history...</p>
+                ) : !hasHistory ? (
+                  <p style={{ margin: "8px 0", fontSize: "11px", opacity: 0.6 }}>No notes or callbacks saved yet.</p>
+                ) : (
+                  <>
+                    {notesHistory.slice(0, 20).map((item) => (
+                      <div key={`note-${item.id}`} style={{ padding: "7px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", fontSize: "10px", opacity: 0.55 }}>
+                          <span>Note</span>
+                          <span>{item.createdAt && !Number.isNaN(new Date(item.createdAt).getTime()) ? new Date(item.createdAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}</span>
+                        </div>
+                        <p style={{ margin: "3px 0 0", fontSize: "11px", lineHeight: 1.35 }}>{item.body}</p>
+                      </div>
+                    ))}
+                    {callbackHistory.slice(0, 20).map((task) => (
+                      <div key={`callback-${task.id}`} style={{ padding: "7px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", fontSize: "10px", opacity: 0.55 }}>
+                          <span>Callback</span>
+                          <span>{task.dueAt && !Number.isNaN(new Date(task.dueAt).getTime()) ? new Date(task.dueAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}</span>
+                        </div>
+                        <p style={{ margin: "3px 0 0", fontSize: "11px", lineHeight: 1.35 }}>{task.title || "Scheduled callback"}</p>
+                        {task.status ? <span style={{ fontSize: "10px", opacity: 0.55 }}>{task.status}</span> : null}
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
           <button
@@ -5535,7 +5831,7 @@ function ChatWorkspaceInner({
               handleSaveNotes().then(() => setIsNotesMenuOpen(false));
             }}
           >
-            {isNotesSaving ? "Saving..." : "Save Note & Callback"}
+            {isNotesSaving ? "Saving..." : notesPopoverMode === "notes" ? "Save note" : "Save follow-up"}
           </button>
         </div>
       </div>
@@ -5616,6 +5912,7 @@ function ChatWorkspaceInner({
   const channelCounts = useMemo(() => {
     let company = 0;
     let personal = 0;
+    let instagram = 0;
     let all = 0;
     let companyUnread = 0;
     let personalUnread = 0;
@@ -5623,6 +5920,9 @@ function ChatWorkspaceInner({
 
     for (const c of conversations) {
       all++;
+      if (getConversationSourceChannel(c) === "instagram") {
+        instagram++;
+      }
       const isPersonal = c.externalSourceType === "whatsapp_personal" || c.externalSourceType === "whatsapp_business";
       const unread = c.unreadCount ?? 0;
       if (unread > 0) allUnread += unread;
@@ -5635,7 +5935,7 @@ function ChatWorkspaceInner({
       }
     }
 
-    return { all, company, personal, allUnread, companyUnread, personalUnread };
+    return { all, company, personal, instagram, allUnread, companyUnread, personalUnread };
   }, [conversations]);
 
   const handleSelectChannelTab = useCallback((tab: ChannelFilter) => {
@@ -5647,6 +5947,9 @@ function ChatWorkspaceInner({
       if (tab === "whatsapp_connected") {
         return c.externalSourceType === "whatsapp_personal" || c.externalSourceType === "whatsapp_business";
       }
+      if (tab === "instagram") {
+        return getConversationSourceChannel(c) === "instagram";
+      }
       return true;
     });
     if (!isCompactChatLayout && matching.length > 0) {
@@ -5657,57 +5960,182 @@ function ChatWorkspaceInner({
     }
   }, [conversations, isCompactChatLayout, selectedConversationId]);
 
-  const channelTopTabs = (
-    <div className="chat-top-channel-tabs" role="tablist" aria-label="WhatsApp Channel Switcher">
-      <button
-        type="button"
-        role="tab"
-        aria-selected={channelFilter === "all"}
-        className={cx("chat-top-channel-tab", channelFilter === "all" && "active")}
-        onClick={() => handleSelectChannelTab("all")}
-        title="All Conversations (Unified Inbox)"
-      >
-        <span>All</span>
-        <span className="chat-top-tab-badge">{channelCounts.all}</span>
-        {channelCounts.allUnread > 0 ? (
-          <span className="chat-top-tab-unread-dot" title={`${channelCounts.allUnread} unread`} />
-        ) : null}
-      </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={channelFilter === "whatsapp_company"}
-        className={cx("chat-top-channel-tab tab-company", channelFilter === "whatsapp_company" && "active")}
-        onClick={() => handleSelectChannelTab(channelFilter === "whatsapp_company" ? "all" : "whatsapp_company")}
-        title="WhatsApp API (Official Cloud API & CRM Platform Intake)"
-      >
-        <Building2 size={11} strokeWidth={2.2} style={{ flexShrink: 0 }} />
-        <span className="chat-top-tab-label"><span>WhatsApp API</span></span>
-        <span className="chat-top-tab-badge">{channelCounts.company}</span>
-        {channelCounts.companyUnread > 0 ? (
-          <span className="chat-top-tab-unread-dot" title={`${channelCounts.companyUnread} unread`} />
-        ) : null}
-      </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={channelFilter === "whatsapp_connected"}
-        className={cx("chat-top-channel-tab tab-personal", channelFilter === "whatsapp_connected" && "active")}
-        onClick={() => handleSelectChannelTab(channelFilter === "whatsapp_connected" ? "all" : "whatsapp_connected")}
-        title="WhatsApp Personal (Closer Connected Mobile WhatsApp Device)"
-      >
-        <Smartphone size={11} strokeWidth={2.2} style={{ flexShrink: 0 }} />
-        <span className="chat-top-tab-label"><span>WhatsApp Personal</span></span>
-        <span className="chat-top-tab-badge">{channelCounts.personal}</span>
-        {channelCounts.personalUnread > 0 ? (
-          <span className="chat-top-tab-unread-dot" title={`${channelCounts.personalUnread} unread`} />
-        ) : null}
-      </button>
-    </div>
-  );
+  const channelOptions: Array<{ id: ChannelFilter; label: string; count: number; unread: number; icon: ReactNode }> = [
+    { id: "all", label: "All channels", count: channelCounts.all, unread: channelCounts.allUnread, icon: <MessageSquare size={13} strokeWidth={1.9} /> },
+    { id: "whatsapp_company", label: "WhatsApp API", count: channelCounts.company, unread: channelCounts.companyUnread, icon: <Building2 size={13} strokeWidth={1.9} /> },
+    { id: "whatsapp_connected", label: "WhatsApp Personal", count: channelCounts.personal, unread: channelCounts.personalUnread, icon: <Smartphone size={13} strokeWidth={1.9} /> },
+    ...(channelCounts.instagram > 0 || channelFilter === "instagram"
+      ? [{ id: "instagram" as ChannelFilter, label: "Instagram", count: channelCounts.instagram, unread: 0, icon: <Instagram size={13} strokeWidth={1.9} /> }]
+      : []),
+  ];
+  const selectedChannel = channelOptions.find((option) => option.id === channelFilter) ?? channelOptions[0];
 
   const selectedLeadStatus = leadStatuses.find((s) => s.id === leadStatusFilterId);
   const selectedStatusBadge = selectedLeadStatus ? getLeadBadgeConfig(selectedLeadStatus.id, selectedLeadStatus.label, selectedLeadStatus.tone) : null;
+
+  const leadStatusFilterControl = (
+    <div ref={leadStatusPickerRef} className="chat-stage-picker">
+      {leadStatusFilterId !== "all" && selectedLeadStatus ? (
+        <button
+          type="button"
+          className="chat-filter-chip label-chip active"
+          style={{
+            background: selectedStatusBadge?.bg,
+            borderColor: selectedStatusBadge?.border,
+            color: selectedStatusBadge?.text,
+            boxShadow: selectedStatusBadge?.glow,
+          }}
+          onClick={() => setLeadStatusFilterId("all")}
+          title={`Active Filter: ${selectedLeadStatus.label}. Click to clear.`}
+        >
+          <span className="chat-thread-top-label-dot" style={{ backgroundColor: selectedStatusBadge?.dot }} />
+          <span>{selectedLeadStatus.label}</span>
+          <X size={11} style={{ marginLeft: "4px" }} />
+        </button>
+      ) : (
+        <button
+          type="button"
+          className={cx("chat-filter-chip", isLeadStatusMenuOpen && "active")}
+          onClick={() => setIsLeadStatusMenuOpen((curr) => !curr)}
+          title="Filter by CRM lead stage"
+        >
+          <Tag size={12} strokeWidth={2} />
+          <span>Stages</span>
+          <ChevronDown size={11} />
+        </button>
+      )}
+
+      {isLeadStatusMenuOpen && leadStatusMenuPosition && typeof document !== "undefined" ? createPortal(
+        <div
+          className="chat-stage-menu"
+          role="menu"
+          aria-label="Filter conversations by lead stage"
+          style={{
+            position: "fixed",
+            top: leadStatusMenuPosition.top,
+            left: leadStatusMenuPosition.left,
+            zIndex: 1200,
+            display: "flex",
+            flexDirection: "column",
+            gap: "3px",
+            width: "min(280px, calc(100vw - 32px))",
+            minWidth: "220px",
+            maxWidth: "calc(100vw - 32px)",
+            boxSizing: "border-box",
+            overflow: "visible",
+            padding: "6px",
+            border: "1px solid var(--crm-border-strong, #cbd5e1)",
+            borderRadius: "10px",
+            background: "var(--crm-surface, #ffffff)",
+            color: "var(--crm-text, #0f172a)",
+            boxShadow: "0 14px 28px rgba(15, 23, 42, 0.16)",
+          }}
+        >
+          <button
+            type="button"
+            className={cx("chat-filter-chip", leadStatusFilterId === "all" && "active")}
+            style={{ width: "100%", minHeight: "30px", justifyContent: "flex-start", margin: 0 }}
+            onClick={() => {
+              setLeadStatusFilterId("all");
+              setIsLeadStatusMenuOpen(false);
+            }}
+          >
+            All Stages
+          </button>
+          {leadStatuses.filter((s) => s.active).map((status) => {
+            const badgeCfg = getLeadBadgeConfig(status.id, status.label, status.tone);
+            const isSelected = leadStatusFilterId === status.id;
+            return (
+              <button
+                key={status.id}
+                type="button"
+                className={cx("chat-filter-chip label-chip", isSelected && "active")}
+                style={{
+                  width: "100%",
+                  minHeight: "30px",
+                  justifyContent: "flex-start",
+                  margin: 0,
+                  ...(isSelected ? { background: badgeCfg.bg, borderColor: badgeCfg.border, color: badgeCfg.text } : {}),
+                }}
+                onClick={() => {
+                  setLeadStatusFilterId(status.id);
+                  setIsLeadStatusMenuOpen(false);
+                }}
+              >
+                <span className="chat-thread-top-label-dot" style={{ backgroundColor: badgeCfg.dot }} />
+                <span>{status.label}</span>
+              </button>
+            );
+          })}
+          {leadStatuses.filter((s) => s.active).length === 0 ? (
+            <p className="chat-stage-empty" role="status" style={{ margin: "4px 6px", color: "var(--crm-text-muted, #64748b)", fontSize: "0.75rem", lineHeight: 1.35 }}>
+              No live stages configured
+            </p>
+          ) : null}
+          <div className="chat-stage-popover-footer" style={{ display: "flex", marginTop: "4px", paddingTop: "6px", borderTop: "1px solid var(--crm-border, #e2e8f0)" }}>
+            <button
+              type="button"
+              className="chat-filter-chip add-label-btn"
+              style={{ width: "100%", minHeight: "30px", justifyContent: "center", margin: 0 }}
+              onClick={() => {
+                setIsLeadStatusMenuOpen(false);
+                setIsCreateLabelModalOpen(true);
+              }}
+            >
+              <Plus size={12} />
+              <span>Custom Label</span>
+            </button>
+          </div>
+        </div>,
+        document.body,
+      ) : null}
+    </div>
+  );
+
+  const channelTopTabs = (
+    <div className="chat-rail-top-controls">
+      <div className="chat-channel-picker" data-open={isChannelMenuOpen ? "true" : "false"}>
+        <button
+          type="button"
+          className="chat-channel-picker-trigger"
+          aria-expanded={isChannelMenuOpen}
+          aria-haspopup="listbox"
+          onClick={() => setIsChannelMenuOpen((current) => !current)}
+          title="Filter conversations by channel"
+        >
+          <span className="chat-channel-picker-icon">{selectedChannel.icon}</span>
+          <span className="chat-channel-picker-label">{selectedChannel.label}</span>
+          <span className="chat-channel-picker-count">{selectedChannel.count}</span>
+          {selectedChannel.unread > 0 ? <span className="chat-top-tab-unread-dot" title={`${selectedChannel.unread} unread`} /> : null}
+          <ChevronDown size={13} strokeWidth={1.9} />
+        </button>
+        {isChannelMenuOpen ? (
+          <div className="chat-channel-picker-menu" role="listbox" aria-label="Conversation channels">
+            {channelOptions.map((option) => (
+              <button
+                type="button"
+                role="option"
+                aria-selected={option.id === channelFilter}
+                className={cx("chat-channel-picker-option", option.id === channelFilter && "active")}
+                key={option.id}
+                onClick={() => {
+                  handleSelectChannelTab(option.id);
+                  setIsChannelMenuOpen(false);
+                }}
+              >
+                <span className="chat-channel-picker-icon">{option.icon}</span>
+                <span>{option.label}</span>
+                <span className="chat-channel-picker-count">{option.count}</span>
+                {option.unread > 0 ? <span className="chat-top-tab-unread-dot" title={`${option.unread} unread`} /> : null}
+                {option.id === channelFilter ? <Check size={13} strokeWidth={2.2} /> : null}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+      {leadStatusFilterControl}
+    </div>
+  );
 
   const filterRowElement = (
     <ChatFilterBar>
@@ -5742,114 +6170,6 @@ function ChatWorkspaceInner({
       >
         Paused
       </button>
-
-      {/* Clean Compact Lead Stage Filter */}
-      <div style={{ position: "relative", display: "inline-flex" }}>
-        {leadStatusFilterId !== "all" && selectedLeadStatus ? (
-          <button
-            type="button"
-            className="chat-filter-chip label-chip active"
-            style={{
-              background: selectedStatusBadge?.bg,
-              borderColor: selectedStatusBadge?.border,
-              color: selectedStatusBadge?.text,
-              boxShadow: selectedStatusBadge?.glow,
-            }}
-            onClick={() => setLeadStatusFilterId("all")}
-            title={`Active Filter: ${selectedLeadStatus.label}. Click to clear.`}
-          >
-            <span className="chat-thread-top-label-dot" style={{ backgroundColor: selectedStatusBadge?.dot }} />
-            <span>{selectedLeadStatus.label}</span>
-            <X size={11} style={{ marginLeft: "4px" }} />
-          </button>
-        ) : (
-          <button
-            type="button"
-            className={cx("chat-filter-chip", isLeadStatusMenuOpen && "active")}
-            onClick={() => setIsLeadStatusMenuOpen((curr) => !curr)}
-            title="Filter by CRM lead stage"
-          >
-            <Tag size={12} strokeWidth={2} />
-            <span>Stages</span>
-            <ChevronDown size={11} />
-          </button>
-        )}
-
-        {isLeadStatusMenuOpen ? (
-          <div
-            className="chat-filter-popover"
-            style={{
-              position: "absolute",
-              top: "100%",
-              left: 0,
-              marginTop: "6px",
-              minWidth: "180px",
-              zIndex: 50,
-              background: "var(--closer-popover-bg, #0f172a)",
-              border: "1px solid rgba(255, 255, 255, 0.15)",
-              borderRadius: "10px",
-              padding: "6px",
-              boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.5)",
-            }}
-          >
-            <button
-              type="button"
-              className={cx("chat-filter-chip", leadStatusFilterId === "all" && "active")}
-              style={{ width: "100%", justifyContent: "flex-start", marginBottom: "4px" }}
-              onClick={() => {
-                setLeadStatusFilterId("all");
-                setIsLeadStatusMenuOpen(false);
-              }}
-            >
-              All Stages
-            </button>
-            {leadStatuses.filter((s) => s.active).map((status) => {
-              const badgeCfg = getLeadBadgeConfig(status.id, status.label, status.tone);
-              const isSelected = leadStatusFilterId === status.id;
-              return (
-                <button
-                  key={status.id}
-                  type="button"
-                  className={cx("chat-filter-chip label-chip", isSelected && "active")}
-                  style={{
-                    width: "100%",
-                    justifyContent: "flex-start",
-                    marginBottom: "3px",
-                    ...(isSelected
-                      ? {
-                          background: badgeCfg.bg,
-                          borderColor: badgeCfg.border,
-                          color: badgeCfg.text,
-                        }
-                      : {}),
-                  }}
-                  onClick={() => {
-                    setLeadStatusFilterId(status.id);
-                    setIsLeadStatusMenuOpen(false);
-                  }}
-                >
-                  <span className="chat-thread-top-label-dot" style={{ backgroundColor: badgeCfg.dot }} />
-                  <span>{status.label}</span>
-                </button>
-              );
-            })}
-            <div style={{ borderTop: "1px solid rgba(255, 255, 255, 0.1)", paddingTop: "6px", marginTop: "4px" }}>
-              <button
-                type="button"
-                className="chat-filter-chip add-label-btn"
-                style={{ width: "100%", justifyContent: "center" }}
-                onClick={() => {
-                  setIsLeadStatusMenuOpen(false);
-                  setIsCreateLabelModalOpen(true);
-                }}
-              >
-                <Plus size={12} />
-                <span>Custom Label</span>
-              </button>
-            </div>
-          </div>
-        ) : null}
-      </div>
 
       {channelCounts.instagram > 0 || channelFilter === "instagram" ? (
         <button
@@ -5925,6 +6245,7 @@ function ChatWorkspaceInner({
     return (
       <div className={cx(styles.shell, "aicloser-web-chat-shell")}>
         {titleNotificationAction}
+        {titleSearchAction}
         <aside className={cx(styles.rail, isCompactChatLayout ? styles.railFullScreen : undefined)}>
           <ChatSidebarHeader
             extra={
@@ -5960,6 +6281,7 @@ function ChatWorkspaceInner({
             }
             filterRow={filterRowElement}
             onSearchChange={setSearchValue}
+            hideSearch
             searchPlaceholder="Search threads"
             searchValue={searchValue}
             subtitle=""
@@ -6003,10 +6325,10 @@ function ChatWorkspaceInner({
   return (
     <>
       <div
-        className={cx(styles.shell, "aicloser-web-chat-shell aicloser-ui-foundation", !isCompactChatLayout && isDetailsOpen ? styles.shellWithDetails : undefined)}
-        style={!isCompactChatLayout && isDetailsOpen ? { paddingRight: "clamp(268px, 18vw, 300px)", boxSizing: "border-box" } : undefined}
+        className={cx(styles.shell, "aicloser-web-chat-shell", !isCompactChatLayout && isDetailsOpen ? styles.shellWithDetails : undefined)}
       >
         {titleNotificationAction}
+        {titleSearchAction}
         {showConversationRail ? <aside className={cx(styles.rail, isCompactChatLayout ? styles.railFullScreen : undefined)}>
           <ChatSidebarHeader
             extra={
@@ -6072,6 +6394,7 @@ function ChatWorkspaceInner({
             }
             filterRow={filterRowElement}
             onSearchChange={setSearchValue}
+            hideSearch
             searchPlaceholder="Search or start a new chat"
             searchValue={searchValue}
             subtitle=""
@@ -6094,7 +6417,8 @@ function ChatWorkspaceInner({
           </div>
         </aside> : null}
 
-        {showConversationStage && activeConversation ? <section className={cx(styles.stage, isCompactChatLayout ? styles.stageFullScreen : undefined)}>
+        {showConversationStage && activeConversation ? <>
+          <section className={cx(styles.stage, isCompactChatLayout ? styles.stageFullScreen : undefined)}>
           <header
             className={cx(
               "chat-thread-head crm-chat-head",
@@ -6563,26 +6887,36 @@ function ChatWorkspaceInner({
               {(audience === "admin" || audience === "manager" || audience === "sales") ? (
                 <>
                   <div className="chat-thread-head-action-group chat-status-notes-actions">
-                    <div style={{ position: "relative", display: "inline-block" }}>
+                    <div className="chat-notes-action-group">
                       <button
                         type="button"
-                        className={isNotesMenuOpen ? "chat-status-pill chat-callback-action active" : "chat-status-pill chat-callback-action"}
+                        aria-label="Open private notes"
+                        className={isNotesMenuOpen && notesPopoverMode === "notes" ? "chat-status-pill chat-notes-action active" : "chat-status-pill chat-notes-action"}
                         onClick={() => {
-                          setIsNotesMenuOpen((current) => !current);
+                          setNotesPopoverMode("notes");
+                          setIsNotesMenuOpen((current) => notesPopoverMode === "notes" ? !current : true);
                           setIsLeadStatusMenuOpen(false);
                           setIsAssignMenuOpen(false);
                           setIsDetailsOpen(false);
                         }}
-                        title="Open private notes and callback scheduler"
+                        title="Open private notes"
                       >
-                        <StickyNote size={12} strokeWidth={2} />
-                        <CalendarClock size={12} strokeWidth={2} />
-                        <span>Notes &amp; Callback</span>
-                        {activeConversation?.nextFollowUpAt && !Number.isNaN(new Date(activeConversation.nextFollowUpAt).getTime()) ? (
-                          <span style={{ fontSize: "10px", padding: "1px 5px", borderRadius: "4px", background: "rgba(56, 189, 248, 0.25)", color: "#e0f2fe", display: "inline-flex", alignItems: "center", gap: "3px" }}>
-                            <Clock size={10} /> {new Date(activeConversation.nextFollowUpAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
-                          </span>
-                        ) : null}
+                        <StickyNote size={18} strokeWidth={2.1} />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Schedule follow-up"
+                        className={isNotesMenuOpen && notesPopoverMode === "callback" ? "chat-status-pill chat-callback-action active" : "chat-status-pill chat-callback-action"}
+                        onClick={() => {
+                          setNotesPopoverMode("callback");
+                          setIsNotesMenuOpen((current) => notesPopoverMode === "callback" ? !current : true);
+                          setIsLeadStatusMenuOpen(false);
+                          setIsAssignMenuOpen(false);
+                          setIsDetailsOpen(false);
+                        }}
+                        title="Schedule follow-up"
+                      >
+                        <CalendarClock size={18} strokeWidth={2.1} />
                       </button>
                       {renderNotesPopover()}
                     </div>
@@ -6593,8 +6927,10 @@ function ChatWorkspaceInner({
                         aria-label="Update lead status"
                         className="chat-status-select"
                         onChange={(event) => handleLeadStatusChange(event.target.value).catch(() => undefined)}
-                        value={activeConversation.leadStatusId || leadStatuses[0]?.id || "new-leads"}
+                        value={activeConversation.leadStatusId || ""}
+                        disabled={isSupportDataLoading || !leadStatuses.length}
                       >
+                        {!leadStatuses.length ? <option value="">No live stages available</option> : null}
                         {leadStatuses.map((status) => (
                           <option key={status.id} value={status.id}>{status.label}</option>
                         ))}
@@ -6902,7 +7238,27 @@ function ChatWorkspaceInner({
                   <span>{audience === "freelancer" ? "Agency lane" : "Freelancer coordination"}</span>
                 </div>
               ) : null}
-              {laneMessages.length === 0 ? (
+              {isHydratingActiveConversation ? (
+                <div
+                  className="chat-empty-thread-hint"
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: "48px 20px",
+                    textAlign: "center",
+                    color: "var(--color-text-muted, #64748b)",
+                  }}
+                >
+                  <strong style={{ fontSize: "14px", color: "var(--color-text, #0f172a)", marginBottom: "4px" }}>
+                    Loading chat history…
+                  </strong>
+                  <p style={{ fontSize: "12px", maxWidth: "340px", margin: 0, lineHeight: 1.5 }}>
+                    Fetching the latest messages and attachments.
+                  </p>
+                </div>
+              ) : laneMessages.length === 0 ? (
                 <div
                   className="chat-empty-thread-hint"
                   style={{
@@ -7035,7 +7391,7 @@ function ChatWorkspaceInner({
                                 )}
                                 <AttachmentPreview attachment={attachment} />
                                 {attachment.externalUrl && !isMinimalAttachment ? (
-                                  <a className="chat-attachment-link" href={attachment.externalUrl} rel="noreferrer" target="_blank">
+                                  <a className="chat-attachment-link" href={getAttachmentUrl(attachment.externalUrl)} rel="noreferrer" target="_blank">
                                     {attachment.mimeType === "application/pdf" ? "Open PDF" : attachment.kind === "file" ? "Open file" : "Open"}
                                   </a>
                                 ) : null}
@@ -7262,6 +7618,8 @@ function ChatWorkspaceInner({
             </div>
           </div>
 
+          </section>
+
           {isDetailsOpen ? (
             <ChatDetailsSheet desktop={!isCompactChatLayout} eyebrow="Customer Details" onClose={() => setIsDetailsOpen(false)} title={activeCustomerName}>
               <div className={styles.detailsGrid}>
@@ -7270,14 +7628,14 @@ function ChatWorkspaceInner({
                   className="chat-context-card"
                   style={{
                     gridColumn: "1 / -1",
-                    background: "rgba(255, 107, 47, 0.06)",
-                    border: "1px solid rgba(255, 107, 47, 0.28)",
+                    background: "var(--crm-surface-soft, rgba(148, 163, 184, 0.08))",
+                    border: "1px solid var(--crm-border, rgba(148, 163, 184, 0.28))",
                     borderRadius: "10px",
                     padding: "14px",
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                    <span style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--color-primary)", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                    <span style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--crm-text-muted, #64748b)", display: "inline-flex", alignItems: "center", gap: "4px" }}>
                       <Sparkles size={11} /> Lead Stage
                     </span>
                     <span style={{ fontSize: "10px", padding: "2px 8px", borderRadius: "12px", background: "rgba(16, 185, 129, 0.2)", color: "#34d399", fontWeight: 700 }}>
@@ -7286,79 +7644,32 @@ function ChatWorkspaceInner({
                   </div>
                   <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
                     <select
-                      value={activeConversation.leadStatusId || "new-leads"}
+                      value={activeConversation.leadStatusId || ""}
+                      disabled={isSupportDataLoading || leadStatuses.length === 0}
                       onChange={(e) => handleLeadStatusChange(e.target.value).catch(() => undefined)}
                       style={{
                         flex: 1,
                         minWidth: "160px",
                         padding: "8px 12px",
                         borderRadius: "8px",
-                        background: "#0c110e",
-                        border: "1px solid rgba(255, 255, 255, 0.2)",
-                        color: "#fff",
+                        background: "var(--crm-surface, #fff)",
+                        border: "1px solid var(--crm-border, rgba(148, 163, 184, 0.3))",
+                        color: "var(--crm-text, #0f172a)",
                         fontSize: "13px",
                         fontWeight: 600,
-                        cursor: "pointer",
+                        cursor: leadStatuses.length ? "pointer" : "not-allowed",
                       }}
                     >
-                      {leadStatuses.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.label}
+                      {!leadStatuses.length ? (
+                        <option value="">
+                          {isSupportDataLoading ? "Loading workspace stages…" : "No workspace stages configured"}
                         </option>
+                      ) : leadStatuses.map((s) => (
+                        <option key={s.id} value={s.id}>{s.label}</option>
                       ))}
                     </select>
                     {activeCustomerPhone && activeConversation.sourceChannel === "whatsapp" ? (
                       <span className="chat-internal-channel-note"><MessageSquare size={12} /> Replies stay inside this WhatsApp chat</span>
-                    ) : null}
-                  </div>
-                </div>
-
-                {/* 2. CRM Lead & Contact Profile */}
-                <div
-                  className="chat-context-card"
-                  style={{
-                    gridColumn: "1 / -1",
-                    borderRadius: "10px",
-                    padding: "14px",
-                    background: "rgba(255, 107, 47, 0.04)",
-                    border: "1px solid rgba(255, 107, 47, 0.22)",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-                    <p className="section-label" style={{ margin: 0, display: "flex", alignItems: "center", gap: "6px" }}>
-                      <User size={14} /> CRM Lead & Contact Profile
-                    </p>
-                    <span style={{ fontSize: "10px", color: "#34d399", fontWeight: 700 }}>
-                      ● Pipeline Synced
-                    </span>
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "8px" }}>
-                    {[
-                      ["Phone Number", activeCustomerPhone || "No number", activeCustomerPhone ? "yes" : "neutral"],
-                      ["Lead Stage", activeConversation.leadStatusLabel || "New Lead", "yes"],
-                      ["Assigned Agent", activeAssignment?.assignedFreelancerName || "Unassigned", activeAssignment?.assignedFreelancerName ? "yes" : "neutral"],
-                      ["Lead Source", activeConversation.externalSourceType === "whatsapp_personal" ? "Personal WhatsApp" : activeConversation.externalSourceType === "whatsapp_business" ? "Connected WhatsApp" : activeConversation.sourceChannel === "whatsapp" ? "WhatsApp Cloud API" : "Direct Inbound", "neutral"],
-                      ["Channel", (activeConversation.sourceChannel || "WhatsApp").toUpperCase(), "neutral"],
-                      ["Unread Messages", String(activeConversation.unreadCount ?? 0), (activeConversation.unreadCount ?? 0) > 0 ? "warning" : "neutral"],
-                    ].map(([label, value, tone]) => (
-                      <div key={label} style={{ padding: "10px", borderRadius: "8px", background: "rgba(0, 0, 0, 0.22)", border: "1px solid rgba(255, 255, 255, 0.08)" }}>
-                        <span style={{ display: "block", fontSize: "10px", opacity: 0.65, marginBottom: "4px" }}>{label}</span>
-                        <strong style={{ color: tone === "yes" ? "#4ade80" : tone === "warning" ? "#fb7185" : "#e2e8f0", fontSize: "12.5px", wordBreak: "break-word" }}>{value}</strong>
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 16px", marginTop: "10px", fontSize: "11px", opacity: 0.78 }}>
-                    {activeConversation.customerEmail ? <span>Email: {activeConversation.customerEmail}</span> : null}
-                    {activeConversation.lastActivityAt && !Number.isNaN(new Date(activeConversation.lastActivityAt).getTime()) ? (
-                      <span>Last Activity: {new Date(activeConversation.lastActivityAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
-                    ) : null}
-                    {activeCustomerPhone ? (
-                      <a
-                        href={`tel:${activeCustomerPhone.replace(/[^\d+]/g, "")}`}
-                        style={{ color: "var(--color-primary)", textDecoration: "none", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: "4px" }}
-                      >
-                        <PhoneCall size={11} /> 1-Click Call
-                      </a>
                     ) : null}
                   </div>
                 </div>
@@ -7408,12 +7719,16 @@ function ChatWorkspaceInner({
                               &ldquo;{call.note}&rdquo;
                             </p>
                           ) : null}
-                          <audio
-                            controls
-                            preload="none"
-                            src={`/api/sales/mobile/calls/${call.id}/recording`}
-                            style={{ width: "100%", height: "30px", marginTop: "4px" }}
-                          />
+                          {call.recordingUploadId ? (
+                            <CentralRecordingAudio callId={call.id} />
+                          ) : (
+                            <audio
+                              controls
+                              preload="none"
+                              src={`/api/sales/mobile/calls/${call.id}/recording`}
+                              style={{ width: "100%", height: "30px", marginTop: "4px" }}
+                            />
+                          )}
                         </div>
                       ))}
                     </div>
@@ -7492,117 +7807,56 @@ function ChatWorkspaceInner({
                   </div>
                 </div>
 
-                {/* 4. Activity & Sales Timeline */}
-                {crmDetails?.salesTimeline && crmDetails.salesTimeline.length > 0 ? (
-                  <div
-                    className="chat-context-card"
-                    style={{
-                      gridColumn: "1 / -1",
-                      borderRadius: "10px",
-                      padding: "14px",
-                      background: "rgba(255, 255, 255, 0.02)",
-                      border: "1px solid rgba(255, 255, 255, 0.08)",
-                    }}
-                  >
-                    <p className="section-label" style={{ marginBottom: "8px" }}>Activity Timeline</p>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "6px", maxHeight: "180px", overflowY: "auto" }}>
-                      {crmDetails.salesTimeline.map((item) => (
-                        <div key={item.id} style={{ fontSize: "11px", borderBottom: "1px solid rgba(255,255,255,0.05)", paddingBottom: "5px" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", color: "rgba(255,255,255,0.5)" }}>
-                            <span>{item.type}</span>
-                            <span>{item.createdAt && !Number.isNaN(new Date(item.createdAt).getTime()) ? new Date(item.createdAt).toLocaleDateString("en-IN", { month: "short", day: "numeric" }) : ""}</span>
-                          </div>
-                          <p style={{ margin: "2px 0 0", color: "#e5e7eb" }}>{item.body}</p>
-                        </div>
-                      ))}
-                    </div>
+                {/* 4. Unified lead history */}
+                <div
+                  className="chat-context-card"
+                  style={{
+                    gridColumn: "1 / -1",
+                    borderRadius: "10px",
+                    padding: "14px",
+                    background: "var(--color-surface, #ffffff)",
+                    border: "1px solid var(--color-border, #dbe3ec)",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+                    <p className="section-label" style={{ margin: 0, display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                      <History size={14} /> Lead history
+                    </p>
+                    <span style={{ fontSize: "11px", color: "var(--color-text-muted, #64748b)" }}>{crmDetails?.history?.length ?? 0} events</span>
                   </div>
-                ) : null}
-
-                {/* 5. Customer Context & Details */}
-                <div className="chat-context-card"><p className="section-label">Assigned editor</p><strong>{activeAssignment?.assignedFreelancerName ?? "Not assigned yet"}</strong><p>{activeAssignedEditor ? (Array.isArray(activeAssignedEditor.specialties) ? activeAssignedEditor.specialties : []).join(" • ") : "You can still raise a customer payment request without assignment."}</p></div>
-                <div className="chat-context-card"><p className="section-label">Owner</p><strong>{activeConversation.ownerName ?? "Queue"}</strong><p>{activeConversation.ownerRole ? `${rolePrefix(activeConversation.ownerRole)} owned` : "Unclaimed queue thread"}</p></div>
-                <div className="chat-context-card"><p className="section-label">Service</p><strong>{activeServiceTitle || "General support"}</strong><p>{activeConversation.isInAppCustomerThread ? "Legacy in-app intake thread" : "WhatsApp or internal intake thread"}</p></div>
-                <div className="chat-context-card">
-                  <p className="section-label">Customer context</p>
-                  <strong>{audience === "freelancer" ? "Masked for editor" : activeCustomerName}</strong>
-                  <p>{audience === "freelancer" ? "Customer contact hidden" : activeCustomerPhone}</p>
-                  <p>{audience === "freelancer" ? "Direct customer identity stays hidden in freelancer mode." : activeConversation.summary}</p>
-                  {audience === "freelancer" ? (
-                    <button className="ui-button-secondary" onClick={() => setIsClientAliasModalOpen(true)} type="button">
-                      Edit client alias
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-              <div className="chat-context-card">
-                <p className="section-label">Latest payment request</p>
-                {latestPaymentRequest ? (
-                  <>
-                    <strong>{latestPaymentRequest.title}</strong>
-                    <p>Status: {latestPaymentRequest.status}</p>
-                    <p>Project: {latestPaymentRequest.projectTitle || activeServiceTitle || "General project"}</p>
-                    <p>Amount: {formatCurrency(latestPaymentRequest.amount)}</p>
-                    <p>Payer: {latestPaymentRequest.payerRole} • Payee: {latestPaymentRequest.payeeRole}</p>
-                    <p>Method: {latestPaymentRequest.paymentLink ? "PhonePe checkout" : "Legacy manual UPI"}</p>
-                    {latestPaymentRequest.paymentProvider ? (
-                      <p>
-                        Gateway: {formatPaymentGatewayLabel(latestPaymentRequest.paymentProvider)}
-                        {latestPaymentRequest.paymentConfigurationName ? ` • Config: ${latestPaymentRequest.paymentConfigurationName}` : ""}
-                      </p>
-                    ) : (
-                      <p>Legacy UPI ID: {latestPaymentRequest.upiId}</p>
-                    )}
-                    {latestPaymentRequest.paymentOrderId ? <p>Order ID: {latestPaymentRequest.paymentOrderId}</p> : null}
-                    {!(latestPaymentRequest.lane === "customer" && latestPaymentRequest.payeeRole === "agency") ? (
-                      <>
-                        <p>Platform {formatCurrency(latestPaymentRequest.split.platformAmount)} • Editor {formatCurrency(latestPaymentRequest.split.editorAmount)}</p>
-                        <p>{latestPaymentRequest.split.platformPercentage}% platform • {latestPaymentRequest.split.editorPercentage}% editor</p>
-                      </>
-                    ) : (
-                      <p>Agency receives full amount: {formatCurrency(latestPaymentRequest.amount)}</p>
-                    )}
-                    {latestPaymentRequest.proofSubmittedAt ? <p>Proof submitted: {formatTimestamp(latestPaymentRequest.proofSubmittedAt)}</p> : null}
-                    {latestPaymentRequest.paidConfirmedAt ? <p>Paid confirmed: {formatTimestamp(latestPaymentRequest.paidConfirmedAt)} by {latestPaymentRequest.paidConfirmedByName || latestPaymentRequest.paidConfirmedByRole || "team"}</p> : null}
-                    <div className="chat-inline-actions">
-                      {latestPaymentRequest.paymentLink ? (
-                        <a className="ui-button-secondary" href={latestPaymentRequest.paymentLink} rel="noreferrer" target="_blank">
-                          Open PhonePe link
-                        </a>
-                      ) : (
-                        <button className="ui-button-secondary" onClick={() => copyPaymentUpiId(latestPaymentRequest.upiId)} type="button">
-                          Copy UPI ID
-                        </button>
-                      )}
-                      <button className="ui-button-secondary" onClick={() => paymentProofInputRef.current?.click()} type="button">
-                        Upload proof
-                      </button>
-                      {latestPaymentRequest.status !== "Paid" && ((latestPaymentRequest.payeeRole === "freelancer" && audience === "freelancer") || (latestPaymentRequest.payeeRole === "agency" && (audience === "admin" || audience === "manager"))) ? (
-                        <button className="ui-button-primary" onClick={() => handlePaymentStatusUpdate("Paid").catch(() => undefined)} type="button">
-                          <Check size={14} />
-                          Mark paid
-                        </button>
-                      ) : null}
+                  {isCrmDetailsLoading ? (
+                    <p className="muted-copy" style={{ margin: 0 }}>Loading lead history...</p>
+                  ) : crmDetails?.history && crmDetails.history.length > 0 ? (
+                    <div style={{ maxHeight: "280px", overflowY: "auto", paddingRight: "4px" }}>
+                      {crmDetails.history.map((item) => {
+                        const eventDate = item.createdAt && !Number.isNaN(new Date(item.createdAt).getTime())
+                          ? new Date(item.createdAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+                          : "";
+                        return (
+                          <div key={item.id} style={{ display: "grid", gridTemplateColumns: "10px 1fr", gap: "9px", padding: "9px 0", borderBottom: "1px solid var(--color-border, #edf1f5)" }}>
+                            <span style={{ width: "8px", height: "8px", marginTop: "4px", borderRadius: "999px", background: "var(--color-primary, #ff6b2f)" }} />
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", color: "var(--color-text-secondary, #475569)", fontSize: "10px" }}>
+                                <strong style={{ color: "var(--color-text-primary, #0f172a)", fontSize: "11px" }}>{item.title}</strong>
+                                <span style={{ whiteSpace: "nowrap" }}>{eventDate}</span>
+                              </div>
+                              {item.body ? <p style={{ margin: "3px 0 0", color: "var(--color-text-secondary, #475569)", fontSize: "11px", lineHeight: 1.4 }}>{item.body}</p> : null}
+                              {item.actorName ? <span style={{ display: "block", marginTop: "3px", color: "var(--color-text-muted, #64748b)", fontSize: "10px" }}>By {item.actorName}</span> : null}
+                              {item.dueAt && !Number.isNaN(new Date(item.dueAt).getTime()) ? <span style={{ display: "block", marginTop: "3px", color: "var(--color-primary, #ff6b2f)", fontSize: "10px" }}>Due {new Date(item.dueAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span> : null}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                    <input
-                      accept={`${CHAT_MEDIA_ACCEPT},${CHAT_DOCUMENT_ACCEPT}`}
-                      className="sr-only"
-                      onChange={(event) => {
-                        handlePaymentProofPicked(event.target.files).catch(() => undefined);
-                        event.currentTarget.value = "";
-                      }}
-                      ref={paymentProofInputRef}
-                      type="file"
-                      multiple
-                    />
-                  </>
-                ) : (
-                  <p>No payment request has been created for this lead yet.</p>
-                )}
+                  ) : (
+                    <p className="muted-copy" style={{ margin: 0 }}>No history has been recorded for this lead yet.</p>
+                  )}
+                </div>
+
               </div>
             </ChatDetailsSheet>
           ) : null}
-        </section> : !isCompactChatLayout ? (
+        </> : !isCompactChatLayout ? (
           <section className={styles.stage}>
             <ChatStageEmptyState
               copy="Choose a thread from the inbox to open it. New messages will keep syncing here without auto-opening the first chat."
