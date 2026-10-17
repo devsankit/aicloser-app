@@ -217,6 +217,7 @@ export default async function SalesPage({ searchParams }: { searchParams?: Promi
   let teamMembers: CentralTeamMember[] = [];
   let mobileCalls: SalesDashboardSnapshot["mobileCalls"] = [];
   let leadPool: SalesDashboardSnapshot["visibleLeadPool"] = [];
+  let paymentSummary: NonNullable<CentralPaymentsPayload["summary"]> = {};
   let me: CentralMe | null = null;
   try {
     me = await centralApiRequest<CentralMe>("/auth/me");
