@@ -8,7 +8,7 @@ export async function GET() {
   } catch (error: any) {
     return NextResponse.json(
       { success: false, error: error?.message || "Failed to load stages from central API" },
-      { status: 500 }
+      { status: error?.status || 500 }
     );
   }
 }
