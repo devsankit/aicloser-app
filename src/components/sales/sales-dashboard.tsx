@@ -1012,7 +1012,10 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, cen
   const [customEndDate, setCustomEndDate] = useState("");
   const [leadPage, setLeadPage] = useState(1);
   const [status, setStatus] = useState("");
-  const [showLegacyDashboardModules, setShowLegacyDashboardModules] = useState(false);
+  // The dashboard overview is now the single workspace surface. Keep the
+  // retired operational-module bundle out of the UI while preserving the
+  // existing dashboard refresh behavior below.
+  const showLegacyDashboardModules = false;
   const [drawer, setDrawer] = useState<SalesDrawer>(null);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<{ imported: number; skipped: number; duplicate: number; invalid: number; errors?: Array<{ row: number; reason: string }> } | null>(null);
@@ -1427,7 +1430,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, cen
     [baseLeads],
   );
   useEffect(() => {
-    if (!showLegacyDashboardModules || typeof window === "undefined" || typeof EventSource === "undefined") return;
+    if (typeof window === "undefined" || typeof EventSource === "undefined") return;
     let streamReady = false;
     let refreshTimer: number | undefined;
     let fallbackInFlight = false;
@@ -1471,7 +1474,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, cen
       window.clearInterval(fallbackTimer);
       disconnect();
     };
-  }, [activeTab, showLegacyDashboardModules, viewingAgentId]);
+  }, [activeTab, viewingAgentId]);
 
   useEffect(() => {
     if (activeTab !== "grab-leads" && !showLegacyDashboardModules) return;
@@ -2237,10 +2240,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, cen
           ) : (
             <>
           <CentralDashboardOverview snapshot={snapshot} aggregates={centralAggregates} paymentSummary={centralPaymentSummary} role={sessionRole} onOpen={navigateSales} />
-          <div className="central-legacy-details">
-            <button className="central-legacy-toggle" onClick={() => setShowLegacyDashboardModules((open) => !open)} type="button" aria-expanded={showLegacyDashboardModules}>
-              {showLegacyDashboardModules ? "Hide operational modules" : "Open operational modules"}
-            </button>
+          <div className="central-legacy-details" hidden>
             {showLegacyDashboardModules ? (
         <section className="sales-dashboard-overview">
           {/* 1. Executive Daily Status & Date Filter Bar */}
@@ -2993,11 +2993,11 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, cen
         <section className={`sales-crm-workspace ${crmView === "kanban" ? "is-kanban-view" : "is-list-view"}`}>
           <div className="sales-crm-page-intro">
             <div>
-              <span className="sales-section-eyebrow">Central API CRM</span>
+              <span className="sales-section-eyebrow">CRM Pipeline</span>
               <h2>Work your lead pipeline</h2>
-              <p>Move permission-scoped leads through stages, keep follow-ups current, and open the full lead history when needed.</p>
+              <p>Move leads through stages, keep follow-ups current, and open the full lead history when needed.</p>
             </div>
-            <div className="sales-crm-page-scope">
+            <div className="sales-crm-page-scope" style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
               <span className="sales-crm-page-scope-dot" />
               <span>{viewingAgentId === "all" ? "All team users" : viewingAgent?.displayName ?? "Selected user"}</span>
               <strong>{filteredLeads.length}</strong>
@@ -3560,7 +3560,6 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, cen
             tenantId={salesOperations.tenantId}
             initialSearchQuery={contactsSearch}
             onOpenMultiChannelChat={openSalesConversation}
-            onOpenPluginsHub={() => navigateSales("plugins")}
             onOpenBulkMarketing={() => navigateSales("whatsapp-marketing")}
             onRefreshDashboard={refresh}
             onExportLeads={(format) => void exportLeads(format)}
@@ -4195,9 +4194,9 @@ function LeadCrmCard({
       </div>
       <button aria-label={`Open ${lead.customerName} details`} className="sales-crm-card-main sales-crm-card-compact-main" onClick={() => onOpen(lead.id)} type="button">
         <span className="sales-crm-card-compact-contact" title={leadContext}>{leadContact}</span>
-        <span className="sales-crm-card-compact-meta">
-          <span>{statusLabel}</span>
-          <strong>{leadAmount}</strong>
+        <span className="sales-crm-card-compact-meta" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", minWidth: 0, gap: 8 }}>
+          <span style={{ minWidth: 0, marginRight: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{statusLabel}</span>
+          <strong style={{ flex: "0 0 auto" }}>{leadAmount}</strong>
         </span>
       </button>
     </article>

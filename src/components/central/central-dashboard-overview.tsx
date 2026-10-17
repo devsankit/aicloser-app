@@ -107,7 +107,7 @@ export function CentralDashboardOverview({ snapshot, aggregates, paymentSummary 
           <strong>{followUps}</strong>
           <small>Scheduled in loaded leads <ChevronRight size={13} /></small>
         </button>
-        <button className="central-metric-card" onClick={() => onOpen("reports")} type="button">
+        <button className="central-metric-card" onClick={() => onOpen("payments")} type="button">
           <span className="central-metric-icon"><CircleDollarSign size={17} /></span>
           <span className="central-metric-label">Payment links</span>
           <strong>{formatAmount(paymentTotal)}</strong>

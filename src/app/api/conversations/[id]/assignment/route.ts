@@ -146,21 +146,64 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const previousPrimaryName = currentConversationView.assignmentSummary?.assignedFreelancerName;
     const pendingOffers = (currentConversationView.assignmentSummary?.offers ?? []).filter((offer) => offer.status === "PENDING");
     const wasAlreadyPrimary = previousPrimaryId === freelancer.editorId;
-    const directResult = await withAssignmentCapacityLock(conversationTenantId, async () => {
-      const lockedCapacity = await assertActiveAssignmentEditorLimit({
-        tenantId: conversationTenantId,
-        packageId: authorization.session.packageId,
-        editorIds: [freelancer.editorId],
+
+    const restoreCentralAssignment = async () => {
+      try {
+        if (previousPrimaryId) {
+          await centralApiRequest(`/conversations/${encodeURIComponent(id)}/assign`, {
+            method: "POST",
+            body: JSON.stringify({ assignedAgentId: previousPrimaryId }),
+          });
+        } else {
+          await centralApiRequest(`/conversations/${encodeURIComponent(id)}/assign`, {
+            method: "DELETE",
+          });
+        }
+      } catch (restoreErr) {
+        console.error("Central API assignment rollback failed:", restoreErr);
+      }
+    };
+
+    // The central API is the canonical owner for CRM/chat assignments. Sync it
+    // before mutating the legacy offer snapshot so a failed API request never
+    // reports a successful assignment in the web UI.
+    try {
+      await centralApiRequest(`/conversations/${encodeURIComponent(id)}/assign`, {
+        method: "POST",
+        body: JSON.stringify({ assignedAgentId: freelancer.editorId }),
       });
-      if (!lockedCapacity.ok) return { capacity: lockedCapacity, conversation: null };
-      const conversation = await assignConversationDirectlyFromFile(id, freelancer.editorId, assignedBy, {
-        assignedByName: authorization.session.displayName,
-        freelancerName: freelancer.displayName,
-        projectDetails,
+    } catch (centralErr) {
+      const message = centralErr instanceof Error ? centralErr.message : "Central assignment API unavailable.";
+      console.error("Central API direct assignment failed:", centralErr);
+      return NextResponse.json({ ok: false, error: message }, { status: 502 });
+    }
+
+    let directResult: {
+      capacity: Extract<Awaited<ReturnType<typeof assertActiveAssignmentEditorLimit>>, { ok: false }> | null;
+      conversation: Awaited<ReturnType<typeof assignConversationDirectlyFromFile>>;
+    };
+    try {
+      directResult = await withAssignmentCapacityLock(conversationTenantId, async () => {
+        const lockedCapacity = await assertActiveAssignmentEditorLimit({
+          tenantId: conversationTenantId,
+          packageId: authorization.session.packageId,
+          editorIds: [freelancer.editorId],
+        });
+        if (!lockedCapacity.ok) return { capacity: lockedCapacity, conversation: null };
+        const conversation = await assignConversationDirectlyFromFile(id, freelancer.editorId, assignedBy, {
+          assignedByName: authorization.session.displayName,
+          freelancerName: freelancer.displayName,
+          projectDetails,
+        });
+        return { capacity: null, conversation };
       });
-      return { capacity: null, conversation };
-    });
+    } catch (legacyErr) {
+      await restoreCentralAssignment();
+      console.error("Legacy direct assignment failed after central sync:", legacyErr);
+      return NextResponse.json({ ok: false, error: "Unable to assign this editor directly." }, { status: 409 });
+    }
     if (directResult.capacity) {
+      await restoreCentralAssignment();
       return NextResponse.json(
         {
           ok: false,
@@ -174,21 +217,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     }
     const conversation = directResult.conversation;
     if (!conversation) {
+      await restoreCentralAssignment();
       return NextResponse.json({ ok: false, error: "Unable to assign this editor directly." }, { status: 409 });
-    }
-
-    // Sales agents are represented by the canonical CRM lead assignment,
-    // while the conversation editor lane is still stored in the legacy file
-    // snapshot. Keep both records aligned when an admin assigns a chat to a
-    // real sales-team member so Kanban, mobile, and chat show the same owner.
-    // Delegate direct assignment to central API endpoint
-    try {
-      await centralApiRequest(`/conversations/${encodeURIComponent(id)}/assign`, {
-        method: "POST",
-        body: { assignedAgentId: freelancer.editorId },
-      });
-    } catch (centralErr) {
-      console.warn("Central API direct assignment sync error:", centralErr);
     }
 
     const salesProfile = salesAgentProfiles.find((profile) => profile.userId === freelancer.editorId);
@@ -521,13 +551,17 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
   );
   const hadEditorAccess = removedFreelancerIds.length > 0 || pendingOffers.length > 0;
 
-  // Delegate unassign to central API endpoint
+  // The central API is the canonical owner for CRM/chat assignments. Sync it
+  // before mutating the legacy snapshot so a failed request cannot leave the
+  // two stores reporting different owners.
   try {
     await centralApiRequest(`/conversations/${encodeURIComponent(id)}/assign`, {
       method: "DELETE",
     });
   } catch (centralErr) {
-    console.warn("Central API direct unassign sync error:", centralErr);
+    const message = centralErr instanceof Error ? centralErr.message : "Central assignment API unavailable.";
+    console.error("Central API unassign failed:", centralErr);
+    return NextResponse.json({ ok: false, error: message }, { status: 502 });
   }
 
   const conversation = await unassignConversationEditorsFromFile(id, assignedBy, {

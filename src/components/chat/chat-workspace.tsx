@@ -44,6 +44,7 @@ import {
   Play,
   Plus,
   Search,
+  Share2,
   ShieldCheck,
   Smartphone,
   Sparkles,
@@ -2187,6 +2188,10 @@ function ChatWorkspaceInner({
   const [selectedAssignEditorIds, setSelectedAssignEditorIds] = useState<string[]>([]);
   const [assignmentDetailsDraft, setAssignmentDetailsDraft] = useState("");
   const [assignmentMode, setAssignmentMode] = useState<"replace" | "viewer">("replace");
+  const [isShareMenuOpen, setIsShareMenuOpen] = useState(false);
+  const [shareSearchValue, setShareSearchValue] = useState("");
+  const [sharedUserIds, setSharedUserIds] = useState<string[]>([]);
+  const [isSharingConversation, setIsSharingConversation] = useState(false);
   const [isLeadStatusMenuOpen, setIsLeadStatusMenuOpen] = useState(false);
   const leadStatusPickerRef = useRef<HTMLDivElement | null>(null);
   const [leadStatusMenuPosition, setLeadStatusMenuPosition] = useState<{ top: number; left: number } | null>(null);
@@ -2288,6 +2293,11 @@ function ChatWorkspaceInner({
     const seen = new Set<string>();
     const add = (entry: LeadHistoryEntry) => {
       if (!entry.id || seen.has(entry.id)) return;
+      const kind = String(entry.kind || "").toUpperCase();
+      const title = String(entry.title || "").toUpperCase();
+      // Chat messages already have their own conversation timeline. Lead
+      // history is reserved for CRM/audit events only.
+      if (kind === "MESSAGE" || title.includes("CUSTOMER MESSAGE") || title.includes("TEAM MESSAGE")) return;
       seen.add(entry.id);
       history.push({ ...entry, kind: entry.kind || "ACTIVITY", title: entry.title || "Activity" });
     };
@@ -2578,6 +2588,19 @@ function ChatWorkspaceInner({
     : null;
   const activeAssignment = activeConversation?.assignmentSummary ?? null;
   const activeConversationId = activeConversation?.id ?? null;
+  useEffect(() => {
+    let cancelled = false;
+    setIsShareMenuOpen(false);
+    setShareSearchValue("");
+    setSharedUserIds([]);
+    if (!activeConversationId) return () => { cancelled = true; };
+    void aicloserApi.conversations.listShares(activeConversationId).then((payload: any) => {
+      if (cancelled) return;
+      const shares = Array.isArray(payload?.shares) ? payload.shares : [];
+      setSharedUserIds(shares.flatMap((share: any) => [share.userId, share.agentProfileId]).filter(Boolean));
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [activeConversationId]);
   const normalizedVisibleLanes = useMemo<DummyConversationLane[]>(() => {
     const activeVisibleLanes = (Array.isArray(activeConversation?.visibleLanes) ? activeConversation.visibleLanes : []).filter(
       (lane): lane is DummyConversationLane => lane === "customer" || lane === "internal",
@@ -5909,6 +5932,67 @@ function ChatWorkspaceInner({
     );
   }
 
+  function renderSharePopover() {
+    if (!isShareMenuOpen) return null;
+
+    const query = shareSearchValue.trim().toLowerCase();
+    const shareableEditors = assignableEditors.filter((editor) => {
+      if (editor.id === activeAssignment?.assignedFreelancerId) return false;
+      if (!query) return true;
+      return editor.name.toLowerCase().includes(query);
+    });
+
+    return (
+      <div className="chat-control-popover chat-assign-popover" role="dialog" aria-label="Share chat with team member">
+        <div className="chat-assign-heading">
+          <div>
+            <strong>Share chat</strong>
+            <p>Everyone shared here can see and reply in this same thread.</p>
+          </div>
+        </div>
+        <label className="chat-picker-search">
+          <Search size={13} strokeWidth={1.8} />
+          <input onChange={(event) => setShareSearchValue(event.target.value)} placeholder="Search team member" value={shareSearchValue} />
+        </label>
+        <div className="chat-assign-list">
+          {shareableEditors.map((editor) => {
+            const isShared = sharedUserIds.includes(editor.id);
+            return (
+              <button
+                className={cx("chat-assign-item", isShared && "selected")}
+                disabled={isShared || isSharingConversation}
+                key={editor.id}
+                onClick={async () => {
+                  if (!activeConversation || isShared) return;
+                  setIsSharingConversation(true);
+                  try {
+                    await aicloserApi.conversations.share(activeConversation.id, editor.id, "REPLY");
+                    setSharedUserIds((current) => (current.includes(editor.id) ? current : [...current, editor.id]));
+                    setComposerStatus(`${editor.name} can now view and reply in this chat.`);
+                  } catch (error) {
+                    setComposerStatus(error instanceof Error ? error.message : "Unable to share this chat right now.");
+                  } finally {
+                    setIsSharingConversation(false);
+                  }
+                }}
+                type="button"
+              >
+                <span className="chat-assign-avatar"><UserRound size={16} strokeWidth={1.8} /></span>
+                <div className="chat-assign-item-copy">
+                  <strong>{editor.name}</strong>
+                  <p>{isShared ? "Already shared" : editor.onlineStatus === "online" ? "Online" : "Offline"}</p>
+                </div>
+                {isShared ? <Check size={16} strokeWidth={2.2} /> : <Share2 size={15} strokeWidth={1.8} />}
+              </button>
+            );
+          })}
+          {isSupportDataLoading || !hasLoadedSupportData ? <p className="chat-picker-empty">Loading team members...</p> : null}
+          {hasLoadedSupportData && !shareableEditors.length ? <p className="chat-picker-empty">No team member matched that search.</p> : null}
+        </div>
+      </div>
+    );
+  }
+
   const channelCounts = useMemo(() => {
     let company = 0;
     let personal = 0;
@@ -6921,22 +7005,6 @@ function ChatWorkspaceInner({
                       {renderNotesPopover()}
                     </div>
 
-                    <label className="chat-status-control" title="Update lead status">
-                      <span>Status</span>
-                      <select
-                        aria-label="Update lead status"
-                        className="chat-status-select"
-                        onChange={(event) => handleLeadStatusChange(event.target.value).catch(() => undefined)}
-                        value={activeConversation.leadStatusId || ""}
-                        disabled={isSupportDataLoading || !leadStatuses.length}
-                      >
-                        {!leadStatuses.length ? <option value="">No live stages available</option> : null}
-                        {leadStatuses.map((status) => (
-                          <option key={status.id} value={status.id}>{status.label}</option>
-                        ))}
-                      </select>
-                    </label>
-
       {/* WhatsApp-Style Create Custom Label Modal */}
       {isCreateLabelModalOpen ? (
         <div
@@ -7195,6 +7263,24 @@ function ChatWorkspaceInner({
                       <span className="chat-assignment-label">{activeAssignment?.assignedFreelancerName ?? "Assign"}</span>
                     </button>
                     {renderAssignPopover()}
+                  </div>
+                  <div className="chat-control-inline">
+                    <button
+                      aria-label="Share conversation with team"
+                      className={isShareMenuOpen ? "chat-head-icon active" : "chat-head-icon"}
+                      onClick={() => {
+                        setIsShareMenuOpen((current) => !current);
+                        setIsAssignMenuOpen(false);
+                        setIsLeadStatusMenuOpen(false);
+                        setIsNotesMenuOpen(false);
+                        setIsDetailsOpen(false);
+                      }}
+                      title="Share conversation with team"
+                      type="button"
+                    >
+                      <Share2 size={16} strokeWidth={1.8} />
+                    </button>
+                    {renderSharePopover()}
                   </div>
                 </div>
               ) : null}

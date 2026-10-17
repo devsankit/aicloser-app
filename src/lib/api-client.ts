@@ -896,6 +896,26 @@ export const aicloserApi = {
       return res.data;
     },
 
+    async listShares(conversationId: string) {
+      const res = await requestConversation(`/conversations/${encodeURIComponent(conversationId)}/shares`);
+      return res.data;
+    },
+
+    async share(conversationId: string, userId: string, permission: 'VIEW' | 'REPLY' = 'REPLY') {
+      const res = await requestConversation(`/conversations/${encodeURIComponent(conversationId)}/shares`, {
+        method: 'POST',
+        body: JSON.stringify({ userId, permission }),
+      });
+      return res.data;
+    },
+
+    async revokeShare(conversationId: string, userId: string) {
+      const res = await requestConversation(`/conversations/${encodeURIComponent(conversationId)}/shares/${encodeURIComponent(userId)}`, {
+        method: 'DELETE',
+      });
+      return res.data;
+    },
+
     async setAiAutoReply(conversationId: string, disabled: boolean) {
       const res = await requestConversation<{ id: string; aiAutoReplyDisabled: boolean; message: string }>(
         '/conversations/' + encodeURIComponent(conversationId) + '/ai-auto-reply',

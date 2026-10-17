@@ -45602,6 +45602,36 @@ body .sales-theme-scope .sales-crm-workspace.is-kanban-view .sales-crm-card-comp
   font-size: 11px;
 }
 
+/* Keep the compact Kanban summary readable even when a later theme layer
+   resets the scoped display rules. */
+body .sales-crm-page-scope {
+  gap: 8px !important;
+}
+
+body .sales-crm-page-scope > strong {
+  margin-left: 2px !important;
+}
+
+body .sales-crm-page-scope > small {
+  margin-left: -2px;
+}
+
+body .sales-crm-card-compact-meta {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  gap: 8px;
+}
+
+body .sales-crm-card-compact-meta > span {
+  min-width: 0;
+  margin-right: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 body .sales-theme-scope .sales-crm-workspace.is-kanban-view {
   padding-bottom: 32px !important;
 }

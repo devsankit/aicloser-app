@@ -2478,3 +2478,146 @@
     right: auto !important;
   }
 }
+
+/* Preserve the original channel-picker layout inside the chat workspace.
+   Its shared global button styles can be trumped by later theme layers. */
+.shell :global(.chat-rail-top-controls) :global(.chat-channel-picker-trigger) {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 7px !important;
+  box-sizing: border-box !important;
+  white-space: nowrap !important;
+}
+
+.shell :global(.chat-rail-top-controls) :global(.chat-channel-picker-icon) {
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.shell :global(.chat-rail-top-controls) :global(.chat-channel-picker-label) {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.shell :global(.chat-rail-top-controls) :global(.chat-channel-picker-count) {
+  flex: 0 0 auto !important;
+  margin-left: auto !important;
+}
+
+.shell :global(.chat-rail-top-controls) :global(.chat-channel-picker-trigger) > svg {
+  display: block !important;
+  flex: 0 0 auto !important;
+  margin-left: 2px !important;
+}
+
+/* Keep contact identity and its actions on the same desktop header row. */
+@media (min-width: 861px) {
+  .shell .stageHeader.stageHeader {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) max-content !important;
+    grid-template-rows: minmax(64px, auto) !important;
+    align-items: center !important;
+    flex-wrap: nowrap !important;
+    gap: 8px !important;
+    padding: 8px 12px !important;
+  }
+
+  .shell .stageHeader.stageHeader > :global(.chat-thread-head-main) {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+    flex: 1 1 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    min-height: 48px !important;
+    padding: 0 !important;
+    border-bottom: 0 !important;
+  }
+
+  .shell .stageHeader.stageHeader :global(.chat-profile-trigger) {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .shell .stageHeader.stageHeader :global(.chat-thread-head-copy) {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+  }
+
+  .shell .stageHeader.stageHeader :global(.chat-header-actions-cluster) {
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+    position: static !important;
+    display: flex !important;
+    flex: 0 0 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    justify-content: flex-end !important;
+    padding: 0 !important;
+    border: 0 !important;
+    transform: none !important;
+  }
+
+  .shell .stageHeader.stageHeader :global(.chat-header-actions-toggle) {
+    display: none !important;
+  }
+
+  .shell .stageHeader.stageHeader :global(.chat-thread-head-toolbar) {
+    position: static !important;
+    display: flex !important;
+    flex: 0 0 auto !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    width: auto !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    gap: 6px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+  }
+
+  .shell .stageHeader.stageHeader :global(.chat-thread-head-toolbar .chat-status-notes-actions),
+  .shell .stageHeader.stageHeader :global(.chat-thread-head-toolbar .chat-assignment-actions) {
+    display: inline-flex !important;
+    flex: 0 0 auto !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+  }
+
+  .shell .stageHeader.stageHeader :global(.chat-thread-head-subtitle) {
+    min-width: 0 !important;
+    flex-wrap: wrap !important;
+    overflow: visible !important;
+  }
+
+  .shell .stageHeader.stageHeader :global(.chat-thread-contact-number) {
+    flex: 0 0 auto !important;
+    min-width: max-content !important;
+    white-space: nowrap !important;
+    color: var(--crm-text, #0f172a) !important;
+    background: var(--crm-surface-soft, #f1f5f9) !important;
+    border: 1px solid var(--crm-border, #e2e8f0) !important;
+  }
+
+  .shellWithDetails .stageHeader :global(.chat-assignment-label) {
+    display: none !important;
+  }
+
+  .shellWithDetails .stageHeader :global(.chat-assignment-actions .chat-head-icon),
+  .shellWithDetails .stageHeader :global(.chat-control-inline > .chat-head-icon) {
+    width: 34px !important;
+    min-width: 34px !important;
+    max-width: 34px !important;
+    padding: 0 !important;
+    justify-content: center !important;
+  }
+}

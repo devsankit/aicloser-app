@@ -100,9 +100,14 @@ export function LeadActivityModal({
   }, [busy, onClose]);
 
   const visibleHistory = useMemo(() => {
-    if (mode === "history") return history;
+    const auditHistory = history.filter((entry) => {
+      const kind = String(entry.kind || "").toUpperCase();
+      const title = String(entry.title || "").toUpperCase();
+      return kind !== "MESSAGE" && !title.includes("CUSTOMER MESSAGE") && !title.includes("TEAM MESSAGE");
+    });
+    if (mode === "history") return auditHistory;
     if (mode === "note") {
-      const noteHistory = history.filter((entry) => entry.kind.toUpperCase().includes("NOTE"));
+      const noteHistory = auditHistory.filter((entry) => entry.kind.toUpperCase().includes("NOTE"));
       return noteHistory.length ? noteHistory : notes.map((note) => ({
         id: `note:${note.id}`,
         kind: note.type || "NOTE",
@@ -114,7 +119,7 @@ export function LeadActivityModal({
         status: undefined,
       }));
     }
-    return history.filter((entry) => {
+    return auditHistory.filter((entry) => {
       const value = `${entry.kind} ${entry.title}`.toUpperCase();
       return value.includes("CALLBACK") || value.includes("FOLLOW") || value.includes("TASK");
     });

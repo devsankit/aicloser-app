@@ -26,8 +26,22 @@ export async function centralApiRequest<T = unknown>(path: string, init: Request
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
+  // A few server-side callers pass plain objects as `body`. The Fetch API
+  // accepts strings/FormData/etc., not raw objects; normalize JSON bodies here
+  // so assignment, stage, and settings requests cannot silently fail with a
+  // malformed payload.
+  const rawBody = init.body as unknown;
+  const isStructuredBody = rawBody && typeof rawBody === "object" &&
+    (typeof FormData === "undefined" || !(rawBody instanceof FormData)) &&
+    (typeof URLSearchParams === "undefined" || !(rawBody instanceof URLSearchParams)) &&
+    (typeof Blob === "undefined" || !(rawBody instanceof Blob)) &&
+    !(rawBody instanceof ArrayBuffer) &&
+    !ArrayBuffer.isView(rawBody);
+  const body = isStructuredBody ? JSON.stringify(rawBody) : init.body;
+
   const response = await fetch(`${CENTRAL_API_BASE}${path.startsWith("/") ? path : `/${path}`}`, {
     ...init,
+    body,
     headers,
     cache: "no-store",
   });

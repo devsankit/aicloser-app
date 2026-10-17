@@ -10,7 +10,6 @@ import {
   FileSpreadsheet,
   Globe,
   Inbox,
-  Layers,
   Mail,
   MessageCircle,
   MessageSquare,
@@ -59,7 +58,6 @@ type ContactsHubProps = {
   canExportData?: boolean;
   personalWhatsAppOnly?: boolean;
   onOpenMultiChannelChat?: (conversationId?: string) => void;
-  onOpenPluginsHub?: () => void;
   onOpenBulkMarketing?: (contactIds?: string[]) => void;
   onRefreshDashboard?: () => void;
   onExportLeads?: (format: "csv" | "excel") => void | Promise<void>;
@@ -154,7 +152,6 @@ const SOURCE_FILTER_TABS: Array<{
   { id: "ALL", label: "All Contacts" },
   { id: "WHATSAPP_SCANNER", label: "WhatsApp QR & Scraper" },
   { id: "WHATSAPP_CLOUD_API", label: "WhatsApp Cloud API" },
-  { id: "EMAIL_ENQUIRY", label: "Email Enquiries (Gmail/Zoho/GoDaddy)" },
   { id: "SHEETS_EXCEL", label: "Google Sheets & Excel" },
   { id: "INSTAGRAM_DM", label: "Instagram DM" },
   { id: "SIM_MANUAL", label: "CRM & SIM Calls" },
@@ -382,7 +379,6 @@ export function ContactsHub({
   canExportData = true,
   personalWhatsAppOnly = false,
   onOpenMultiChannelChat,
-  onOpenPluginsHub,
   onOpenBulkMarketing,
   onRefreshDashboard,
   onExportLeads,
@@ -422,7 +418,7 @@ export function ContactsHub({
     } catch { setPendingImportBatch(null); }
   }, [tenantId]);
   const [editingContact, setEditingContact] = useState<UnifiedContactItem | null>(null);
-  const [contactDraft, setContactDraft] = useState({ name: "", phone: "", email: "", tags: "", notes: "" });
+  const [contactDraft, setContactDraft] = useState({ name: "", phone: "", email: "", notes: "" });
   const [workspaceAgents, setWorkspaceAgents] = useState<Array<{ id: string; displayName: string; role?: string }>>([]);
 
   // 1. WhatsApp QR Scanner & Scraper State
@@ -477,7 +473,6 @@ export function ContactsHub({
   const [manualPhone, setManualPhone] = useState("");
   const [manualEmail, setManualEmail] = useState("");
   const [manualStage, setManualStage] = useState<SalesLeadStage>("NEW");
-  const [manualTags, setManualTags] = useState("Direct Lead, High Priority");
   const [manualNotes, setManualNotes] = useState("");
 
   const loadAllContactsAndIntegrations = useCallback(async () => {
@@ -936,7 +931,6 @@ export function ContactsHub({
         e164Phone: manualPhone.trim(),
         email: manualEmail.trim() || null,
         source: "MANUAL",
-        tags: manualTags.split(",").map((t) => t.trim()).filter(Boolean),
         customFields: { notes: manualNotes.trim(), stage: manualStage },
       });
       {
@@ -961,7 +955,6 @@ export function ContactsHub({
       name: contact.name,
       phone: contact.phone,
       email: contact.email,
-      tags: contact.tags.join(", "),
       notes: contact.notes,
     });
   };
@@ -976,7 +969,6 @@ export function ContactsHub({
         fullName: contactDraft.name,
         e164Phone: contactDraft.phone,
         email: contactDraft.email || null,
-        tags: contactDraft.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
         customFields: { notes: contactDraft.notes },
       });
       setEditingContact(null);
@@ -989,14 +981,13 @@ export function ContactsHub({
   };
 
   const handleExportCsv = () => {
-    const headers = ["Name", "Phone", "Email", "Source", "Stage", "Tags", "Assigned Rep", "Last Activity"];
+    const headers = ["Name", "Phone", "Email", "Source", "Stage", "Assigned Rep", "Last Activity"];
     const rows = filteredContacts.map((c) => [
       `"${(c.name || "").replace(/"/g, '""')}"`,
       `"${(c.phone || "").replace(/"/g, '""')}"`,
       `"${(c.email || "").replace(/"/g, '""')}"`,
       `"${(c.sourceLabel || "").replace(/"/g, '""')}"`,
       `"${c.stage}"`,
-      `"${c.tags.join(", ").replace(/"/g, '""')}"`,
       `"${(c.assignedAgentName || "").replace(/"/g, '""')}"`,
       `"${c.lastActivityAt}"`,
     ]);
@@ -1011,8 +1002,8 @@ export function ContactsHub({
   };
 
   const handleExportExcel = () => {
-    const headers = ["Name", "Phone", "Email", "Source", "Stage", "Tags", "Assigned Rep", "Last Activity"];
-    const rows = filteredContacts.map((c) => [c.name, c.phone, c.email, c.sourceLabel, c.stage, c.tags.join(", "), c.assignedAgentName, c.lastActivityAt]);
+    const headers = ["Name", "Phone", "Email", "Source", "Stage", "Assigned Rep", "Last Activity"];
+    const rows = filteredContacts.map((c) => [c.name, c.phone, c.email, c.sourceLabel, c.stage, c.assignedAgentName, c.lastActivityAt]);
     const worksheet = [headers, ...rows]
       .map((row) => row.map((value) => String(value || "").replace(/\t|\r?\n/g, " ")).join("\t"))
       .join("\n");
@@ -1249,16 +1240,6 @@ export function ContactsHub({
                   </div>
                 ) : null}
               </div>
-            ) : null}
-            {onOpenPluginsHub ? (
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={onOpenPluginsHub}
-                style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13 }}
-              >
-                <Layers size={15} /> Open All Plugins
-              </button>
             ) : null}
           </div>
         </div>
@@ -1535,13 +1516,13 @@ export function ContactsHub({
           {importPreview ? (
             <div className="crm-import-preview-table" style={{ overflowX: "auto", marginTop: 16 }}>
               <table className="crm-data-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                <thead><tr><th>Row</th><th>Name</th><th>Phone</th><th>Email</th><th>Source</th><th>Tags</th></tr></thead>
+                <thead><tr><th>Row</th><th>Name</th><th>Phone</th><th>Email</th><th>Source</th></tr></thead>
                 <tbody>
                   {importPreview.rows.length ? importPreview.rows.map((row) => (
                     <tr key={`${row.row}-${row.customerPhone}-${row.customerEmail}`}>
-                      <td>{row.row}</td><td>{row.customerName}</td><td>{row.customerPhone || "—"}</td><td>{row.customerEmail || "—"}</td><td>{row.source}</td><td>{row.tags || "—"}</td>
+                      <td>{row.row}</td><td>{row.customerName}</td><td>{row.customerPhone || "—"}</td><td>{row.customerEmail || "—"}</td><td>{row.source}</td>
                     </tr>
-                  )) : <tr><td colSpan={6}>No valid rows found in this source.</td></tr>}
+                  )) : <tr><td colSpan={5}>No valid rows found in this source.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -2254,7 +2235,7 @@ export function ContactsHub({
                     : "Click to select an Excel (.xlsx, .xls) or .csv contact sheet"}
                 </div>
                 <div style={{ fontSize: "0.78rem", color: "var(--muted)", marginTop: 4 }}>
-                  Supported headers: <code>Name</code>, <code>Phone</code> / <code>Mobile</code> / <code>WhatsApp</code>, <code>Email</code>, <code>Service</code>, <code>Tags</code>
+                  Supported headers: <code>Name</code>, <code>Phone</code> / <code>Mobile</code> / <code>WhatsApp</code>, <code>Email</code>, <code>Service</code>
                 </div>
               </div>
             ) : null}
@@ -2673,10 +2654,6 @@ export function ContactsHub({
               </select>
             </label>
             <label className="sales-form-field">
-              <span>Tags</span>
-              <input type="text" placeholder="Comma separated" value={manualTags} onChange={(e) => setManualTags(e.target.value)} />
-            </label>
-            <label className="sales-form-field">
               <span>Notes</span>
               <input type="text" placeholder="Enquiry summary" value={manualNotes} onChange={(e) => setManualNotes(e.target.value)} />
             </label>
@@ -2700,7 +2677,6 @@ export function ContactsHub({
             <label className="sales-form-field"><span>Name</span><input value={contactDraft.name} onChange={(event) => setContactDraft({ ...contactDraft, name: event.target.value })} required /></label>
             <label className="sales-form-field"><span>Phone</span><input value={contactDraft.phone} onChange={(event) => setContactDraft({ ...contactDraft, phone: event.target.value })} required /></label>
             <label className="sales-form-field"><span>Email</span><input type="email" value={contactDraft.email} onChange={(event) => setContactDraft({ ...contactDraft, email: event.target.value })} /></label>
-            <label className="sales-form-field"><span>Tags</span><input value={contactDraft.tags} onChange={(event) => setContactDraft({ ...contactDraft, tags: event.target.value })} /></label>
             <label className="sales-form-field" style={{ gridColumn: "1 / -1" }}><span>Notes</span><textarea rows={3} value={contactDraft.notes} onChange={(event) => setContactDraft({ ...contactDraft, notes: event.target.value })} /></label>
             <button type="submit" className="primary-button" disabled={busyAction === "edit_contact"}>{busyAction === "edit_contact" ? "Updating..." : "Update contact"}</button>
           </form>
@@ -3000,7 +2976,7 @@ export function ContactsHub({
                 <th style={{ padding: "10px 8px" }}>Phone Number (E.164)</th>
                 <th style={{ padding: "10px 8px" }}>Email</th>
                 <th style={{ padding: "10px 8px" }}>Source Channel</th>
-                <th style={{ padding: "10px 8px" }}>Stage & Tags</th>
+                <th style={{ padding: "10px 8px" }}>Stage</th>
                 <th style={{ padding: "10px 8px" }}>Assigned Rep</th>
                 <th style={{ padding: "10px 8px", textAlign: "right" }}>Quick Actions</th>
               </tr>
@@ -3103,21 +3079,6 @@ export function ContactsHub({
                           >
                             {contact.stage}
                           </span>
-                          {contact.tags.slice(0, 2).map((tag) => (
-                            <span
-                              className="crm-tag-badge"
-                              key={tag}
-                              style={{
-                                fontSize: 10.5,
-                                padding: "2px 7px",
-                                borderRadius: 6,
-                                background: "rgba(255, 107, 47, 0.1)",
-                                color: "#ff6b2f",
-                              }}
-                            >
-                              {tag}
-                            </span>
-                          ))}
                         </div>
                       </td>
                       <td style={{ padding: "11px 8px", fontSize: 12.5 }}>

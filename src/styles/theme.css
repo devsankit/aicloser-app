@@ -1,0 +1,416 @@
+/* ============================================================================
+   AIcloser — app theme layer (single source of truth for the internal app)
+   ----------------------------------------------------------------------------
+   LOAD ORDER (do not reorder):
+     1. src/app/globals.css
+          @import "tailwindcss"
+          @import "@xyflow/react/dist/style.css"
+          @import "../styles/design-tokens.css"   ← primitives + legacy aliases
+          ...45k lines of component rules...
+     2. src/styles/theme.css                     ← this file, imported last
+          in src/app/layout.tsx after "./globals.css"
+
+   WHY THIS FILE EXISTS
+   design-tokens.css has three parallel palettes that all reach the UI:
+     --crm-*     canonical (cards, kanban, panels)   1 071 var() uses
+     --gx-*      original primitive palette          209 var() uses
+     --closer-*  brand tokens, literals not bridged   92 var() uses
+   Retuning only --crm-* leaves ~300 call sites on the old palette, which is
+   exactly why a token-only change looked "half applied". Section 4 bridges
+   the other two families onto the canonical palette.
+
+   SCOPE RULES
+     Everything below is declared on :root so every route of this app (CRM,
+     chat, settings, login, signup) shares one palette; the app-shell selectors
+     are listed alongside it so a portal or a nested theme root still resolves.
+     There is no marketing site inside this repo — the public site is a separate
+     project — so a :root palette does not leak outside the product.
+   The shell root is <main class="app-shell internal-theme-root"> in
+   src/components/ui/internal-app-shell.tsx. Portals rendered into <body>
+   inherit the :root tokens, which is why they are not shell-scoped.
+
+   TO REBRAND: change section 1 only.
+   ========================================================================= */
+
+/* ============================================================================
+   1. PRIMITIVES — theme independent. Every semantic token reads from here.
+   ========================================================================= */
+:root {
+  /* brand accent (identity — see "accent" note before changing) */
+  --nt-accent: #ff6b2f;
+  --nt-accent-hover: #eb5a24;
+  --nt-accent-contrast: #ffffff;
+
+  /* neutral ramps: 10 steps, warm-gray like a document editor */
+  --nt-dark-0: #191919; /* canvas            */
+  --nt-dark-1: #202020; /* surface           */
+  --nt-dark-2: #252525; /* soft / hover      */
+  --nt-dark-3: #2f2f2f; /* elevated / border */
+  --nt-dark-4: #3f3f3f; /* strong border     */
+  --nt-dark-ink: #ededed;
+  --nt-dark-ink-2: #a3a3a3;
+  --nt-dark-ink-3: #8a8a8a;
+  --nt-dark-ink-4: #5f5f5f;
+
+  --nt-light-0: #ffffff; /* canvas            */
+  --nt-light-1: #ffffff; /* surface           */
+  --nt-light-2: #f7f7f5; /* soft / hover      */
+  --nt-light-3: #ecebe8; /* elevated / border */
+  --nt-light-4: #deddd9; /* strong border     */
+  --nt-light-ink: #37352f;
+  --nt-light-ink-2: #6f6e69;
+  --nt-light-ink-3: #787774;
+  --nt-light-ink-4: #c4c3bf;
+
+  /* status — muted enough to sit next to body copy */
+  --nt-success-dark: #4dab9a;
+  --nt-warning-dark: #ffa344;
+  --nt-error-dark: #ff7369;
+  --nt-info-dark: #529cca;
+  --nt-success-light: #0f7b6c;
+  --nt-warning-light: #cb912f;
+  --nt-error-light: #d44c47;
+  --nt-info-light: #337ea9;
+
+  /* type scale — 6 integer steps, no fractional px */
+  --nt-text-caption: 0.75rem; /* 12 */
+  --nt-text-secondary: 0.8125rem; /* 13 */
+  --nt-text-body: 0.875rem; /* 14 */
+  --nt-text-title: 1rem; /* 16 */
+  --nt-text-page: 1.25rem; /* 20 */
+  --nt-text-metric: 1.5rem; /* 24 */
+
+  /* radius — 3 steps + pill */
+  --nt-radius-sm: 6px;
+  --nt-radius-md: 8px;
+  --nt-radius-lg: 10px;
+
+  /* motion */
+  --nt-motion-fast: 120ms;
+  --nt-motion-normal: 180ms;
+}
+
+/* ============================================================================
+   2. SEMANTIC TOKENS — dark (default theme; the app boots into dark)
+   ========================================================================= */
+:root,
+[data-theme="dark"],
+.dark {
+  --crm-canvas: var(--nt-dark-0);
+  --crm-surface: var(--nt-dark-1);
+  --crm-surface-soft: var(--nt-dark-2);
+  --crm-surface-elevated: var(--nt-dark-3);
+
+  --crm-text: var(--nt-dark-ink);
+  --crm-text-secondary: var(--nt-dark-ink-2);
+  --crm-text-muted: var(--nt-dark-ink-3);
+  --crm-text-disabled: var(--nt-dark-ink-4);
+
+  --crm-border: var(--nt-dark-3);
+  --crm-border-strong: var(--nt-dark-4);
+
+  --crm-primary: var(--nt-accent);
+  --crm-primary-hover: var(--nt-accent-hover);
+  --crm-primary-soft: color-mix(in srgb, var(--nt-accent) 12%, transparent);
+  --crm-primary-border: color-mix(in srgb, var(--nt-accent) 30%, transparent);
+
+  --crm-success: var(--nt-success-dark);
+  --crm-warning: var(--nt-warning-dark);
+  --crm-error: var(--nt-error-dark);
+  --crm-info: var(--nt-info-dark);
+
+  --crm-focus: color-mix(in srgb, var(--nt-accent) 35%, transparent);
+
+  /* shadows: hairline + a whisper of lift, not a glow */
+  --crm-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.28), 0 1px 1px rgba(0, 0, 0, 0.18);
+  --crm-shadow-drawer: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --crm-shadow-focus: 0 0 0 2px color-mix(in srgb, var(--nt-accent) 28%, transparent);
+}
+
+/* ============================================================================
+   3. SEMANTIC TOKENS — light (Notion's paper palette)
+   ========================================================================= */
+[data-theme="light"],
+.light {
+  --crm-canvas: var(--nt-light-0);
+  --crm-surface: var(--nt-light-1);
+  --crm-surface-soft: var(--nt-light-2);
+  --crm-surface-elevated: var(--nt-light-1);
+
+  --crm-text: var(--nt-light-ink);
+  --crm-text-secondary: var(--nt-light-ink-2);
+  --crm-text-muted: var(--nt-light-ink-3);
+  --crm-text-disabled: var(--nt-light-ink-4);
+
+  --crm-border: var(--nt-light-3);
+  --crm-border-strong: var(--nt-light-4);
+
+  --crm-primary: var(--nt-accent);
+  --crm-primary-hover: var(--nt-accent-hover);
+  --crm-primary-soft: color-mix(in srgb, var(--nt-accent) 10%, transparent);
+  --crm-primary-border: color-mix(in srgb, var(--nt-accent) 26%, transparent);
+
+  --crm-success: var(--nt-success-light);
+  --crm-warning: var(--nt-warning-light);
+  --crm-error: var(--nt-error-light);
+  --crm-info: var(--nt-info-light);
+
+  --crm-focus: color-mix(in srgb, var(--nt-accent) 28%, transparent);
+
+  --crm-shadow-card: 0 1px 2px rgba(15, 15, 15, 0.06), 0 1px 1px rgba(15, 15, 15, 0.04);
+  --crm-shadow-drawer: 0 8px 24px rgba(15, 15, 15, 0.12);
+  --crm-shadow-focus: 0 0 0 2px color-mix(in srgb, var(--nt-accent) 22%, transparent);
+}
+
+/* ============================================================================
+   4. LEGACY BRIDGES — all app routes
+   ----------------------------------------------------------------------------
+   --gx-* and --closer-* are still read directly by ~300 rules. Re-pointing
+   them at --crm-* makes those rules follow the theme instead of drifting.
+
+   If a new component uses one of these families, prefer --crm-* instead; these
+   bridges exist for code that has not been migrated, not for new code.
+   ========================================================================= */
+:root,
+.internal-theme-root,
+.internal-main,
+.sales-theme-scope {
+  /* --- --closer-* brand tokens (design-tokens.css:5-16, 101-111) --- */
+  --closer-orange: var(--crm-primary);
+  --closer-orange-dark: var(--crm-primary-hover);
+  --closer-orange-soft: var(--crm-primary-soft);
+  --closer-orange-border: var(--crm-primary-border);
+
+  --closer-canvas: var(--crm-canvas);
+  --closer-surface: var(--crm-surface);
+  --closer-soft: var(--crm-surface-soft);
+  --closer-surface-soft: var(--crm-surface-soft);
+  --closer-ink: var(--crm-text);
+  --closer-muted: var(--crm-text-secondary);
+  --closer-line: var(--crm-border);
+
+  /* --- --gx-* primitive palette (design-tokens.css:19-56, 113-150) --- */
+  --gx-bg: var(--crm-canvas);
+  --gx-bg-soft: var(--crm-surface-soft);
+  --gx-bg-deeper: var(--crm-canvas);
+
+  --gx-surface: var(--crm-surface);
+  --gx-surface-soft: var(--crm-surface-soft);
+  --gx-surface-elevated: var(--crm-surface-elevated);
+  --gx-surface-matte: var(--crm-surface);
+  --gx-surface-gloss: var(--crm-surface);
+  --gx-glass-bg: var(--crm-surface);
+  --gx-glass-border: var(--crm-border);
+
+  --gx-text-primary: var(--crm-text);
+  --gx-text-secondary: var(--crm-text-secondary);
+  --gx-text-muted: var(--crm-text-muted);
+  --gx-text-dim: var(--crm-text-disabled);
+
+  --gx-primary: var(--crm-primary);
+  --gx-primary-hover: var(--crm-primary-hover);
+  --gx-primary-soft: var(--crm-primary-soft);
+  --gx-primary-border: var(--crm-primary-border);
+
+  --gx-border: var(--crm-border);
+  --gx-border-soft: var(--crm-border);
+  --gx-border-strong: var(--crm-border-strong);
+
+  --gx-success: var(--crm-success);
+  --gx-warning: var(--crm-warning);
+  --gx-error: var(--crm-error);
+  --gx-info: var(--crm-info);
+
+  /* --- aliases resolved on :root against the OLD --gx-primary-border ---
+     Custom properties substitute where they are declared, so these must be
+     re-declared after the bridge or they keep the pre-theme value. */
+  --accent-strong: var(--crm-primary-border);
+  --sidebar-active-border: var(--crm-primary-border);
+  --list-highlight: var(--crm-primary-border);
+
+  /* --- geometry --- */
+  --crm-sidebar-width: 240px;
+  --crm-sidebar-collapsed-width: 64px;
+  --crm-topbar-height: 56px;
+  --crm-content-gutter: clamp(16px, 1.8vw, 28px);
+  --crm-section-gap: 20px;
+  --crm-card-padding: 18px;
+  --crm-control-height: 36px;
+  --crm-control-height-sm: 30px;
+  --control-height: 36px;
+  --control-height-sm: 30px;
+  --control-md: 36px;
+  --control-sm: 30px;
+  --layout-shell-sidebar: 240px;
+
+  /* --- radius scale (was 0/5/9/10/11/16px mixed) --- */
+  --crm-radius-control: var(--nt-radius-sm);
+  --crm-radius-card: var(--nt-radius-md);
+  --crm-radius-panel: var(--nt-radius-lg);
+  --crm-radius-pill: 999px;
+  --radius-sm: var(--nt-radius-sm);
+  --radius-md: var(--nt-radius-md);
+  --radius-lg: var(--nt-radius-lg);
+
+  /* --- type scale (was 8.96 / 9.92 / 11.2 / 11.52 / 12.16 / 12.48 /
+     12.8 / 14 / 14.08 / 20.48px — fractional because a root size was being
+     scaled; six integer steps now) --- */
+  --crm-type-page-title: var(--nt-text-page);
+  --crm-type-section-title: var(--nt-text-title);
+  --crm-type-card-title: var(--nt-text-body);
+  --crm-type-body: var(--nt-text-body);
+  --crm-type-muted: var(--nt-text-caption);
+
+  --type-page-title-size: var(--nt-text-page);
+  --type-page-title-line: 1.2;
+  --type-section-title-size: var(--nt-text-title);
+  --type-section-title-line: 1.35;
+  --type-card-title-size: var(--nt-text-body);
+  --type-card-title-line: 1.4;
+  --type-body-size: var(--nt-text-body);
+  --type-body-line: 1.55;
+  --type-secondary-size: var(--nt-text-secondary);
+  --type-secondary-line: 1.5;
+  --type-label-size: var(--nt-text-caption);
+  --type-caption-size: var(--nt-text-caption);
+  --type-nav-size: var(--nt-text-body);
+  --type-table-body-size: var(--nt-text-secondary);
+  --type-table-header-size: var(--nt-text-caption);
+  --type-button-size: var(--nt-text-secondary);
+  --type-metric-size: var(--nt-text-metric);
+
+  /* design-tokens.css :root text-* scale (11px xs removed) */
+  --text-xs: var(--nt-text-caption);
+  --text-sm: var(--nt-text-caption);
+  --text-base: var(--nt-text-body);
+  --text-lg: var(--nt-text-body);
+  --text-xl: var(--nt-text-title);
+  --text-2xl: var(--nt-text-metric);
+
+  /* --- motion --- */
+  --crm-motion-fast: var(--nt-motion-fast);
+  --crm-motion-normal: var(--nt-motion-normal);
+}
+
+/* ============================================================================
+   5. SCALE SNAP — pinned CRM surfaces
+   ----------------------------------------------------------------------------
+   NOT every value follows a token. The "21st UI Polish" block at the end of
+   globals.css (≈ line 41000-42400) re-declares these properties with
+   !important and higher specificity, so a token change alone never lands.
+   Measured on the live dashboard before this section existed:
+
+     element                          declared            source
+     .app-page-title                  20.48px (1.28rem)   globals.css:41134 clamp(1.08rem,1.5vw,1.28rem)
+     .internal-nav-item               12.48px (0.78rem)   globals.css:41026
+     .internal-nav-item radius        9px                 globals.css:41026
+     .sales-kanban-column radius      16px                globals.css:42323
+     .sales-crm-card.compact radius   14px                globals.css:42228
+     .sales-crm-surface radius        20px                globals.css:42192
+
+   These rules must out-specify the polish block, hence `body` + the full
+   `.internal-theme-root .sales-theme-scope` path and `!important` — the same
+   mechanism the polish block uses. Delete a rule here once its component is
+   migrated to tokens. Do not add new !important rules for values a token can
+   carry.
+   ========================================================================= */
+
+body .internal-theme-root .internal-topbar .app-page-title {
+  font-size: var(--crm-type-page-title) !important; /* 20px, was 20.48 */
+  line-height: 1.25 !important;
+}
+
+body .internal-theme-root .internal-sidebar .sidebar-nav-item,
+body .internal-theme-root .internal-sidebar .internal-nav-item {
+  border-radius: var(--crm-radius-control) !important; /* 6px, was 9 */
+  font-size: var(--crm-type-body) !important; /* 14px, was 12.48 */
+}
+
+body .internal-theme-root .sales-theme-scope .sales-crm-surface {
+  border-radius: var(--crm-radius-panel) !important; /* 10px, was 20 */
+}
+
+body .internal-theme-root .sales-theme-scope .sales-kanban-column {
+  border-radius: var(--crm-radius-card) !important; /* 8px, was 16 */
+}
+
+body .internal-theme-root .sales-theme-scope .sales-crm-card.compact,
+body .internal-theme-root .sales-theme-scope .sales-crm-card {
+  border-radius: var(--crm-radius-card) !important; /* 8px, was 14 */
+}
+
+/* Kanban cards kept a cold slate palette (#171a22 surface, #f8fafc ink) from
+   the same polish block while the shell moved to warm neutral — the board read
+   as a different product. Measured before: card background rgb(23, 26, 34). */
+[data-theme="dark"] body .internal-theme-root .sales-theme-scope .sales-crm-card.compact,
+.dark body .internal-theme-root .sales-theme-scope .sales-crm-card.compact {
+  background: var(--crm-surface) !important;
+  border-color: var(--crm-border) !important;
+  box-shadow: var(--crm-shadow-card) !important;
+}
+
+/* Column headers had their own slate surface (#12141a at 92%) from the same
+   block, which read as a blue panel on a warm canvas. */
+[data-theme="dark"] body .internal-theme-root .sales-theme-scope .sales-kanban-column-header,
+.dark body .internal-theme-root .sales-theme-scope .sales-kanban-column-header {
+  background: var(--crm-surface) !important;
+  border-bottom-color: var(--crm-border) !important;
+}
+
+[data-theme="dark"] body .internal-theme-root .sales-theme-scope .sales-crm-card-identity-title > strong,
+[data-theme="dark"] body .internal-theme-root .sales-theme-scope .sales-crm-card-signal > strong,
+[data-theme="dark"] body .internal-theme-root .sales-theme-scope .sales-kanban-column-title > span,
+.dark body .internal-theme-root .sales-theme-scope .sales-crm-card-identity-title > strong,
+.dark body .internal-theme-root .sales-theme-scope .sales-crm-card-signal > strong,
+.dark body .internal-theme-root .sales-theme-scope .sales-kanban-column-title > span {
+  color: var(--crm-text) !important;
+}
+
+[data-theme="dark"] body .internal-theme-root .sales-theme-scope .sales-crm-card-identity > span,
+[data-theme="dark"] body .internal-theme-root .sales-theme-scope .sales-crm-card-signal > span,
+.dark body .internal-theme-root .sales-theme-scope .sales-crm-card-identity > span,
+.dark body .internal-theme-root .sales-theme-scope .sales-crm-card-signal > span {
+  color: var(--crm-text-secondary) !important;
+}
+
+/* ============================================================================
+   6. OPTIONAL SWITCHES — uncomment, do not edit in place
+   ========================================================================= */
+
+/* ACCENT — Notion blue. Turns the CRM brand accent off the AI Closer orange.
+   Only do this if the app is meant to lose the brand colour.
+:root, [data-theme="dark"], .dark {
+  --nt-accent: #2383e2;
+  --nt-accent-hover: #1b76d1;
+}
+[data-theme="light"], .light {
+  --nt-accent: #2383e2;
+  --nt-accent-hover: #1b76d1;
+}
+*/
+
+/* ACCENT CONTRAST — white on #ff6b2f is 2.8:1 and fails WCAG AA for normal
+   text. #1c1917 on the same orange is 6.6:1. This changes every filled
+   primary button, so it is opt-in rather than default.
+.internal-theme-root, .sales-theme-scope {
+  --primary-contrast: #1c1917;
+  --nt-accent-contrast: #1c1917;
+}
+*/
+
+/* KANBAN WIDTH — the polish block pins `repeat(7, 330px)` for 8 columns, so the
+   last stage always sits outside the viewport (measured: 2 792px content in a
+   1 103px box, 5 of 8 columns offscreen). Uncomment for a fit-to-width board:
+body .internal-theme-root .sales-theme-scope .sales-kanban {
+  grid-template-columns: repeat(8, minmax(240px, 1fr)) !important;
+  width: 100% !important;
+}
+*/
+
+/* DENSITY — compact tables/kanban.
+.internal-theme-root, .sales-theme-scope {
+  --crm-section-gap: 14px;
+  --crm-card-padding: 14px;
+  --crm-control-height: 32px;
+}
+*/
