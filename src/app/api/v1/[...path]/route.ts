@@ -13,7 +13,7 @@ async function proxy(request: Request, context: { params: Promise<{ path: string
   }
   const cookieStore = await cookies();
   const authorization = request.headers.get("authorization");
-  const token = cookieStore.get("aicloser_token")?.value;
+  const token = cookieStore.get("aicloser_token")?.value || cookieStore.get("gx_session")?.value;
   const headers = new Headers();
   for (const name of ["accept", "content-type", "range", "last-event-id", "x-target-tenant-id"]) {
     const value = request.headers.get(name);

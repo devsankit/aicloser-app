@@ -1,13 +1,20 @@
 "use client";
 
 import { useEffect } from "react";
-import { aicloserApi } from "@/lib/api-client";
+import { aicloserApi, getStoredToken } from "@/lib/api-client";
 
 export function ClientSessionHeartbeat() {
   useEffect(() => {
     let timer: number | undefined;
     const send = () => {
       if (document.visibilityState !== "visible") return;
+      if (typeof window !== "undefined") {
+        const path = window.location.pathname;
+        if (path.startsWith("/login") || path.startsWith("/signup") || path.startsWith("/super-admin/login")) {
+          return;
+        }
+      }
+      if (!getStoredToken()) return;
       void aicloserApi.auth.heartbeat().catch(() => {
         void fetch("/api/auth/heartbeat", { method: "POST", credentials: "include", cache: "no-store" });
       });

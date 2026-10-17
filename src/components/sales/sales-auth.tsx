@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Check, ChevronDown, Eye, EyeOff, LogIn, Search, Send } from "lucide-react";
 import { countryCodes } from "./country-codes";
 import { setStoredToken } from "@/lib/api-client";
@@ -221,6 +222,9 @@ function friendlyLoginError(value: string) {
 
 function friendlySignupError(value: string) {
   const normalized = value.toLowerCase();
+  if (normalized.includes("conflict") || normalized.includes("already exists") || normalized.includes("duplicate")) {
+    return "An account with this email or phone number already exists. Please sign in instead.";
+  }
   if (
     normalized.includes("prisma.") ||
     normalized.includes("transaction api error") ||
@@ -268,14 +272,14 @@ export function SalesSignupForm({ googleOnboarding = false, googleEmail = "", go
     setIsSubmitting(false);
 
     if (!response.ok || !payload?.ok) {
-      setStatus(friendlySignupError(payload?.error ?? "Unable to create sales workspace."));
+      setStatus(friendlySignupError(payload?.message || payload?.error || "Unable to create sales workspace."));
       setCanRetry(true);
       return;
     }
 
     if (payload?.token) setStoredToken(payload.token);
     setStatus("Workspace created! Opening your dashboard...");
-    window.location.href = payload?.redirectTo || "/?tab=dashboard";
+    window.location.replace(payload?.redirectTo || "/?tab=dashboard");
   }
 
   return (
@@ -326,6 +330,20 @@ export function SalesSignupForm({ googleOnboarding = false, googleEmail = "", go
           <p className="sales-form-status" style={{ margin: 0, fontSize: "0.84rem", color: status.includes("created") ? "#10b981" : "#ef4444", fontWeight: 600 }}>
             {status}
           </p>
+          {status.includes("already exists") ? (
+            <Link
+              href="/login"
+              style={{
+                color: "#ff6b2f",
+                fontWeight: 700,
+                fontSize: "0.84rem",
+                textDecoration: "underline",
+                display: "inline-block",
+              }}
+            >
+              Sign in to your existing account →
+            </Link>
+          ) : null}
           {canRetry ? (
             <button className="sales-secondary-button compact" onClick={() => formRef.current?.requestSubmit()} type="button">
               Retry workspace creation

@@ -222,12 +222,12 @@ export default async function SalesPage({ searchParams }: { searchParams?: Promi
   try {
     me = await centralApiRequest<CentralMe>("/auth/me");
   } catch {
-    redirect(`/login?redirectTo=${encodeURIComponent(params?.tab ? `/?tab=${String(params.tab)}` : "/")}`);
+    redirect(`/login?authFailed=1&redirectTo=${encodeURIComponent(params?.tab ? `/?tab=${String(params.tab)}` : "/")}`);
   }
 
   user = me?.data?.user;
   if (!user || !["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"].includes(user.role)) {
-    redirect(`/login?redirectTo=${encodeURIComponent("/")}`);
+    redirect(`/login?authFailed=1&redirectTo=${encodeURIComponent("/")}`);
   }
 
   try {

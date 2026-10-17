@@ -3,6 +3,7 @@ import { provisionSaaSCloserWorkspace } from "@/lib/gigxomi/sales-store";
 import { shouldUseSecureCookies } from "@/lib/auth/cookie-security";
 import { applySessionCookie } from "@/lib/auth/session";
 import { acquireAppClientSession } from "@/lib/auth/client-sessions";
+import { createSessionToken } from "@/lib/auth/token";
 
 function readString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -111,7 +112,8 @@ export async function POST(request: Request) {
       }
     } else if (centralRes?.status === 409) {
       const errorData = await centralRes.json().catch(() => null);
-      return NextResponse.json({ ok: false, error: errorData?.error || "Account with this email or phone already exists." }, { status: 409 });
+      const conflictMsg = errorData?.message || errorData?.error || "An account with this email or phone number already exists.";
+      return NextResponse.json({ ok: false, error: conflictMsg, message: conflictMsg }, { status: 409 });
     }
   } catch {
     // fallback to local provision
@@ -149,8 +151,28 @@ export async function POST(request: Request) {
     // fallback
   }
 
+  const sessionToken = await createSessionToken({
+    userId: result.user.id,
+    role: result.user.role,
+    assignedRole: result.user.assignedRole,
+    tenantId: result.user.tenantId,
+    displayName: result.user.displayName,
+    email: result.user.email,
+    phone: result.user.phone,
+    packageId: result.user.packageId,
+    packageName: result.user.packageName,
+    packageAudience: result.user.packageAudience,
+    packageStatus: result.user.packageStatus,
+    packageExpiresAt: result.user.packageExpiresAt,
+    workspaceMode: result.user.workspaceMode,
+    sessionId: clientSessionId,
+    licensedSession: false,
+    expiresAt: Date.now() + 1000 * 60 * 60 * 24 * 30,
+  });
+
   const response = NextResponse.json({
     ok: true,
+    token: sessionToken,
     user: result.user,
     agent: result.agent,
     workspace: result.workspace,
@@ -181,6 +203,14 @@ export async function POST(request: Request) {
     sameSite: "lax",
     secure: shouldUseSecureCookies(),
     maxAge: 60 * 60 * 24 * 365,
+  });
+
+  response.cookies.set("aicloser_token", sessionToken, {
+    path: "/",
+    httpOnly: true,
+    sameSite: "lax",
+    secure: shouldUseSecureCookies(),
+    maxAge: 30 * 24 * 60 * 60,
   });
 
   return response;

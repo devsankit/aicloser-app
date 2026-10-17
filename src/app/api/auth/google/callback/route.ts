@@ -15,6 +15,7 @@ import {
   verifyGoogleIdToken,
 } from "@/lib/auth/google-oauth";
 import { applySessionCookie, getDashboardPathForIdentity, getSafeSalesRedirectPath } from "@/lib/auth/session";
+import { createSessionToken } from "@/lib/auth/token";
 import { shouldUseSecureCookies } from "@/lib/auth/cookie-security";
 import { getSalesAgentAccess } from "@/lib/gigxomi/sales-store";
 import { getPublicRequestUrl } from "@/lib/auth/request-url";
@@ -126,6 +127,24 @@ export async function GET(request: Request) {
     await prisma.appAuthUser.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
     const destination = getSafeSalesRedirectPath(savedState.redirectTo, effectiveRole as Parameters<typeof getSafeSalesRedirectPath>[1]);
     const response = clearStateCookie(NextResponse.redirect(getPublicRequestUrl(request, destination || getDashboardPathForIdentity({ role: effectiveRole as Parameters<typeof getDashboardPathForIdentity>[0]["role"], packageAudience: user.packageAudience, workspaceMode: user.workspaceMode }))));
+    const sessionToken = await createSessionToken({
+      userId: user.id,
+      role: effectiveRole as Parameters<typeof applySessionCookie>[1]["role"],
+      assignedRole: effectiveAssignedRole as Parameters<typeof applySessionCookie>[1]["assignedRole"],
+      tenantId: user.tenantId,
+      displayName: user.displayName,
+      email: user.email,
+      phone: user.phone ?? "",
+      packageId: user.packageId,
+      packageName: user.packageName,
+      packageAudience: user.packageAudience,
+      packageStatus: user.packageStatus,
+      packageExpiresAt: user.packageExpiresAt?.toISOString() ?? null,
+      workspaceMode: user.workspaceMode,
+      sessionId: clientSession.session.sessionId,
+      licensedSession: true,
+      expiresAt: Date.now() + 1000 * 60 * 60 * 24 * 30,
+    });
     await applySessionCookie(response, {
       userId: user.id,
       role: effectiveRole as Parameters<typeof applySessionCookie>[1]["role"],
@@ -149,6 +168,13 @@ export async function GET(request: Request) {
       sameSite: "lax",
       secure: shouldUseSecureCookies(),
       maxAge: 60 * 60 * 24 * 365,
+    });
+    response.cookies.set("aicloser_token", sessionToken, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: shouldUseSecureCookies(),
+      maxAge: 30 * 24 * 60 * 60,
     });
     return response;
   } catch (error) {

@@ -20,7 +20,7 @@ export class CentralApiError extends Error {
 
 export async function centralApiRequest<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
   const cookieStore = await cookies();
-  const token = cookieStore.get("aicloser_token")?.value?.trim();
+  const token = cookieStore.get("aicloser_token")?.value?.trim() || cookieStore.get("gx_session")?.value?.trim();
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");

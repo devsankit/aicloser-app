@@ -20,7 +20,11 @@ function handleCentralAuthFailure(status: number, message: string) {
   if (status === 401) {
     setStoredToken(null);
     const path = window.location.pathname;
-    if (path !== '/login' && path !== '/super-admin/login') {
+    if (
+      !path.startsWith('/login') &&
+      !path.startsWith('/signup') &&
+      !path.startsWith('/super-admin/login')
+    ) {
       const current = `${window.location.pathname}${window.location.search}`;
       window.location.assign(`/login?redirectTo=${encodeURIComponent(current)}`);
     }

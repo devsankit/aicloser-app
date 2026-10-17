@@ -8,6 +8,7 @@ import {
   readGoogleOnboardingCookie,
 } from "@/lib/auth/google-oauth";
 import { applySessionCookie } from "@/lib/auth/session";
+import { createSessionToken } from "@/lib/auth/token";
 import { provisionSaaSCloserWorkspace } from "@/lib/gigxomi/sales-store";
 import { shouldUseSecureCookies } from "@/lib/auth/cookie-security";
 
@@ -59,7 +60,26 @@ export async function POST(request: Request) {
     platform: "WEB",
     replaceExisting: true,
   });
-  const response = NextResponse.json({ ok: true, redirectTo: claims.redirectTo || "/" });
+  const sessionToken = await createSessionToken({
+    userId: result.user.id,
+    role: result.user.role,
+    assignedRole: result.user.assignedRole,
+    tenantId: result.user.tenantId,
+    displayName: result.user.displayName,
+    email: result.user.email,
+    phone: result.user.phone,
+    packageId: result.user.packageId,
+    packageName: result.user.packageName,
+    packageAudience: result.user.packageAudience,
+    packageStatus: result.user.packageStatus,
+    packageExpiresAt: result.user.packageExpiresAt,
+    workspaceMode: result.user.workspaceMode,
+    sessionId: clientSession.session.sessionId,
+    licensedSession: true,
+    expiresAt: Date.now() + 1000 * 60 * 60 * 24 * 30,
+  });
+
+  const response = NextResponse.json({ ok: true, token: sessionToken, redirectTo: claims.redirectTo || "/?tab=dashboard" });
   await applySessionCookie(response, {
     userId: result.user.id,
     role: result.user.role,
@@ -82,8 +102,15 @@ export async function POST(request: Request) {
     path: "/",
     httpOnly: true,
     sameSite: "lax",
-      secure: shouldUseSecureCookies(),
+    secure: shouldUseSecureCookies(),
     maxAge: 60 * 60 * 24 * 365,
+  });
+  response.cookies.set("aicloser_token", sessionToken, {
+    path: "/",
+    httpOnly: true,
+    sameSite: "lax",
+    secure: shouldUseSecureCookies(),
+    maxAge: 30 * 24 * 60 * 60,
   });
   return response;
 }
