@@ -290,7 +290,7 @@ export function WhatsAppMarketingDashboard() {
   // Fetch contacts
   const loadContacts = useCallback(async () => {
     try {
-      const data = await aicloserApi.marketing.getContacts({ search: contactSearch || undefined, limit: 100 }) as { contacts?: Array<Record<string, unknown>> };
+      const data = await aicloserApi.marketing.getAllContacts(contactSearch || undefined);
       const mapped = (data.contacts || []).map((contact) => ({
         ...contact,
         phone: String(contact.e164Phone ?? contact.phone ?? ""),
@@ -303,8 +303,9 @@ export function WhatsAppMarketingDashboard() {
           : [],
       })) as MarketingContactItem[];
       setContacts(selectedGroupFilter ? mapped.filter((contact) => contact.groups?.some((group) => group.id === selectedGroupFilter)) : mapped);
-    } catch {
-      // ignore
+    } catch (error) {
+      setContacts([]);
+      setStatusMessage({ text: error instanceof Error ? error.message : "Could not load contacts.", type: "error" });
     }
   }, [contactSearch, selectedGroupFilter]);
 

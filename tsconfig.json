@@ -45,6 +45,8 @@
     "apps/mobile",
     "apps/mobile/**",
     "apps/crm-mobile",
-    "apps/crm-mobile/**"
+    "apps/crm-mobile/**",
+    "work",
+    "work/**"
   ]
 }

@@ -11,7 +11,7 @@ const API_BASE_URL =
   'https://api.aicloser.in/api/v1';
 
 export function getCentralApiBaseUrl() {
-  return API_BASE_URL;
+  return typeof window === 'undefined' ? API_BASE_URL : '/api/v1';
 }
 
 function handleCentralAuthFailure(status: number, message: string) {
@@ -435,7 +435,7 @@ async function request<T>(
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  const url = `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
+  const url = `${getCentralApiBaseUrl()}${path.startsWith('/') ? path : `/${path}`}`;
 
   const response = await fetch(url, {
     ...options,
@@ -446,7 +446,7 @@ async function request<T>(
   const json = await response.json().catch(() => ({}));
 
   if (!response.ok || json.success === false) {
-    const errorMsg = json.error || json.message || `Request failed with status ${response.status}`;
+    const errorMsg = json.message || json.error || `Request failed with status ${response.status}`;
     handleCentralAuthFailure(response.status, String(errorMsg));
     throw new Error(errorMsg);
   }
@@ -461,7 +461,7 @@ async function requestConversation<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<{ data: T; pagination?: ApiResponse<T>['pagination'] }> {
-  const useSameOriginProxy = typeof window !== 'undefined' && window.location.hostname === 'localhost';
+  const useSameOriginProxy = typeof window !== 'undefined';
   if (!useSameOriginProxy) {
     return request<T>(path, options);
   }
@@ -552,6 +552,15 @@ export const aicloserApi = {
 
   // 2. Leads & Pipeline
   leads: {
+    async listAll(params?: { assignedAgentId?: string; sortBy?: string; sortOrder?: 'asc' | 'desc' }) {
+      const first = await aicloserApi.leads.list({ ...params, page: 1, limit: 100 });
+      const leads = [...first.leads];
+      for (let page = 2; page <= (first.pagination?.totalPages ?? 1); page++) {
+        const next = await aicloserApi.leads.list({ ...params, page, limit: 100 });
+        leads.push(...next.leads);
+      }
+      return { leads: [...new Map(leads.map((lead) => [lead.id, lead])).values()], pagination: first.pagination };
+    },
     async list(params?: {
       page?: number;
       limit?: number;
@@ -789,7 +798,7 @@ export const aicloserApi = {
       return res.data;
     },
 
-    async assign(payload: { leadId?: string; leadIds?: string[]; preferredCloserId?: string }) {
+    async assign(payload: { leadId?: string; leadIds?: string[]; preferredCloserId?: string; contacts?: any[] }) {
       const res = await request('/round-robin/assign', { method: 'POST', body: JSON.stringify(payload) });
       return res.data;
     },
@@ -797,6 +806,10 @@ export const aicloserApi = {
 
   // 4. Omnichannel WhatsApp / Chat
   conversations: {
+    async get360(conversationId: string): Promise<Lead360Response> {
+      const res = await requestConversation<Lead360Response>(`/conversations/${encodeURIComponent(conversationId)}/360`);
+      return res.data;
+    },
     async list(params?: { page?: number; limit?: number; search?: string; status?: string }) {
       const searchParams = new URLSearchParams();
       if (params?.page) searchParams.set('page', params.page.toString());
@@ -1018,7 +1031,7 @@ export const aicloserApi = {
     getAttachmentUrl(conversationId: string, filename: string): string {
       const token = getStoredToken();
       const tokenParam = token ? '?token=' + encodeURIComponent(token) : '';
-      return API_BASE_URL + '/conversations/' + encodeURIComponent(conversationId) + '/attachments/' + encodeURIComponent(filename) + tokenParam;
+      return getCentralApiBaseUrl() + '/conversations/' + encodeURIComponent(conversationId) + '/attachments/' + encodeURIComponent(filename) + tokenParam;
     },
 
     async uploadAttachment(conversationId: string, file: File) {
@@ -1029,7 +1042,7 @@ export const aicloserApi = {
       const headers = new Headers();
       if (token) headers.set('Authorization', `Bearer ${token}`);
 
-      const res = await fetch(`${API_BASE_URL}/conversations/${encodeURIComponent(conversationId)}/attachments`, {
+      const res = await fetch(`${getCentralApiBaseUrl()}/conversations/${encodeURIComponent(conversationId)}/attachments`, {
         method: 'POST',
         headers,
         credentials: 'include',
@@ -1086,7 +1099,7 @@ export const aicloserApi = {
       const token = getStoredToken();
       const headers = new Headers();
       if (token) headers.set('Authorization', `Bearer ${token}`);
-      const response = await fetch(`${API_BASE_URL}/calls/${encodeURIComponent(callId)}/recording`, {
+      const response = await fetch(`${getCentralApiBaseUrl()}/calls/${encodeURIComponent(callId)}/recording`, {
         headers,
         credentials: 'include',
       });
@@ -1228,7 +1241,7 @@ export const aicloserApi = {
     getProofUrl(id: string) {
       const token = getStoredToken();
       const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
-      return `${API_BASE_URL}/payments/${encodeURIComponent(id)}/proof${tokenParam}`;
+      return `${getCentralApiBaseUrl()}/payments/${encodeURIComponent(id)}/proof${tokenParam}`;
     },
   },
 
@@ -1317,7 +1330,7 @@ export const aicloserApi = {
       if (params?.to) query.set('to', params.to);
       const token = getStoredToken();
       if (token) query.set('token', token);
-      return `${API_BASE_URL}/reports/export?${query.toString()}`;
+      return `${getCentralApiBaseUrl()}/reports/export?${query.toString()}`;
     },
   },
 
@@ -1348,7 +1361,7 @@ export const aicloserApi = {
       return res.data;
     },
     async submit(slug: string, payload: Record<string, unknown>) {
-      const res = await fetch(`${API_BASE_URL}/forms/submit/${encodeURIComponent(slug)}`, {
+      const res = await fetch(`${getCentralApiBaseUrl()}/forms/submit/${encodeURIComponent(slug)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -1359,6 +1372,15 @@ export const aicloserApi = {
 
   // 8c. Central Contacts Directory
   contacts: {
+    async listAll() {
+      const first = await aicloserApi.contacts.list({ page: 1, limit: 100 });
+      const contacts = [...first.contacts];
+      for (let page = 2; page <= (first.pagination?.totalPages ?? 1); page++) {
+        const next = await aicloserApi.contacts.list({ page, limit: 100 });
+        contacts.push(...next.contacts);
+      }
+      return { contacts: [...new Map(contacts.map((contact) => [contact.id, contact])).values()], pagination: first.pagination };
+    },
     async list(params?: { page?: number; limit?: number; search?: string; tag?: string }) {
       const query = new URLSearchParams();
       query.set('page', String(params?.page ?? 1));
@@ -1540,7 +1562,7 @@ export const aicloserApi = {
       return this.instagram.updateStatus(payload);
     },
     connectInstagram(): string {
-      return `${API_BASE_URL}/meta/instagram/oauth/connect`;
+      return `${getCentralApiBaseUrl()}/meta/instagram/oauth/connect`;
     },
     googleDrive: {
       async getAuthUrl() {
@@ -1605,6 +1627,10 @@ export const aicloserApi = {
 
   // 11b. Team and permission-scoped workspace data
   team: {
+    async savePermissionsMatrix(roles: Record<string, Record<string, boolean>>) {
+      const res = await request('/team/permissions/matrix', { method: 'PUT', body: JSON.stringify({ roles }) });
+      return res.data;
+    },
     async me() {
       const res = await request('/team/me');
       return res.data;
@@ -1849,8 +1875,17 @@ export const aicloserApi = {
       if (params?.page) query.set('page', String(params.page));
       if (params?.limit) query.set('limit', String(params.limit));
       if (params?.search) query.set('search', params.search);
-      const res = await request(`/marketing/contacts?${query.toString()}`);
+      const res = await request<{ contacts: Array<Record<string, unknown>>; pagination?: { total: number; totalPages: number }; summary?: { total: number; eligible: number; suppressed: number; unknown: number } }>(`/marketing/contacts?${query.toString()}`);
       return res.data;
+    },
+    async getAllContacts(search?: string) {
+      const first = await aicloserApi.marketing.getContacts({ page: 1, limit: 100, search });
+      const contacts = [...first.contacts];
+      for (let page = 2; page <= (first.pagination?.totalPages ?? 1); page++) {
+        const next = await aicloserApi.marketing.getContacts({ page, limit: 100, search });
+        contacts.push(...next.contacts);
+      }
+      return { ...first, contacts: [...new Map(contacts.map((contact) => [String(contact.id), contact])).values()] };
     },
     async testSend(payload: { testPhone: string; templateId: string; channelId?: string; variableValues?: Record<string, string> }) {
       const res = await request('/marketing/channel/test-send', { method: 'POST', body: JSON.stringify(payload) });
@@ -2220,7 +2255,7 @@ export const aicloserApi = {
     }): () => void {
       const token = getStoredToken();
       const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
-      const url = `${API_BASE_URL}/realtime/events${tokenParam}`;
+      const url = `${getCentralApiBaseUrl()}/realtime/events${tokenParam}`;
 
       const eventSource = new EventSource(url, { withCredentials: true });
 

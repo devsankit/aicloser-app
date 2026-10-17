@@ -3,6 +3,7 @@
 import { ArrowUpRight, BriefcaseBusiness, CalendarClock, ChevronRight, CircleDollarSign, MessageCircle, Phone, RefreshCw, Sparkles, Users } from "lucide-react";
 
 import type { SalesDashboardSnapshot, SalesLeadView } from "@/lib/gigxomi/sales-store";
+import type { DashboardSummaryResponse } from "@/lib/api-client";
 
 type PipelineAggregate = {
   stage?: string;
@@ -13,6 +14,7 @@ type PipelineAggregate = {
 
 type CentralDashboardOverviewProps = {
   snapshot: SalesDashboardSnapshot;
+  summary?: DashboardSummaryResponse | null;
   aggregates: PipelineAggregate[];
   paymentSummary?: {
     totalLinks?: number;
@@ -62,9 +64,9 @@ function ActionButton({ icon: Icon, label, onClick }: { icon: typeof Phone; labe
   return <button className="central-dashboard-action" onClick={onClick} type="button"><Icon size={15} />{label}<ArrowUpRight size={14} /></button>;
 }
 
-export function CentralDashboardOverview({ snapshot, aggregates, paymentSummary = {}, role, onOpen }: CentralDashboardOverviewProps) {
+export function CentralDashboardOverview({ snapshot, aggregates, summary, paymentSummary = {}, role, onOpen }: CentralDashboardOverviewProps) {
   const leads = snapshot.visibleLeads ?? [];
-  const newLeads = aggregates.find((item) => item.stage === "NEW")?.count ?? leads.filter((lead) => lead.stage === "NEW").length;
+  const newLeads = summary?.stageCounts.NEW ?? leads.filter((lead) => lead.stage === "NEW").length;
   const pipelineLeadCount = aggregates.reduce((sum, item) => sum + Number(item.count ?? 0), 0);
   const followUps = leads.filter((lead) => Boolean(lead.followUpAt)).length;
   const paymentLinks = Number(paymentSummary.totalLinks ?? 0);
@@ -91,8 +93,8 @@ export function CentralDashboardOverview({ snapshot, aggregates, paymentSummary 
       <div className="central-metric-grid">
         <button className="central-metric-card central-metric-card-accent" onClick={() => onOpen("crm")} type="button">
           <span className="central-metric-icon"><BriefcaseBusiness size={17} /></span>
-          <span className="central-metric-label">Leads on this page</span>
-          <strong>{leads.length}</strong>
+          <span className="central-metric-label">Assigned leads</span>
+          <strong>{summary?.totalLeads ?? leads.length}</strong>
           <small>{pipelineLeadCount > leads.length ? `${pipelineLeadCount.toLocaleString("en-IN")} across pipeline` : "Open CRM pipeline"} <ChevronRight size={13} /></small>
         </button>
         <button className="central-metric-card" onClick={() => onOpen("crm")} type="button">

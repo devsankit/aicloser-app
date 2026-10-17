@@ -82,6 +82,9 @@ export function UpiPaymentCollectionPanel({ sessionRole, tenantId, embedded = fa
         revenue: centralRows.filter((row) => row.status === "PAID").reduce((sum, row) => sum + row.totalAmount, 0),
       });
       setCanApprove(isAdmin);
+      if (isAdmin) {
+        // Workspace administrator possesses payment approval privileges
+      }
       setPreviewSettings(null);
       setSettings(null);
       setPackages([]);

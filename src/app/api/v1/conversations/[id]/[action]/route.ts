@@ -1,9 +1,19 @@
 import { NextResponse } from "next/server";
 import { CentralApiError, centralApiRequest } from "@/lib/central-api-server";
 
-const SUPPORTED_GET_ACTIONS = new Set(["messages"]);
-const SUPPORTED_POST_ACTIONS = new Set(["messages", "read", "typing", "notes", "callback", "drip"]);
+const SUPPORTED_GET_ACTIONS = new Set(["messages", "360", "drip"]);
+const SUPPORTED_POST_ACTIONS = new Set(["messages", "read", "typing", "notes", "callback", "drip", "assign", "ai-auto-reply", "payment-request"]);
 const SUPPORTED_PATCH_ACTIONS = new Set(["stage"]);
+
+export async function DELETE(_request: Request, context: { params: Promise<{ id: string; action: string }> }) {
+  const { id, action } = await context.params;
+  if (action !== "assign") return NextResponse.json({ success: false, error: "Unsupported action" }, { status: 404 });
+  try {
+    return NextResponse.json(await centralApiRequest(`/conversations/${encodeURIComponent(id)}/assign`, { method: "DELETE" }));
+  } catch (error) {
+    return NextResponse.json({ success: false, error: error instanceof Error ? error.message : "Unable to unassign" }, { status: error instanceof CentralApiError ? error.status : 502 });
+  }
+}
 
 export async function GET(request: Request, context: { params: Promise<{ id: string; action: string }> }) {
   const { id, action } = await context.params;

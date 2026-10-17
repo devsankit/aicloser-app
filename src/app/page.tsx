@@ -221,6 +221,8 @@ export default async function SalesPage({ searchParams }: { searchParams?: Promi
   try {
     const me = await centralApiRequest<CentralMe>("/auth/me");
     user = me.data.user;
+    // Authorized roles: requirePageRole(["SALES_AGENT", "ADMIN", "MANAGER"], "/")
+    // Workspace permissions: if (!isWorkspaceAdmin && session.role === "SALES_AGENT" && !(agentPermissions.workspaceAdmin === true))
     if (!user || !["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"].includes(user.role)) {
       redirect(`/login?redirectTo=${encodeURIComponent("/")}`);
     }

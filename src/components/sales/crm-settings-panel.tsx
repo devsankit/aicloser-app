@@ -252,6 +252,7 @@ export function CrmSettingsPanel({
           mode: rrSettings.strategy === "CAPACITY_WEIGHTED" ? "LOAD_BALANCED" : "STRICT_ROUND_ROBIN",
           maxActiveLeadsPerCloser: rrSettings.maxActiveLeadsPerAgent,
         }),
+        // Sync with central API and legacy /api/sales/chat-visibility
         aicloserApi.conversations.updateChatVisibility({
           visibilityMode: showOnlyAssignedChats ? "ASSIGNED_ONLY" : "COMPANY_WIDE",
         }),

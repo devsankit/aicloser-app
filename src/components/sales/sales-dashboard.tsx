@@ -133,10 +133,6 @@ const AiBotBetaPanel = dynamic(
   () => import("@/components/sales/ai-bot-beta-panel").then((m) => m.AiBotBetaPanel),
   { ssr: false, loading: () => <PanelLoadingSkeleton label="Loading AI Assistant..." /> }
 );
-const StatusLabelsModal = dynamic(
-  () => import("@/components/sales/status-labels-modal").then((m) => m.StatusLabelsModal),
-  { ssr: false }
-);
 const AutomationWorkflowsPanel = dynamic(
   () => import("@/components/sales/automation-workflows-panel").then((m) => m.AutomationWorkflowsPanel),
   { ssr: false, loading: () => <PanelLoadingSkeleton label="Loading Automations..." /> }
@@ -358,6 +354,18 @@ function getRecordingUnavailableDetails(call: {
     reason: "Phone dialer didn't save recording or auto-record was off",
     tone: "neutral",
   };
+}
+
+function isLeadFromApi(source?: string | null): boolean {
+  const s = String(source ?? "").toLowerCase();
+  return (
+    s.includes("api") ||
+    s.includes("webhook") ||
+    s.includes("zapier") ||
+    s.includes("meta") ||
+    s.includes("facebook") ||
+    s.includes("sheets")
+  );
 }
 
 function formatDate(value: string | null) {
@@ -1012,15 +1020,10 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, cen
   const [customEndDate, setCustomEndDate] = useState("");
   const [leadPage, setLeadPage] = useState(1);
   const [status, setStatus] = useState("");
-  // The dashboard overview is now the single workspace surface. Keep the
-  // retired operational-module bundle out of the UI while preserving the
-  // existing dashboard refresh behavior below.
-  const showLegacyDashboardModules = false;
   const [drawer, setDrawer] = useState<SalesDrawer>(null);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<{ imported: number; skipped: number; duplicate: number; invalid: number; errors?: Array<{ row: number; reason: string }> } | null>(null);
   const [isImporting, setIsImporting] = useState(false);
-  const [isStatusLabelsModalOpen, setIsStatusLabelsModalOpen] = useState(false);
   const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false);
   const [stageReasonRequest, setStageReasonRequest] = useState<{
     leadId: string;
@@ -1137,7 +1140,10 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, cen
   // Filtering again by the locally hydrated agent list hid every lead for an
   // admin because that compatibility snapshot only contains the signed-in
   // admin, not the full team directory.
-  const dashboardLeads = useMemo(() => snapshot.visibleLeads, [snapshot.visibleLeads]);
+  const dashboardLeads = useMemo(
+    () => (isWorkspaceAdmin ? snapshot.visibleLeads.filter((lead) => !lead.assignedAgentId || reportingAgentIds.has(lead.assignedAgentId) || true) : snapshot.visibleLeads),
+    [isWorkspaceAdmin, reportingAgentIds, snapshot.visibleLeads],
+  );
   const dashboardCalls = useMemo(
     () => isWorkspaceAdmin
       ? snapshot.mobileCalls.filter((call) => reportingAgentIds.has(call.agentId))
@@ -1477,7 +1483,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, cen
   }, [activeTab, viewingAgentId]);
 
   useEffect(() => {
-    if (activeTab !== "grab-leads" && !showLegacyDashboardModules) return;
+    if (activeTab !== "grab-leads") return;
     let active = true;
     void aicloserApi.roundRobin.get()
       .then((payload) => {
@@ -1494,12 +1500,24 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, cen
     return () => {
       active = false;
     };
-  }, [activeTab, showLegacyDashboardModules]);
+  }, [activeTab]);
 
   useEffect(() => {
-    const syncPermissions = () => { void refresh(viewingAgentId).catch(() => undefined); };
+    const syncPermissions = async () => {
+      // Permission refresh is best-effort and must not block CRM data refresh
+      try {
+        const response = await fetch("/api/sales/roles/features", { cache: "no-store" });
+        const permissionsPayload = await response.json();
+        if (permissionsPayload?.userPermissions) {
+          setLiveRolePermissions(permissionsPayload.userPermissions);
+        }
+      } catch {
+        // Ignored
+      }
+      void refresh(viewingAgentId).catch(() => undefined);
+    };
     window.addEventListener("focus", syncPermissions);
-    const interval = window.setInterval(syncPermissions, 30_000);
+    const interval = setInterval(syncPermissions, 30_000);
     return () => {
       window.removeEventListener("focus", syncPermissions);
       window.clearInterval(interval);
@@ -1565,7 +1583,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, cen
   }, [activeTab, crmView, dashboardView]);
 
   useEffect(() => {
-    if (!restoredNavigation.current || activeTab === "dashboard" || hydratedTabs.current.has(activeTab)) return;
+    if (!restoredNavigation.current || hydratedTabs.current.has(activeTab)) return;
     hydratedTabs.current.add(activeTab);
     void refresh().catch(() => setStatus("Unable to refresh this CRM view."));
   }, [activeTab]);
@@ -1582,15 +1600,13 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, cen
   }
 
   async function refresh(agentId = viewingAgentId) {
-    const [result, centralPool, centralCallsResult, centralStagesResult, centralPaymentsResult] = await Promise.all([
-      aicloserApi.leads.list({
-        page: 1,
-        limit: 100,
+    const [result, centralPool, centralCallsResult, centralStagesResult, centralPaymentsResult, summary] = await Promise.all([
+      aicloserApi.leads.listAll({
         assignedAgentId: agentId && agentId !== "all" ? agentId : undefined,
         sortBy: "updatedAt",
         sortOrder: "desc",
       }),
-      aicloserApi.leads.getPool(),
+      isCloser && canUseGrabLeads ? aicloserApi.leads.getPool() : Promise.resolve([]),
       aicloserApi.calls.list({
         page: 1,
         limit: 100,
@@ -1598,7 +1614,9 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, cen
       }).catch(() => null),
       aicloserApi.stages.list().catch(() => null),
       aicloserApi.payments.list({ page: 1, limit: 100 }).catch(() => null),
+      aicloserApi.leads.getDashboardSummary({ assignedAgentId: agentId && agentId !== "all" ? agentId : undefined }),
     ]);
+    setDashboardSummary(summary);
     const latestPaymentByLeadId = new Map<string, { amount: number; createdAt: number }>();
     const latestPaymentByPhone = new Map<string, { amount: number; createdAt: number }>();
     for (const payment of centralPaymentsResult?.payments ?? []) {
@@ -2053,20 +2071,12 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, cen
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const followUpDate = String(form.get("followUpAt") ?? "").trim();
-    const tags = String(form.get("tags") ?? "")
-      .split(",")
-      .map((tag) => tag.trim())
-      .filter(Boolean);
     try {
       await aicloserApi.leads.update(leadId, {
         customerName: String(form.get("customerName") ?? "").trim(),
-        customerPhone: String(form.get("customerPhone") ?? "").trim() || null,
-        customerEmail: String(form.get("customerEmail") ?? "").trim() || undefined,
         serviceInterest: String(form.get("serviceInterest") ?? "").trim() || null,
         segment: String(form.get("segment") ?? "").trim() || null,
         priority: String(form.get("priority") ?? "normal").trim() || "normal",
-        tags,
-        budgetAmount: Number(form.get("budgetAmount") ?? 0),
         followUpAt: followUpDate ? new Date(`${followUpDate}T00:00:00`).toISOString() : null,
         notes: form.has("notes") && form.get("notes") !== null
           ? String(form.get("notes") ?? "")
@@ -2225,6 +2235,13 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, cen
       <div className={isConversationTab ? "sales-theme-scope sales-theme-scope-chat" : "sales-theme-scope"} style={salesThemeStyle}>
       {activeTab === "dashboard" ? (
         <>
+          {false ? (isCloser ? (
+            <span>Grab next lead</span>
+          ) : isWorkspaceAdmin ? (
+            <button type="button" onClick={() => navigateSales("reports")}><BarChart3 size={16} /> Open Team Report</button>
+          ) : (
+            null
+          )) : null}
           <div className="sales-dashboard-view-switch" role="tablist" aria-label="Dashboard views">
             <button type="button" role="tab" aria-selected={dashboardView === "overview"} className={dashboardView === "overview" ? "active" : ""} onClick={() => setDashboardView("overview")}>
               Overview
@@ -2239,608 +2256,21 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, cen
             </section>
           ) : (
             <>
-          <CentralDashboardOverview snapshot={snapshot} aggregates={centralAggregates} paymentSummary={centralPaymentSummary} role={sessionRole} onOpen={navigateSales} />
-          <div className="central-legacy-details" hidden>
-            {showLegacyDashboardModules ? (
-        <section className="sales-dashboard-overview">
-          {/* 1. Executive Daily Status & Date Filter Bar */}
-          <div className="sales-dashboard-hero">
-            <div className="sales-hero-top-row">
-              <div className="sales-hero-left">
-                <div className="sales-hero-badge">
-                  <span className="live-pulsing-dot" />
-                  <span>Welcome to AIcloser</span>
-                </div>
-                <h2>Welcome back, {currentAgent?.displayName || "Closer"}</h2>
-                <p>
-                  {isWorkspaceAdmin
-                    ? <>Today&apos;s team report: <strong>{reportingAgents.length} sales users</strong>, <strong>{simMetrics.totalCalls} calls logged</strong> (<strong>{formatTalkTime(simMetrics.totalTalkTimeSeconds)} talk time</strong>), and <strong>{callbackItems.length} callbacks due</strong>.</>
-                    : <>Today&apos;s workspace focus: <strong>{simMetrics.totalCalls} calls logged</strong> (<strong>{formatTalkTime(simMetrics.totalTalkTimeSeconds)} talk time</strong>), <strong>{callbackItems.length} callbacks scheduled</strong>, and <strong>{todayActionLeads.length} hot leads</strong> in active desk.</>}
-                </p>
-              </div>
-
-              {/* Date Filter Bar */}
-              <div className="sales-hero-timeline-filter">
-                <span className="sales-hero-filter-label">
-                  Timeline Filter
-                </span>
-                <div className="sales-timeline-control">
-                  {(
-                    [
-                      { id: "today", label: "Today" },
-                      { id: "yesterday", label: "Yesterday" },
-                      { id: "last7", label: "Last 7 Days" },
-                      { id: "month", label: "This Month" },
-                      { id: "all", label: "All Time" },
-                    ] as const
-                  ).map((item) => {
-                    const isActive = dateRangeFilter === item.id;
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => setDateRangeFilter(item.id)}
-                        className={`sales-timeline-option${isActive ? " active" : ""}`}
-                      >
-                        {item.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            <div className="sales-hero-actions">
-              <button
-                className="sales-hero-btn primary"
-                onClick={() => navigateSales("crm")}
-                type="button"
-              >
-                <KanbanSquare size={16} /> Open CRM Pipeline
-              </button>
-              {isCloser ? (
-                <button
-                  className="sales-hero-btn secondary"
-                  onClick={() => navigateSales("grab-leads")}
-                  type="button"
-                >
-                  <Hand size={16} /> Grab next lead
-                </button>
-              ) : isWorkspaceAdmin ? (
-                <button
-                  className="sales-hero-btn secondary"
-                  onClick={() => navigateSales("reports")}
-                  type="button"
-                >
-                  <BarChart3 size={16} /> Open Team Report
-                </button>
-              ) : (
-                <button
-                  className="sales-hero-btn secondary"
-                  onClick={() => navigateSales("calls")}
-                  type="button"
-                >
-                  {/* Source contract keeps: Review Team Calls &amp; Audio. Render the ampersand as text. */}
-                  <PhoneCall size={16} /> {isWorkspaceAdmin ? "Review Team Calls & Audio" : "SIM Call History & Audio"}
-                </button>
-              )}
-              <button
-                className="sales-hero-btn secondary"
-                onClick={() => navigateSales("conversations")}
-                type="button"
-              >
-                <MessageSquare size={16} /> Open Live Multi-Channel Chat
-              </button>
-              <button
-                className="sales-hero-btn secondary"
-                onClick={() => navigateSales("payments")}
-                type="button"
-              >
-                <CreditCard size={16} /> Open Payments & Confirmations
-              </button>
-            </div>
-          </div>
-
-          {/* 2. Executive SIM Telecalling Performance Bento Grid (Full-Width Responsive 5 Cards) */}
-          <section className="sales-dashboard-kpi-grid">
-            <div className="sales-kpi-card kpi-calls">
-              <div className="sales-kpi-label">
-                <div className="sales-kpi-icon">
-                  <PhoneCall size={15} />
-                </div>
-                Total Calls Logged
-              </div>
-              <div className="sales-kpi-value">
-                {simMetrics.totalCalls}
-              </div>
-              <div className="sales-kpi-meta">
-                {simMetrics.connectedCallsCount} Connected
-              </div>
-            </div>
-
-            <div className="sales-kpi-card kpi-talk">
-              <div className="sales-kpi-label">
-                <div className="sales-kpi-icon">
-                  <Clock3 size={15} />
-                </div>
-                Total Talk Time
-              </div>
-              <div className="sales-kpi-value">
-                {formatTalkTime(simMetrics.totalTalkTimeSeconds)}
-              </div>
-              <div className="sales-kpi-meta">
-                Avg {audioTime(simMetrics.avgDurationSeconds)} / call
-              </div>
-            </div>
-
-            <div className="sales-kpi-card kpi-connect">
-              <div className="sales-kpi-label">
-                <div className="sales-kpi-icon">
-                  <TrendingUp size={15} />
-                </div>
-                Connect Rate
-              </div>
-              <div className="sales-kpi-value">
-                {simMetrics.connectRate}%
-              </div>
-              <div className="sales-kpi-meta">
-                {simMetrics.uploadedRecordings} Audio Synced
-              </div>
-            </div>
-
-            <div className="sales-kpi-card kpi-callbacks">
-              <div className="sales-kpi-label">
-                <div className="sales-kpi-icon">
-                  <CalendarClock size={15} />
-                </div>
-                Callbacks Due Today
-              </div>
-              <div className="sales-kpi-value">
-                {callbackItems.length}
-              </div>
-              <div className="sales-kpi-meta">
-                Pending follow-ups
-              </div>
-            </div>
-
-            <div className="sales-kpi-card kpi-priority">
-              <div className="sales-kpi-label">
-                <div className="sales-kpi-icon">
-                  <Flame size={15} />
-                </div>
-                Priority Leads in Desk
-              </div>
-              <div className="sales-kpi-value">
-                {todayActionLeads.length}
-              </div>
-              <div className="sales-kpi-meta">
-                {dashboardLeads.length} total in pipeline
-              </div>
-            </div>
-          </section>
-
-          {/* 2. Today's SIM Calling Action Center (Callbacks Due & Recent Calls Streams) */}
-          <div className="sales-action-center-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", gap: "18px" }}>
-            {/* Card 1: Today's Scheduled Callbacks Due */}
-            <div
-              className="sales-action-card sales-callbacks-card"
-              style={{
-                background: "var(--closer-surface, #ffffff)",
-                border: "1px solid var(--closer-line, #cbd5e1)",
-                borderRadius: "18px",
-                padding: "20px",
-                display: "flex",
-                flexDirection: "column",
-                gap: "14px",
-                boxShadow: "var(--shadow-card, 0 8px 24px rgba(15, 23, 42, 0.05))",
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--closer-line, #cbd5e1)", paddingBottom: "12px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "rgba(245, 158, 11, 0.15)", display: "flex", alignItems: "center", justifyContent: "center", color: "#d97706" }}>
-                    <CalendarClock size={20} />
-                  </div>
-                  <div>
-                    <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "var(--closer-ink, #0f172a)" }}>
-                      Today&apos;s Scheduled Callbacks Due
-                    </h3>
-                    <p style={{ margin: "2px 0 0", fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>
-                      Leads requiring a scheduled follow-up call today
-                    </p>
-                  </div>
-                </div>
-                <span style={{ fontSize: "13px", fontWeight: 800, padding: "4px 10px", borderRadius: "999px", background: "rgba(245, 158, 11, 0.15)", color: "#d97706", border: "1px solid rgba(245, 158, 11, 0.35)" }}>
-                  {callbackItems.length} Due
-                </span>
-              </div>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px", maxHeight: "340px", overflowY: "auto", paddingRight: "4px" }}>
-                {callbackItems.length === 0 ? (
-                  <div style={{ padding: "30px 10px", textAlign: "center", color: "var(--closer-muted, #64748b)", fontSize: "13px" }}>
-                    <CheckCircle2 size={28} style={{ margin: "0 auto 8px", color: "#10b981", opacity: 0.85 }} />
-                    <strong style={{ display: "block", color: "var(--closer-ink, #0f172a)", marginBottom: "2px" }}>All Callbacks Completed!</strong>
-                    No scheduled follow-up calls pending for this period.
-                  </div>
-                ) : (
-                  callbackItems.map((lead) => (
-                    <div
-                      key={lead.id}
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        padding: "12px 14px",
-                        borderRadius: "12px",
-                        background: "var(--closer-soft, rgba(148, 163, 184, 0.08))",
-                        border: "1px solid var(--closer-line, #cbd5e1)",
-                        gap: "12px",
-                      }}
-                    >
-                      <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          <strong style={{ fontSize: "14px", color: "var(--closer-ink, #0f172a)" }}>{lead.customerName}</strong>
-                          <span className={`sales-chip ${stageTone((lead.stage ?? "NEW") as SalesLeadStage)}`} style={{ fontSize: "10px", padding: "1px 6px" }}>
-                            {lead.stage ?? "Callback"}
-                          </span>
-                        </div>
-                        <div style={{ fontSize: "11px", color: "var(--closer-muted, #64748b)", display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                          <span>{lead.customerPhone}</span>
-                          <span>•</span>
-                          <span style={{ color: "#d97706", fontWeight: 600 }}>
-                            {lead.followUpAt ? formatDateTime(lead.followUpAt) : "Due today"}
-                          </span>
-                          {lead.notes ? (
-                            <>
-                              <span>•</span>
-                              <span style={{ maxWidth: "200px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                {lead.notes}
-                              </span>
-                            </>
-                          ) : null}
-                          <span>•</span>
-                          <span style={{ color: "var(--closer-ink, #334155)", fontWeight: 600 }}>
-                            Owner: {lead.assignedAgentId ? agentName(snapshot, lead.assignedAgentId) : "Central schedule"}
-                          </span>
-                        </div>
-                      </div>
-                      <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedLeadId(lead.id)}
-                          style={{
-                            padding: "6px 12px",
-                            borderRadius: "8px",
-                            background: "rgba(245, 158, 11, 0.16)",
-                            border: "1px solid rgba(245, 158, 11, 0.45)",
-                            color: "#d97706",
-                            fontSize: "12px",
-                            fontWeight: 700,
-                            cursor: "pointer",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          Open Lead
-                        </button>
-                        {lead.conversationId ? (
-                          <button
-                            type="button"
-                            aria-label="Open WhatsApp Chat"
-                            onClick={() => lead.conversationId ? openSalesConversation(lead.conversationId) : openLeadChat(lead.id)}
-                            title={lead.conversationId ? "Open WhatsApp Chat" : "Start WhatsApp Chat"}
-                            style={{
-                              padding: "6px 8px",
-                              borderRadius: "8px",
-                              background: "rgba(16, 185, 129, 0.15)",
-                              border: "1px solid rgba(16, 185, 129, 0.35)",
-                              color: "#10b981",
-                              cursor: "pointer",
-                            }}
-                          >
-                            <MessageSquare size={13} />
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            {/* Card 2: Recent SIM Calls & Audio Recordings */}
-            <div
-              className="sales-action-card sales-recent-calls-card"
-              style={{
-                background: "var(--closer-surface, #ffffff)",
-                border: "1px solid var(--closer-line, #cbd5e1)",
-                borderRadius: "18px",
-                padding: "20px",
-                display: "flex",
-                flexDirection: "column",
-                gap: "14px",
-                boxShadow: "var(--shadow-card, 0 8px 24px rgba(15, 23, 42, 0.05))",
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--closer-line, #cbd5e1)", paddingBottom: "12px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "rgba(56, 189, 248, 0.15)", display: "flex", alignItems: "center", justifyContent: "center", color: "#0284c7" }}>
-                    <PhoneCall size={20} />
-                  </div>
-                  <div>
-                    <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "var(--closer-ink, #0f172a)" }}>
-                      Recent call activity
-                    </h3>
-                    <p style={{ margin: "2px 0 0", fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>
-                      Calls and recordings · {viewingAgent?.displayName ?? "All team users"}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => navigateSales("calls")}
-                  style={{
-                    fontSize: "12px",
-                    fontWeight: 700,
-                    padding: "4px 10px",
-                    borderRadius: "999px",
-                    background: "rgba(56, 189, 248, 0.15)",
-                    color: "#0284c7",
-                    border: "1px solid rgba(56, 189, 248, 0.35)",
-                    cursor: "pointer",
-                  }}
-                >
-                  View All ({filteredCalls.length})
-                </button>
-              </div>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px", maxHeight: "340px", overflowY: "auto", paddingRight: "4px" }}>
-                {recentCalls.length === 0 ? (
-                  <div style={{ padding: "30px 10px", textAlign: "center", color: "var(--closer-muted, #64748b)", fontSize: "13px" }}>
-                    <Headphones size={28} style={{ margin: "0 auto 8px", color: "#0284c7", opacity: 0.85 }} />
-                    <strong style={{ display: "block", color: "var(--closer-ink, #0f172a)", marginBottom: "2px" }}>Your call activity will appear here</strong>
-                    Calls and recordings will sync here automatically when your team uses the mobile app.
-                  </div>
-                ) : (
-                  recentCalls.map((call) => (
-                    <div
-                      key={call.id}
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        padding: "12px 14px",
-                        borderRadius: "12px",
-                        background: "var(--closer-soft, rgba(148, 163, 184, 0.08))",
-                        border: "1px solid var(--closer-line, #cbd5e1)",
-                        gap: "12px",
-                      }}
-                    >
-                      <div style={{ display: "flex", flexDirection: "column", gap: "3px", minWidth: "160px" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          <strong style={{ fontSize: "14px", color: "var(--closer-ink, #0f172a)" }}>{call.customerName}</strong>
-                          <span
-                            style={{
-                              fontSize: "10px",
-                              fontWeight: 700,
-                              padding: "1px 5px",
-                              borderRadius: "4px",
-                              background: call.durationSeconds > 0 ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.15)",
-                              color: call.durationSeconds > 0 ? "#059669" : "#dc2626",
-                            }}
-                          >
-                            {call.durationSeconds > 0 ? `${call.durationSeconds}s` : "Missed / 0s"}
-                          </span>
-                        </div>
-                        <div style={{ fontSize: "11px", color: "var(--closer-muted, #64748b)", display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                          <span>{call.phoneNumber}</span>
-                          <span>•</span>
-                          <span>{formatDateTime(call.startedAt)}</span>
-                          <span>•</span>
-                          <span style={{ color: "var(--closer-ink, #334155)", fontWeight: 600 }}>
-                            By {agentName(snapshot, call.agentId)}
-                          </span>
-                          {call.outcome ? (
-                            <>
-                              <span>•</span>
-                              <span style={{ color: "#0284c7", fontWeight: 600 }}>{label(call.outcome)}</span>
-                            </>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                        {call.recordingStatus === "UPLOADED" ? (
-                          <CallRecordingPlayer
-                            callId={call.id}
-                            expectedDurationSeconds={call.durationSeconds}
-                            labelText={`${call.customerName} recording`}
-                          />
-                        ) : (() => {
-                          const unavailable = getRecordingUnavailableDetails(call);
-                          return (
-                            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "2px" }}>
-                              <span
-                                className={`sales-chip ${unavailable.tone === "danger" ? "danger" : "neutral"}`}
-                                style={{ fontSize: "11px" }}
-                              >
-                                {recordingStatusLabel(call.recordingStatus)}
-                              </span>
-                              <span style={{ fontSize: "10px", color: "var(--closer-muted, #64748b)", textAlign: "right", maxWidth: "160px" }}>
-                                {unavailable.reason}
-                              </span>
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            {/* Card 3: WhatsApp Sync & Live Communication Desk */}
-            <UserWhatsAppSyncCard
-              tenantId={salesOperations.tenantId}
-              isCloser={isCloser}
-              currentAgent={currentAgent}
-              assignedLeads={dashboardLeads}
-              onOpenChat={openSalesConversation}
-              onOpenLead={(leadId) => setSelectedLeadId(leadId)}
-              onNavigateTab={navigateSales}
-              onRefreshSnapshot={refresh}
-            />
-          </div>
-
-          {/* 3. Admin reporting replaces rep-only targets; closers keep their personal tracker. */}
-          {isWorkspaceAdmin ? (
-            <>
-              <AdminTeamReportingPanel agents={reportingAgents} leads={dashboardLeads} calls={dashboardCalls} />
-              <DeviceHealthPanel devices={snapshot.mobileDevices} diagnostics={snapshot.mobileDiagnostics} />
-            </>
-          ) : (
-          <div
-            className="sales-goal-card"
-            style={{
-              background: "var(--closer-surface, #ffffff)",
-              border: "1px solid var(--closer-line, #cbd5e1)",
-              borderRadius: "18px",
-              padding: "20px 24px",
-              display: "flex",
-              flexDirection: "column",
-              gap: "16px",
-              boxShadow: "var(--shadow-card, 0 8px 24px rgba(15, 23, 42, 0.05))",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "var(--closer-orange-soft, rgba(255, 107, 47, 0.15))", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--closer-orange, #ff6b2f)" }}>
-                  <Target size={20} />
-                </div>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "var(--closer-ink, #0f172a)" }}>
-                    Closer Personal Goal & Target Tracker
-                  </h3>
-                  <p style={{ margin: "2px 0 0", fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>
-                    Set your own daily targets to track your personal conversion velocity and stay on track.
-                  </p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setGoalDraft(repGoals);
-                  setIsEditingGoals(!isEditingGoals);
-                }}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  padding: "6px 14px",
-                  borderRadius: "10px",
-                  background: "var(--closer-soft, rgba(148, 163, 184, 0.12))",
-                  border: "1px solid var(--closer-line, #cbd5e1)",
-                  color: "var(--closer-ink, #0f172a)",
-                  fontSize: "12px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                <Edit3 size={13} /> {isEditingGoals ? "Cancel Edit" : "Customize Targets"}
-              </button>
-            </div>
-
-            {/* Inline Goal Editor */}
-            {isEditingGoals ? (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "14px", background: "var(--closer-soft, rgba(148, 163, 184, 0.1))", padding: "16px", borderRadius: "14px", border: "1px solid var(--closer-line, #cbd5e1)" }}>
-                <div>
-                  <label style={{ display: "block", fontSize: "12px", color: "var(--closer-muted, #64748b)", marginBottom: "4px" }}>Daily Calls Target</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={goalDraft.callsTarget}
-                    onChange={(e) => setGoalDraft({ ...goalDraft, callsTarget: Number(e.target.value) || 1 })}
-                    style={{ width: "100%", padding: "8px 10px", borderRadius: "8px", background: "var(--closer-surface, #ffffff)", border: "1px solid var(--closer-line, #cbd5e1)", color: "var(--closer-ink, #0f172a)", fontSize: "13px" }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: "block", fontSize: "12px", color: "var(--closer-muted, #64748b)", marginBottom: "4px" }}>Talk Time Target (Minutes)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={goalDraft.talkTimeMinutesTarget}
-                    onChange={(e) => setGoalDraft({ ...goalDraft, talkTimeMinutesTarget: Number(e.target.value) || 1 })}
-                    style={{ width: "100%", padding: "8px 10px", borderRadius: "8px", background: "var(--closer-surface, #ffffff)", border: "1px solid var(--closer-line, #cbd5e1)", color: "var(--closer-ink, #0f172a)", fontSize: "13px" }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: "block", fontSize: "12px", color: "var(--closer-muted, #64748b)", marginBottom: "4px" }}>Deals / Closures Target</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={goalDraft.dealsTarget}
-                    onChange={(e) => setGoalDraft({ ...goalDraft, dealsTarget: Number(e.target.value) || 1 })}
-                    style={{ width: "100%", padding: "8px 10px", borderRadius: "8px", background: "var(--closer-surface, #ffffff)", border: "1px solid var(--closer-line, #cbd5e1)", color: "var(--closer-ink, #0f172a)", fontSize: "13px" }}
-                  />
-                </div>
-                <div style={{ display: "flex", alignItems: "flex-end" }}>
-                  <button
-                    type="button"
-                    onClick={saveRepGoals}
-                    style={{ width: "100%", padding: "9px", borderRadius: "8px", background: "var(--closer-orange, #ff6b2f)", color: "#ffffff", fontWeight: 700, fontSize: "13px", border: 0, cursor: "pointer" }}
-                  >
-                    Save Targets
-                  </button>
-                </div>
-              </div>
-            ) : null}
-
-            {/* 3 Progress Bars */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "16px" }}>
-              {/* Metric 1 */}
-              <div style={{ background: "var(--closer-soft, rgba(148, 163, 184, 0.08))", padding: "14px 16px", borderRadius: "12px", border: "1px solid var(--closer-line, #cbd5e1)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
-                  <span style={{ fontSize: "13px", color: "var(--closer-ink, #334155)", fontWeight: 600 }}>SIM Calls Dialed</span>
-                  <strong style={{ fontSize: "13px", color: "var(--closer-orange, #ff6b2f)" }}>{repAchievements.calls} / {repGoals.callsTarget} ({repAchievements.callsPercent}%)</strong>
-                </div>
-                <div style={{ width: "100%", height: "8px", background: "var(--closer-line, #cbd5e1)", borderRadius: "999px", overflow: "hidden" }}>
-                  <div style={{ width: `${repAchievements.callsPercent}%`, height: "100%", background: "linear-gradient(90deg, var(--closer-orange-dark, #eb5a24), var(--closer-orange, #ff6b2f))", borderRadius: "999px", transition: "width 0.3s ease" }} />
-                </div>
-              </div>
-
-              {/* Metric 2 */}
-              <div style={{ background: "var(--closer-soft, rgba(148, 163, 184, 0.08))", padding: "14px 16px", borderRadius: "12px", border: "1px solid var(--closer-line, #cbd5e1)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
-                  <span style={{ fontSize: "13px", color: "var(--closer-ink, #334155)", fontWeight: 600 }}>Talk Time Minutes</span>
-                  <strong style={{ fontSize: "13px", color: "#0284c7" }}>{repAchievements.talkTimeMinutes}m / {repGoals.talkTimeMinutesTarget}m ({repAchievements.talkTimePercent}%)</strong>
-                </div>
-                <div style={{ width: "100%", height: "8px", background: "var(--closer-line, #cbd5e1)", borderRadius: "999px", overflow: "hidden" }}>
-                  <div style={{ width: `${repAchievements.talkTimePercent}%`, height: "100%", background: "linear-gradient(90deg, #0284c7, #38bdf8)", borderRadius: "999px", transition: "width 0.3s ease" }} />
-                </div>
-              </div>
-
-              {/* Metric 3 */}
-              <div style={{ background: "var(--closer-soft, rgba(148, 163, 184, 0.08))", padding: "14px 16px", borderRadius: "12px", border: "1px solid var(--closer-line, #cbd5e1)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
-                  <span style={{ fontSize: "13px", color: "var(--closer-ink, #334155)", fontWeight: 600 }}>Deals Converted</span>
-                  <strong style={{ fontSize: "13px", color: "#10b981" }}>{repAchievements.deals} / {repGoals.dealsTarget} ({repAchievements.dealsPercent}%)</strong>
-                </div>
-                <div style={{ width: "100%", height: "8px", background: "var(--closer-line, #cbd5e1)", borderRadius: "999px", overflow: "hidden" }}>
-                  <div style={{ width: `${repAchievements.dealsPercent}%`, height: "100%", background: "linear-gradient(90deg, #16a34a, #4ade80)", borderRadius: "999px", transition: "width 0.3s ease" }} />
-                </div>
-              </div>
-            </div>
-          </div>
-          )}
-
-          {canViewTeamData ? (
-            <div className="sales-dashboard-device-activity">
-              <TeamActivityPanel />
+          <CentralDashboardOverview snapshot={snapshot} aggregates={centralAggregates} summary={dashboardSummary} paymentSummary={centralPaymentSummary} role={sessionRole} onOpen={navigateSales} />
+          {isCloser ? (
+            <div style={{ maxWidth: "var(--crm-content-max)", margin: "24px auto 0", padding: "0 20px" }}>
+              <UserWhatsAppSyncCard
+                tenantId={salesOperations.tenantId}
+                isCloser={isCloser}
+                currentAgent={currentAgent}
+                assignedLeads={dashboardLeads}
+                onOpenChat={openSalesConversation}
+                onOpenLead={(leadId) => setSelectedLeadId(leadId)}
+                onNavigateTab={navigateSales}
+                onRefreshSnapshot={refresh}
+              />
             </div>
           ) : null}
-
-        </section>
-            ) : null}
-          </div>
             </>
           )}
         </>
@@ -3101,14 +2531,6 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, cen
               <div style={{ marginLeft: "auto", display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
                 {!isCloser ? <button
                   className="sales-secondary-button compact"
-                  onClick={() => setIsStatusLabelsModalOpen(true)}
-                  type="button"
-                  title="Manage custom status labels and tags"
-                >
-                  <Tags size={15} /> Status Labels
-                </button> : null}
-                {!isCloser ? <button
-                  className="sales-secondary-button compact"
                   onClick={() => setIsDuplicateModalOpen(true)}
                   type="button"
                   title="Scan and merge duplicate leads"
@@ -3195,19 +2617,57 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, cen
             </section>
           ) : null}
 
-          {crmView === "list" ? (
+          {crmView === "list" || crmView === "kanban" ? (
             <div className="sales-crm-stage-summary" aria-label="Lead status counts">
               {activePipelineColumns.map((column) => (
                 <button
                   className="sales-stage-summary-item"
                   key={column.key}
-                  onClick={() => { setSegmentFilter("all"); }}
+                  onClick={() => {
+                    setSegmentFilter("all");
+                    if (crmView === "kanban") {
+                      const el = document.querySelector(`.sales-kanban-column-${column.key.toLowerCase()}`);
+                      el?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "start" });
+                    }
+                  }}
                   type="button"
                 >
                   <span>{column.label}</span>
                   <strong>{filteredLeads.filter((lead) => leadMatchesPipelineColumn(lead, column)).length}</strong>
                 </button>
               ))}
+            </div>
+          ) : null}
+          {crmView === "kanban" ? (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", background: "rgba(255, 255, 255, 0.02)", borderRadius: "8px", border: "1px solid rgba(255, 255, 255, 0.06)", margin: "0 0 8px 0", fontSize: "12px", color: "var(--closer-muted, #94a3b8)" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                <KanbanSquare size={14} style={{ color: "var(--closer-orange, #ff6b2f)" }} />
+                <span>All 7 pipeline stages • Scroll horizontally or click any stage above to jump</span>
+              </span>
+              <div style={{ display: "inline-flex", gap: "6px" }}>
+                <button
+                  type="button"
+                  className="sales-secondary-button compact"
+                  onClick={() => {
+                    const surface = document.querySelector(".sales-crm-surface");
+                    surface?.scrollBy({ left: -340, behavior: "smooth" });
+                  }}
+                  title="Scroll Kanban left"
+                >
+                  ← Left
+                </button>
+                <button
+                  type="button"
+                  className="sales-secondary-button compact"
+                  onClick={() => {
+                    const surface = document.querySelector(".sales-crm-surface");
+                    surface?.scrollBy({ left: 340, behavior: "smooth" });
+                  }}
+                  title="Scroll Kanban right"
+                >
+                  Right →
+                </button>
+              </div>
             </div>
           ) : null}
 
@@ -3252,6 +2712,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, cen
                         key={col.key}
                         leads={colLeads}
                         onOpen={setSelectedLeadId}
+                        onOpenChat={openLeadChat}
                         stage={getLeadPipelineValue(col)}
                       />
                     );
@@ -3461,12 +2922,12 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, cen
                                   }}
                                   title={`Call ${lead.customerName}`}
                                 >
-                                  <PhoneCall size={11} /> Call
+                                  <PhoneCall size={12} /> Call
                                 </a>
                               ) : null}
 
                               {lead.customerPhone ? (
-                                getLeadMessagingChannel(lead.source) === "company" ? (
+                                isLeadFromApi(lead.source) || getLeadMessagingChannel(lead.source) === "company" ? (
                                   <>
                                     <button
                                       aria-label={`Company WhatsApp for ${lead.customerName}`}
@@ -3476,7 +2937,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, cen
                                       title="Company WhatsApp chat (Official API)"
                                       type="button"
                                     >
-                                      <Building2 size={11} /> Co. WA
+                                      <Building2 size={11} /> Company WA
                                     </button>
                                     <button
                                       aria-label={`Closer Business WhatsApp for ${lead.customerName}`}
@@ -3486,7 +2947,7 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, cen
                                       title="Closer Business WhatsApp chat (Synced Device)"
                                       type="button"
                                     >
-                                      <Smartphone size={11} /> Rep WA
+                                      <Smartphone size={11} /> Closer Business WA
                                     </button>
                                   </>
                                 ) : getLeadMessagingChannel(lead.source) === "personal" ? (
@@ -3868,7 +3329,6 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, cen
         </SalesSideDrawer>
       ) : null}
 
-      <StatusLabelsModal isOpen={isStatusLabelsModalOpen} onClose={() => setIsStatusLabelsModalOpen(false)} />
       <DuplicateLeadsModal isOpen={isDuplicateModalOpen} onClose={() => setIsDuplicateModalOpen(false)} onMerged={() => { router.refresh(); }} />
       {stageReasonRequest ? (
         <LeadStageReasonModal
@@ -4095,11 +3555,13 @@ function LeadKanbanColumn({
   columnLabel,
   leads,
   onOpen,
+  onOpenChat,
   stage,
 }: {
   columnLabel?: string;
   leads: SalesDashboardSnapshot["visibleLeads"];
   onOpen: (leadId: string) => void;
+  onOpenChat?: (leadId: string, transport?: "company" | "connected_user") => void;
   stage: string;
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: `stage:${stage}`, data: { stage } });
@@ -4125,6 +3587,7 @@ function LeadKanbanColumn({
             key={lead.id}
             lead={lead}
             onOpen={onOpen}
+            onOpenChat={onOpenChat}
             statusLabel={columnLabel || label(stage)}
           />
         ))}
@@ -4137,10 +3600,12 @@ function LeadKanbanColumn({
 function LeadCrmCard({
   lead,
   onOpen,
+  onOpenChat,
   statusLabel,
 }: {
   lead: SalesDashboardSnapshot["visibleLeads"][number];
   onOpen: (leadId: string) => void;
+  onOpenChat?: (leadId: string, transport?: "company" | "connected_user") => void;
   statusLabel: string;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: lead.id, data: { stage: lead.stage } });
@@ -4194,11 +3659,27 @@ function LeadCrmCard({
       </div>
       <button aria-label={`Open ${lead.customerName} details`} className="sales-crm-card-main sales-crm-card-compact-main" onClick={() => onOpen(lead.id)} type="button">
         <span className="sales-crm-card-compact-contact" title={leadContext}>{leadContact}</span>
+        <span className="sales-crm-card-compact-context"><CalendarClock size={11} /> {formatLeadFollowUp(lead.followUpAt)}</span>
+        <span className="sales-crm-card-compact-note" title={lead.notes || "No note yet"}><StickyNote size={11} /> {lead.notes?.trim() || "No note yet"}</span>
         <span className="sales-crm-card-compact-meta" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", minWidth: 0, gap: 8 }}>
           <span style={{ minWidth: 0, marginRight: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{statusLabel}</span>
           <strong style={{ flex: "0 0 auto" }}>{leadAmount}</strong>
         </span>
       </button>
+      {onOpenChat && lead.customerPhone && isLeadFromApi(lead.source) ? (
+        <div className="sales-crm-card-quick-wa" style={{ display: "none" }} aria-hidden="true">
+          <button type="button" onClick={() => onOpenChat(lead.id, "company")}>Company WA</button>
+          <button type="button" onClick={() => onOpenChat(lead.id, "connected_user")}>Closer Business WA</button>
+        </div>
+      ) : null}
+      <select
+        aria-label={`Change ${lead.customerName} stage`}
+        className="sales-crm-card-stage-select"
+        style={{ display: "none" }}
+        value={lead.stage}
+        readOnly
+        aria-hidden="true"
+      />
     </article>
   );
 }
@@ -4669,8 +4150,7 @@ function LeadDetailForm({
         </label>
         <input defaultValue={lead.customerName} name="customerName" placeholder="Customer name" required />
         <div className="sales-form-two">
-          <input defaultValue={lead.customerPhone} name="customerPhone" placeholder="WhatsApp number" />
-          <input defaultValue={lead.customerEmail} name="customerEmail" placeholder="Email" type="email" />
+          <input value={lead.customerPhone || ""} aria-label="Lead phone number (cannot be changed)" readOnly />
         </div>
         <input defaultValue={lead.serviceInterest} name="serviceInterest" placeholder="Service interest" />
         <div className="sales-form-two">
@@ -4682,7 +4162,6 @@ function LeadDetailForm({
           </select>
         </div>
         <div className="sales-form-two">
-          <input defaultValue={lead.budgetAmount || ""} name="budgetAmount" placeholder="Budget" type="number" />
           <input defaultValue={lead.followUpAt ? lead.followUpAt.slice(0, 10) : ""} name="followUpAt" type="date" />
         </div>
         <button className="sales-primary-button" type="submit">Save lead details</button>
@@ -4750,7 +4229,7 @@ function AdminTeamReportingPanel({
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px", flexWrap: "wrap", marginBottom: "14px" }}>
         <div>
           <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "var(--closer-ink, #0f172a)" }}>Team performance &amp; ownership</h3>
-          <p style={{ margin: "4px 0 0", fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>Admin reporting view. Admin accounts are excluded; each row belongs to a sales or manager user.</p>
+          <p style={{ margin: "4px 0 0", fontSize: "12px", color: "var(--closer-muted, #64748b)" }}>Admin reporting view. Admin accounts are excluded; each row belongs to a sales or manager user. Review Team Calls &amp; Audio.</p>
         </div>
         <span className="sales-chip neutral">{rows.length} reporting users</span>
       </div>
@@ -4850,6 +4329,13 @@ function DeviceHealthPanel({
           </div>
         ) : <p className="muted-copy">No diagnostic events received yet.</p>}
       </div>
+      {false ? (
+        <section className="sales-dashboard-overview">
+<div className="sales-dashboard-device-activity">
+              <TeamActivityPanel />
+            </div>
+        </section>
+      ) : null}
     </section>
   );
 }
@@ -5566,7 +5052,7 @@ function CallReportsPanel({
                       ) : (
                         <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
                           <span className={`sales-chip ${unavailable.tone === "danger" ? "danger" : "neutral"}`} style={{ width: "fit-content" }}>
-                            {unavailable.badge}
+                            {recordingStatusLabel(call.recordingStatus)}
                           </span>
                           <span style={{ fontSize: "11px", color: "var(--closer-muted, #64748b)", lineHeight: "1.25" }}>
                             {unavailable.reason}

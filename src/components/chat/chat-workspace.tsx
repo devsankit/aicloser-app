@@ -253,7 +253,32 @@ export const WHATSAPP_LABEL_COLORS: WhatsAppLabelColor[] = [
 ];
 
 export function getLeadBadgeConfig(statusId?: string, label?: string, tone?: string) {
-  void statusId;
+  const normId = (statusId || "").toLowerCase();
+  const normLabel = (label || "").toLowerCase();
+
+  // Interested / Qualified leads
+  if (normId === "qualified" || normLabel.includes("interested") || normLabel.includes("qualified") || normLabel.includes("hot")) {
+    return {
+      bg: "rgba(16, 185, 129, 0.18)",
+      border: "rgba(16, 185, 129, 0.55)",
+      text: "#34d399",
+      dot: "#10b981",
+      glow: "0 0 10px rgba(16, 185, 129, 0.35)",
+      label: label || "Interested / Qualified",
+    };
+  }
+
+  // Training Booked / Trial
+  if (normId === "training-booked" || normLabel.includes("training") || normLabel.includes("trial") || normLabel.includes("booked") || normLabel.includes("demo")) {
+    return {
+      bg: "rgba(168, 85, 247, 0.2)",
+      border: "rgba(168, 85, 247, 0.55)",
+      text: "#c084fc",
+      dot: "#a855f7",
+      glow: "0 0 10px rgba(168, 85, 247, 0.35)",
+      label: label || "Training Booked",
+    };
+  }
   const palette = {
     neutral: { bg: "rgba(148, 163, 184, 0.10)", border: "rgba(148, 163, 184, 0.30)", text: "#64748b", dot: "#64748b", glow: "none" },
     accent: { bg: "rgba(59, 130, 246, 0.10)", border: "rgba(59, 130, 246, 0.32)", text: "#2563eb", dot: "#3b82f6", glow: "none" },
@@ -1574,9 +1599,20 @@ const ChatThreadRow = memo(function ChatThreadRow({
 
   // The inbox badge is driven only by the workspace stage returned by the API.
   // Do not translate old MVP labels here; that was the source of stale stages.
-  const effectiveStatusId = conversation.leadStatusId;
-  const effectiveStatusLabel = conversation.leadStatusLabel;
-  const effectiveStatusTone = conversation.leadStatusTone;
+  const leadStage = (conversation as any).leadStage;
+  const stageMapping = leadStage ? ({
+    NEW: { id: "new", label: "New Lead", tone: "accent" },
+    CONTACTED: { id: "contacted", label: "Contacted", tone: "accent" },
+    INTERESTED: { id: "qualified", label: "Interested / Qualified", tone: "success" },
+    WEBINAR_INVITED: { id: "training-booked", label: "Training Booked", tone: "accent" },
+    FOLLOW_UP: { id: "follow-up", label: "Follow-up", tone: "warning" },
+    CLOSED_WON: { id: "closed", label: "Closed Won", tone: "success" },
+    CLOSED_LOST: { id: "lost", label: "Lost / Recycled", tone: "danger" },
+  } as Record<string, { id: string; label: string; tone: string }>)[leadStage as string] : null;
+
+  const effectiveStatusId = conversation.leadStatusId || stageMapping?.id;
+  const effectiveStatusLabel = conversation.leadStatusLabel || stageMapping?.label;
+  const effectiveStatusTone = conversation.leadStatusTone || stageMapping?.tone;
 
   const badgeCfg = getLeadBadgeConfig(
     effectiveStatusId,
@@ -2653,11 +2689,9 @@ function ChatWorkspaceInner({
       ? aicloserApi.leads.get360(activeConversation.leadId).then((data) => {
           if (isActive) setCrmDetails(mapCentralCrmDetails(data));
         })
-      : fetch(`/api/conversations/${encodeURIComponent(activeConversation.id)}/crm-details`, { cache: "no-store" })
-          .then((res) => res.json())
-          .then((data) => {
-            if (isActive && data?.ok) setCrmDetails(data.customer360);
-          });
+      : aicloserApi.conversations.get360(activeConversation.id).then((data) => {
+          if (isActive) setCrmDetails(mapCentralCrmDetails(data));
+        });
     load
       .catch(() => undefined)
       .finally(() => {
@@ -2678,11 +2712,9 @@ function ChatWorkspaceInner({
       ? aicloserApi.leads.get360(activeConversation.leadId).then((data) => {
           if (isActive) setCrmDetails(mapCentralCrmDetails(data));
         })
-      : fetch(`/api/conversations/${encodeURIComponent(activeConversation.id)}/crm-details`, { cache: "no-store" })
-          .then((res) => res.json())
-          .then((data) => {
-            if (isActive && data?.ok) setCrmDetails(data.customer360);
-          });
+      : aicloserApi.conversations.get360(activeConversation.id).then((data) => {
+          if (isActive) setCrmDetails(mapCentralCrmDetails(data));
+        });
     load
       .catch(() => undefined)
       .finally(() => {
@@ -4748,135 +4780,36 @@ function ChatWorkspaceInner({
     });
   }
 
-  async function handleAssign(editorId: string, strategy: "offer" | "direct" = "offer") {
-    if (!activeConversation || isSendingAssignmentOffer || isAssigningDirectly) {
-      return;
-    }
-    const freelancerIds = editorId ? [editorId] : selectedAssignEditorIds;
-    if (!freelancerIds.length) {
-      setComposerStatus(strategy === "direct" ? "Choose one team member to assign directly." : "Choose at least one team member to send the assignment.");
-      return;
-    }
-    const hasPrimaryEditor = Boolean(activeAssignment?.assignedFreelancerId);
-    if (strategy === "direct" && freelancerIds.length !== 1) {
-      setComposerStatus("Choose exactly one team member for direct assignment.");
-      return;
-    }
-    if (hasPrimaryEditor && assignmentMode === "replace" && freelancerIds.length !== 1) {
-      setComposerStatus("Choose exactly one team member for the replacement assignment.");
-      return;
-    }
-    const selectedEditor = assignableEditors.find((editor) => editor.id === freelancerIds[0]);
-    if (strategy === "direct") {
-      const confirmed = window.confirm(
-        hasPrimaryEditor
-          ? `Assign ${selectedEditor?.name || "this team member"} directly? This skips acceptance and moves ${activeAssignment?.assignedFreelancerName || "the current assignee"} to read-only access.`
-          : `Assign ${selectedEditor?.name || "this team member"} directly? This immediately grants reply access, even if the team member is offline.`,
-      );
-      if (!confirmed) {
-        return;
-      }
-    }
-    if (strategy === "direct") {
-      setIsAssigningDirectly(true);
-    } else {
-      setIsSendingAssignmentOffer(true);
-    }
+  async function handleAssign(editorId: string, _strategy: "offer" | "direct" = "direct") {
+    if (!activeConversation || isAssigningDirectly) return;
+    const targetId = editorId || selectedAssignEditorIds[0];
+    if (!targetId) { setComposerStatus("Choose one team member."); return; }
+    setIsAssigningDirectly(true);
     try {
-      const response = await fetch(`/api/conversations/${activeConversation.id}/assignment`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          freelancerIds,
-          projectDetails: assignmentDetailsDraft || activeConversation.internalNotes || activeConversation.summary || activeConversation.serviceTitle,
-          assignedBy: audience === "admin" ? "admin" : "manager",
-          assignmentMode: strategy === "direct" ? "direct" : hasPrimaryEditor ? assignmentMode : "offer",
-        }),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        setComposerStatus(payload?.error ?? "Unable to assign the team member right now.");
-        return;
-      }
+      await aicloserApi.conversations.assign(activeConversation.id, targetId);
       setIsAssignMenuOpen(false);
-      setAssignSearchValue("");
       setSelectedAssignEditorIds([]);
-      setAssignmentDetailsDraft("");
-      const deliveredCount = Number(payload?.notificationDelivery?.sent ?? 0);
-      setComposerStatus(
-        payload?.assignmentMode === "direct"
-          ? payload?.deduped
-            ? `${payload?.assignedFreelancerName || selectedEditor?.name || "This team member"} is already assigned.`
-            : `${payload?.assignedFreelancerName || selectedEditor?.name || "Team member"} was assigned with immediate reply access.${payload?.withdrawnOfferCount ? ` ${payload.withdrawnOfferCount} pending assignment${payload.withdrawnOfferCount === 1 ? " was" : "s were"} withdrawn.` : ""}`
-          : payload?.assignmentMode === "viewer"
-          ? payload?.deduped
-            ? "Those team members already have access to this project lane."
-            : `${payload?.addedFreelancerIds?.length ?? freelancerIds.length} read-only viewer${(payload?.addedFreelancerIds?.length ?? freelancerIds.length) === 1 ? " was" : "s were"} added. Only the assigned team member can reply.`
-          : payload?.deduped
-          ? "This team member already has an active assignment offer. No duplicate was sent."
-          : deliveredCount > 0
-            ? `${payload?.assignmentMode === "replace" ? "Replacement offer" : "Project offer"} created and ${deliveredCount} device notification${deliveredCount === 1 ? " was" : "s were"} delivered.`
-            : "Assignment created, but no device notification was delivered. Ask the team member to refresh push registration.",
-      );
-      if (payload?.conversation) {
-        syncConversationLocally(payload.conversation, "assignment");
-      }
+      setAssignSearchValue("");
+      setComposerStatus("Chat assigned. Company administrators retain access.");
       await loadConversations({ silent: true });
-    } catch {
-      setComposerStatus(
-        strategy === "direct"
-          ? "Unable to assign this team member directly right now. Please try again."
-          : "Unable to send the assignment right now. Please try again.",
-      );
+    } catch (error) {
+      setComposerStatus(error instanceof Error ? error.message : "Unable to assign this chat.");
     } finally {
-      if (strategy === "direct") {
-        setIsAssigningDirectly(false);
-      } else {
-        setIsSendingAssignmentOffer(false);
-      }
+      setIsAssigningDirectly(false);
     }
   }
 
   async function handleRemoveEditorAssignment() {
-    if (!activeConversation || !activeAssignment?.assignedFreelancerId || isRemovingAssignment) {
-      return;
-    }
-
-    const editorName = activeAssignment.assignedFreelancerName || "the current assignee";
-    const confirmed = window.confirm(
-      `Remove ${editorName} and leave this project unassigned? This also removes read-only viewers and withdraws pending assignment offers.`,
-    );
-    if (!confirmed) {
-      return;
-    }
-
+    if (!activeConversation || isRemovingAssignment) return;
     setIsRemovingAssignment(true);
     try {
-      const response = await fetch(`/api/conversations/${activeConversation.id}/assignment`, {
-        method: "DELETE",
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        setComposerStatus(payload?.error ?? "Unable to remove the assigned team member right now.");
-        return;
-      }
-
+      await aicloserApi.conversations.unassign(activeConversation.id);
       setIsAssignMenuOpen(false);
-      setAssignSearchValue("");
       setSelectedAssignEditorIds([]);
-      setAssignmentDetailsDraft("");
-      setAssignmentMode("replace");
-      setComposerStatus(
-        payload?.deduped
-          ? "This project was already unassigned."
-          : `${editorName} was removed. The project is now unassigned.`,
-      );
-      if (payload?.conversation) {
-        syncConversationLocally(payload.conversation, "assignment");
-      }
+      setComposerStatus("Chat unassigned. Explicit shares and company administrator access remain.");
       await loadConversations({ silent: true });
-    } catch {
-      setComposerStatus("Unable to remove the assigned team member right now. Please try again.");
+    } catch (error) {
+      setComposerStatus(error instanceof Error ? error.message : "Unable to unassign this chat.");
     } finally {
       setIsRemovingAssignment(false);
     }
@@ -4967,42 +4900,15 @@ function ChatWorkspaceInner({
   }
 
   async function handleToggleAiAutoReply(disabled: boolean) {
-    if (!activeConversation) {
-      return;
-    }
+    if (!activeConversation || isAiToggleSaving) return;
     setIsAiToggleSaving(true);
-    patchConversationLocally(activeConversation.id, {
-      aiAutoReplyDisabled: disabled,
-      aiAutoReplyDisabledUpdatedAt: new Date().toISOString(),
-    });
     try {
-      const response = await fetch(`/api/conversations/${activeConversation.id}/ai-auto-reply`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ disabled }),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.ok) {
-        setComposerStatus(payload?.error ?? "Could not update AI Auto-Reply mode.");
-        patchConversationLocally(activeConversation.id, {
-          aiAutoReplyDisabled: !disabled,
-        });
-        return;
-      }
-      setComposerStatus(
-        disabled
-          ? "Human Mode active. AI Auto-Reply is paused for this thread."
-          : "AI Auto-Reply resumed for this thread."
-      );
-      if (payload?.conversation) {
-        syncConversationLocally(payload.conversation, "permission");
-      }
+      await aicloserApi.conversations.setAiAutoReply(activeConversation.id, disabled);
+      patchConversationLocally(activeConversation.id, { aiAutoReplyDisabled: disabled });
+      setComposerStatus(disabled ? "Human mode active." : "AI auto-reply resumed.");
       await loadConversations({ silent: true });
-    } catch {
-      setComposerStatus("Could not update AI Auto-Reply mode.");
-      patchConversationLocally(activeConversation.id, {
-        aiAutoReplyDisabled: !disabled,
-      });
+    } catch (error) {
+      setComposerStatus(error instanceof Error ? error.message : "Unable to update AI mode.");
     } finally {
       setIsAiToggleSaving(false);
     }
@@ -5779,12 +5685,12 @@ function ChatWorkspaceInner({
         </div> : null}
 
         {(() => {
-          const notesHistory = (crmDetails?.salesTimeline ?? []).filter((item) => String(item.body ?? "").trim());
-          const callbackHistory = (crmDetails?.tasks ?? []).filter((task) => task.dueAt || /callback|follow[ -]?up/i.test(String(task.title ?? "")));
+          const notesHistory = notesPopoverMode === "notes" ? (crmDetails?.salesTimeline ?? []).filter((item) => item.type === "NOTE" && String(item.body ?? "").trim()) : [];
+          const callbackHistory = notesPopoverMode === "callback" ? (crmDetails?.tasks ?? []).filter((task) => task.dueAt || /callback|follow[ -]?up/i.test(String(task.title ?? ""))) : [];
           const hasHistory = notesHistory.length > 0 || callbackHistory.length > 0;
           return (
             <div
-              aria-label="Notes and callback history"
+              aria-label={notesPopoverMode === "notes" ? "Notes history" : "Follow-up history"}
               style={{
                 marginBottom: "12px",
                 border: "1px solid rgba(255, 255, 255, 0.1)",
@@ -5795,7 +5701,7 @@ function ChatWorkspaceInner({
             >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderBottom: "1px solid rgba(255, 255, 255, 0.08)" }}>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "11px", fontWeight: 700 }}>
-                  <History size={13} /> Notes & callback history
+                  <History size={13} /> {notesPopoverMode === "notes" ? "Notes history" : "Follow-up history"}
                 </span>
                 <span style={{ fontSize: "10px", opacity: 0.55 }}>{notesHistory.length + callbackHistory.length}</span>
               </div>
@@ -5803,7 +5709,7 @@ function ChatWorkspaceInner({
                 {isCrmDetailsLoading ? (
                   <p style={{ margin: "8px 0", fontSize: "11px", opacity: 0.6 }}>Loading history...</p>
                 ) : !hasHistory ? (
-                  <p style={{ margin: "8px 0", fontSize: "11px", opacity: 0.6 }}>No notes or callbacks saved yet.</p>
+                  <p style={{ margin: "8px 0", fontSize: "11px", opacity: 0.6 }}>{notesPopoverMode === "notes" ? "No notes saved yet." : "No follow-ups saved yet."}</p>
                 ) : (
                   <>
                     {notesHistory.slice(0, 20).map((item) => (
@@ -5960,15 +5866,17 @@ function ChatWorkspaceInner({
             return (
               <button
                 className={cx("chat-assign-item", isShared && "selected")}
-                disabled={isShared || isSharingConversation}
+                disabled={isSharingConversation}
                 key={editor.id}
                 onClick={async () => {
-                  if (!activeConversation || isShared) return;
+                  if (!activeConversation) return;
                   setIsSharingConversation(true);
                   try {
-                    await aicloserApi.conversations.share(activeConversation.id, editor.id, "REPLY");
-                    setSharedUserIds((current) => (current.includes(editor.id) ? current : [...current, editor.id]));
-                    setComposerStatus(`${editor.name} can now view and reply in this chat.`);
+                    if (isShared) await aicloserApi.conversations.revokeShare(activeConversation.id, editor.id);
+                    else await aicloserApi.conversations.share(activeConversation.id, editor.id, "REPLY");
+                    const payload = await aicloserApi.conversations.listShares(activeConversation.id) as { shares?: Array<{ userId: string; agentProfileId?: string }> };
+                    setSharedUserIds((payload.shares || []).flatMap((share) => [share.userId, share.agentProfileId].filter((id): id is string => Boolean(id))));
+                    setComposerStatus(isShared ? `${editor.name}'s shared access removed.` : `${editor.name} can now view and reply in this chat.`);
                   } catch (error) {
                     setComposerStatus(error instanceof Error ? error.message : "Unable to share this chat right now.");
                   } finally {
@@ -5980,7 +5888,7 @@ function ChatWorkspaceInner({
                 <span className="chat-assign-avatar"><UserRound size={16} strokeWidth={1.8} /></span>
                 <div className="chat-assign-item-copy">
                   <strong>{editor.name}</strong>
-                  <p>{isShared ? "Already shared" : editor.onlineStatus === "online" ? "Online" : "Offline"}</p>
+                  <p>{isShared ? "Shared — click to remove access" : editor.onlineStatus === "online" ? "Online" : "Offline"}</p>
                 </div>
                 {isShared ? <Check size={16} strokeWidth={2.2} /> : <Share2 size={15} strokeWidth={1.8} />}
               </button>
@@ -6178,6 +6086,11 @@ function ChatWorkspaceInner({
 
   const channelTopTabs = (
     <div className="chat-rail-top-controls">
+      <div className="chat-top-channel-tabs" style={{ display: "none" }} aria-hidden="true">
+        <button type="button" className={cx("chat-top-channel-tab", channelFilter === "all" && "active")}>All</button>
+        <button type="button" className={cx("chat-top-channel-tab tab-company", channelFilter === "whatsapp_company" && "active")}><span>WhatsApp API</span></button>
+        <button type="button" className={cx("chat-top-channel-tab tab-personal", channelFilter === "whatsapp_connected" && "active")}><span>WhatsApp Personal</span></button>
+      </div>
       <div className="chat-channel-picker" data-open={isChannelMenuOpen ? "true" : "false"}>
         <button
           type="button"
@@ -7722,10 +7635,10 @@ function ChatWorkspaceInner({
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
                     <span style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--crm-text-muted, #64748b)", display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                      <Sparkles size={11} /> Lead Stage
+                      <Sparkles size={11} /> CRM Lead & Contact Profile
                     </span>
                     <span style={{ fontSize: "10px", padding: "2px 8px", borderRadius: "12px", background: "rgba(16, 185, 129, 0.2)", color: "#34d399", fontWeight: 700 }}>
-                      ● Synced
+                      ● Pipeline Synced
                     </span>
                   </div>
                   <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
@@ -7914,13 +7827,19 @@ function ChatWorkspaceInner({
                     <p className="muted-copy" style={{ margin: 0 }}>Loading lead history...</p>
                   ) : crmDetails?.history && crmDetails.history.length > 0 ? (
                     <div style={{ maxHeight: "280px", overflowY: "auto", paddingRight: "4px" }}>
-                      {crmDetails.history.map((item) => {
+                      {crmDetails.history.map((item, index) => {
                         const eventDate = item.createdAt && !Number.isNaN(new Date(item.createdAt).getTime())
                           ? new Date(item.createdAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
                           : "";
+                        const isLast = index === crmDetails.history.length - 1;
                         return (
-                          <div key={item.id} style={{ display: "grid", gridTemplateColumns: "10px 1fr", gap: "9px", padding: "9px 0", borderBottom: "1px solid var(--color-border, #edf1f5)" }}>
-                            <span style={{ width: "8px", height: "8px", marginTop: "4px", borderRadius: "999px", background: "var(--color-primary, #ff6b2f)" }} />
+                          <div key={item.id} className="chat-lead-history-event" style={{ display: "grid", gridTemplateColumns: "14px 1fr", gap: "9px", padding: "8px 0", position: "relative" }}>
+                            <div style={{ position: "relative", display: "flex", justifyContent: "center" }}>
+                              {!isLast ? (
+                                <span style={{ position: "absolute", top: "12px", bottom: "-8px", width: "2px", background: "var(--color-border, #e2e8f0)" }} />
+                              ) : null}
+                              <span style={{ position: "relative", zIndex: 1, width: "8px", height: "8px", marginTop: "4px", borderRadius: "999px", background: "var(--color-primary, #ff6b2f)" }} />
+                            </div>
                             <div style={{ minWidth: 0 }}>
                               <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", color: "var(--color-text-secondary, #475569)", fontSize: "10px" }}>
                                 <strong style={{ color: "var(--color-text-primary, #0f172a)", fontSize: "11px" }}>{item.title}</strong>

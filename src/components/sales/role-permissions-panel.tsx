@@ -374,14 +374,7 @@ export function RolePermissionsPanel({
     setError("");
     setSaveSuccess(false);
     try {
-      const updates = users
-        .filter((user) => user.role === "ADMIN" || user.role === "MANAGER" || user.role === "SALES_AGENT")
-        .map((user) => {
-          const role = user.role as "ADMIN" | "MANAGER" | "SALES_AGENT";
-          return aicloserApi.team.updatePermissions(user.id || user.userId, matrix[role] || {});
-        });
-      if (!updates.length) throw new Error("No team members were loaded, so permissions were not saved.");
-      await Promise.all(updates);
+      await aicloserApi.team.savePermissionsMatrix(matrix);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3500);
     } catch (err) {

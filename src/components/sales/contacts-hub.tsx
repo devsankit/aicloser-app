@@ -478,7 +478,7 @@ export function ContactsHub({
   const loadAllContactsAndIntegrations = useCallback(async () => {
     setLoading(true);
     setContactsLoadError(null);
-    const contactsPromise = aicloserApi.contacts.list({ page: 1, limit: 100 });
+    const contactsPromise = aicloserApi.contacts.listAll();
     const scannerPromise = aicloserApi.contacts.whatsappScanner();
     const [contactsResult, scannerResult] = await Promise.allSettled([contactsPromise, scannerPromise]);
 
@@ -929,7 +929,6 @@ export function ContactsHub({
       await aicloserApi.contacts.create({
         fullName: manualName.trim() || manualPhone.trim(),
         e164Phone: manualPhone.trim(),
-        email: manualEmail.trim() || null,
         source: "MANUAL",
         customFields: { notes: manualNotes.trim(), stage: manualStage },
       });
@@ -967,8 +966,6 @@ export function ContactsHub({
     try {
       await aicloserApi.contacts.update(editingContact.marketingContactId || editingContact.id, {
         fullName: contactDraft.name,
-        e164Phone: contactDraft.phone,
-        email: contactDraft.email || null,
         customFields: { notes: contactDraft.notes },
       });
       setEditingContact(null);
@@ -1106,7 +1103,7 @@ export function ContactsHub({
       if (poolItemIds.length) {
         await Promise.all(poolItemIds.map((poolItemId) => aicloserApi.leads.claimFromPool(poolItemId)));
       }
-      const assigned = leadIds.length ? await aicloserApi.roundRobin.assign({ leadIds }) : null;
+      const assigned = leadIds.length ? await aicloserApi.roundRobin.assign({ leadIds, contacts: targetContacts.filter((c) => !c.poolItemId) }) : null;
       {
         setDistributeSuccess((assigned as any)?.message || "Auto-distributed contacts across sales agents!");
         if (selectedIds.size === 0) {
@@ -2292,335 +2289,6 @@ export function ContactsHub({
       {/* =========================================================================
           DRAWER 3: EMAIL INBOX & ENQUIRY LEAD SYNC (GMAIL, ZOHO, GODADDY, SMTP)
       ========================================================================= */}
-      {activeDrawer === "email_inbox" ? (
-        <div
-          className="crm-panel"
-          style={{
-            padding: 22,
-            borderRadius: 18,
-            border: "2px solid rgba(139, 92, 246, 0.45)",
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 16 }}>
-            <div>
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  textTransform: "uppercase",
-                  padding: "3px 9px",
-                  borderRadius: 999,
-                  background: "rgba(139, 92, 246, 0.15)",
-                  color: "#8b5cf6",
-                }}
-              >
-                Multi-Provider Email CRM • Gmail • Zoho Mail • GoDaddy • Custom IMAP/SMTP
-              </span>
-              <h3 style={{ margin: "6px 0 4px", fontSize: "1.18rem", fontWeight: 800 }}>
-                Connect Email Inbox & Auto-Capture Enquiry Leads + Phone Numbers
-              </h3>
-              <p style={{ margin: 0, fontSize: "0.84rem", color: "var(--muted)" }}>
-                Connect <strong>Gmail</strong>, <strong>Zoho Mail</strong>, <strong>GoDaddy Mail</strong>, or <strong>Custom SMTP/IMAP</strong>. Our 5-stage parser unwraps <code>Reply-To</code> webforms, extracts phone numbers from email bodies, creates CRM Contacts, and routes threads to Multi-Channel Chat.
-              </p>
-            </div>
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={() => setActiveDrawer(null)}
-              style={{ padding: "6px 10px" }}
-            >
-              <X size={16} />
-            </button>
-          </div>
-
-          {/* 6 Provider Preset Cards */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
-              gap: 10,
-              marginBottom: 18,
-            }}
-          >
-            {EMAIL_PRESET_CARDS.map((card) => {
-              const active = selectedEmailPreset === card.id;
-              return (
-                <button
-                  key={card.id}
-                  type="button"
-                  onClick={() => handleSelectEmailPreset(card.id)}
-                  style={{
-                    padding: 12,
-                    borderRadius: 12,
-                    textAlign: "left",
-                    cursor: "pointer",
-                    background: active
-                      ? "rgba(139, 92, 246, 0.16)"
-                      : "var(--surface-strong, rgba(15, 23, 42, 0.45))",
-                    border: active
-                      ? `2px solid ${card.accent}`
-                      : "1px solid var(--closer-line, rgba(148, 163, 184, 0.25))",
-                    color: "inherit",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                    <strong style={{ fontSize: "0.84rem" }}>{card.name}</strong>
-                  </div>
-                  <div style={{ fontSize: 11, fontFamily: "monospace", color: card.accent, marginBottom: 4 }}>
-                    {card.badge}
-                  </div>
-                  <div style={{ fontSize: "0.73rem", color: "var(--muted)", lineHeight: 1.35 }}>
-                    {card.hint}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-              gap: 18,
-            }}
-          >
-            {/* Left: Connect IMAP/SMTP Account Form */}
-            <form
-              onSubmit={handleConnectEmailAccount}
-              style={{
-                padding: 16,
-                borderRadius: 14,
-                background: "var(--surface-strong, rgba(15, 23, 42, 0.45))",
-                border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.25))",
-                display: "grid",
-                gap: 12,
-              }}
-            >
-              <strong style={{ fontSize: "0.92rem" }}>
-                Configure {EMAIL_PRESET_CARDS.find((c) => c.id === selectedEmailPreset)?.name}
-              </strong>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div>
-                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, marginBottom: 4 }}>
-                    Email Address
-                  </label>
-                  <input
-                    type="email"
-                    value={emailAddressInput}
-                    onChange={(e) => setEmailAddressInput(e.target.value)}
-                    placeholder="sales@yourcompany.com"
-                    required
-                    style={{ width: "100%", padding: "8px 10px", borderRadius: 8, fontSize: 13 }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, marginBottom: 4 }}>
-                    App Password / SMTP Password
-                  </label>
-                  <input
-                    type="password"
-                    value={emailPasswordInput}
-                    onChange={(e) => setEmailPasswordInput(e.target.value)}
-                    placeholder="••••••••••••••••"
-                    style={{ width: "100%", padding: "8px 10px", borderRadius: 8, fontSize: 13 }}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 2fr 1fr", gap: 8 }}>
-                <div>
-                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, marginBottom: 4 }}>
-                    IMAP Host
-                  </label>
-                  <input
-                    type="text"
-                    value={customImapHost}
-                    onChange={(e) => setCustomImapHost(e.target.value)}
-                    style={{ width: "100%", padding: "7px 10px", borderRadius: 8, fontSize: 12, fontFamily: "monospace" }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, marginBottom: 4 }}>
-                    Port
-                  </label>
-                  <input
-                    type="number"
-                    value={customImapPort}
-                    onChange={(e) => setCustomImapPort(Number(e.target.value))}
-                    style={{ width: "100%", padding: "7px 10px", borderRadius: 8, fontSize: 12, fontFamily: "monospace" }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, marginBottom: 4 }}>
-                    SMTP Host
-                  </label>
-                  <input
-                    type="text"
-                    value={customSmtpHost}
-                    onChange={(e) => setCustomSmtpHost(e.target.value)}
-                    style={{ width: "100%", padding: "7px 10px", borderRadius: 8, fontSize: 12, fontFamily: "monospace" }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, marginBottom: 4 }}>
-                    Port
-                  </label>
-                  <input
-                    type="number"
-                    value={customSmtpPort}
-                    onChange={(e) => setCustomSmtpPort(Number(e.target.value))}
-                    style={{ width: "100%", padding: "7px 10px", borderRadius: 8, fontSize: 12, fontFamily: "monospace" }}
-                  />
-                </div>
-              </div>
-
-              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5 }}>
-                <input
-                  type="checkbox"
-                  checked={routeEmailsToInbox}
-                  onChange={(e) => setRouteEmailsToInbox(e.target.checked)}
-                />
-                <span>
-                  Auto-extract phone numbers (`+91...`) from email bodies & route enquiries to <strong>Live Multi-Channel Chat</strong>
-                </span>
-              </label>
-
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <button
-                  type="submit"
-                  className="primary-button"
-                  disabled={busyAction === "connect_email"}
-                  style={{ fontSize: 12.5, display: "inline-flex", alignItems: "center", gap: 6 }}
-                >
-                  <ShieldCheck size={15} />
-                  {busyAction === "connect_email" ? "Verifying TLS & Connecting..." : "Connect Email Account"}
-                </button>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  disabled={busyAction === "sync_email_enquiries"}
-                  onClick={handleSyncEmailEnquiries}
-                  style={{ fontSize: 12.5, display: "inline-flex", alignItems: "center", gap: 6 }}
-                >
-                  <RefreshCw size={14} />
-                  {busyAction === "sync_email_enquiries"
-                    ? "Extracting Leads..."
-                    : "Sync Enquiry Leads Now"}
-                </button>
-              </div>
-
-              {emailAccounts.length > 0 ? (
-                <div style={{ display: "grid", gap: 6, marginTop: 4 }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)" }}>
-                    CONNECTED MAILBOXES ({emailAccounts.length})
-                  </span>
-                  {emailAccounts.map((acc) => (
-                    <div
-                      key={acc.id}
-                      style={{
-                        padding: "8px 10px",
-                        borderRadius: 8,
-                        background: "rgba(16, 185, 129, 0.1)",
-                        border: "1px solid rgba(16, 185, 129, 0.3)",
-                        fontSize: 12,
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                      }}
-                    >
-                      <span>
-                        <strong>{acc.emailAddress}</strong> ({acc.providerLabel})
-                      </span>
-                      <span style={{ color: "#10b981", fontWeight: 700 }}>
-                        {acc.totalEnquiriesCaptured} leads synced
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </form>
-
-            {/* Right: Live Enquiry Email Lead & Phone Extractor Tester */}
-            <div
-              style={{
-                padding: 16,
-                borderRadius: 14,
-                background: "var(--surface-strong, rgba(15, 23, 42, 0.45))",
-                border: "1px solid var(--closer-line, rgba(148, 163, 184, 0.25))",
-                display: "grid",
-                gap: 10,
-              }}
-            >
-              <strong style={{ fontSize: "0.92rem" }}>
-                Live Enquiry Email Parser (Unwraps Webforms & Extracts Phone Numbers)
-              </strong>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                <div>
-                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, marginBottom: 3 }}>
-                    From Header
-                  </label>
-                  <input
-                    type="text"
-                    value={rawEmailTestFrom}
-                    onChange={(e) => setRawEmailTestFrom(e.target.value)}
-                    style={{ width: "100%", padding: "6px 9px", borderRadius: 8, fontSize: 12 }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, marginBottom: 3 }}>
-                    Reply-To (Real Customer Email)
-                  </label>
-                  <input
-                    type="text"
-                    value={rawEmailTestReplyTo}
-                    onChange={(e) => setRawEmailTestReplyTo(e.target.value)}
-                    style={{ width: "100%", padding: "6px 9px", borderRadius: 8, fontSize: 12 }}
-                  />
-                </div>
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: 11, fontWeight: 700, marginBottom: 3 }}>
-                  Subject Line
-                </label>
-                <input
-                  type="text"
-                  value={rawEmailTestSubject}
-                  onChange={(e) => setRawEmailTestSubject(e.target.value)}
-                  style={{ width: "100%", padding: "6px 9px", borderRadius: 8, fontSize: 12 }}
-                />
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: 11, fontWeight: 700, marginBottom: 3 }}>
-                  Email Body (Phone number & name are automatically extracted)
-                </label>
-                <textarea
-                  rows={4}
-                  value={rawEmailTestBody}
-                  onChange={(e) => setRawEmailTestBody(e.target.value)}
-                  style={{ width: "100%", padding: 8, borderRadius: 8, fontSize: 12, fontFamily: "monospace" }}
-                />
-              </div>
-              <button
-                type="button"
-                className="primary-button"
-                disabled={busyAction === "parse_custom_email"}
-                onClick={handleParseCustomEmail}
-                style={{ justifySelf: "start", fontSize: 12.5, display: "inline-flex", alignItems: "center", gap: 6 }}
-              >
-                <Send size={14} />
-                {busyAction === "parse_custom_email"
-                  ? "Parsing & Creating Contact..."
-                  : "Parse Enquiry Email → Create Contact & Inbox Thread"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {/* =========================================================================
-          DRAWER 4: MANUAL ADD CONTACT
-      ========================================================================= */}
       {activeDrawer === "manual_add" ? (
         <div className="crm-panel" style={{ padding: 20, borderRadius: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
@@ -2640,10 +2308,6 @@ export function ContactsHub({
             <label className="sales-form-field">
               <span>Phone</span>
               <input type="tel" placeholder="+91 98200 00000 *" value={manualPhone} onChange={(e) => setManualPhone(e.target.value)} required />
-            </label>
-            <label className="sales-form-field">
-              <span>Email</span>
-              <input type="email" placeholder="Email address" value={manualEmail} onChange={(e) => setManualEmail(e.target.value)} />
             </label>
             <label className="sales-form-field">
               <span>Lead status</span>
@@ -2675,8 +2339,7 @@ export function ContactsHub({
           </div>
           <form onSubmit={handleUpdateContact} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
             <label className="sales-form-field"><span>Name</span><input value={contactDraft.name} onChange={(event) => setContactDraft({ ...contactDraft, name: event.target.value })} required /></label>
-            <label className="sales-form-field"><span>Phone</span><input value={contactDraft.phone} onChange={(event) => setContactDraft({ ...contactDraft, phone: event.target.value })} required /></label>
-            <label className="sales-form-field"><span>Email</span><input type="email" value={contactDraft.email} onChange={(event) => setContactDraft({ ...contactDraft, email: event.target.value })} /></label>
+            <label className="sales-form-field"><span>Phone (cannot be changed)</span><input value={contactDraft.phone} readOnly /></label>
             <label className="sales-form-field" style={{ gridColumn: "1 / -1" }}><span>Notes</span><textarea rows={3} value={contactDraft.notes} onChange={(event) => setContactDraft({ ...contactDraft, notes: event.target.value })} /></label>
             <button type="submit" className="primary-button" disabled={busyAction === "edit_contact"}>{busyAction === "edit_contact" ? "Updating..." : "Update contact"}</button>
           </form>
@@ -2974,7 +2637,6 @@ export function ContactsHub({
                 </th>
                 <th style={{ padding: "10px 8px" }}>Contact Name</th>
                 <th style={{ padding: "10px 8px" }}>Phone Number (E.164)</th>
-                <th style={{ padding: "10px 8px" }}>Email</th>
                 <th style={{ padding: "10px 8px" }}>Source Channel</th>
                 <th style={{ padding: "10px 8px" }}>Stage</th>
                 <th style={{ padding: "10px 8px" }}>Assigned Rep</th>
@@ -3053,9 +2715,6 @@ export function ContactsHub({
                       </td>
                       <td style={{ padding: "11px 8px", fontFamily: "monospace", fontWeight: 600 }}>
                         {contact.phone || "—"}
-                      </td>
-                      <td style={{ padding: "11px 8px", color: "var(--muted)" }}>
-                        {contact.email || "—"}
                       </td>
                       <td style={{ padding: "11px 8px" }}>
                         <span

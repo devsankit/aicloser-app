@@ -133,10 +133,11 @@ export async function POST(request: Request) {
         : createPublicRedirect(loginPath, { error });
     }
 
+    const effectiveRole = user.role;
     const destination = scope === "super-admin"
       ? (redirectTo ? getSafeRedirectPath(redirectTo, user.role) : SUPER_ADMIN_HOME_ROUTE)
       : scope === "sales"
-        ? getSafeSalesRedirectPath(redirectTo, user.role)
+        ? getSafeSalesRedirectPath(redirectTo, effectiveRole)
         : redirectTo
           ? getSafeRedirectPath(redirectTo, user.role)
           : "/";
