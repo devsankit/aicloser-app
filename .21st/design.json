@@ -1,0 +1,163 @@
+{
+  "version": 1,
+  "project": {
+    "name": "freebuff",
+    "productType": null,
+    "stack": [
+      "nextjs",
+      "react",
+      "tailwind-v3"
+    ]
+  },
+  "sources": {
+    "tokens": [
+      "src/app/globals.css"
+    ],
+    "components": [
+      "src/components/ui"
+    ],
+    "assets": [],
+    "instructions": []
+  },
+  "design": {
+    "colorMode": "light",
+    "colors": {
+      "--text-secondary": {
+        "value": "#4d5159",
+        "source": "src/app/globals.css"
+      },
+      "--border": {
+        "value": "#e9e8ea",
+        "source": "src/app/globals.css"
+      },
+      "--border-strong": {
+        "value": "#d7d6d9",
+        "source": "src/app/globals.css"
+      },
+      "--border-input": {
+        "value": "#dcdbde",
+        "source": "src/app/globals.css"
+      },
+      "--solid-muted": {
+        "value": "#5f636a",
+        "source": "src/app/globals.css"
+      },
+      "--accent": {
+        "value": "#ab441d",
+        "source": "src/app/globals.css"
+      },
+      "--accent-hover": {
+        "value": "#9c3e1b",
+        "source": "src/app/globals.css"
+      },
+      "--accent-strong": {
+        "value": "#ab441d",
+        "source": "src/app/globals.css"
+      },
+      "--accent-strong-hover": {
+        "value": "#8f3817",
+        "source": "src/app/globals.css"
+      },
+      "--accent-soft": {
+        "value": "rgba(171, 68, 29, 0.12)",
+        "source": "src/app/globals.css"
+      },
+      "--accent-border": {
+        "value": "rgba(171, 68, 29, 0.35)",
+        "source": "src/app/globals.css"
+      },
+      "--fg-secondary": {
+        "value": "var(--text-secondary)",
+        "source": "src/app/globals.css"
+      },
+      "--fg-muted": {
+        "value": "var(--text-tertiary)",
+        "source": "src/app/globals.css"
+      }
+    },
+    "typography": {
+      "--text": {
+        "value": "#282a30",
+        "source": "src/app/globals.css"
+      },
+      "--text-tertiary": {
+        "value": "#5f636a",
+        "source": "src/app/globals.css"
+      },
+      "--text-disabled": {
+        "value": "#9ea1a7",
+        "source": "src/app/globals.css"
+      },
+      "--text-inverse": {
+        "value": "#ffffff",
+        "source": "src/app/globals.css"
+      },
+      "--ink-text": {
+        "value": "#ffffff",
+        "source": "src/app/globals.css"
+      },
+      "--font": {
+        "value": "Inter, \"Inter Variable\", -apple-system, BlinkMacSystemFont, \"Segoe UI\",\n    Roboto, \"Helvetica Neue\", Arial, sans-serif",
+        "source": "src/app/globals.css"
+      }
+    },
+    "spacing": {},
+    "radius": {},
+    "shadows": {
+      "--shadow-sm": {
+        "value": "0 1px 2px rgba(16, 17, 19, 0.06)",
+        "source": "src/app/globals.css"
+      },
+      "--shadow-md": {
+        "value": "0 4px 14px rgba(16, 17, 19, 0.1)",
+        "source": "src/app/globals.css"
+      },
+      "--shadow-lg": {
+        "value": "0 16px 48px rgba(16, 17, 19, 0.16)",
+        "source": "src/app/globals.css"
+      }
+    },
+    "motion": {},
+    "density": "unknown"
+  },
+  "components": {
+    "installed": [
+      "Icon",
+      "ResizeHandle"
+    ],
+    "preferredPrimitives": [],
+    "patterns": []
+  },
+  "constraints": {
+    "must": [],
+    "avoid": []
+  },
+  "decisions": [],
+  "evidence": [
+    {
+      "fact": "components.installed",
+      "source": "src/components/ui"
+    },
+    {
+      "fact": "design.colorMode:light",
+      "source": "src/app/globals.css"
+    },
+    {
+      "fact": "design.tokens",
+      "source": "src/app/globals.css"
+    },
+    {
+      "fact": "project.stack:nextjs",
+      "source": "package.json"
+    },
+    {
+      "fact": "project.stack:react",
+      "source": "package.json"
+    },
+    {
+      "fact": "project.stack:tailwind-v3",
+      "source": "package.json"
+    }
+  ],
+  "generatedAt": "2026-10-17T20:03:22.997Z"
+}

@@ -1,0 +1,404 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { Icon } from "@/components/ui/Icon";
+import { ResizeHandle } from "@/components/ui/ResizeHandle";
+import { LIMITS, money, relativeTime, slaLabel, useApp } from "@/lib/store";
+import {
+  OWNERS,
+  PRIORITY_ICON,
+  PRIORITY_LABEL,
+  SEGMENTS,
+  SOURCES,
+  STAGES,
+  stageMeta,
+  type Lead,
+  type Priority,
+  type Segment,
+  type Source,
+  type StageId,
+} from "@/lib/types";
+
+export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void }) {
+  const { moveLead, updateLead, deleteLead, state, setLayout } = useApp();
+  const [draft, setDraft] = useState(lead);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    setDraft(lead);
+    setConfirmDelete(false);
+    setSaved(false);
+  }, [lead]);
+
+  const save = () => {
+    updateLead(lead.id, {
+      name: draft.name.trim() || lead.name,
+      company: draft.company.trim(),
+      phone: draft.phone.trim(),
+      email: draft.email.trim(),
+      value: Number.isFinite(draft.value) ? draft.value : lead.value,
+      owner: draft.owner,
+      notes: draft.notes,
+      tags: draft.tags,
+      source: draft.source,
+      segment: draft.segment,
+      priority: draft.priority,
+      followUp: draft.followUp,
+    });
+    setSaved(true);
+    setTimeout(onClose, 180);
+  };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        save();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onClose, draft, lead.id]);
+
+  const set = <K extends keyof Lead>(key: K, value: Lead[K]) =>
+    setDraft((d) => ({ ...d, [key]: value }));
+
+  const dirty =
+    draft.name !== lead.name ||
+    draft.company !== lead.company ||
+    draft.phone !== lead.phone ||
+    draft.email !== lead.email ||
+    draft.value !== lead.value ||
+    draft.owner !== lead.owner ||
+    draft.notes !== lead.notes ||
+    draft.priority !== lead.priority ||
+    draft.followUp !== lead.followUp ||
+    draft.tags.join(",") !== lead.tags.join(",");
+
+  const meta = stageMeta(draft.stage);
+  const dateValue = new Date(draft.followUp).toISOString().slice(0, 10);
+
+  return (
+    <div className="overlay" data-kind="drawer" onClick={onClose} role="presentation">
+      <aside
+        className="drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${lead.code} ${lead.name}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="drawer-head">
+          <span className="list-id">{lead.code}</span>
+          <div className="drawer-head-tools">
+            <button
+              className="icon-btn"
+              title="Copy link"
+              aria-label="Copy lead link"
+              onClick={() => {
+                navigator.clipboard?.writeText(`${window.location.origin}/contacts?lead=${lead.id}`);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              }}
+            >
+              <Icon name={copied ? "check" : "link"} size={14} />
+            </button>
+            <button className="icon-btn" title="Copy phone" aria-label="Copy phone number">
+              <Icon name="copy" size={14} />
+            </button>
+            <button className="icon-btn" title="Activity" aria-label="Lead activity">
+              <Icon name="branch" size={14} />
+            </button>
+            <button
+              className="icon-btn"
+              onClick={onClose}
+              aria-label="Close lead"
+              style={{ marginLeft: "auto" }}
+            >
+              <Icon name="close" size={15} />
+            </button>
+          </div>
+        </header>
+
+        <div className="drawer-body">
+          <div className="drawer-title-block">
+            <span className="sg" data-status={meta.status}>
+              <Icon name={`status-${meta.status}`} size={16} />
+            </span>
+            <input
+              className="drawer-title-input"
+              value={draft.name}
+              onChange={(e) => set("name", e.target.value)}
+              aria-label="Lead name"
+            />
+            <input
+              className="drawer-sub-input"
+              value={draft.company}
+              onChange={(e) => set("company", e.target.value)}
+              aria-label="Company"
+              placeholder="Company"
+            />
+          </div>
+
+          <div className="field-rows">
+            <div className="field-row">
+              <span className="field-label">
+                <Icon name={`status-${meta.status}`} size={14} /> Status
+              </span>
+              <select
+                className="select"
+                value={draft.stage}
+                onChange={(e) => {
+                  const stage = e.target.value as StageId;
+                  set("stage", stage);
+                  moveLead(lead.id, stage);
+                }}
+                aria-label="Lead stage"
+              >
+                {STAGES.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="field-row">
+              <span className="field-label">
+                <Icon name={PRIORITY_ICON[draft.priority] as never} size={14} /> Priority
+              </span>
+              <select
+                className="select"
+                value={draft.priority}
+                onChange={(e) => set("priority", e.target.value as Priority)}
+                aria-label="Priority"
+              >
+                {(Object.keys(PRIORITY_LABEL) as Priority[]).map((p) => (
+                  <option key={p} value={p}>
+                    {PRIORITY_LABEL[p]}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="field-row">
+              <span className="field-label">
+                <Icon name="flame" size={14} /> Follow-up
+              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input
+                  className="input"
+                  type="date"
+                  value={dateValue}
+                  onChange={(e) =>
+                    set("followUp", new Date(`${e.target.value}T11:00:00`).toISOString())
+                  }
+                  aria-label="Next follow-up"
+                />
+                <span className="pill">{slaLabel(draft.followUp)}</span>
+              </div>
+            </div>
+
+            <div className="field-row">
+              <span className="field-label">
+                <Icon name="users" size={14} /> Assignee
+              </span>
+              <select
+                className="select"
+                value={draft.owner}
+                onChange={(e) => set("owner", e.target.value)}
+                aria-label="Assignee"
+              >
+                {OWNERS.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="field-row">
+              <span className="field-label">
+                <Icon name="graph" size={14} /> Estimate
+              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input
+                  className="input"
+                  inputMode="numeric"
+                  value={draft.value}
+                  onChange={(e) => set("value", Number(e.target.value.replace(/\D/g, "")) || 0)}
+                  aria-label="Deal value"
+                />
+                <span className="hint">{money(draft.value)}</span>
+              </div>
+            </div>
+
+            <div className="field-row">
+              <span className="field-label">
+                <Icon name="plug" size={14} /> Source
+              </span>
+              <select
+                className="select"
+                value={draft.source}
+                onChange={(e) => set("source", e.target.value as Source)}
+                aria-label="Source"
+              >
+                {SOURCES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="field-row">
+              <span className="field-label">
+                <Icon name="target" size={14} /> Segment
+              </span>
+              <select
+                className="select"
+                value={draft.segment}
+                onChange={(e) => set("segment", e.target.value as Segment)}
+                aria-label="Segment"
+              >
+                {SEGMENTS.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="field-row">
+              <span className="field-label">
+                <Icon name="tag" size={14} /> Labels
+              </span>
+              <input
+                className="input"
+                value={draft.tags.join(", ")}
+                onChange={(e) =>
+                  set(
+                    "tags",
+                    e.target.value
+                      .split(",")
+                      .map((t) => t.trim())
+                      .filter(Boolean),
+                  )
+                }
+                placeholder="hot, inbound"
+                aria-label="Labels"
+              />
+            </div>
+
+            <div className="field-row">
+              <span className="field-label">
+                <Icon name="mail" size={14} /> Email
+              </span>
+              <input
+                className="input"
+                type="email"
+                value={draft.email}
+                onChange={(e) => set("email", e.target.value)}
+                aria-label="Email"
+              />
+            </div>
+
+            <div className="field-row">
+              <span className="field-label">
+                <Icon name="phone" size={14} /> Phone
+              </span>
+              <input
+                className="input"
+                inputMode="tel"
+                value={draft.phone}
+                onChange={(e) => set("phone", e.target.value)}
+                aria-label="Phone"
+              />
+            </div>
+          </div>
+
+          <div className="field">
+            <label htmlFor="d-notes">Notes</label>
+            <textarea
+              id="d-notes"
+              className="textarea"
+              value={draft.notes}
+              onChange={(e) => set("notes", e.target.value)}
+              placeholder="Call notes, next step, objections…"
+            />
+          </div>
+
+          <p className="hint">
+            Last updated {relativeTime(lead.updatedAt)} · press <span className="kbd">Esc</span> to
+            close, <span className="kbd">⌘</span>
+            <span className="kbd">↵</span> to save.
+          </p>
+        </div>
+
+        <footer className="drawer-foot">
+          {confirmDelete ? (
+            <>
+              <span className="hint" style={{ marginRight: "auto" }}>
+                Delete {lead.code} permanently?
+              </span>
+              <button className="btn" data-size="sm" onClick={() => setConfirmDelete(false)}>
+                Cancel
+              </button>
+              <button
+                className="btn"
+                data-variant="danger"
+                data-size="sm"
+                onClick={() => {
+                  deleteLead(lead.id);
+                  onClose();
+                }}
+              >
+                Delete
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                className="btn"
+                data-variant="ghost"
+                onClick={() => setConfirmDelete(true)}
+                title="Delete lead"
+              >
+                <Icon name="trash" size={14} /> Delete
+              </button>
+              <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                <button className="btn" onClick={onClose}>
+                  Close
+                </button>
+                <button
+                  className="btn"
+                  data-variant="primary"
+                  onClick={save}
+                  disabled={!dirty && !saved}
+                >
+                  {saved ? "Saved" : "Save"}
+                </button>
+              </div>
+            </>
+          )}
+        </footer>
+
+        <ResizeHandle
+          label="Resize panel"
+          resetTo={460}
+          min={LIMITS.drawer[0]}
+          max={LIMITS.drawer[1]}
+          style={{ right: undefined, left: -3 }}
+          getWidth={() => state.drawerWidth}
+          setWidth={(drawerWidth) => setLayout({ drawerWidth })}
+        />
+      </aside>
+    </div>
+  );
+}
