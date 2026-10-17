@@ -1,5 +1,6 @@
 package com.gigxomi.gxclosers.data
 
+import android.util.Log
 import com.gigxomi.gxclosers.BuildConfig
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -109,7 +110,13 @@ open class ApiClient(protected val sessionStore: SessionStore) {
     }
 
     fun uploadRecording(callId: String, clientUploadId: String, file: File, durationMs: Long): JSONObject {
-        if (BuildConfig.AICLOSER_DEDICATED_API_BASE.isNotBlank()) return uploadRecordingToDedicatedApi(callId, clientUploadId, file, durationMs)
+        if (BuildConfig.AICLOSER_DEDICATED_API_BASE.isNotBlank()) {
+            try {
+                return uploadRecordingToDedicatedApi(callId, clientUploadId, file, durationMs)
+            } catch (dedicatedError: Exception) {
+                Log.w("GXUpload", "Dedicated API recording upload failed, attempting fallback to main crm API: ${dedicatedError.message}", dedicatedError)
+            }
+        }
         val boundary = "GXClosers-${UUID.randomUUID()}"
         val connection = URL(endpoint("/sales/mobile/call/recording-upload")).openConnection() as HttpURLConnection
         try {
@@ -154,13 +161,14 @@ open class ApiClient(protected val sessionStore: SessionStore) {
             .put("sizeBytes", file.length()).put("durationSeconds", durationMs / 1000))
         val data = init.getJSONObject("data")
         val upload = data.getJSONObject("upload")
-        val uploadUrl = data.optString("uploadUrl", "")
-        if (uploadUrl.isNotBlank()) {
-            putBytes(uploadUrl, file, contentType = mimeType)
+        val uploadId = upload.getString("id")
+        val rawUploadUrl = if (data.isNull("uploadUrl")) null else data.optString("uploadUrl", "").takeIf { it.isNotBlank() && it != "null" }
+        if (rawUploadUrl != null) {
+            putBytes(rawUploadUrl, file, contentType = mimeType)
         } else {
-            putBytes("$base/api/v1/recordings/${upload.getString("id")}/content", file, authenticated = true, method = "POST", contentType = mimeType)
+            putBytes("$base/api/v1/recordings/$uploadId/content", file, authenticated = true, method = "POST", contentType = mimeType)
         }
-        return requestAt(base, "/api/v1/recordings/${upload.getString("id")}/complete", "POST", JSONObject().put("sizeBytes", file.length()))
+        return requestAt(base, "/api/v1/recordings/$uploadId/complete", "POST", JSONObject().put("sizeBytes", file.length()))
     }
 
     fun requestAt(base: String, path: String, method: String, body: JSONObject? = null): JSONObject {
@@ -312,7 +320,19 @@ open class ApiClient(protected val sessionStore: SessionStore) {
     }
 
     companion object {
-        fun endpoint(path: String) = "${BuildConfig.GXCLOSERS_API_BASE.trimEnd('/')}/${path.trimStart('/')}"
+        fun endpoint(path: String): String {
+            val clean = path.trimStart('/')
+            if (clean.startsWith("v1/") || clean.startsWith("api/v1/")) {
+                val base = if (BuildConfig.AICLOSER_DEDICATED_API_BASE.isNotBlank()) {
+                    BuildConfig.AICLOSER_DEDICATED_API_BASE.trimEnd('/')
+                } else {
+                    BuildConfig.GXCLOSERS_API_BASE.trimEnd('/')
+                }
+                val sub = if (clean.startsWith("api/v1/")) clean else "api/$clean"
+                return "$base/$sub"
+            }
+            return "${BuildConfig.GXCLOSERS_API_BASE.trimEnd('/')}/$clean"
+        }
 
         fun parseHttpError(path: String, status: Int, payload: JSONObject): ApiException {
             val errorCode = payload.optString("code", payload.optString("error", "")).ifBlank { null }

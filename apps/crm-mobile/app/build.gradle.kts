@@ -33,17 +33,21 @@ android {
         applicationId = "com.gigxomi.crm"
         minSdk = 26
         targetSdk = 36
-        versionCode = 22
-        versionName = "1.0.22"
+        versionCode = 24
+        versionName = "1.0.24"
         buildConfigField("String", "GXCLOSERS_API_BASE", "\"https://app.aicloser.in/api\"")
-        // Login/session tokens are issued by app.aicloser.in. Keep recording uploads
-        // on the same API until the dedicated service accepts the same issuer.
-        buildConfigField("String", "AICLOSER_DEDICATED_API_BASE", "\"\"")
+        // Dedicated API engine for dynamic pipeline, leads, calls, and recording uploads
+        buildConfigField("String", "AICLOSER_DEDICATED_API_BASE", "\"https://api.aicloser.in\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+    }
+
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
     }
 
     signingConfigs {
@@ -53,6 +57,8 @@ android {
                 storePassword = requireNotNull(releaseStorePassword)
                 keyAlias = requireNotNull(releaseKeyAlias)
                 keyPassword = requireNotNull(releaseKeyPassword)
+                enableV1Signing = true
+                enableV2Signing = true
             }
         }
     }

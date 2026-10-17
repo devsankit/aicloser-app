@@ -87,6 +87,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const requestedAudience = searchParams.get("audience");
   const includeSupportData = searchParams.get("includeSupportData") !== "0";
+  const includeMessages = searchParams.get("includeMessages") === "1";
   const serviceId = searchParams.get("serviceId")?.trim() || undefined;
   const conversationId = searchParams.get("conversationId")?.trim() || undefined;
   const requestedLimit = Number(searchParams.get("limit") ?? "");
@@ -116,10 +117,13 @@ export async function GET(request: Request) {
   }
 
   // A linked personal/business WhatsApp produces events in the Baileys
-  // service cache. Reconcile that cache into the workspace inbox before the
-  // list is read, so opening/refreshing Chat is enough to see new messages.
+  // service cache. Reconcile that cache in the background while the current
+  // inbox snapshot renders immediately.
   if (scope.audience === "sales") {
-    await syncConnectedWhatsAppInbox(request, authorization.session.userId);
+    // Sync in the background. The inbox can render from the current snapshot
+    // immediately; realtime events and the scheduled refresh will pick up the
+    // newly reconciled messages without blocking the first page load.
+    void syncConnectedWhatsAppInbox(request, authorization.session.userId);
   }
 
   const payload = await listConversationsForAudienceFromFile(scope.audience, {
@@ -132,6 +136,9 @@ export async function GET(request: Request) {
     serviceId,
     conversationId,
     limit,
+    // List requests only need the latest preview. Detail requests opt in to
+    // the complete visible history for the selected chat.
+    includeMessages,
   });
 
   let visibleConversations = payload.conversations;

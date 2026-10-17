@@ -169,6 +169,7 @@ fun ChatReferenceAdapter(
     viewModel: CrmViewModel,
     leadId: String,
     conversationId: String? = null,
+    contactName: String? = null,
     onBackClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -180,6 +181,7 @@ fun ChatReferenceAdapter(
     val lead = remember(viewModel.bootstrap?.leads, viewModel.inbox, leadId) {
         viewModel.bootstrap?.leads?.find { it.id == leadId }
             ?: viewModel.inbox.find { it.lead.id == leadId }?.lead
+            ?: viewModel.inbox.find { it.conversationId == leadId }?.lead
     }
     val resolvedConversationId = conversationId
         ?: viewModel.inbox.firstOrNull { it.lead.id == leadId }?.conversationId
@@ -224,6 +226,7 @@ fun ChatReferenceAdapter(
     ReferenceChatScreen(
         lead = lead,
         messages = viewModel.chatMessages,
+        fallbackContactName = contactName.orEmpty(),
         inputText = inputText,
         onInputTextChange = { inputText = it },
         onSendMessage = { text ->
@@ -300,6 +303,7 @@ fun LiveChatScreen(
     viewModel: CrmViewModel,
     leadId: String,
     conversationId: String? = null,
+    contactName: String? = null,
     onBackClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -307,6 +311,7 @@ fun LiveChatScreen(
         viewModel = viewModel,
         leadId = leadId,
         conversationId = conversationId,
+        contactName = contactName,
         onBackClick = onBackClick,
         modifier = modifier
     )

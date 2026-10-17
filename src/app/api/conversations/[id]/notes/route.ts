@@ -91,13 +91,23 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       }
     : null;
 
+  const leadName = conversationView?.customerName || "Lead";
   await persistRealtimeEvent({
     topic: `tenant:${authorization.session.tenantId ?? "tenant-gigxomi"}`,
     tenantId: authorization.session.tenantId,
     actorUserId: authorization.session.userId,
     audienceRoles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"],
-    eventType: "lead.updated",
-    payload: { conversationId: id, nextFollowUpAt: nextFollowUpAt ?? null, notes },
+    eventType: "lead.note_updated",
+    payload: {
+      conversationId: id,
+      leadId: id,
+      customerName: leadName,
+      leadName,
+      nextFollowUpAt: nextFollowUpAt ?? null,
+      followUpAt: nextFollowUpAt ?? null,
+      notes,
+      note: notes,
+    },
   }).catch(() => undefined);
 
   return NextResponse.json({

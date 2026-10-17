@@ -1869,6 +1869,7 @@ async function fetchConversations(input: {
   customerId?: string;
   conversationId?: string;
   includeSupportData?: boolean;
+  includeMessages?: boolean;
   limit?: number;
   serviceId?: string;
   tenantId?: string;
@@ -1879,6 +1880,7 @@ async function fetchConversations(input: {
   if (input.customerId) params.set("customerId", input.customerId);
   if (input.conversationId) params.set("conversationId", input.conversationId);
   if (input.includeSupportData === false) params.set("includeSupportData", "0");
+  if (input.includeMessages) params.set("includeMessages", "1");
   if (input.limit) params.set("limit", String(input.limit));
   if (input.serviceId) params.set("serviceId", input.serviceId);
   if (input.tenantId) params.set("tenantId", input.tenantId);
@@ -2150,6 +2152,7 @@ function ChatWorkspaceInner({
   const lastConversationIdRef = useRef<string | null>(null);
   const laneSyncConversationIdRef = useRef<string | null>(null);
   const requestedConversationAppliedRef = useRef("");
+  const conversationDetailRequestRef = useRef(0);
   const requestedProfilePictureIdsRef = useRef<Set<string>>(new Set());
   const refreshedProfilePictureIdsRef = useRef<Set<string>>(new Set());
   const failedProfilePictureRetryAtRef = useRef<Map<string, number>>(new Map());
@@ -3161,6 +3164,33 @@ function ChatWorkspaceInner({
     return request;
   }, [hasLoadedSupportData, loadConversations]);
 
+  const loadConversationDetail = useCallback(async (conversationId: string) => {
+    const requestId = conversationDetailRequestRef.current + 1;
+    conversationDetailRequestRef.current = requestId;
+    try {
+      const payload = await fetchConversations({
+        audience,
+        customerId: audience === "customer" ? customerId : undefined,
+        conversationId,
+        includeSupportData: false,
+        includeMessages: true,
+        limit: 1,
+        serviceId: serviceIdFilter,
+        tenantId,
+        agentId: selectedAgentId,
+      });
+      if (!isMountedRef.current || requestId !== conversationDetailRequestRef.current) {
+        return;
+      }
+      const detail = payload.conversations?.find((conversation) => conversation.id === conversationId);
+      if (detail) {
+        setConversations((current) => current.map((conversation) => conversation.id === conversationId ? detail : conversation));
+      }
+    } catch {
+      // The summary row remains usable if the detail request is interrupted.
+    }
+  }, [audience, customerId, selectedAgentId, serviceIdFilter, tenantId]);
+
   const requestChatRefresh = useCallback(() => {
     if (inboxLoadPromiseRef.current) {
       return;
@@ -3365,6 +3395,13 @@ function ChatWorkspaceInner({
     }, 0);
     return () => window.clearTimeout(timeout);
   }, [loadConversations]);
+
+  useEffect(() => {
+    if (!selectedConversationId) {
+      return;
+    }
+    void loadConversationDetail(selectedConversationId);
+  }, [loadConversationDetail, selectedConversationId]);
 
   useEffect(() => {
     if (hasLoadedSupportData) {

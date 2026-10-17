@@ -392,14 +392,14 @@ fun AppBottomNavBar(
 
 @Composable
 fun ReferenceHomeScreen(
-    agentName: String = "Ankit",
-    greeting: String = "Good morning, $agentName",
-    headline: String = "Ready to close more today?",
-    callsToday: Int = 24,
-    talkTimeMinutes: Int = 38,
-    talkTimeDisplay: String = "${talkTimeMinutes}m",
-    leadsCount: Int = 12,
-    syncStatusText: String = "Synced just now",
+    agentName: String = "",
+    greeting: String = "Welcome",
+    headline: String = "Track your progress and follow-ups",
+    callsToday: Int = 0,
+    talkTimeMinutes: Int = 0,
+    talkTimeDisplay: String = "0m",
+    leadsCount: Int = 0,
+    syncStatusText: String = "Synced",
     recentLeads: List<SalesLead> = emptyList(),
     selectedNavTab: String = "home",
     onNotificationClick: () -> Unit = {},
@@ -2065,8 +2065,8 @@ private fun formatCallDateTime(call: MobileCall): String {
 
 @Composable
 fun ReferenceMoreDrawer(
-    userName: String = "Ankit Rathore",
-    userRole: String = "Sales closer",
+    userName: String = "",
+    userRole: String = "Agent",
     currentTheme: String = "Dark",
     onClose: () -> Unit = {},
     onInboxClick: () -> Unit = {},
@@ -2552,7 +2552,7 @@ fun ReferenceGrabLeadsLoadingState(
 
 @Composable
 fun ReferenceGrabLeadsScreen(
-    availableCount: Int = 12,
+    availableCount: Int = 0,
     previewLead: AvailableLead? = null,
     canClaimLeads: Boolean = true,
     hasPendingNotes: Boolean = false,
@@ -2998,7 +2998,18 @@ fun ReferenceLeadDetailScreen(
     onUpdateLeadClick: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val activeLead = lead ?: sampleRecentLeads().first()
+    val activeLead = lead ?: SalesLead(
+        id = "",
+        customerName = "Lead unavailable",
+        customerPhone = "",
+        customerEmail = "",
+        stage = "",
+        source = "",
+        serviceInterest = "",
+        notes = "",
+        followUpAt = null,
+        priority = "NORMAL"
+    )
     var selectedStage by remember(lead?.id, currentStage) { mutableStateOf(currentStage) }
     var moreExpanded by remember(lead?.id) { mutableStateOf(false) }
     val priorityLabel = activeLead.priority
@@ -3563,10 +3574,10 @@ private fun ActivityTimelineNode(
 
 @Composable
 fun ReferenceCompleteCallScreen(
-    contactName: String = "Ankit Sharma",
-    callTypeAndDuration: String = "Outgoing • 02:18",
-    initialOutcome: String = "Connected",
-    initialFollowUpText: String = "Tomorrow • 11:30 AM",
+    contactName: String = "",
+    callTypeAndDuration: String = "",
+    initialOutcome: String = "",
+    initialFollowUpText: String = "",
     initialNotes: String = "",
     recordingStatus: String = "none",
     recordingDurationSeconds: Int = 0,
@@ -4109,109 +4120,9 @@ private fun OutcomeButton(
 // PREVIEW DATA GENERATOR (Preview-Only Sample Data)
 // =============================================================================
 
-private fun sampleRecentLeads(): List<SalesLead> {
-    return listOf(
-        SalesLead(
-            id = "lead_1",
-            customerName = "Ankit Sharma",
-            customerPhone = "+91 98000 11223",
-            customerEmail = "ankit.sharma@example.com",
-            stage = "Follow-up",
-            source = "Website",
-            serviceInterest = "Salon enquiry",
-            notes = "Interested in monthly agency retainers",
-            followUpAt = "2026-10-13T11:30:00Z",
-            priority = "HIGH"
-        ),
-        SalesLead(
-            id = "lead_2",
-            customerName = "Priya Mehta",
-            customerPhone = "+91 91234 56789",
-            customerEmail = "priya.mehta@example.com",
-            stage = "New lead",
-            source = "Instagram DM",
-            serviceInterest = "Wedding event",
-            notes = "Sent intro brochure",
-            followUpAt = null,
-            priority = "NORMAL"
-        ),
-        SalesLead(
-            id = "lead_3",
-            customerName = "Rahul Verma",
-            customerPhone = "+91 99887 66554",
-            customerEmail = "rahul.verma@example.com",
-            stage = "Contacted",
-            source = "Meta Lead Ads",
-            serviceInterest = "Corporate event",
-            notes = "Budget confirmed around 50k",
-            followUpAt = "2026-10-14T10:00:00Z",
-            priority = "NORMAL"
-        ),
-        SalesLead(
-            id = "lead_4",
-            customerName = "Neha Kapoor",
-            customerPhone = "+91 98765 43210",
-            customerEmail = "neha.kapoor@example.com",
-            stage = "Qualified",
-            source = "Website",
-            serviceInterest = "Birthday event",
-            notes = "Closing call scheduled",
-            followUpAt = null,
-            priority = "HIGH"
-        )
-    )
-}
+private fun sampleRecentLeads(): List<SalesLead> = emptyList()
 
-private fun sampleCallsList(): List<MobileCall> {
-    val leads = sampleRecentLeads()
-    return listOf(
-        MobileCall(
-            id = "call_1",
-            assignmentId = "lead_1",
-            phoneNumber = "+91 98000 11223",
-            direction = "OUTBOUND",
-            status = "completed",
-            outcome = "Connected",
-            note = "Client discussed implementation timeline",
-            durationSeconds = 138,
-            recordingStatus = "ready",
-            recordingError = null,
-            startedAt = "2026-10-12T09:14:00Z",
-            endedAt = "2026-10-12T09:16:18Z",
-            assignment = leads[0]
-        ),
-        MobileCall(
-            id = "call_2",
-            assignmentId = "lead_2",
-            phoneNumber = "+91 91234 56789",
-            direction = "INBOUND",
-            status = "completed",
-            outcome = "Connected",
-            note = "Follow-up required tomorrow",
-            durationSeconds = 84,
-            recordingStatus = "processing",
-            recordingError = null,
-            startedAt = "2026-10-12T08:37:00Z",
-            endedAt = "2026-10-12T08:38:24Z",
-            assignment = leads[1]
-        ),
-        MobileCall(
-            id = "call_3",
-            assignmentId = "lead_3",
-            phoneNumber = "+91 99887 66554",
-            direction = "INBOUND",
-            status = "missed",
-            outcome = "No answer",
-            note = null,
-            durationSeconds = 0,
-            recordingStatus = "none",
-            recordingError = null,
-            startedAt = "2026-10-11T17:22:00Z",
-            endedAt = null,
-            assignment = leads[2]
-        )
-    )
-}
+private fun sampleCallsList(): List<MobileCall> = emptyList()
 
 // =============================================================================
 // COMPOSE PREVIEWS (Dark & Light Theme Validations)

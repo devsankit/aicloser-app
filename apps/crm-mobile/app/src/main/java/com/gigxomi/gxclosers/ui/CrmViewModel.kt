@@ -16,6 +16,7 @@ import androidx.lifecycle.viewModelScope
 import com.gigxomi.gxclosers.BuildConfig
 import com.gigxomi.gxclosers.call.CallManager
 import com.gigxomi.gxclosers.call.DeviceCertificationManager
+import com.gigxomi.gxclosers.call.LeadCallNotification
 import com.gigxomi.gxclosers.call.RealtimeNotification
 import com.gigxomi.gxclosers.data.*
 import com.gigxomi.gxclosers.device.DeviceIdentity
@@ -29,6 +30,20 @@ import org.json.JSONObject
 import java.util.Collections
 import java.io.File
 import java.util.UUID
+
+data class InAppAlert(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val type: AlertType,
+    val title: String,
+    val message: String,
+    val leadId: String? = null,
+    val conversationId: String? = null,
+    val customerName: String? = null,
+    val phone: String? = null,
+    val actionLabel: String? = null,
+) {
+    enum class AlertType { CALLBACK, MESSAGE, NOTE, GENERAL }
+}
 
 class CrmViewModel(application: Application) : AndroidViewModel(application) {
     val repository = CrmRepository(application)
@@ -49,6 +64,16 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
     var chatLoading by mutableStateOf(false); private set
     var customer360 by mutableStateOf<Customer360?>(null); private set
     var customer360Loading by mutableStateOf(false); private set
+    var activeInAppAlert by mutableStateOf<InAppAlert?>(null); private set
+
+    fun dismissInAppAlert() {
+        activeInAppAlert = null
+    }
+
+    fun showInAppAlert(alert: InAppAlert) {
+        activeInAppAlert = alert
+    }
+
     var customer360Error by mutableStateOf<String?>(null); private set
     var customer360Unavailable by mutableStateOf(false); private set
     var sessionConflict by mutableStateOf<ClientSlotOccupiedException?>(null); private set
@@ -208,20 +233,78 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun handleRealtimeEvent(eventType: String, data: JSONObject) {
+        val actualEventType = data.optString("eventType", eventType).ifBlank { eventType }
         val payload = data.optJSONObject("payload") ?: data
-        val normalizedEventType = eventType.lowercase().replace('-', '.')
+        val normalizedEventType = actualEventType.lowercase().replace('-', '.')
         RealtimeNotification.show(getApplication(), normalizedEventType, payload)
+
+        val isCallback = normalizedEventType == "callback.due" ||
+            normalizedEventType == "callback.scheduled" ||
+            normalizedEventType == "follow.up.due" ||
+            normalizedEventType == "follow.up.scheduled" ||
+            (normalizedEventType.startsWith("lead.") && (payload.has("followUpAt") || payload.has("nextFollowUpAt")))
+
+        val isChatMessage = normalizedEventType == "message.created" ||
+            normalizedEventType == "chat.message" ||
+            normalizedEventType == "whatsapp.message" ||
+            normalizedEventType == "message.received" ||
+            normalizedEventType == "conversation.message"
+
+        val isNoteUpdate = normalizedEventType == "lead.note_updated" ||
+            (normalizedEventType.startsWith("lead.") && (payload.has("note") || payload.has("notes") || payload.has("internalNotes")))
+
+        val convId = payload.optString("conversationId", payload.optString("id"))
+        val leadIdFromPayload = payload.optString("leadId", payload.optString("id"))
+        val matchedLead = bootstrap?.leads?.find { it.id == leadIdFromPayload || it.id == convId }
+            ?: inbox.find { it.conversationId == convId || it.lead.id == leadIdFromPayload }?.lead
+
+        val customerName = payload.optString("customerName", payload.optString("leadName", matchedLead?.customerName ?: "Lead")).ifBlank { matchedLead?.customerName ?: "Lead" }
+        val customerPhone = payload.optString("customerPhone", payload.optString("phone", matchedLead?.customerPhone ?: "")).ifBlank { matchedLead?.customerPhone ?: "" }
+
+        if (isCallback) {
+            val callbackAt = payload.optString("followUpAt", payload.optString("nextFollowUpAt", "Soon"))
+            activeInAppAlert = InAppAlert(
+                type = InAppAlert.AlertType.CALLBACK,
+                title = "📞 Callback Due: $customerName",
+                message = "Scheduled follow-up • $customerPhone",
+                leadId = matchedLead?.id ?: leadIdFromPayload,
+                phone = customerPhone,
+                customerName = customerName,
+                actionLabel = "Call Now",
+            )
+        } else if (isChatMessage) {
+            val body = payload.optString("body", payload.optString("message", "New chat message waiting")).ifBlank { "New chat message waiting" }
+            activeInAppAlert = InAppAlert(
+                type = InAppAlert.AlertType.MESSAGE,
+                title = "💬 $customerName",
+                message = body,
+                conversationId = convId,
+                customerName = customerName,
+                actionLabel = "Reply",
+            )
+        } else if (isNoteUpdate) {
+            val noteText = payload.optString("note", payload.optString("notes", payload.optString("body", "Notes updated"))).ifBlank { "Notes were updated for this lead." }
+            activeInAppAlert = InAppAlert(
+                type = InAppAlert.AlertType.NOTE,
+                title = "📝 Note Updated: $customerName",
+                message = noteText,
+                leadId = matchedLead?.id ?: leadIdFromPayload,
+                customerName = customerName,
+                actionLabel = "View Lead",
+            )
+        }
+
         when (normalizedEventType) {
-            "lead.updated" -> {
+            "lead.updated", "lead.note_updated" -> {
                 val leadId = payload.optString("leadId", payload.optString("id"))
                 val conversationId = payload.optString("conversationId")
                 if (leadId.isNotBlank() || conversationId.isNotBlank()) refreshAll()
             }
             "conversation.updated", "conversation.created" -> refreshAll()
             "message.created" -> {
-                val convId = payload.optString("conversationId", payload.optString("id"))
-                if (convId.isNotBlank() && convId == activeConversationId) {
-                    loadChat(convId)
+                val conversationId = payload.optString("conversationId", payload.optString("id"))
+                if (conversationId.isNotBlank() && conversationId == activeConversationId) {
+                    loadChat(conversationId)
                 }
                 loadInbox()
             }
@@ -444,6 +527,7 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
         featurePermissions = data.permissions
         CallManager.cacheLeads(getApplication(), data.leads)
         updateSyncCounts()
+        checkDueCallbacks(data.leads)
     }
 
     fun retryOfflineSync() = launchWork {
@@ -1149,4 +1233,37 @@ class CrmViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun deviceId() = Settings.Secure.getString(getApplication<Application>().contentResolver, Settings.Secure.ANDROID_ID) ?: "${Build.MANUFACTURER}-${Build.MODEL}"
+
+    private val notifiedCallbackKeys = Collections.synchronizedSet(mutableSetOf<String>())
+
+    private fun checkDueCallbacks(leads: List<SalesLead>) {
+        val now = java.time.Instant.now()
+        for (lead in leads) {
+            val followUpAtText = lead.followUpAt?.trim().orEmpty()
+            if (followUpAtText.isBlank()) continue
+            val callbackAt = runCatching { java.time.Instant.parse(followUpAtText) }.getOrNull() ?: continue
+            val secondsUntil = java.time.Duration.between(now, callbackAt).seconds
+            if (secondsUntil in (-10 * 60)..(5 * 60)) {
+                val key = "${lead.id}|$followUpAtText"
+                if (notifiedCallbackKeys.add(key)) {
+                    LeadCallNotification.showCallback(
+                        context = getApplication(),
+                        leadId = lead.id,
+                        leadName = lead.customerName,
+                        phone = lead.customerPhone,
+                        callbackAt = followUpAtText,
+                    )
+                    activeInAppAlert = InAppAlert(
+                        type = InAppAlert.AlertType.CALLBACK,
+                        title = "📞 Callback Due: ${lead.customerName}",
+                        message = "Scheduled follow-up • ${lead.customerPhone}",
+                        leadId = lead.id,
+                        phone = lead.customerPhone,
+                        customerName = lead.customerName,
+                        actionLabel = "Call Now",
+                    )
+                }
+            }
+        }
+    }
 }

@@ -16,7 +16,8 @@ class DialerShareAutomationTest {
         assertTrue(DialerShareAutomation.isRecordingTimestampMatch(callEnd - 16_000L, callEnd, 16_000L))
         assertFalse(DialerShareAutomation.isRecordingTimestampMatch(callEnd - 360_000L, callEnd, 16_000L))
         assertTrue(DialerShareAutomation.isRecordingDurationMatch(14_000L, 16_000L))
-        assertFalse(DialerShareAutomation.isRecordingDurationMatch(3_264L, 16_000L))
+        assertTrue(DialerShareAutomation.isRecordingDurationMatch(3_264L, 16_000L))
+        assertFalse(DialerShareAutomation.isRecordingDurationMatch(120_000L, 16_000L))
         assertFalse(DialerShareAutomation.isRecordingDurationMatch(0L, 16_000L))
     }
 

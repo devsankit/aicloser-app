@@ -13053,6 +13053,9 @@ video.player-controls-on-hover:hover::-webkit-media-controls {
   grid-template-columns: 44px minmax(0, 1fr);
   gap: 10px;
   width: 100%;
+  /* Defer layout/paint work for rows outside the visible inbox window. */
+  content-visibility: auto;
+  contain-intrinsic-size: 72px;
   margin: 0 6px 6px;
   padding: 10px;
   border: 1px solid transparent;

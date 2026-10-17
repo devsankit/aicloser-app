@@ -608,6 +608,7 @@ fun ReferenceChatScreen(
     messages: List<ChatMessage> = emptyList(),
     notes: String = "",
     inputText: String = "",
+    fallbackContactName: String = "",
     onInputTextChange: (String) -> Unit = {},
     onSendMessage: (String) -> Unit = {},
     onAttachFileClick: () -> Unit = {},
@@ -618,9 +619,12 @@ fun ReferenceChatScreen(
     onBackClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val contactName = lead?.customerName ?: "Ankit Sharma"
-    val stageText = lead?.stage?.ifBlank { "Follow-up" } ?: "Follow-up"
-    val dealTitle = lead?.serviceInterest?.ifBlank { "CRM implementation" } ?: "CRM implementation"
+    val contactName = lead?.customerName?.takeIf { it.isNotBlank() }
+        ?: fallbackContactName.takeIf { it.isNotBlank() }
+        ?: lead?.customerPhone?.takeIf { it.isNotBlank() }
+        ?: "Conversation"
+    val stageText = lead?.stage?.ifBlank { "" }.orEmpty()
+    val dealTitle = lead?.serviceInterest?.ifBlank { "" }.orEmpty()
     var moreExpanded by remember { mutableStateOf(false) }
     var stageMenuExpanded by remember { mutableStateOf(false) }
     // Keep the chat card responsive immediately after a stage selection. The
@@ -1125,15 +1129,15 @@ private fun ReferenceOutgoingBubble(
 
 @Composable
 fun ReferenceLeadOverviewScreen(
-    userName: String = "Ankit Rathore",
-    userEmail: String = "sales@aicloser.in",
+    userName: String = "",
+    userEmail: String = "",
     userRole: String = "Sales closer",
-    deviceName: String = "Redmi · Work SIM •••• 9933",
+    deviceName: String = "",
     isDeviceSynced: Boolean = true,
     isDeviceVerified: Boolean = true,
     appearanceSetting: String = "System",
     notificationsSetting: String = "On",
-    selectedSim: String = "Work SIM •••• 9933",
+    selectedSim: String = "",
     recordingSource: String = "Phone recording",
     lastSyncText: String = "Just now",
     onBackClick: () -> Unit = {},
@@ -2891,7 +2895,7 @@ data class PaymentTransactionPreview(
 
 @Composable
 fun ReferencePaymentsScreen(
-    totalCollected: String = "₹84,500",
+    totalCollected: String = "₹0",
     selectedSubTab: String = "Overview",
     onSubTabSelect: (String) -> Unit = {},
     transactions: List<PaymentTransactionPreview> = emptyList(),

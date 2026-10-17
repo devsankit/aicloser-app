@@ -7,6 +7,7 @@ import { appendConversationMessageFromFile, deleteConversationMessageForEveryone
 import { getConversationById, projectConversation, type DummyMessageAttachmentInput } from "@/lib/gigxomi/dummy-platform-store";
 import { sendMobileChatPushForConversation } from "@/lib/mobile-chat-push";
 import { publishConversationRealtimeEvent } from "@/lib/gigxomi/conversation-realtime";
+import { persistRealtimeEvent } from "@/lib/realtime/event-outbox";
 import { resolveWhatsAppSetupTenantId } from "@/lib/api/resolve-session-tenant";
 import { sendLinkedWhatsAppText } from "@/lib/whatsapp/baileys-transport";
 
@@ -313,6 +314,25 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     tenantId: result.conversation?.tenantId ?? null,
     userIds: result.conversation?.assignedFreelancerId ? [result.conversation.assignedFreelancerId] : [],
   });
+
+  const tenantId = result.conversation?.tenantId ?? authorization.session.tenantId ?? "tenant-gigxomi";
+  const customerName = result.conversation?.customerName ?? "Lead";
+  const messageText = typeof body?.body === "string" ? body.body : "New chat message";
+  await persistRealtimeEvent({
+    topic: `tenant:${tenantId}`,
+    tenantId,
+    actorUserId: authorization.session.userId,
+    audienceRoles: ["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"],
+    eventType: "message.created",
+    payload: {
+      conversationId: id,
+      id,
+      customerName,
+      body: messageText,
+      senderName: authorization.session.displayName ?? "Lead",
+      senderId: authorization.session.userId,
+    },
+  }).catch(() => undefined);
 
   const latestMessage = [...(result.conversation?.messages ?? [])].sort((left, right) => {
     const leftTime = new Date(left.createdAt ?? "").getTime();

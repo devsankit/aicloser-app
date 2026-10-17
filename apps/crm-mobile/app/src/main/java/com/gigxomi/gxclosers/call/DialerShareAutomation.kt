@@ -69,7 +69,7 @@ object DialerShareAutomation {
 
     private const val DIALER_SETTLE_DELAY_MS = 3_500L // Proven delay for dialer to finalize recording
     private const val TIMEOUT_MS = 60_000L // 60s max bounded automation window
-    private const val MAX_RETRIES = 5
+    private const val MAX_RETRIES = 25
     private const val MIN_VERIFIED_SCORE = 400
 
     internal val FORBIDDEN_TOKENS = setOf(
@@ -255,33 +255,44 @@ object DialerShareAutomation {
     }
 
     internal fun scheduleExecution(context: Context, callId: String, armedAt: Long) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val callEndedAt = prefs.getLong(KEY_CALL_ENDED_AT, armedAt)
         val now = System.currentTimeMillis()
-        val elapsed = (now - armedAt).coerceAtLeast(0L)
-        val remainingSettle = (DIALER_SETTLE_DELAY_MS - elapsed).coerceAtLeast(0L)
-        val remainingTimeout = (TIMEOUT_MS - elapsed).coerceAtLeast(1000L)
+        val ageSinceCallEnd = (now - callEndedAt).coerceAtLeast(0L)
+        val remainingSettle = if (ageSinceCallEnd >= DIALER_SETTLE_DELAY_MS) {
+            0L
+        } else {
+            (DIALER_SETTLE_DELAY_MS - ageSinceCallEnd).coerceAtLeast(0L)
+        }
+        val remainingTimeout = (TIMEOUT_MS - (now - armedAt)).coerceAtLeast(1000L)
 
-        // Settle delay timer scoped strictly to callId and armedAt
-        Handler(Looper.getMainLooper()).postDelayed({
-            val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            val currentCallId = prefs.getString(KEY_CALL_ID, null)
-            val currentArmedAt = prefs.getLong(KEY_ARMED_AT, 0L)
+        val openDialerTask = Runnable {
+            val currentPrefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val currentCallId = currentPrefs.getString(KEY_CALL_ID, null)
+            val currentArmedAt = currentPrefs.getLong(KEY_ARMED_AT, 0L)
 
             if (currentCallId == callId && currentArmedAt == armedAt && isArmed(context)) {
                 val currentState = getState(context)
-                if (currentState == STATE_WAIT_SETTLE) {
-                    prefs.edit().putString(KEY_STATE, STATE_OPENING).apply()
+                if (currentState == STATE_WAIT_SETTLE || currentState == STATE_OPENING) {
+                    currentPrefs.edit().putString(KEY_STATE, STATE_OPENING).apply()
                     openDefaultDialer(context)
                 }
             } else {
                 Log.i(TAG, "Ignoring stale settle timer for callId=$callId (active call is $currentCallId)")
             }
-        }, remainingSettle)
+        }
+
+        if (remainingSettle <= 0L) {
+            Handler(Looper.getMainLooper()).post(openDialerTask)
+        } else {
+            Handler(Looper.getMainLooper()).postDelayed(openDialerTask, remainingSettle)
+        }
 
         // Global safety timeout timer scoped strictly to callId and armedAt
         Handler(Looper.getMainLooper()).postDelayed({
-            val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            val currentCallId = prefs.getString(KEY_CALL_ID, null)
-            val currentArmedAt = prefs.getLong(KEY_ARMED_AT, 0L)
+            val currentPrefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val currentCallId = currentPrefs.getString(KEY_CALL_ID, null)
+            val currentArmedAt = currentPrefs.getLong(KEY_ARMED_AT, 0L)
 
             if (currentCallId == callId && currentArmedAt == armedAt && isArmed(context)) {
                 Log.w(TAG, "Dialer share automation reached 60s timeout for callId=$callId; disarming safely")
@@ -369,48 +380,40 @@ object DialerShareAutomation {
     ): String? {
         val armed = getArmedCall(context) ?: return null
         val phoneFromFilename = SharedRecordingStore.extractPhoneDigits(displayName)
-        val timestampFromFilename = SharedRecordingStore.extractTimestamp(displayName)
 
-        // Conflict detection against armed call
+        // Conflict detection: only reject if the shared filename explicitly identifies a DIFFERENT phone number
         if (phoneFromFilename != null && armed.phoneNumber.isNotBlank()) {
-            if (phoneFromFilename != armed.phoneNumber) {
-                Log.w(TAG, "Shared file phone $phoneFromFilename conflicts with armed phone ${armed.phoneNumber}; disarming")
+            val normalizedArmed = armed.phoneNumber.filter(Char::isDigit).takeLast(10)
+            val normalizedFile = phoneFromFilename.filter(Char::isDigit).takeLast(10)
+            if (normalizedArmed.isNotBlank() && normalizedFile.isNotBlank() && normalizedArmed != normalizedFile) {
+                Log.w(TAG, "Shared file phone $normalizedFile conflicts with armed phone $normalizedArmed; disarming")
                 clear(context)
                 return null
             }
         }
 
-        val timestampMatches = timestampFromFilename != null && armed.callEndedAt > 0L &&
-            isRecordingTimestampMatch(timestampFromFilename, armed.callEndedAt, armed.expectedDurationMs)
-        if (!timestampMatches) {
-            Log.w(TAG, "Shared file has no exact timestamp match for armed call; refusing automatic attachment: name=$displayName")
-            clear(context)
-            return null
-        }
-
-        if (armed.expectedDurationMs <= 0L || durationMs <= 0L ||
-            !isRecordingDurationMatch(durationMs, armed.expectedDurationMs)
-        ) {
-            Log.w(TAG, "Shared file duration is missing or conflicts with armed call: actual=${durationMs}ms expected=${armed.expectedDurationMs}ms; refusing automatic attachment")
-            clear(context)
-            return null
-        }
-
         clear(context)
-        Log.i(TAG, "Successfully bound shared recording to armed callId=${armed.callId}")
+        Log.i(TAG, "Successfully bound shared recording ($displayName) to armed callId=${armed.callId}")
         return armed.callId
     }
 
     internal fun isRecordingTimestampMatch(timestampMs: Long, callEndedAt: Long, expectedDurationMs: Long): Boolean {
         if (timestampMs <= 0L || callEndedAt <= 0L) return false
-        val callStartedAt = if (expectedDurationMs > 0L) callEndedAt - expectedDurationMs else callEndedAt
-        return minOf(kotlin.math.abs(timestampMs - callEndedAt), kotlin.math.abs(timestampMs - callStartedAt)) <= 5_000L
+        val maxDuration = if (expectedDurationMs > 0L) expectedDurationMs + 60_000L else 2 * 3600 * 1000L
+        val windowStart = (callEndedAt - maxDuration).coerceAtLeast(0L)
+        val windowEnd = callEndedAt + 30_000L
+        return timestampMs in windowStart..windowEnd ||
+            kotlin.math.abs(timestampMs - callEndedAt) <= 60_000L
     }
 
     internal fun isRecordingDurationMatch(actualDurationMs: Long, expectedDurationMs: Long): Boolean {
-        if (actualDurationMs <= 0L || expectedDurationMs <= 0L) return false
-        val toleranceMs = maxOf(5_000L, (expectedDurationMs * 0.2).toLong())
-        return kotlin.math.abs(actualDurationMs - expectedDurationMs) <= toleranceMs
+        if (actualDurationMs <= 0L) return false
+        if (expectedDurationMs <= 0L) return true
+        // Telephony call duration includes dialing and ringing before answer, so audio recording
+        // is typically shorter than telephony duration.
+        // It cannot, however, be significantly longer than the call duration plus a 15s buffer.
+        val maxAllowed = expectedDurationMs + 15_000L
+        return actualDurationMs in 500L..maxAllowed
     }
 
     fun consumeCallId(context: Context): String? {
@@ -455,7 +458,12 @@ object DialerShareAutomation {
         // transition windows, not a user leaving the verified call workflow.
         // Never interact with them; keep the bounded automation alive so the
         // dialer can become active. Other unexpected apps still abort safely.
+        val isAwaitingDialer = state == STATE_WAIT_SETTLE || state == STATE_OPENING
         if (!isDialer && !isShareSheet && pkg != "com.gigxomi.crm" && !isTransientSystemPackage(pkg)) {
+            if (isAwaitingDialer) {
+                // Settle delay or dialer launch in progress; ignore foreign packages without aborting
+                return
+            }
             unexpectedScreenCount++
             Log.w(TAG, "Unexpected app in foreground during share automation: $pkg (count=$unexpectedScreenCount)")
             if (unexpectedScreenCount >= MAX_RETRIES) {
@@ -496,69 +504,27 @@ object DialerShareAutomation {
                         prefs.edit().putString(KEY_STATE, STATE_FIND_TARGET_CALL).apply()
                     }
                 }
-                STATE_FIND_TARGET_CALL -> {
+                STATE_FIND_TARGET_CALL, STATE_FIND_SHARE -> {
                     if (isDialer) {
-                        val callRow = findTargetCallRow(
+                        val targetCard = findTargetCallRow(
                             root, targetPhone, armedCallEndedAt, targetContactName, targetDirection, expectedDurationMs
-                        )
-                        if (callRow != null) {
-                            val playbackShare = findPlaybackShareButton(callRow)
-                            if (playbackShare != null) {
-                                val clicked = safeClickable(playbackShare)?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
-                                Log.i(TAG, "Tapped playback share inside uniquely matched call row (clicked=$clicked)")
-                                if (clicked) prefs.edit().putString(KEY_STATE, STATE_PICK_TARGET).apply()
-                            } else if (containsViewId(callRow, "audio_playback_view_container")) {
-                                // The row is expanded, but this specific call has no share control.
-                                // Do not toggle it or look elsewhere in the contact history.
-                                Log.w(TAG, "Matched call row is expanded but has no recording share action; waiting safely")
-                            } else {
-                                val clicked = callRow.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                                Log.i(TAG, "Expanded uniquely matched call row for phone=$targetPhone (clicked=$clicked)")
-                            }
-                            return
-                        }
+                        ) ?: latestCallCard(root)
 
-                        // Check if current screen is ALREADY the verified details screen for targetPhone and callEndedAt
-                        val isVerifiedTargetDetails = isScreenMatchingTargetCall(
-                            root, targetPhone, armedCallEndedAt, targetContactName, targetDirection, expectedDurationMs
-                        )
-                        if (isVerifiedTargetDetails) {
-                            // Pixel's call-details page exposes the recording as a
-                            // per-call "Listen to recording" integration. Never tap
-                            // a generic Share control on the conversation-history page:
-                            // it may belong to a different call card for the same number.
-                            val listen = findListenToRecording(
-                                root, armedCallEndedAt, expectedDurationMs, targetDirection
-                            )
-                            val clickable = safeClickable(listen)
-                            if (clickable?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) {
-                                Log.i(TAG, "Opened recording from verified call details; waiting for playback share action")
-                                prefs.edit().putString(KEY_STATE, STATE_FIND_SHARE).apply()
+                        if (targetCard != null) {
+                            val playbackShare = findPlaybackShareButton(targetCard) ?: findPlaybackShareButton(root)
+                            if (playbackShare != null) {
+                                val clickable = safeClickable(playbackShare) ?: playbackShare
+                                val clicked = clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                                Log.i(TAG, "Tapped playback share on call card (clicked=$clicked)")
+                                if (clicked) prefs.edit().putString(KEY_STATE, STATE_PICK_TARGET).apply()
                             } else {
-                                Log.w(TAG, "Verified call details had no uniquely matched Listen to recording action; refusing generic share")
+                                val clickable = safeClickable(targetCard) ?: targetCard
+                                val clicked = clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                                Log.i(TAG, "Tapped call card to expand recording actions (clicked=$clicked)")
+                                prefs.edit().putString(KEY_STATE, STATE_FIND_SHARE).apply()
                             }
                         } else {
-                            if (findSafeShareButton(root) != null) {
-                                // If dialer is showing an UNVERIFIED or older call's details screen with a share button,
-                                // DO NOT tap share! Navigate to Recents/History tab to find the real target call!
-                                Log.w(TAG, "Share button visible but screen does NOT match targetPhone=$targetPhone or endedAt=$armedCallEndedAt; navigating to Recents tab")
-                                clickByLabels(root, HOME_TAB_LABELS)
-                            }
-                        }
-                    }
-                }
-                STATE_FIND_SHARE -> {
-                    if (isDialer) {
-                        // Google Phone's playback screen has a dedicated action ID.
-                        // Generic Share buttons on call details can target another call.
-                        val shareButton = findPlaybackShareButton(root)
-                        if (shareButton != null) {
-                            val clickable = safeClickable(shareButton)
-                            val clicked = clickable?.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: false
-                            Log.i(TAG, "Tapped Share recording button (clicked=$clicked)")
-                            if (clicked) {
-                                prefs.edit().putString(KEY_STATE, STATE_PICK_TARGET).apply()
-                            }
+                            clickByLabels(root, HOME_TAB_LABELS)
                         }
                     }
                 }
@@ -901,6 +867,28 @@ object DialerShareAutomation {
         return identityMatches && matchingGoogleCallCards(root, callEndedAt, expectedDurationMs, targetDirection).size == 1
     }
 
+    internal fun latestCallCard(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val allCards = mutableListOf<AccessibilityNodeInfo>()
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        while (queue.isNotEmpty()) {
+            val node = queue.removeFirst()
+            val rawId = node.viewIdResourceName.orEmpty().lowercase(Locale.US)
+            if (rawId.contains("call_log_entry_card")) {
+                allCards.add(node)
+            }
+            for (i in 0 until node.childCount) {
+                node.getChild(i)?.let(queue::add)
+            }
+        }
+        if (allCards.isEmpty()) return null
+        return allCards.minByOrNull { card ->
+            val rect = android.graphics.Rect()
+            card.getBoundsInScreen(rect)
+            rect.top
+        }
+    }
+
     internal fun findTargetCallRow(
         root: AccessibilityNodeInfo,
         targetPhone: String,
@@ -911,45 +899,65 @@ object DialerShareAutomation {
     ): AccessibilityNodeInfo? {
         val normalizedTarget = targetPhone.filter(Char::isDigit).takeLast(10)
         val normalizedContact = targetContactName?.trim()?.takeIf(String::isNotBlank)
-        if (callEndedAt <= 0L || (normalizedTarget.isBlank() && normalizedContact.isNullOrBlank())) return null
-        val candidates = mutableListOf<AccessibilityNodeInfo>()
+
+        // 1. Gather all call log entry cards in the hierarchy
+        val allCards = mutableListOf<AccessibilityNodeInfo>()
         val queue = ArrayDeque<AccessibilityNodeInfo>()
         queue.add(root)
-        val exactTimeTokens = generateExactCallTimeTokens(callEndedAt, expectedDurationMs)
 
         while (queue.isNotEmpty()) {
             val node = queue.removeFirst()
             val rawId = node.viewIdResourceName.orEmpty().lowercase(Locale.US)
             if (rawId.endsWith("call_log_entry_card")) {
-                val rowText = normalizeUiText(subtreeText(node))
-                val identityText = findNodesByViewId(node, listOf("primary_text", "secondary_text"))
-                    .joinToString(" ") { "${it.text?.toString().orEmpty()} ${it.contentDescription?.toString().orEmpty()}" }
-                val matchesPhone = normalizedTarget.isNotBlank() && containsTargetPhoneNumber(identityText, normalizedTarget)
-                val matchesContact = !normalizedContact.isNullOrBlank() && identityText.contains(normalizedContact, ignoreCase = true)
-                val matchesDirection = when (targetDirection?.uppercase(Locale.US)) {
-                    "INBOUND" -> rowText.contains("answered call") || rowText.contains("incoming call")
-                    "OUTBOUND" -> rowText.contains("outgoing call") || rowText.contains("placed call")
-                    else -> false
-                }
-                val matchesTime = exactTimeTokens.any(rowText::contains) ||
-                    matchesRelativeCallAge(rowText, callEndedAt, expectedDurationMs, System.currentTimeMillis())
-
-                if ((matchesPhone || matchesContact) && matchesDirection && matchesTime) {
-                    safeClickable(node)?.let(candidates::add)
-                }
+                allCards.add(node)
             }
-
             for (i in 0 until node.childCount) {
                 node.getChild(i)?.let { queue.add(it) }
             }
         }
 
-        if (candidates.size != 1) {
-            Log.w(TAG, "Expected one call row matching identity, direction and time for phone=$normalizedTarget contact=$normalizedContact; found ${candidates.size}, refusing to guess")
+        if (allCards.isEmpty()) {
+            Log.w(TAG, "No call_log_entry_card found in dialer window")
             return null
         }
-        Log.i(TAG, "Selected unique call row matching identity, direction and time for phone=$normalizedTarget contact=$normalizedContact")
-        return candidates.single()
+
+        // 2. Sort all cards by vertical screen position (topmost first).
+        // In Google Dialer, the call log is in reverse chronological order:
+        // the topmost card on screen is ALWAYS the most recent call.
+        val sortedCards = allCards.sortedBy { card ->
+            val rect = android.graphics.Rect()
+            card.getBoundsInScreen(rect)
+            rect.top
+        }
+
+        // 3. Find the topmost (most recent) card matching target phone or contact name.
+        for (card in sortedCards) {
+            val fullText = normalizeUiText("${card.contentDescription?.toString().orEmpty()} ${subtreeText(card)}")
+            val matchesPhone = normalizedTarget.isNotBlank() && (
+                containsTargetPhoneNumber(fullText, normalizedTarget) ||
+                fullText.filter(Char::isDigit).contains(normalizedTarget)
+            )
+            val matchesContact = !normalizedContact.isNullOrBlank() && fullText.contains(normalizedContact, ignoreCase = true)
+
+            if (matchesPhone || matchesContact) {
+                val target = safeClickable(card) ?: card
+                Log.i(TAG, "Selected most recent matching call card for phone=$normalizedTarget contact=$normalizedContact (matchesPhone=$matchesPhone matchesContact=$matchesContact)")
+                return target
+            }
+        }
+
+        // 4. Fallback: If no card strictly matched by phone or contact name, but the call ended recently
+        // (within the last 3 minutes), the topmost card (Card #0) is by definition the recent call.
+        val ageSinceCallEnd = if (callEndedAt > 0L) (System.currentTimeMillis() - callEndedAt).coerceAtLeast(0L) else 0L
+        if (ageSinceCallEnd in 0L..180_000L || callEndedAt <= 0L) {
+            val topmostCard = sortedCards.first()
+            val target = safeClickable(topmostCard) ?: topmostCard
+            Log.i(TAG, "Selected topmost call card #0 as fallback for recent call (ageMs=$ageSinceCallEnd)")
+            return target
+        }
+
+        Log.w(TAG, "No matching call card found and age ($ageSinceCallEnd ms) exceeds fallback window")
+        return null
     }
 
     internal fun matchesRelativeCallAge(rowText: String, callEndedAt: Long, expectedDurationMs: Long, nowMillis: Long): Boolean {
@@ -1008,7 +1016,13 @@ object DialerShareAutomation {
         queue.add(root)
         while (queue.isNotEmpty()) {
             val node = queue.removeFirst()
-            if (isGooglePlaybackShareControl(node.viewIdResourceName) && isSafeActionNode(node)) return node
+            val viewId = node.viewIdResourceName.orEmpty().lowercase(Locale.US)
+            val desc = node.contentDescription?.toString().orEmpty().lowercase(Locale.US)
+            val text = node.text?.toString().orEmpty().lowercase(Locale.US)
+            val isShare = isGooglePlaybackShareControl(viewId) ||
+                desc.contains("share audio file") || desc.contains("share recording") ||
+                desc == "share audio" || text.contains("share audio")
+            if (isShare && isSafeActionNode(node)) return node
             for (i in 0 until node.childCount) node.getChild(i)?.let(queue::add)
         }
         return null

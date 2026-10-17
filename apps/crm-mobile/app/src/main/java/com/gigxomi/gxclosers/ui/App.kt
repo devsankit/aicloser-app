@@ -53,6 +53,10 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.ui.zIndex
+
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.ui.focus.onFocusChanged
@@ -306,7 +310,16 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
     LaunchedEffect(initialLink, vm.authenticated, vm.setupComplete) {
         if (vm.authenticated && vm.setupComplete && initialLink != null && nav.currentDestination != null) {
             val id = initialLink.lastPathSegment.orEmpty()
-            when (initialLink.host) { "lead" -> nav.navigate("lead/$id"); "disposition" -> nav.navigate("disposition/$id") }
+            when (initialLink.host) {
+                "lead" -> nav.navigate("lead/$id")
+                "disposition" -> nav.navigate("disposition/$id")
+                "chat" -> {
+                    val segments = initialLink.pathSegments
+                    val convId = segments.getOrNull(0) ?: id
+                    val name = segments.getOrNull(1)?.let { Uri.decode(it) } ?: "Chat"
+                    nav.navigate("chat/$convId/${Uri.encode(name)}")
+                }
+            }
         }
     }
 
@@ -374,11 +387,20 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
             }
             composable("chat/{id}/{name}", arguments = listOf(navArgument("id") { type = NavType.StringType }, navArgument("name") { type = NavType.StringType })) { entry ->
                 val requestedId = entry.arguments?.getString("id").orEmpty()
+                val decodedName = Uri.decode(entry.arguments?.getString("name").orEmpty())
                 val leadId = vm.bootstrap?.leads?.find { it.id == requestedId }?.id
                     ?: vm.inbox.find { it.conversationId == requestedId || it.lead.id == requestedId }?.lead?.id
                     ?: requestedId
+                val conversationId = vm.inbox.find { it.conversationId == requestedId || it.lead.id == requestedId }?.conversationId
+                    ?: requestedId
                 Box(Modifier.fillMaxSize().background(GxBackground)) {
-                    LiveChatScreen(vm, leadId = leadId, onBackClick = { nav.popBackStack() })
+                    LiveChatScreen(
+                        vm,
+                        leadId = leadId,
+                        conversationId = conversationId,
+                        contactName = decodedName,
+                        onBackClick = { nav.popBackStack() }
+                    )
                 }
             }
             composable("inbox") {
@@ -488,6 +510,30 @@ fun GXClosersApp(initialLink: Uri?, vm: CrmViewModel = viewModel()) {
                 )
             }
             }
+
+            InAppPopupAlertBanner(
+                alert = vm.activeInAppAlert,
+                onDismiss = { vm.dismissInAppAlert() },
+                onOpenLead = { leadId ->
+                    vm.dismissInAppAlert()
+                    nav.navigate("lead/$leadId")
+                },
+                onOpenChat = { convId, name ->
+                    vm.dismissInAppAlert()
+                    nav.navigate("chat/$convId/${Uri.encode(name)}")
+                },
+                onCall = { phone ->
+                    vm.dismissInAppAlert()
+                    val dial = phone.filter(Char::isDigit)
+                    if (dial.isNotBlank()) {
+                        runCatching {
+                            context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$dial")).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            })
+                        }
+                    }
+                }
+            )
         }
     }
 
@@ -4545,6 +4591,158 @@ private fun AddContactDialog(
                             Text("Save Contact", fontWeight = FontWeight.Black, fontSize = 13.sp)
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+
+@Composable
+fun InAppPopupAlertBanner(
+    alert: InAppAlert?,
+    onDismiss: () -> Unit,
+    onOpenLead: (String) -> Unit,
+    onOpenChat: (String, String) -> Unit,
+    onCall: (String) -> Unit,
+) {
+    LaunchedEffect(alert?.id) {
+        if (alert != null) {
+            delay(8000)
+            onDismiss()
+        }
+    }
+
+    AnimatedVisibility(
+        visible = alert != null,
+        enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
+        exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .zIndex(100f)
+    ) {
+        if (alert == null) return@AnimatedVisibility
+
+        val (accentColor, icon) = when (alert.type) {
+            InAppAlert.AlertType.CALLBACK -> Color(0xFF10B981) to Icons.Default.Phone
+            InAppAlert.AlertType.MESSAGE -> Color(0xFFA855F7) to Icons.Default.Email
+            InAppAlert.AlertType.NOTE -> Color(0xFF3B82F6) to Icons.Default.Edit
+            InAppAlert.AlertType.GENERAL -> Color(0xFFFF6B2F) to Icons.Default.Notifications
+        }
+
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)
+            ),
+            border = BorderStroke(1.dp, accentColor.copy(alpha = 0.5f)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    when (alert.type) {
+                        InAppAlert.AlertType.CALLBACK -> {
+                            if (!alert.phone.isNullOrBlank()) onCall(alert.phone)
+                            else if (!alert.leadId.isNullOrBlank()) onOpenLead(alert.leadId)
+                        }
+                        InAppAlert.AlertType.MESSAGE -> {
+                            if (!alert.conversationId.isNullOrBlank()) onOpenChat(alert.conversationId, alert.customerName ?: "Chat")
+                        }
+                        InAppAlert.AlertType.NOTE -> {
+                            if (!alert.leadId.isNullOrBlank()) onOpenLead(alert.leadId)
+                        }
+                        InAppAlert.AlertType.GENERAL -> {
+                            if (!alert.leadId.isNullOrBlank()) onOpenLead(alert.leadId)
+                        }
+                    }
+                }
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(accentColor.copy(alpha = 0.18f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = accentColor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = alert.title,
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = alert.message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                if (!alert.actionLabel.isNullOrBlank()) {
+                    Button(
+                        onClick = {
+                            when (alert.type) {
+                                InAppAlert.AlertType.CALLBACK -> {
+                                    if (!alert.phone.isNullOrBlank()) onCall(alert.phone)
+                                    else if (!alert.leadId.isNullOrBlank()) onOpenLead(alert.leadId)
+                                }
+                                InAppAlert.AlertType.MESSAGE -> {
+                                    if (!alert.conversationId.isNullOrBlank()) onOpenChat(alert.conversationId, alert.customerName ?: "Chat")
+                                }
+                                InAppAlert.AlertType.NOTE -> {
+                                    if (!alert.leadId.isNullOrBlank()) onOpenLead(alert.leadId)
+                                }
+                                InAppAlert.AlertType.GENERAL -> {
+                                    if (!alert.leadId.isNullOrBlank()) onOpenLead(alert.leadId)
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = accentColor,
+                            contentColor = Color.White
+                        ),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.height(34.dp)
+                    ) {
+                        Text(
+                            text = alert.actionLabel,
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
+                }
+
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Dismiss",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
             }
         }
