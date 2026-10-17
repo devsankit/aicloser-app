@@ -33,8 +33,8 @@ android {
         applicationId = "com.gigxomi.crm"
         minSdk = 26
         targetSdk = 36
-        versionCode = 24
-        versionName = "1.0.24"
+        versionCode = 27
+        versionName = "1.0.27"
         buildConfigField("String", "GXCLOSERS_API_BASE", "\"https://app.aicloser.in/api\"")
         // Dedicated API engine for dynamic pipeline, leads, calls, and recording uploads
         buildConfigField("String", "AICLOSER_DEDICATED_API_BASE", "\"https://api.aicloser.in\"")

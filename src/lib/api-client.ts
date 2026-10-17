@@ -1191,6 +1191,25 @@ export const aicloserApi = {
       const res = await request(`/payments/${encodeURIComponent(id)}/reject`, { method: 'POST', body: JSON.stringify({ reason }) });
       return res.data;
     },
+
+    async attachProof(id: string, file: File, meta?: { utrReference?: string; note?: string }) {
+      const formData = new FormData();
+      formData.append('proof', file);
+      if (meta?.utrReference) formData.append('utrReference', meta.utrReference);
+      if (meta?.note) formData.append('note', meta.note);
+
+      const res = await request<any>(`/payments/${encodeURIComponent(id)}/proof`, {
+        method: 'POST',
+        body: formData,
+      });
+      return res.data;
+    },
+
+    getProofUrl(id: string) {
+      const token = getStoredToken();
+      const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
+      return `${API_BASE_URL}/payments/${encodeURIComponent(id)}/proof${tokenParam}`;
+    },
   },
 
   // 7. Dynamic Custom Fields

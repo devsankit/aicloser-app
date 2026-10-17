@@ -475,19 +475,15 @@ class PhoneStateReceiver : BroadcastReceiver() {
             } else if (!sessionStarting) {
                 // A call started from the normal Android dialer never gets an
                 // activeCallId because CRM did not get a chance to prepare it.
-                // Read the just-finished real system call-log row and create
-                // the tenant-scoped CRM session before closing it.
-                if (freshConnectedSequence) {
-                    syncUnpreparedCallLog(
-                        context,
-                        connectedAtHint = offhookAt,
-                        callStartedAtHint = sequenceStartedAt,
-                        endedAtHint = System.currentTimeMillis(),
-                        localMicRecording = localMicRecording,
-                    )
-                } else {
-                    Log.w("GXPhoneState", "IDLE without a fresh connected-call sequence; ignoring unprepared-call fallback")
-                }
+                // Always sync the just-finished call-log row directly.
+                val idleNow = System.currentTimeMillis()
+                syncUnpreparedCallLog(
+                    context,
+                    connectedAtHint = if (offhookAt > 0L) offhookAt else (idleNow - 60_000L),
+                    callStartedAtHint = if (sequenceStartedAt > 0L) sequenceStartedAt else (idleNow - 120_000L),
+                    endedAtHint = idleNow,
+                    localMicRecording = localMicRecording,
+                )
             }
             if (sessionStarting && localMicRecording?.callId?.startsWith(CallAudioRecorder.UNPREPARED_CALL_PREFIX) == true) {
                 prefs.edit().putString("pendingInboundRecordingUploadId", localMicRecording.clientUploadId).apply()
@@ -770,23 +766,37 @@ class PhoneStateReceiver : BroadcastReceiver() {
 
         val resolver = context.contentResolver
         val prefs = context.getSharedPreferences(CallAudioRecorder.PREFS, Context.MODE_PRIVATE)
-        if (!CallHistoryCorrelation.hasFreshConnectedSequence(true, connectedAtHint, endedAtHint) || callStartedAtHint <= 0L) {
-            Log.w("GXPhoneState", "Rejecting unprepared import without fresh OFFHOOK/IDLE evidence")
-            return
-        }
-        val cutoff = (callStartedAtHint - CallHistoryCorrelation.CALL_LOG_RINGING_TOLERANCE_MS).coerceAtLeast(0L)
+        val nowMillis = System.currentTimeMillis()
+        val cutoff = (callStartedAtHint - CallHistoryCorrelation.CALL_LOG_RINGING_TOLERANCE_MS)
+            .coerceAtLeast(nowMillis - (5 * 60 * 1000L))
         val upperBound = endedAtHint + CallHistoryCorrelation.CALL_LOG_END_TOLERANCE_MS
+        val baseProjection1 = arrayOf(
+            CallLog.Calls._ID,
+            CallLog.Calls.NUMBER,
+            CallLog.Calls.TYPE,
+            CallLog.Calls.DATE,
+            CallLog.Calls.DURATION,
+        )
         val cursor = runCatching {
             resolver.query(
                 CallLog.Calls.CONTENT_URI,
-                arrayOf(
-                    CallLog.Calls._ID,
-                    CallLog.Calls.NUMBER,
-                    CallLog.Calls.TYPE,
-                    CallLog.Calls.DATE,
-                    CallLog.Calls.DURATION,
-                    CallLog.Calls.PHONE_ACCOUNT_ID,
-                ),
+                baseProjection1 + CallLog.Calls.PHONE_ACCOUNT_ID,
+                "${CallLog.Calls.DATE} >= ? AND ${CallLog.Calls.DATE} <= ?",
+                arrayOf(cutoff.toString(), upperBound.toString()),
+                "${CallLog.Calls.DATE} DESC"
+            )
+        }.recoverCatching {
+            resolver.query(
+                CallLog.Calls.CONTENT_URI,
+                baseProjection1 + arrayOf("subscription_id", "simid"),
+                "${CallLog.Calls.DATE} >= ? AND ${CallLog.Calls.DATE} <= ?",
+                arrayOf(cutoff.toString(), upperBound.toString()),
+                "${CallLog.Calls.DATE} DESC"
+            )
+        }.recoverCatching {
+            resolver.query(
+                CallLog.Calls.CONTENT_URI,
+                baseProjection1,
                 "${CallLog.Calls.DATE} >= ? AND ${CallLog.Calls.DATE} <= ?",
                 arrayOf(cutoff.toString(), upperBound.toString()),
                 "${CallLog.Calls.DATE} DESC"
@@ -802,18 +812,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
             val type = it.getInt(it.getColumnIndexOrThrow(CallLog.Calls.TYPE))
             val startedAt = it.getLong(it.getColumnIndexOrThrow(CallLog.Calls.DATE))
             val callLogDuration = it.getLong(it.getColumnIndexOrThrow(CallLog.Calls.DURATION)).coerceAtLeast(0)
-            if (!CallHistoryCorrelation.matchesConnectedCallLogRow(
-                    rowStartedAt = startedAt,
-                    durationSeconds = callLogDuration,
-                    observedCallStartedAt = callStartedAtHint,
-                    observedOffhookAt = connectedAtHint,
-                    observedIdleAt = endedAtHint,
-                    rowPhone = phone,
-                )
-            ) {
-                Log.w("GXPhoneState", "Call-log row id=$id does not match the current OFFHOOK/IDLE timestamps; ignoring")
-                return
-            }
+            // Ground truth is the system call-log; accept recent row within the time window
             val duration = callLogDuration
             val simSubscriptionId = extractSimAccountFromCallLog(it)
             val callLogLead = CallManager.lookup(context, phone)
@@ -999,19 +998,39 @@ class PhoneStateReceiver : BroadcastReceiver() {
         ) return null
         val expectedDigits = expectedPhone?.filter(Char::isDigit)?.takeLast(10)
         val cutoffTime = minStartedAt ?: (System.currentTimeMillis() - CALL_LOG_LOOKBACK_MS)
+        val baseProjection2 = arrayOf(
+            CallLog.Calls._ID,
+            CallLog.Calls.NUMBER,
+            CallLog.Calls.DATE,
+        )
         return runCatching {
-            context.contentResolver.query(
-                CallLog.Calls.CONTENT_URI,
-                arrayOf(
-                    CallLog.Calls._ID,
-                    CallLog.Calls.NUMBER,
-                    CallLog.Calls.DATE,
-                    CallLog.Calls.PHONE_ACCOUNT_ID,
-                ),
-                "${CallLog.Calls.DATE} >= ?",
-                arrayOf(cutoffTime.toString()),
-                "${CallLog.Calls.DATE} DESC",
-            )?.use { cursor ->
+            val cursor = runCatching {
+                context.contentResolver.query(
+                    CallLog.Calls.CONTENT_URI,
+                    baseProjection2 + CallLog.Calls.PHONE_ACCOUNT_ID,
+                    "${CallLog.Calls.DATE} >= ?",
+                    arrayOf(cutoffTime.toString()),
+                    "${CallLog.Calls.DATE} DESC",
+                )
+            }.recoverCatching {
+                context.contentResolver.query(
+                    CallLog.Calls.CONTENT_URI,
+                    baseProjection2 + arrayOf("subscription_id", "simid"),
+                    "${CallLog.Calls.DATE} >= ?",
+                    arrayOf(cutoffTime.toString()),
+                    "${CallLog.Calls.DATE} DESC",
+                )
+            }.recoverCatching {
+                context.contentResolver.query(
+                    CallLog.Calls.CONTENT_URI,
+                    baseProjection2,
+                    "${CallLog.Calls.DATE} >= ?",
+                    arrayOf(cutoffTime.toString()),
+                    "${CallLog.Calls.DATE} DESC",
+                )
+            }.getOrNull()
+
+            cursor?.use { cursor ->
                 var inspected = 0
                 while (cursor.moveToNext() && inspected++ < 10) {
                     val number = cursor.getString(cursor.getColumnIndexOrThrow(CallLog.Calls.NUMBER)).orEmpty()
@@ -1041,18 +1060,34 @@ class PhoneStateReceiver : BroadcastReceiver() {
         // Android Telecom flushes CallLog rows asynchronously after IDLE.
         // If an expected phone is known, retry briefly to catch the freshly inserted row.
         var attempts = if (!expectedDigits.isNullOrBlank()) 4 else 1
+        val baseProjection3 = arrayOf(
+            CallLog.Calls._ID,
+            CallLog.Calls.NUMBER,
+            CallLog.Calls.TYPE,
+            CallLog.Calls.DATE,
+            CallLog.Calls.DURATION,
+        )
         while (attempts-- > 0) {
             val cursor = runCatching {
                 context.contentResolver.query(
                     CallLog.Calls.CONTENT_URI,
-                    arrayOf(
-                        CallLog.Calls._ID,
-                        CallLog.Calls.NUMBER,
-                        CallLog.Calls.TYPE,
-                        CallLog.Calls.DATE,
-                        CallLog.Calls.DURATION,
-                        CallLog.Calls.PHONE_ACCOUNT_ID,
-                    ),
+                    baseProjection3 + CallLog.Calls.PHONE_ACCOUNT_ID,
+                    "${CallLog.Calls.DATE} >= ?",
+                    arrayOf(cutoffTime.toString()),
+                    "${CallLog.Calls.DATE} DESC",
+                )
+            }.recoverCatching {
+                context.contentResolver.query(
+                    CallLog.Calls.CONTENT_URI,
+                    baseProjection3 + arrayOf("subscription_id", "simid"),
+                    "${CallLog.Calls.DATE} >= ?",
+                    arrayOf(cutoffTime.toString()),
+                    "${CallLog.Calls.DATE} DESC",
+                )
+            }.recoverCatching {
+                context.contentResolver.query(
+                    CallLog.Calls.CONTENT_URI,
+                    baseProjection3,
                     "${CallLog.Calls.DATE} >= ?",
                     arrayOf(cutoffTime.toString()),
                     "${CallLog.Calls.DATE} DESC",

@@ -36,8 +36,9 @@ object CallLogSyncManager {
 
     internal fun callLogSyncCutoff(nowMillis: Long, lookbackDays: Int, lastSyncedDate: Long): Long {
         val boundedLookbackDays = lookbackDays.coerceIn(1, 30)
-        val defaultCutoff = nowMillis - (boundedLookbackDays.toLong() * 24 * 60 * 60 * 1000L)
-        return if (lastSyncedDate > 0L) maxOf(defaultCutoff, lastSyncedDate - 300_000L) else defaultCutoff
+        // Self-healing lookback: always check recent call logs so missed/unprepared dialer calls
+        // or recordings are never lost to a brittle watermark. Deduplication is handled by hasCallSession().
+        return nowMillis - (boundedLookbackDays.toLong() * 24 * 60 * 60 * 1000L)
     }
 
     fun syncRecentCallLogs(context: Context, lookbackDays: Int = 14): Int {
@@ -59,18 +60,35 @@ object CallLogSyncManager {
         val cutoff = callLogSyncCutoff(now, lookbackDays, lastSynced)
 
         val resolver = context.contentResolver
+        val baseProjection = arrayOf(
+            CallLog.Calls._ID,
+            CallLog.Calls.NUMBER,
+            CallLog.Calls.TYPE,
+            CallLog.Calls.DATE,
+            CallLog.Calls.DURATION,
+            CallLog.Calls.CACHED_NAME,
+        )
         val cursor = runCatching {
             resolver.query(
                 CallLog.Calls.CONTENT_URI,
-                arrayOf(
-                    CallLog.Calls._ID,
-                    CallLog.Calls.NUMBER,
-                    CallLog.Calls.TYPE,
-                    CallLog.Calls.DATE,
-                    CallLog.Calls.DURATION,
-                    CallLog.Calls.PHONE_ACCOUNT_ID,
-                    CallLog.Calls.CACHED_NAME,
-                ),
+                baseProjection + CallLog.Calls.PHONE_ACCOUNT_ID,
+                "${CallLog.Calls.DATE} >= ?",
+                arrayOf(cutoff.toString()),
+                "${CallLog.Calls.DATE} DESC",
+            )
+        }.recoverCatching {
+            // OEM / Xiaomi / MIUI fallback where PHONE_ACCOUNT_ID is an invalid column
+            resolver.query(
+                CallLog.Calls.CONTENT_URI,
+                baseProjection + arrayOf("subscription_id", "simid"),
+                "${CallLog.Calls.DATE} >= ?",
+                arrayOf(cutoff.toString()),
+                "${CallLog.Calls.DATE} DESC",
+            )
+        }.recoverCatching {
+            resolver.query(
+                CallLog.Calls.CONTENT_URI,
+                baseProjection,
                 "${CallLog.Calls.DATE} >= ?",
                 arrayOf(cutoff.toString()),
                 "${CallLog.Calls.DATE} DESC",
@@ -91,7 +109,14 @@ object CallLogSyncManager {
             val typeCol = it.getColumnIndex(CallLog.Calls.TYPE)
             val dateCol = it.getColumnIndex(CallLog.Calls.DATE)
             val durCol = it.getColumnIndex(CallLog.Calls.DURATION)
-            val accCol = it.getColumnIndex(CallLog.Calls.PHONE_ACCOUNT_ID)
+            val accCol = when {
+                it.getColumnIndex(CallLog.Calls.PHONE_ACCOUNT_ID) >= 0 -> it.getColumnIndex(CallLog.Calls.PHONE_ACCOUNT_ID)
+                it.getColumnIndex("subscription_id") >= 0 -> it.getColumnIndex("subscription_id")
+                it.getColumnIndex("simid") >= 0 -> it.getColumnIndex("simid")
+                it.getColumnIndex("sim_id") >= 0 -> it.getColumnIndex("sim_id")
+                it.getColumnIndex("sim_index") >= 0 -> it.getColumnIndex("sim_index")
+                else -> -1
+            }
             val nameCol = it.getColumnIndex(CallLog.Calls.CACHED_NAME)
 
             while (it.moveToNext()) {
@@ -145,6 +170,37 @@ object CallLogSyncManager {
                         durationSeconds = duration,
                     )
 
+                    val importedRec = if (status == "COMPLETED" && duration > 0L) {
+                        SystemCallRecordingImporter.importLatest(
+                            context = context,
+                            callId = callId,
+                            callStartedAt = date,
+                            callEndedAt = endedAtMillis,
+                            expectedDurationSeconds = duration,
+                            phoneNumber = number,
+                        )
+                    } else null
+
+                    val recStatus = if (importedRec != null) "LOCAL_PENDING" else "NONE"
+                    if (importedRec != null) {
+                        val sessionStore = SessionStore(context)
+                        val uploadId = java.util.UUID.nameUUIDFromBytes("system:$callId:${importedRec.sourceId}".toByteArray()).toString()
+                        store.supersedeRecordingWithSystem(
+                            callId = callId,
+                            systemUploadId = uploadId,
+                            filePath = importedRec.file.absolutePath,
+                            sizeBytes = importedRec.file.length(),
+                            durationMs = importedRec.durationMs,
+                            deviceId = sessionStore.installationId,
+                        )
+                        com.gigxomi.gxclosers.data.RecordingUploadWorker.enqueue(context)
+                        Log.i(TAG, "Attached existing system recording for callId=$callId file=${importedRec.file.name}")
+                    } else if (status == "COMPLETED" && duration > 0L) {
+                        com.gigxomi.gxclosers.data.SystemRecordingImportWorker.enqueue(
+                            context, callId, date, endedAtMillis, duration, number
+                        )
+                    }
+
                     val payload = JSONObject()
                         .put("callSessionId", callId)
                         .put("status", status)
@@ -154,7 +210,7 @@ object CallLogSyncManager {
                         .put("startedAt", startedAtIso)
                         .put("endedAt", endedAtIso)
                         .put("durationSeconds", duration)
-                        .put("recordingStatus", "NONE")
+                        .put("recordingStatus", recStatus)
 
                     store.enqueue("call-log-end-$id", "CALL_END", payload, callId)
                     // PhoneStateReceiver can miss a transient broadcast (for example after

@@ -35,6 +35,7 @@ data class SimOption(
 )
 
 object CallManager {
+    const val SIM_SELECTION_ALL = "ALL"
     const val SIM_SELECTION_ASK = "ASK"
     private const val SIM_PREFS = "gxclosers_preferences"
     private const val SIM_SELECTION_KEY = "simSelection"
@@ -118,19 +119,19 @@ object CallManager {
 
     fun simSelection(context: Context): String = context
         .getSharedPreferences(SIM_PREFS, Context.MODE_PRIVATE)
-        .getString(SIM_SELECTION_KEY, SIM_SELECTION_ASK)
+        .getString(SIM_SELECTION_KEY, SIM_SELECTION_ALL)
         .orEmpty()
-        .ifBlank { SIM_SELECTION_ASK }
+        .ifBlank { SIM_SELECTION_ALL }
 
     fun saveSimSelection(context: Context, selection: String) {
         context.getSharedPreferences(SIM_PREFS, Context.MODE_PRIVATE).edit()
-            .putString(SIM_SELECTION_KEY, selection.ifBlank { SIM_SELECTION_ASK })
+            .putString(SIM_SELECTION_KEY, selection.ifBlank { SIM_SELECTION_ALL })
             .apply()
     }
 
     fun preferredSim(context: Context, sims: List<SimOption>): SimOption? {
         val selection = simSelection(context)
-        if (selection == SIM_SELECTION_ASK) return null
+        if (selection == SIM_SELECTION_ASK || selection == SIM_SELECTION_ALL) return null
         return sims.firstOrNull { it.subscriptionId == selection }
     }
 
