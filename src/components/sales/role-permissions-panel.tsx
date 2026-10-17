@@ -36,6 +36,7 @@ type WorkspaceUserItem = {
   packageExpiresAt: string | null;
   groupId: string | null;
   parentAgentId: string | null;
+  permissions?: Record<string, boolean> | null;
   isCurrentUser?: boolean;
 };
 
@@ -132,10 +133,22 @@ export function RolePermissionsPanel({
         description: `Central permission: ${item.key}`,
         category: categoryMap[item.category] || "Administration",
       })) as FeatureDefinition[];
-      setFeatures(centralFeatures);
-      setMatrix((permData?.roleDefaults || {}) as RolePermissionsMatrix);
-
       const teamItems = Array.isArray(usersData) ? usersData : (usersData?.members ?? []);
+      const centralRoleDefaults = (permData?.roleDefaults || {}) as RolePermissionsMatrix;
+      const persistedMatrix = { ...centralRoleDefaults } as RolePermissionsMatrix;
+      for (const role of ["ADMIN", "MANAGER", "SALES_AGENT"] as const) {
+        const persistedUser = teamItems.find(
+          (user: any) => user.role === role && user.permissions && typeof user.permissions === "object",
+        );
+        if (persistedUser?.permissions) {
+          persistedMatrix[role] = {
+            ...(centralRoleDefaults[role] || {}),
+            ...(persistedUser.permissions as Record<string, boolean>),
+          };
+        }
+      }
+      setFeatures(centralFeatures);
+      setMatrix(persistedMatrix);
       setUsers(teamItems.map((user: any) => ({
         id: String(user.id),
         userId: String(user.userId || user.id),
@@ -150,6 +163,7 @@ export function RolePermissionsPanel({
         packageExpiresAt: plan.expiryDate || null,
         groupId: null,
         parentAgentId: user.parentAgentId || null,
+        permissions: user.permissions && typeof user.permissions === "object" ? user.permissions : null,
         isCurrentUser: false,
       })));
 
