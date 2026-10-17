@@ -273,8 +273,9 @@ export function SalesSignupForm({ googleOnboarding = false, googleEmail = "", go
       return;
     }
 
-    setStatus(googleOnboarding ? "Google workspace created! Opening your dashboard..." : "Workspace created! Redirecting you to login...");
-    window.location.href = payload.redirectTo || "/login";
+    if (payload?.token) setStoredToken(payload.token);
+    setStatus("Workspace created! Opening your dashboard...");
+    window.location.href = payload?.redirectTo || "/?tab=dashboard";
   }
 
   return (

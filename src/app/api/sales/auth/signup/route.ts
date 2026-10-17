@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { provisionSaaSCloserWorkspace } from "@/lib/gigxomi/sales-store";
 import { shouldUseSecureCookies } from "@/lib/auth/cookie-security";
+import { applySessionCookie } from "@/lib/auth/session";
+import { acquireAppClientSession } from "@/lib/auth/client-sessions";
 
 function readString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -55,19 +57,53 @@ export async function POST(request: Request) {
     if (centralRes?.ok) {
       const centralData = await centralRes.json().catch(() => null);
       if (centralData?.success && centralData?.data) {
+        const token = centralData.data.token;
+        const centralUser = centralData.data.user;
+        const destination = "/?tab=dashboard";
+
         const response = NextResponse.json({
           ok: true,
-          user: centralData.data.user,
+          token,
+          user: centralUser,
           workspace: centralData.data.workspace,
-          redirectTo: "/login",
+          redirectTo: destination,
         });
 
-        if (centralData.data.token) {
-          response.cookies.set("aicloser_token", centralData.data.token, {
+        const sessionId = centralUser.sessionId || crypto.randomUUID();
+        const installationId = `web-${crypto.randomUUID()}`;
+
+        await applySessionCookie(response, {
+          userId: centralUser.userId || centralUser.id,
+          role: centralUser.role || "ADMIN",
+          assignedRole: centralUser.role || "ADMIN",
+          tenantId: centralUser.tenantId,
+          displayName: centralUser.displayName,
+          email: centralUser.email ?? null,
+          phone: centralUser.phone ?? null,
+          packageId: null,
+          packageName: null,
+          packageAudience: null,
+          packageStatus: null,
+          packageExpiresAt: null,
+          workspaceMode: null,
+          sessionId,
+          licensedSession: false,
+        });
+
+        response.cookies.set("gx_client_installation", installationId, {
+          path: "/",
+          httpOnly: true,
+          sameSite: "lax",
+          secure: shouldUseSecureCookies(),
+          maxAge: 60 * 60 * 24 * 365,
+        });
+
+        if (token) {
+          response.cookies.set("aicloser_token", token, {
+            path: "/",
             httpOnly: true,
             secure: shouldUseSecureCookies(),
             sameSite: "lax",
-            path: "/",
             maxAge: 30 * 24 * 60 * 60,
           });
         }
@@ -95,12 +131,56 @@ export async function POST(request: Request) {
     return NextResponse.json(result, { status: 400 });
   }
 
+  const destination = "/?tab=dashboard";
+  const installationId = `web-${crypto.randomUUID()}`;
+  let clientSessionId = crypto.randomUUID();
+  try {
+    const clientSession = await acquireAppClientSession({
+      userId: result.user.id,
+      tenantId: result.user.tenantId,
+      channel: "DESKTOP",
+      installationId,
+      deviceName: "Desktop Web",
+      platform: "WEB",
+      replaceExisting: true,
+    });
+    clientSessionId = clientSession.session.sessionId;
+  } catch {
+    // fallback
+  }
+
   const response = NextResponse.json({
     ok: true,
     user: result.user,
     agent: result.agent,
     workspace: result.workspace,
-    redirectTo: "/login",
+    redirectTo: destination,
+  });
+
+  await applySessionCookie(response, {
+    userId: result.user.id,
+    role: result.user.role,
+    assignedRole: result.user.assignedRole,
+    tenantId: result.user.tenantId,
+    displayName: result.user.displayName,
+    email: result.user.email,
+    phone: result.user.phone,
+    packageId: result.user.packageId,
+    packageName: result.user.packageName,
+    packageAudience: result.user.packageAudience,
+    packageStatus: result.user.packageStatus,
+    packageExpiresAt: result.user.packageExpiresAt,
+    workspaceMode: result.user.workspaceMode,
+    sessionId: clientSessionId,
+    licensedSession: false,
+  });
+
+  response.cookies.set("gx_client_installation", installationId, {
+    path: "/",
+    httpOnly: true,
+    sameSite: "lax",
+    secure: shouldUseSecureCookies(),
+    maxAge: 60 * 60 * 24 * 365,
   });
 
   return response;

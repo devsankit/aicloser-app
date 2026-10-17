@@ -217,18 +217,21 @@ export default async function SalesPage({ searchParams }: { searchParams?: Promi
   let teamMembers: CentralTeamMember[] = [];
   let mobileCalls: SalesDashboardSnapshot["mobileCalls"] = [];
   let leadPool: SalesDashboardSnapshot["visibleLeadPool"] = [];
-  let paymentSummary: NonNullable<CentralPaymentsPayload["summary"]> = {};
+  let me: CentralMe | null = null;
   try {
-    const me = await centralApiRequest<CentralMe>("/auth/me");
-    user = me.data.user;
-    // Authorized roles: requirePageRole(["SALES_AGENT", "ADMIN", "MANAGER"], "/")
-    // Workspace permissions: if (!isWorkspaceAdmin && session.role === "SALES_AGENT" && !(agentPermissions.workspaceAdmin === true))
-    if (!user || !["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"].includes(user.role)) {
-      redirect(`/login?redirectTo=${encodeURIComponent("/")}`);
-    }
+    me = await centralApiRequest<CentralMe>("/auth/me");
+  } catch {
+    redirect(`/login?redirectTo=${encodeURIComponent(params?.tab ? `/?tab=${String(params.tab)}` : "/")}`);
+  }
 
+  user = me?.data?.user;
+  if (!user || !["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"].includes(user.role)) {
+    redirect(`/login?redirectTo=${encodeURIComponent("/")}`);
+  }
+
+  try {
     const [leadPayload, aggregatePayload, teamPayload, callsPayload, poolPayload, paymentPayload] = await Promise.all([
-      centralApiRequest<{ data: CentralLead[] | { leads?: CentralLead[] } }>("/leads?page=1&limit=100"),
+      centralApiRequest<{ data: CentralLead[] | { leads?: CentralLead[] } }>("/leads?page=1&limit=100").catch(() => ({ data: [] })),
       centralApiRequest<{ data: Array<{ stage?: string; count?: number; totalValue?: number }> }>("/leads/pipeline-aggregates").catch(() => ({ data: [] })),
       ["ADMIN", "SUPER_ADMIN", "MANAGER"].includes(user.role)
         ? centralApiRequest<{ data: CentralTeamMember[] }>("/team").catch(() => ({ data: [] }))
@@ -263,7 +266,12 @@ export default async function SalesPage({ searchParams }: { searchParams?: Promi
       endedAt: call.endedAt ?? null,
     }));
   } catch {
-    redirect(`/login?redirectTo=${encodeURIComponent(params?.tab ? `/?tab=${String(params.tab)}` : "/")}`);
+    leads = [];
+    aggregates = [];
+    teamMembers = [];
+    leadPool = [];
+    mobileCalls = [];
+    paymentSummary = {};
   }
 
   const fallbackAgent = toAgent(user!);

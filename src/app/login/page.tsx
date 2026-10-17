@@ -24,8 +24,9 @@ export default async function SalesLoginPage({
 }) {
   const session = await getSessionContext();
   const params = await searchParams;
-  if (session.role === "SALES_AGENT" && value(params.preview) !== "1" && value(params.switch) !== "1") {
-    redirect("/");
+  const isAuthorizedRole = ["ADMIN", "SUPER_ADMIN", "MANAGER", "SALES_AGENT"].includes(session.role);
+  if (isAuthorizedRole && value(params.preview) !== "1" && value(params.switch) !== "1") {
+    redirect(value(params.redirectTo) || "/");
   }
 
   return (

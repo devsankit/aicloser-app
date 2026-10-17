@@ -18,68 +18,18 @@ export const metadata: Metadata = {
 
 export default async function DashboardPage({ searchParams }: { searchParams?: Promise<Record<string, string | string[] | undefined>> }) {
   const params = searchParams ? await searchParams : undefined;
-  const rawRef = params?.ref;
-  const ref = Array.isArray(rawRef) ? rawRef[0] : rawRef;
-  if (ref) {
-    try {
-      await trackSalesReferralEvent({
-        code: ref,
-        eventType: "PRICING_VIEW",
-        path: "/dashboard",
-        metadata: { target: "website" },
-      });
-    } catch {
-      // non-blocking for referral tracking
+  const query = new URLSearchParams();
+  if (params) {
+    for (const [key, val] of Object.entries(params)) {
+      if (Array.isArray(val)) {
+        for (const v of val) query.append(key, v);
+      } else if (typeof val === "string") {
+        query.set(key, val);
+      }
     }
   }
-
-  await requirePageRole(["SALES_AGENT", "ADMIN", "MANAGER"], "/login?redirectTo=%2Fdashboard");
-  const session = await getSessionContext();
-  const access = await getSalesAgentAccess(session.userId);
-  if (!access.ok) {
-    redirect(`/login?error=${encodeURIComponent(access.reason === "PENDING" ? "Your sales account is waiting for approval." : access.reason === "SUSPENDED" ? "Your sales account is suspended. Contact support." : "Create or login with an approved sales account.")}`);
+  if (!query.has("tab")) {
+    query.set("tab", "dashboard");
   }
-  const effectiveTenantId =
-    session.tenantId?.trim() ||
-    access.agent.tenantId ||
-    "tenant-gigxomi";
-  const operationsTenantId = effectiveTenantId;
-  const salesFlowScopeId = access.agent.id;
-  const currentTab = typeof params?.tab === "string" ? params.tab : "";
-  const needsChatbotData = currentTab === "chatbot-builder";
-  const roleMatrix = await getRolePermissionsMatrix();
-  const configuredWorkspaceRole = String((access.agent.permissions as Record<string, unknown> | null | undefined)?.workspaceRole ?? "").toUpperCase();
-  const permissionsRole = session.role === "ADMIN" || session.role === "SUPER_ADMIN"
-    ? session.role
-    : configuredWorkspaceRole === "MANAGER" || configuredWorkspaceRole === "SALES_AGENT"
-      ? configuredWorkspaceRole
-      : "SALES_AGENT";
-
-  const [snapshot, whatsAppConnection, chatbotFlows, chatbotRuns] = await Promise.all([
-    getSalesSnapshotForRole({ userId: session.userId ?? "", role: session.role, tenantId: effectiveTenantId }),
-    getSalesWhatsAppChannelView(operationsTenantId),
-    needsChatbotData ? listSalesWhatsAppFlows(salesFlowScopeId) : Promise.resolve([]),
-    needsChatbotData ? listSalesWhatsAppFlowRuns(salesFlowScopeId) : Promise.resolve([]),
-  ]);
-
-  return (
-    <SalesDashboard
-      salesOperations={JSON.parse(
-        JSON.stringify({
-          tenantId: operationsTenantId,
-          whatsAppConnection,
-          whatsAppTenantOptions: [],
-          instagramConnection: await getInstagramConnectionView(operationsTenantId),
-          instagramSetupUrls: buildInstagramMetaSetupUrls(),
-          chatbotFlows,
-          chatbotRuns,
-          chatbotAgencies: [],
-        }),
-      )}
-      snapshot={JSON.parse(JSON.stringify(compactSalesSnapshotForInitialRender(snapshot)))}
-      canManageContacts={session.role === "ADMIN" || session.role === "SUPER_ADMIN"}
-      sessionRole={session.role}
-      rolePermissions={roleMatrix[permissionsRole]}
-    />
-  );
+  redirect(`/?${query.toString()}`);
 }
