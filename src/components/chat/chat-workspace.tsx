@@ -6086,11 +6086,6 @@ function ChatWorkspaceInner({
 
   const channelTopTabs = (
     <div className="chat-rail-top-controls">
-      <div className="chat-top-channel-tabs" style={{ display: "none" }} aria-hidden="true">
-        <button type="button" className={cx("chat-top-channel-tab", channelFilter === "all" && "active")}>All</button>
-        <button type="button" className={cx("chat-top-channel-tab tab-company", channelFilter === "whatsapp_company" && "active")}><span>WhatsApp API</span></button>
-        <button type="button" className={cx("chat-top-channel-tab tab-personal", channelFilter === "whatsapp_connected" && "active")}><span>WhatsApp Personal</span></button>
-      </div>
       <div className="chat-channel-picker" data-open={isChannelMenuOpen ? "true" : "false"}>
         <button
           type="button"
