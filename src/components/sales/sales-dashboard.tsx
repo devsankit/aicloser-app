@@ -1848,15 +1848,17 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, cen
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
     try {
+      const assignedId = String(form.get("assignedAgentId") ?? "").trim() || currentAgent?.id || snapshot.visibleAgents?.[0]?.id || undefined;
+      const email = String(form.get("customerEmail") ?? "").trim();
       await aicloserApi.leads.create({
-        customerName: String(form.get("customerName") ?? ""),
-        customerPhone: String(form.get("customerPhone") ?? ""),
-        customerEmail: String(form.get("customerEmail") ?? "") || undefined,
-        assignedAgentId: currentAgent?.id,
+        customerName: String(form.get("customerName") ?? "").trim(),
+        customerPhone: String(form.get("customerPhone") ?? "").trim(),
+        customerEmail: email || undefined,
+        assignedAgentId: assignedId,
         stage: String(form.get("stage") ?? "NEW"),
         serviceInterest: "Agency services",
         segment: "agency",
-        notes: String(form.get("notes") ?? ""),
+        notes: String(form.get("notes") ?? "").trim(),
       });
       setStatus("Lead added to your CRM.");
       formElement.reset();
@@ -3165,7 +3167,11 @@ export function SalesDashboard({ salesOperations, snapshot: initialSnapshot, cen
 
       {drawer === "lead-create" ? (
         <SalesSideDrawer onClose={() => setDrawer(null)} title="Add contact manually">
-          <LeadForm onSubmit={createLead} />
+          <LeadForm
+            agents={snapshot.visibleAgents}
+            defaultAgentId={currentAgent?.id || snapshot.visibleAgents?.[0]?.id}
+            onSubmit={createLead}
+          />
         </SalesSideDrawer>
       ) : null}
 
@@ -3422,7 +3428,15 @@ function SalesSideDrawer({ children, fullScreen = false, onClose, title }: { chi
   );
 }
 
-function LeadForm({ onSubmit }: { onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+function LeadForm({
+  onSubmit,
+  agents = [],
+  defaultAgentId,
+}: {
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  agents?: Array<SalesDashboardSnapshot["visibleAgents"][number]>;
+  defaultAgentId?: string;
+}) {
   return (
     <form className="sales-form-grid" onSubmit={onSubmit}>
       <label>
@@ -3437,6 +3451,20 @@ function LeadForm({ onSubmit }: { onSubmit: (event: FormEvent<HTMLFormElement>) 
         <span>Email <small>(optional)</small></span>
         <input name="customerEmail" placeholder="e.g. aarav@company.com" type="email" />
       </label>
+      {agents.length > 1 ? (
+        <label>
+          <span>Assign to closer</span>
+          <select defaultValue={defaultAgentId} name="assignedAgentId">
+            {agents.map((agent) => (
+              <option key={agent.id} value={agent.id}>
+                {agent.displayName || agent.agentCode || "Sales Agent"}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : defaultAgentId ? (
+        <input name="assignedAgentId" type="hidden" value={defaultAgentId} />
+      ) : null}
       <label>
         <span>Lead status</span>
         <select defaultValue="NEW" name="stage">
