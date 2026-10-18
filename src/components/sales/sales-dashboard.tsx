@@ -49,6 +49,7 @@ import {
   Search,
   ShieldCheck,
   Smartphone,
+  StickyNote,
   Target,
   TrendingUp,
   Upload,
