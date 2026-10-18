@@ -96,20 +96,39 @@ export function getSafeGoogleRedirect(value: string | null | undefined) {
 }
 
 export function createGoogleOAuthState(redirectTo: string): GoogleOAuthState & { cookieValue: string; codeChallenge: string } {
-  const state = randomBytes(24).toString("base64url");
+  const nonce = randomBytes(16).toString("base64url");
   const codeVerifier = randomBytes(32).toString("base64url");
   const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
-  const cookieValue = pack({ createdAt: Date.now(), state, codeVerifier, redirectTo: getSafeGoogleRedirect(redirectTo) });
-  return { state, codeVerifier, codeChallenge, redirectTo: getSafeGoogleRedirect(redirectTo), cookieValue };
+  const safeRedirect = getSafeGoogleRedirect(redirectTo);
+  // Encode the payload into the signed state param returned by Google
+  const state = pack({ createdAt: Date.now(), nonce, codeVerifier, redirectTo: safeRedirect });
+  return { state, codeVerifier, codeChallenge, redirectTo: safeRedirect, cookieValue: state };
 }
 
 export function readGoogleOAuthState(cookieValue: string | null | undefined, state: string | null | undefined) {
-  const payload = unpack<{ createdAt: number; state?: string; codeVerifier?: string; redirectTo?: string }>(cookieValue);
-  if (!payload || !state || payload.state !== state || !payload.codeVerifier) return null;
-  return {
-    codeVerifier: payload.codeVerifier,
-    redirectTo: getSafeGoogleRedirect(payload.redirectTo),
-  };
+  // 1. Unpack directly from Google's ?state= param (immune to cross-site cookie loss)
+  if (state) {
+    const payloadFromUrl = unpack<{ createdAt: number; codeVerifier?: string; redirectTo?: string; nonce?: string; state?: string }>(state);
+    if (payloadFromUrl?.codeVerifier) {
+      return {
+        codeVerifier: payloadFromUrl.codeVerifier,
+        redirectTo: getSafeGoogleRedirect(payloadFromUrl.redirectTo),
+      };
+    }
+  }
+
+  // 2. Fallback: unpack from cookie
+  if (cookieValue) {
+    const payloadFromCookie = unpack<{ createdAt: number; state?: string; codeVerifier?: string; redirectTo?: string }>(cookieValue);
+    if (payloadFromCookie?.codeVerifier && (!state || payloadFromCookie.state === state || cookieValue === state)) {
+      return {
+        codeVerifier: payloadFromCookie.codeVerifier,
+        redirectTo: getSafeGoogleRedirect(payloadFromCookie.redirectTo),
+      };
+    }
+  }
+
+  return null;
 }
 
 export function createGoogleOnboardingCookie(claims: GoogleOnboardingClaims) {

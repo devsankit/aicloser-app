@@ -76,33 +76,43 @@ export async function GET(request: Request) {
     });
     if (!tokenResponse.id_token) throw new Error("Google did not return an identity token.");
     const identity = await verifyGoogleIdToken(tokenResponse.id_token, config.clientId);
-    const existingIdentity = await prisma.appGoogleIdentity.findUnique({ where: { googleSubject: identity.sub }, include: { user: true } });
+    let existingIdentity = await prisma.appGoogleIdentity.findUnique({ where: { googleSubject: identity.sub }, include: { user: true } });
 
     if (!existingIdentity) {
       const existingEmailUser = await findUserByIdentifier(identity.email);
       if (existingEmailUser) {
-        return clearStateCookie(loginRedirect(request, "GoogleEmailAlreadyRegistered", savedState.redirectTo));
+        // Auto-link Google identity to this registered user and proceed with login
+        existingIdentity = await prisma.appGoogleIdentity.create({
+          data: {
+            userId: existingEmailUser.id,
+            googleSubject: identity.sub,
+            email: identity.email,
+            displayName: identity.name || existingEmailUser.displayName,
+            avatarUrl: identity.picture,
+          },
+          include: { user: true },
+        });
+      } else {
+        const response = clearStateCookie(NextResponse.redirect(getPublicRequestUrl(request, "/signup?google=onboarding")));
+        response.cookies.set(
+          GOOGLE_ONBOARDING_COOKIE,
+          createGoogleOnboardingCookie({
+            googleSubject: identity.sub,
+            email: identity.email,
+            displayName: identity.name,
+            avatarUrl: identity.picture,
+            redirectTo: savedState.redirectTo,
+          }),
+          {
+            path: "/",
+            httpOnly: true,
+            sameSite: "lax",
+            secure: shouldUseSecureCookies(),
+            maxAge: 15 * 60,
+          },
+        );
+        return response;
       }
-
-      const response = clearStateCookie(NextResponse.redirect(getPublicRequestUrl(request, "/signup?google=onboarding")));
-      response.cookies.set(
-        GOOGLE_ONBOARDING_COOKIE,
-        createGoogleOnboardingCookie({
-          googleSubject: identity.sub,
-          email: identity.email,
-          displayName: identity.name,
-          avatarUrl: identity.picture,
-          redirectTo: savedState.redirectTo,
-        }),
-        {
-          path: "/",
-          httpOnly: true,
-          sameSite: "lax",
-          secure: shouldUseSecureCookies(),
-          maxAge: 10 * 60,
-        },
-      );
-      return response;
     }
 
     const user = existingIdentity.user;
