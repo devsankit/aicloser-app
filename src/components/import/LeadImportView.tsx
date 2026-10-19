@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 import { useApp } from "@/lib/store";
 import { aicloserApi } from "@/lib/api-client";
@@ -49,7 +50,8 @@ const DEFAULT_BATCHES: ImportBatch[] = [
 ];
 
 export function LeadImportView() {
-  const { addLead } = useApp();
+  const { addLead, state } = useApp();
+  const router = useRouter();
   const [tab, setTab] = useState<"wizard" | "history">("wizard");
   const [channel, setChannel] = useState<ImportChannel>("csv");
   const [batches, setBatches] = useState<ImportBatch[]>(DEFAULT_BATCHES);
@@ -222,6 +224,8 @@ export function LeadImportView() {
         if (targetOwner === "Round-Robin") {
           finalOwner = eligibleClosers[closerIdx % eligibleClosers.length];
           closerIdx++;
+        } else if (targetOwner === "Unassigned") {
+          finalOwner = "Unassigned";
         }
 
         addLead({
@@ -253,7 +257,12 @@ export function LeadImportView() {
             notes: `Imported via ${targetSource} batch processor.`,
           })),
           duplicateAction: dedupMode === "overwrite" ? "OVERWRITE" : "SKIP",
-          distributionMode: targetOwner === "Round-Robin" ? "ROUND_ROBIN" : "MANUAL",
+          distributionMode:
+            targetOwner === "Round-Robin"
+              ? "ROUND_ROBIN"
+              : targetOwner === "Unassigned"
+              ? "POOL"
+              : "MANUAL",
         })
         .catch(() => {});
 
@@ -264,7 +273,12 @@ export function LeadImportView() {
         totalRows: parsedRows.length,
         importedCount: parsedRows.length,
         duplicateCount: 0,
-        assignedOwner: targetOwner === "Round-Robin" ? "Round-Robin (Anshita & Field Desk)" : targetOwner,
+        assignedOwner:
+          targetOwner === "Round-Robin"
+            ? "Round-Robin (Anshita & Field Desk)"
+            : targetOwner === "Unassigned"
+            ? "⚡ Lead Grab Pool"
+            : targetOwner,
         stage: targetStage,
         timestamp: "Just now",
         status: "completed",
@@ -369,6 +383,31 @@ export function LeadImportView() {
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
             1-Click undo batch with audit log
+          </div>
+        </div>
+
+        <div
+          className="card"
+          onClick={() => router.push("/pipeline")}
+          style={{
+            padding: "14px 16px",
+            borderColor: "rgba(244, 97, 42, 0.4)",
+            background: "rgba(244, 97, 42, 0.05)",
+            cursor: "pointer",
+            transition: "transform 0.15s ease",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontSize: "var(--fs-caption)", color: "var(--accent)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: "4px" }}>
+              <Icon name="zap" size={12} /> Lead Grab Pool
+            </div>
+            <Icon name="external" size={12} style={{ color: "var(--accent)" }} />
+          </div>
+          <div style={{ fontSize: "var(--fs-metric)", fontWeight: 700, marginTop: "4px", color: "var(--accent)" }}>
+            {state.poolCount || 573} <span style={{ fontSize: "var(--fs-body)", fontWeight: 500, color: "var(--text-secondary)" }}>waiting</span>
+          </div>
+          <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
+            First-come, first-served claim pool · View in Pipeline →
           </div>
         </div>
       </div>
@@ -1040,6 +1079,12 @@ export function LeadImportView() {
                     <div style={{ marginTop: "6px", fontSize: "11px", color: "var(--accent)", display: "flex", alignItems: "center", gap: "5px" }}>
                       <Icon name="shield" size={12} />
                       <span>Company Admin is strictly excluded from Round-Robin distribution and seat billing.</span>
+                    </div>
+                  )}
+                  {targetOwner === "Unassigned" && (
+                    <div style={{ marginTop: "6px", fontSize: "11px", color: "var(--accent)", display: "flex", alignItems: "center", gap: "5px" }}>
+                      <Icon name="zap" size={12} />
+                      <span>Leads will be routed directly to the Lead Grab Pool. Closers claim them on a first-come, first-served basis up to their active lead limit.</span>
                     </div>
                   )}
                 </div>

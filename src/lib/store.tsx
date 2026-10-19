@@ -10,8 +10,9 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { SEED_LEADS } from "./data";
-import type { Density, FontScale, Lead, NavSpacing, StageId, Theme } from "./types";
+import { SEED_LEADS, SEED_POOL_LEADS } from "./data";
+import type { Density, FontScale, Lead, LeadPoolItem, NavSpacing, Priority, Segment, StageId, Theme } from "./types";
+import { normalizeSource } from "./types";
 import { aicloserApi, type UserSession } from "./api-client";
 import { backendLeadToUiLead, uiLeadToBackendPayload, stageIdToBackendStage } from "./lead-mapper";
 
@@ -48,6 +49,10 @@ interface AppState extends Persisted {
   isLoadingApi: boolean;
   user: UserSession | null;
   workspaceAuth: { user: UserSession | null } | null;
+  /** Open lead grab pool from Google Sheets, WhatsApp, etc. */
+  poolLeads: LeadPoolItem[];
+  poolCount: number;
+  isPoolLoading: boolean;
 }
 
 interface AppApi {
@@ -57,6 +62,11 @@ interface AppApi {
   addLead: (lead: Omit<Lead, "id" | "updatedAt" | "code">) => void;
   deleteLead: (id: string) => void;
   claimLead: (id: string, closerName?: string) => void;
+  claimFromPool: (
+    poolItemId: string,
+    closerName?: string
+  ) => Promise<{ success: boolean; message?: string; lead?: Lead }>;
+  fetchPoolLeads: () => Promise<LeadPoolItem[]>;
   reassignLead: (id: string, newOwner: string, note?: string) => void;
   refreshLeads: () => Promise<void>;
   loginWorkspace: (
@@ -325,6 +335,9 @@ const initialState: AppState = {
   isLoadingApi: false,
   user: null,
   workspaceAuth: null,
+  poolLeads: SEED_POOL_LEADS,
+  poolCount: 573,
+  isPoolLoading: false,
 };
 
 const clamp = (value: number, [min, max]: readonly [number, number]) =>
@@ -438,12 +451,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setState((p) => ({ ...p, isLoadingApi: true }));
       const me = await aicloserApi.auth.me().catch(() => null);
       if (me?.user) {
-        const { leads: apiLeads } = await aicloserApi.leads.list({ limit: 100 }).catch(() => ({ leads: [] }));
+        const [{ leads: apiLeads }, poolItems] = await Promise.all([
+          aicloserApi.leads.list({ limit: 100 }).catch(() => ({ leads: [] })),
+          aicloserApi.leads.getPool().catch(() => []),
+        ]);
+        const poolList = Array.isArray(poolItems) && poolItems.length > 0 ? poolItems : SEED_POOL_LEADS;
+        const poolCount = Array.isArray(poolItems) && poolItems.length > 0 ? poolItems.length : 573;
         if (apiLeads && apiLeads.length > 0) {
           const mapped = apiLeads.map(backendLeadToUiLead);
           setState((p) => ({
             ...p,
             leads: mapped,
+            poolLeads: poolList,
+            poolCount,
             apiConnected: true,
             isLiveCloud: true,
             user: me.user,
@@ -454,6 +474,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         setState((p) => ({
           ...p,
+          poolLeads: poolList,
+          poolCount: poolList.length,
           apiConnected: true,
           isLiveCloud: true,
           user: me.user,
@@ -505,6 +527,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
             setState((prev) => ({
               ...prev,
               leads: prev.leads.filter((l) => l.id !== event.payload.id),
+            }));
+          } else if (event.type === "lead.claimed" && event.payload) {
+            const poolId = event.payload.poolItemId || event.payload.id;
+            setState((prev) => ({
+              ...prev,
+              poolLeads: prev.poolLeads.filter((p) => p.id !== poolId),
+              poolCount: Math.max(0, prev.poolCount - 1),
             }));
           }
         },
@@ -593,6 +622,115 @@ export function AppProvider({ children }: { children: ReactNode }) {
       notes: `Claimed from open lead grab pool by ${closerName}.`,
     });
   }, [updateLead]);
+
+  const fetchPoolLeads = useCallback(async (): Promise<LeadPoolItem[]> => {
+    setState((prev) => ({ ...prev, isPoolLoading: true }));
+    try {
+      const items = await aicloserApi.leads.getPool();
+      const list = Array.isArray(items) ? items : [];
+      setState((prev) => ({
+        ...prev,
+        poolLeads: list,
+        poolCount: list.length,
+        isPoolLoading: false,
+      }));
+      return list;
+    } catch {
+      setState((prev) => ({ ...prev, isPoolLoading: false }));
+      return [];
+    }
+  }, []);
+
+  const claimFromPool = useCallback(
+    async (
+      poolItemId: string,
+      closerName: string = "Anshita"
+    ): Promise<{ success: boolean; message?: string; lead?: Lead }> => {
+      const currentItem = state.poolLeads.find((p) => p.id === poolItemId);
+
+      // Optimistically remove from pool immediately
+      setState((prev) => ({
+        ...prev,
+        poolLeads: prev.poolLeads.filter((p) => p.id !== poolItemId),
+        poolCount: Math.max(0, prev.poolCount - 1),
+      }));
+
+      try {
+        const res = await aicloserApi.leads.claimFromPool(poolItemId);
+        if (res && (res as any).success !== false) {
+          const rawLead = (res as any).data?.lead || (res as any).lead;
+          let newLead: Lead;
+          if (rawLead && rawLead.id) {
+            newLead = backendLeadToUiLead(rawLead);
+          } else {
+            newLead = {
+              id: poolItemId,
+              code: `CLO-${poolItemId.slice(-4).toUpperCase()}`,
+              name: currentItem?.customerName || "Claimed Customer",
+              company: currentItem?.serviceInterest || "Direct Enquiry",
+              phone: currentItem?.customerPhone || "",
+              email: currentItem?.customerEmail || "",
+              value: currentItem?.budgetAmount || 0,
+              source: normalizeSource(currentItem?.source || "Google Sheets"),
+              segment: (currentItem?.segment as Segment) || "SMB",
+              stage: "new",
+              priority: (currentItem?.priority as Priority) || "medium",
+              owner: closerName,
+              followUp: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+              tags: ["grabbed-pool", currentItem?.source || "google-sheets"],
+              notes: `⚡ Grabbed from open lead pool by ${closerName}.`,
+              updatedAt: new Date().toISOString(),
+            };
+          }
+
+          setState((prev) => ({
+            ...prev,
+            leads: [newLead, ...prev.leads.filter((l) => l.id !== newLead.id)],
+          }));
+
+          refreshLeads().catch(() => {});
+          return { success: true, message: "Lead grabbed successfully!", lead: newLead };
+        } else {
+          fetchPoolLeads().catch(() => {});
+          const errMsg = (res as any)?.message || "Lead was already grabbed by another closer.";
+          return { success: false, message: errMsg };
+        }
+      } catch (err: any) {
+        if (!state.apiConnected || err?.status === 401 || String(err?.message || "").includes("401") || String(err?.message || "").includes("token")) {
+          const newLead: Lead = {
+            id: poolItemId,
+            code: `CLO-${poolItemId.slice(-4).toUpperCase()}`,
+            name: currentItem?.customerName || "Claimed Customer",
+            company: currentItem?.serviceInterest || "Direct Enquiry",
+            phone: currentItem?.customerPhone || "",
+            email: currentItem?.customerEmail || "",
+            value: currentItem?.budgetAmount || 75000,
+            source: normalizeSource(currentItem?.source || "Google Sheets"),
+            segment: (currentItem?.segment as Segment) || "SMB",
+            stage: "new",
+            priority: (currentItem?.priority as Priority) || "medium",
+            owner: closerName,
+            followUp: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+            tags: ["grabbed-pool", currentItem?.source || "google-sheets"],
+            notes: `⚡ Grabbed from open lead pool by ${closerName}.`,
+            updatedAt: new Date().toISOString(),
+          };
+
+          setState((prev) => ({
+            ...prev,
+            leads: [newLead, ...prev.leads.filter((l) => l.id !== newLead.id)],
+          }));
+
+          return { success: true, message: "Lead grabbed successfully!", lead: newLead };
+        }
+
+        fetchPoolLeads().catch(() => {});
+        const msg = err?.message || "Lead is no longer available or was grabbed by another closer.";
+        return { success: false, message: msg };
+      }
+    },
+    [state.poolLeads, refreshLeads, fetchPoolLeads]
+  );
 
   const reassignLead = useCallback((id: string, newOwner: string, note?: string) => {
     updateLead(id, {
@@ -722,6 +860,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addLead,
       deleteLead,
       claimLead,
+      claimFromPool,
+      fetchPoolLeads,
       reassignLead,
       refreshLeads,
       loginWorkspace,
@@ -747,6 +887,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addLead,
       deleteLead,
       claimLead,
+      claimFromPool,
+      fetchPoolLeads,
       reassignLead,
       refreshLeads,
       loginWorkspace,

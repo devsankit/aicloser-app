@@ -1882,26 +1882,40 @@ svg {
 .activity-row {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 7px 0;
+  gap: 10px;
+  padding: 8px 0;
   border-bottom: 1px solid var(--border);
   min-width: 0;
+  width: 100%;
 }
 
 .activity-row:last-child {
   border-bottom: 0;
 }
 
+.activity-row .stage-icon-badge {
+  flex-shrink: 0;
+}
+
 .activity-copy {
+  flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   line-height: 1.35;
+  overflow: hidden;
+}
+
+.activity-title-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
 .activity-copy strong {
   font-size: var(--fs-meta);
-  font-weight: 550;
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1920,6 +1934,8 @@ svg {
   font-size: 11px;
   color: var(--text-tertiary);
   white-space: nowrap;
+  flex-shrink: 0;
+  padding-left: 8px;
 }
 
 .owners {
@@ -4089,5 +4105,78 @@ svg {
 .ai-telemetry-sub {
   font-size: 11px;
   color: var(--text-secondary);
+}
+
+/* ==========================================================================
+   Lead Grab Pool Styles
+   ========================================================================== */
+.pool-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
+
+.pool-banner-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  padding: 18px 22px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
+  flex-wrap: wrap;
+}
+
+.pool-quota-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 280px;
+  background: var(--bg-soft);
+  padding: 12px 16px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+}
+
+.pool-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
+  width: 100%;
+}
+
+.pool-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 16px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.pool-card:hover {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.pool-card[data-disappearing="true"] {
+  opacity: 0;
+  transform: scale(0.92) translateY(8px);
+  pointer-events: none;
+  border-color: #10b981;
+}
+
+.pool-card[data-already-claimed="true"] {
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
 }
 

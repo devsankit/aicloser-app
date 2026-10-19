@@ -447,6 +447,19 @@ export function TeamView() {
     saveToStorage(updated, permissions);
   };
 
+  const handleUpdateCapacity = (memberId: string, maxCapacity: number) => {
+    const updated = members.map((m) =>
+      m.id === memberId ? { ...m, maxCapacity } : m
+    );
+    setMembers(updated);
+    saveToStorage(updated, permissions);
+    const target = updated.find((m) => m.id === memberId);
+    setSavedBanner(`Active lead quota updated to ${maxCapacity} leads for ${target?.name}`);
+    setTimeout(() => setSavedBanner(null), 2500);
+
+    aicloserApi.team.update(memberId, { maxActiveLeads: maxCapacity }).catch(() => {});
+  };
+
   const handleChangeRole = (memberId: string, newRole: TeamRole) => {
     const updated = members.map((m) =>
       m.id === memberId ? { ...m, role: newRole } : m
@@ -861,8 +874,30 @@ export function TeamView() {
                       )}
                     </td>
                     <td style={{ whiteSpace: "nowrap" }}>
-                      <span style={{ fontWeight: 550 }}>{member.assignedLeads}</span>
-                      <span style={{ color: "var(--text-tertiary)", fontSize: "var(--fs-caption)" }}> / {member.maxCapacity}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <span style={{ fontWeight: 550 }}>{member.assignedLeads}</span>
+                        <span style={{ color: "var(--text-tertiary)", fontSize: "var(--fs-caption)" }}>/</span>
+                        {member.role === "ADMIN" ? (
+                          <span style={{ color: "var(--text-tertiary)", fontSize: "var(--fs-caption)" }}>∞ (Admin)</span>
+                        ) : (
+                          <select
+                            className="select"
+                            value={member.maxCapacity}
+                            onChange={(e) => handleUpdateCapacity(member.id, Number(e.target.value))}
+                            style={{ height: "24px", fontSize: "11px", padding: "0 4px", width: "76px" }}
+                            title="Admin control: Maximum active leads allowed simultaneously for this closer"
+                          >
+                            <option value={5}>5 max</option>
+                            <option value={10}>10 max</option>
+                            <option value={15}>15 max</option>
+                            <option value={20}>20 max</option>
+                            <option value={25}>25 max</option>
+                            <option value={35}>35 max</option>
+                            <option value={50}>50 max</option>
+                            <option value={100}>100 max</option>
+                          </select>
+                        )}
+                      </div>
                     </td>
                     <td style={{ whiteSpace: "nowrap" }}>
                       <span style={{ fontWeight: 550 }}>

@@ -66,6 +66,24 @@ export interface Lead {
   updatedAt: string; // ISO
 }
 
+export interface LeadPoolItem {
+  id: string;
+  tenantId: string;
+  customerName?: string | null;
+  customerPhone?: string | null;
+  customerEmail?: string | null;
+  source?: string | null;
+  serviceInterest?: string | null;
+  segment?: string | null;
+  priority?: string | null;
+  budgetAmount?: number | null;
+  status: "OPEN" | "CLAIMED" | "ARCHIVED";
+  claimedByAgentId?: string | null;
+  claimedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface StageMeta {
   id: StageId;
   label: string;

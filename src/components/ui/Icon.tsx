@@ -85,6 +85,7 @@ import {
   Play,
   Pause,
   RefreshCw,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
 
@@ -182,9 +183,11 @@ export type IconName =
   | "play"
   | "pause"
   | "refresh"
+  | "zap"
   | "meta";
 
 const LUCIDE_MAP: Record<string, LucideIcon> = {
+  zap: Zap,
   refresh: RefreshCw,
   play: Play,
   pause: Pause,
