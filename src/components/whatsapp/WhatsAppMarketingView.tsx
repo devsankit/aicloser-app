@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import Link from "next/link";
 import { Icon } from "@/components/ui/Icon";
 import { aicloserApi } from "@/lib/api-client";
 import { useApp, useScopedLeads } from "@/lib/store";
@@ -190,6 +191,47 @@ export function WhatsAppMarketingView() {
     setSuccessBanner(`Broadcast "${newCamp.name}" queued across ${targetSize} leads via Meta WABA!`);
     setTimeout(() => setSuccessBanner(null), 4500);
   };
+
+  // Check closer permission guard (Bulk marketing hidden from closer unless enabled by admin)
+  const isCloser = state.user?.role === "CLOSER";
+  const [isAllowedForCloser, setIsAllowedForCloser] = useState(false);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("closer.closer.nav.v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed["/whatsapp"]) setIsAllowedForCloser(true);
+      }
+    } catch {}
+  }, []);
+
+  if (isCloser && !isAllowedForCloser) {
+    return (
+      <div style={{ padding: "40px 24px", maxWidth: "600px", margin: "40px auto", textAlign: "center" }}>
+        <div className="card" style={{ padding: "36px 24px", display: "flex", flexDirection: "column", alignItems: "center" }}>
+          <div style={{ width: 48, height: 48, borderRadius: "50%", background: "rgba(245, 158, 11, 0.12)", color: "var(--warning)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
+            <Icon name="shield" size={24} />
+          </div>
+          <h2 style={{ fontSize: "var(--fs-page)", fontWeight: 650 }}>Admin Access Required</h2>
+          <p style={{ color: "var(--text-secondary)", fontSize: "var(--fs-body)", marginTop: 8, lineHeight: 1.5 }}>
+            WhatsApp Bulk Marketing &amp; Broadcast Campaigns are restricted to Workspace Administrators &amp; Managers by default.
+          </p>
+          <p style={{ color: "var(--text-tertiary)", fontSize: "var(--fs-caption)", marginTop: 6 }}>
+            To run mass broadcasts, please contact your company administrator to enable WhatsApp Marketing access in Team &amp; Users permissions.
+          </p>
+          <div style={{ marginTop: 24, display: "flex", gap: 12 }}>
+            <Link href="/pipeline" className="btn" data-variant="primary">
+              <Icon name="kanban" size={14} /> Go to CRM Pipeline
+            </Link>
+            <Link href="/calls" className="btn" data-variant="ghost">
+              <Icon name="phone" size={14} /> My Call Recordings
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: "20px 24px", maxWidth: "1280px", margin: "0 auto" }}>

@@ -133,18 +133,57 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [loginModalOpen, setLoginModalOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [managerNavMap, setManagerNavMap] = useState<Record<string, boolean> | null>(null);
+  const [closerNavMap, setCloserNavMap] = useState<Record<string, boolean>>({
+    "/whatsapp": false,
+    "/channels": false,
+    "/forms": false,
+    "/lead-import": false,
+  });
   const userMenuRef = useOutsideClose(() => setUserMenuOpen(false));
   const title = TITLES[pathname] ?? "Workspace";
   const isFullBleed = pathname === "/chat";
   const isWide = pathname === "/pipeline";
   const pageClass = isFullBleed ? "page page-full" : isWide ? "page page-wide" : "page";
 
-  useEffect(() => {
-    setMobileOpen(false);
+  const loadNavSettings = () => {
     try {
       const stored = localStorage.getItem("closer.manager.nav.v1");
       if (stored) setManagerNavMap(JSON.parse(stored));
+      const storedCloser = localStorage.getItem("closer.closer.nav.v1");
+      if (storedCloser) {
+        setCloserNavMap(JSON.parse(storedCloser));
+      } else {
+        const storedTeam = localStorage.getItem("closer.team.v1");
+        if (storedTeam) {
+          const parsed = JSON.parse(storedTeam);
+          if (Array.isArray(parsed.permissions)) {
+            const hasWa = parsed.permissions.find((p: any) => p.id === "whatsapp_bulk_marketing")?.closer ?? false;
+            const hasPlugins = parsed.permissions.find((p: any) => p.id === "plugins_channels_hub")?.closer ?? false;
+            const hasForms = parsed.permissions.find((p: any) => p.id === "forms_builder")?.closer ?? false;
+            const hasImport = parsed.permissions.find((p: any) => p.id === "lead_import")?.closer ?? false;
+            setCloserNavMap({
+              "/whatsapp": hasWa,
+              "/channels": hasPlugins,
+              "/forms": hasForms,
+              "/lead-import": hasImport,
+            });
+          }
+        }
+      }
     } catch {}
+  };
+
+  useEffect(() => {
+    setMobileOpen(false);
+    loadNavSettings();
+
+    const handlePermChange = () => loadNavSettings();
+    window.addEventListener("aicloser:permissions_updated", handlePermChange);
+    window.addEventListener("storage", handlePermChange);
+    return () => {
+      window.removeEventListener("aicloser:permissions_updated", handlePermChange);
+      window.removeEventListener("storage", handlePermChange);
+    };
   }, [pathname]);
 
   return (
@@ -214,13 +253,26 @@ export function AppShell({ children }: { children: ReactNode }) {
                 }
                 return item.href !== "/automations" && item.href !== "/settings";
               }
-              // CLOSER role
-              return (
-                item.href !== "/team" &&
-                item.href !== "/automations" &&
-                item.href !== "/settings" &&
-                item.href !== "/import"
-              );
+              // CLOSER / FIELD USER role:
+              // 1. Never see administrative governance or AI developer vaults
+              if (item.href === "/team" || item.href === "/automations" || item.href === "/settings") {
+                return false;
+              }
+              // 2. Growth modules are locked by default unless Admin enabled them
+              if (item.href === "/whatsapp") {
+                return Boolean(closerNavMap["/whatsapp"]);
+              }
+              if (item.href === "/channels") {
+                return Boolean(closerNavMap["/channels"]);
+              }
+              if (item.href === "/forms") {
+                return Boolean(closerNavMap["/forms"]);
+              }
+              if (item.href === "/lead-import" || item.href === "/import") {
+                return Boolean(closerNavMap["/lead-import"]);
+              }
+              // 3. Core modules are ALWAYS available: Dashboard, Pipeline (leads & grab), Contacts, Calls (listen to recordings), Chat, Payments
+              return true;
             });
             if (visibleItems.length === 0) return null;
 

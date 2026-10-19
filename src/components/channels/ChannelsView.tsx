@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { aicloserApi } from "@/lib/api-client";
+import { useApp } from "@/lib/store";
 
 export interface Connector {
   id: string;
@@ -296,6 +298,48 @@ export function ChannelsView() {
     navigator.clipboard?.writeText(text);
     setCopiedKey(label);
     setTimeout(() => setCopiedKey(null), 2000);
+  }
+
+  // Closer permission guard (Plugins & Channels Hub is restricted to Admin by default)
+  const { state } = useApp();
+  const isCloser = state.user?.role === "CLOSER";
+  const [isAllowedForCloser, setIsAllowedForCloser] = useState(false);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("closer.closer.nav.v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed["/channels"]) setIsAllowedForCloser(true);
+      }
+    } catch {}
+  }, []);
+
+  if (isCloser && !isAllowedForCloser) {
+    return (
+      <div style={{ padding: "40px 24px", maxWidth: "600px", margin: "40px auto", textAlign: "center" }}>
+        <div className="card" style={{ padding: "36px 24px", display: "flex", flexDirection: "column", alignItems: "center" }}>
+          <div style={{ width: 48, height: 48, borderRadius: "50%", background: "rgba(59, 130, 246, 0.12)", color: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
+            <Icon name="plug" size={24} />
+          </div>
+          <h2 style={{ fontSize: "var(--fs-page)", fontWeight: 650 }}>Admin Access Required</h2>
+          <p style={{ color: "var(--text-secondary)", fontSize: "var(--fs-body)", marginTop: 8, lineHeight: 1.5 }}>
+            Plugins &amp; Channels Hub is restricted to Workspace Administrators.
+          </p>
+          <p style={{ color: "var(--text-tertiary)", fontSize: "var(--fs-caption)", marginTop: 6 }}>
+            Channel credentials, Meta Cloud API keys, and telephony webhooks are configured centrally by workspace administrators.
+          </p>
+          <div style={{ marginTop: 24, display: "flex", gap: 12 }}>
+            <Link href="/pipeline" className="btn" data-variant="primary">
+              <Icon name="kanban" size={14} /> Go to CRM Pipeline
+            </Link>
+            <Link href="/calls" className="btn" data-variant="ghost">
+              <Icon name="phone" size={14} /> My Call Recordings
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

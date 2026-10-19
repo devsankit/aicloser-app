@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { aicloserApi } from "@/lib/api-client";
+import { useApp } from "@/lib/store";
 
 export type CallDirection = "inbound" | "outbound" | "missed";
 
@@ -163,11 +164,13 @@ const DEFAULT_DEVICES: SimDevice[] = [
 ];
 
 export function CallsView() {
+  const { state } = useApp();
   const [tab, setTab] = useState<"all" | "missed" | "devices">("all");
   const [calls, setCalls] = useState<CallRecord[]>(DEFAULT_CALLS);
   const [devices, setDevices] = useState<SimDevice[]>(DEFAULT_DEVICES);
   const [search, setSearch] = useState("");
   const [directionFilter, setDirectionFilter] = useState<string>("ALL");
+  const [callerScope, setCallerScope] = useState<"all" | "mine">("all");
   const [activeAudioId, setActiveAudioId] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [selectedTranscriptCall, setSelectedTranscriptCall] = useState<CallRecord | null>(null);
@@ -306,12 +309,19 @@ export function CallsView() {
 
   const filteredCalls = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const currentCloserName = (state.user?.displayName || "").toLowerCase();
+
     return calls.filter((c) => {
       const matchDir =
         directionFilter === "ALL" ||
         (directionFilter === "INBOUND" && c.direction === "inbound") ||
         (directionFilter === "OUTBOUND" && c.direction === "outbound") ||
         (directionFilter === "MISSED" && c.direction === "missed");
+
+      const matchScope =
+        callerScope === "all" ||
+        !currentCloserName ||
+        c.closerName.toLowerCase().includes(currentCloserName);
 
       const matchSearch =
         !q ||
@@ -321,9 +331,9 @@ export function CallsView() {
         c.closerName.toLowerCase().includes(q) ||
         c.disposition.toLowerCase().includes(q);
 
-      return matchDir && matchSearch;
+      return matchDir && matchScope && matchSearch;
     });
-  }, [calls, directionFilter, search]);
+  }, [calls, directionFilter, search, callerScope, state.user]);
 
   const missedCalls = calls.filter((c) => c.direction === "missed" && c.callbackPending);
   const totalDurationSum = calls.reduce((acc, c) => acc + c.durationSeconds, 0);
@@ -440,6 +450,14 @@ export function CallsView() {
                   {d === "ALL" ? "All" : d.charAt(0) + d.slice(1).toLowerCase()}
                 </button>
               ))}
+            </div>
+            <div className="seg">
+              <button data-on={callerScope === "all"} onClick={() => setCallerScope("all")}>
+                <Icon name="users" size={12} /> Team Calls
+              </button>
+              <button data-on={callerScope === "mine"} onClick={() => setCallerScope("mine")}>
+                <Icon name="phone" size={12} /> My Calls
+              </button>
             </div>
             <div style={{ marginLeft: "auto", fontSize: "var(--fs-caption)", color: "var(--text-tertiary)" }}>
               {filteredCalls.length} recorded calls

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 import { CURRENT_USER, maskPhone, useApp } from "@/lib/store";
@@ -95,94 +95,177 @@ const DEFAULT_MEMBERS: TeamMember[] = [
 ];
 
 const DEFAULT_PERMISSIONS: PermissionRow[] = [
+  // 1. Leads & Pipeline Management
   {
     id: "lead_view_all",
-    category: "Leads & Pipeline",
+    category: "Leads & Pipeline Management",
     label: "View all workspace leads",
-    desc: "Can view unassigned and colleague leads vs only strictly assigned records.",
+    desc: "Can view unassigned & colleague leads vs only strictly assigned records.",
     admin: true,
     manager: true,
     closer: false,
   },
   {
     id: "lead_move_stages",
-    category: "Leads & Pipeline",
-    label: "Move deal stages",
-    desc: "Permission to progress leads across Kanban columns.",
+    category: "Leads & Pipeline Management",
+    label: "Move deal stages in Kanban",
+    desc: "Permission to progress leads across Kanban pipeline columns.",
+    admin: true,
+    manager: true,
+    closer: true,
+  },
+  {
+    id: "lead_grab_pool",
+    category: "Leads & Pipeline Management",
+    label: "Grab unassigned leads from Pool",
+    desc: "Access the live Lead Grab Pool to claim incoming leads on demand within quota.",
     admin: true,
     manager: true,
     closer: true,
   },
   {
     id: "lead_reassign",
-    category: "Leads & Pipeline",
-    label: "Bulk reassign ownership",
+    category: "Leads & Pipeline Management",
+    label: "Bulk reassign lead ownership",
     desc: "Reassign individual or batch leads between closers.",
     admin: true,
     manager: true,
     closer: false,
   },
   {
-    id: "lead_delete",
-    category: "Leads & Pipeline",
-    label: "Delete leads & contacts",
-    desc: "Permanently delete lead records and linked contact data.",
-    admin: true,
-    manager: false,
-    closer: false,
-  },
-  {
-    id: "telephony_recordings",
-    category: "Calls & Telephony",
-    label: "Listen to call recordings",
-    desc: "Access audio playbacks and AI transcripts of team sales calls.",
+    id: "lead_import",
+    category: "Leads & Pipeline Management",
+    label: "Multi-Source Lead Import (Sheets, Excel, CSV)",
+    desc: "Import new leads into the CRM from Google Sheets, Excel, CSV, or paired device.",
     admin: true,
     manager: true,
     closer: false,
   },
   {
-    id: "chat_shared_threads",
-    category: "Calls & Telephony",
-    label: "Reply in shared chat threads",
-    desc: "Participate and message leads in conversations shared by other closers.",
+    id: "lead_delete",
+    category: "Leads & Pipeline Management",
+    label: "Delete leads & contacts",
+    desc: "Permanently delete lead records and linked contact data from CRM.",
+    admin: true,
+    manager: false,
+    closer: false,
+  },
+
+  // 2. Calls & SIM Telephony
+  {
+    id: "telephony_own_recordings",
+    category: "Calls & SIM Telephony",
+    label: "Access own SIM call recordings & logs",
+    desc: "Listen to own call recordings, view phone call history, and check callback tasks.",
     admin: true,
     manager: true,
     closer: true,
   },
   {
+    id: "telephony_team_recordings",
+    category: "Calls & SIM Telephony",
+    label: "Listen to all team call recordings & AI transcripts",
+    desc: "Access audio playbacks and AI transcripts of all sales calls across the company.",
+    admin: true,
+    manager: true,
+    closer: false,
+  },
+
+  // 3. Conversations & Marketing
+  {
+    id: "chat_shared_threads",
+    category: "Conversations & Marketing",
+    label: "Live Multi-Channel Chat (WhatsApp / Web)",
+    desc: "Message leads in real time, use sales macros, and view conversation histories.",
+    admin: true,
+    manager: true,
+    closer: true,
+  },
+  {
+    id: "whatsapp_bulk_marketing",
+    category: "Conversations & Marketing",
+    label: "WhatsApp Bulk Marketing & Broadcast Campaigns",
+    desc: "Broadcast approved Meta Cloud templates and run bulk marketing campaigns.",
+    admin: true,
+    manager: true,
+    closer: false,
+  },
+
+  // 4. Growth & Integrations
+  {
+    id: "plugins_channels_hub",
+    category: "Growth & Integrations",
+    label: "Plugins & Channels Configuration Hub",
+    desc: "Connect WhatsApp QR, Meta Cloud API credentials, webhooks, and integrations.",
+    admin: true,
+    manager: false,
+    closer: false,
+  },
+  {
+    id: "forms_builder",
+    category: "Growth & Integrations",
+    label: "Lead Form Builder & Public Embeds",
+    desc: "Design public lead capture forms, customize questions, and copy embed codes.",
+    admin: true,
+    manager: true,
+    closer: false,
+  },
+
+  // 5. Revenue & Financial Controls
+  {
     id: "payments_create",
-    category: "Revenue & Payments",
-    label: "Generate UPI payment links",
-    desc: "Generate dynamic payment requests with customer QR codes.",
+    category: "Revenue & Financial Controls",
+    label: "Generate UPI dynamic payment links",
+    desc: "Generate dynamic customer payment requests with dynamic UPI QR codes.",
     admin: true,
     manager: true,
     closer: true,
   },
   {
     id: "payments_approve",
-    category: "Revenue & Payments",
-    label: "Approve payment screenshot proofs",
-    desc: "Mark client payment proofs as verified and trigger Closed Won state.",
+    category: "Revenue & Financial Controls",
+    label: "Verify & approve UPI payment proofs",
+    desc: "Inspect customer payment screenshot proofs, verify UTR, and trigger Closed Won.",
+    admin: true,
+    manager: true,
+    closer: false,
+  },
+
+  // 6. Administration & Governance
+  {
+    id: "round_robin_manage",
+    category: "Administration & Governance",
+    label: "Configure Round-Robin routing rules",
+    desc: "Adjust closer allocation caps, working hours, and distribution weights.",
     admin: true,
     manager: true,
     closer: false,
   },
   {
-    id: "export_contacts",
-    category: "Administration",
-    label: "Export database to CSV / JSON",
-    desc: "Download complete client contact directory and revenue history.",
+    id: "team_user_management",
+    category: "Administration & Governance",
+    label: "Team members & user quota governance",
+    desc: "Invite new users, set active lead caps, manage leaves, and configure permissions.",
     admin: true,
     manager: false,
     closer: false,
   },
   {
-    id: "round_robin_manage",
-    category: "Administration",
-    label: "Configure Round-Robin rules",
-    desc: "Adjust closer allocation caps, working hours, and algorithm.",
+    id: "export_contacts",
+    category: "Administration & Governance",
+    label: "Export database to CSV / Excel",
+    desc: "Download complete client contact directory, phone numbers, and revenue history.",
     admin: true,
-    manager: true,
+    manager: false,
+    closer: false,
+  },
+  {
+    id: "ai_automations_config",
+    category: "Administration & Governance",
+    label: "AI Bot Studio & BYOK API Vault",
+    desc: "Manage Groq, OpenAI, Claude API keys, prompt engineering, and fallback chains.",
+    admin: true,
+    manager: false,
     closer: false,
   },
 ];
@@ -229,6 +312,12 @@ export function TeamView() {
       if (storedNav) {
         try {
           setManagerMenuVisibility(JSON.parse(storedNav));
+        } catch {}
+      }
+      const storedCloserNav = localStorage.getItem("closer.closer.nav.v1");
+      if (storedCloserNav) {
+        try {
+          setCloserMenuVisibility(JSON.parse(storedCloserNav));
         } catch {}
       }
       const storedOps = localStorage.getItem("closer.manager.ops.v1");
@@ -387,13 +476,21 @@ export function TeamView() {
     "/calls": true,
     "/whatsapp": true,
     "/payments": true,
-    "/import": true,
+    "/lead-import": true,
     "/automations": false,
     "/settings": false,
   });
   const [managerUserControl, setManagerUserControl] = useState(true);
   const [managerPaymentApproval, setManagerPaymentApproval] = useState(true);
   const [managerLeadRoutingAccess, setManagerLeadRoutingAccess] = useState(false);
+
+  // Closer / Field Agent Optional Feature Unlocks State (Disabled by default)
+  const [closerMenuVisibility, setCloserMenuVisibility] = useState<Record<string, boolean>>({
+    "/whatsapp": false,
+    "/channels": false,
+    "/forms": false,
+    "/lead-import": false,
+  });
 
   const handleToggleLeave = (memberId: string) => {
     const updated = members.map((m) => {
@@ -523,12 +620,26 @@ export function TeamView() {
       p.id === id ? { ...p, [role]: !p[role] } : p
     );
     setPermissions(updated);
+
+    if (role === "closer") {
+      const isNowChecked = !permissions.find((p) => p.id === id)?.closer;
+      if (id === "whatsapp_bulk_marketing") {
+        setCloserMenuVisibility((prev) => ({ ...prev, "/whatsapp": isNowChecked }));
+      } else if (id === "plugins_channels_hub") {
+        setCloserMenuVisibility((prev) => ({ ...prev, "/channels": isNowChecked }));
+      } else if (id === "forms_builder") {
+        setCloserMenuVisibility((prev) => ({ ...prev, "/forms": isNowChecked }));
+      } else if (id === "lead_import") {
+        setCloserMenuVisibility((prev) => ({ ...prev, "/lead-import": isNowChecked }));
+      }
+    }
   };
 
   const handleSaveMatrix = () => {
     saveToStorage(members, permissions);
     try {
       localStorage.setItem("closer.manager.nav.v1", JSON.stringify(managerMenuVisibility));
+      localStorage.setItem("closer.closer.nav.v1", JSON.stringify(closerMenuVisibility));
       localStorage.setItem(
         "closer.manager.ops.v1",
         JSON.stringify({
@@ -537,8 +648,9 @@ export function TeamView() {
           leadRoutingAccess: managerLeadRoutingAccess,
         })
       );
+      window.dispatchEvent(new Event("aicloser:permissions_updated"));
     } catch {}
-    setSavedBanner("Manager navigation matrix & operational controls saved!");
+    setSavedBanner("Role capabilities, matrix permissions & navigation controls saved!");
     setTimeout(() => setSavedBanner(null), 2500);
   };
 
@@ -1095,35 +1207,47 @@ export function TeamView() {
                 </tr>
               </thead>
               <tbody>
-                {permissions.map((p) => (
-                  <tr key={p.id}>
-                    <td>
-                      <div style={{ fontWeight: 550, color: "var(--text)" }}>{p.label}</div>
-                      <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)" }}>{p.desc}</div>
-                    </td>
-                    <td style={{ textAlign: "center" }}>
-                      <span style={{ color: "var(--success)" }}>
-                        <Icon name="check" size={15} />
-                      </span>
-                    </td>
-                    <td style={{ textAlign: "center" }}>
-                      <input
-                        type="checkbox"
-                        checked={p.manager}
-                        onChange={() => handleTogglePermission(p.id, "manager")}
-                        style={{ cursor: "pointer", width: "16px", height: "16px", accentColor: "var(--accent)" }}
-                      />
-                    </td>
-                    <td style={{ textAlign: "center" }}>
-                      <input
-                        type="checkbox"
-                        checked={p.closer}
-                        onChange={() => handleTogglePermission(p.id, "closer")}
-                        style={{ cursor: "pointer", width: "16px", height: "16px", accentColor: "var(--accent)" }}
-                      />
-                    </td>
-                  </tr>
-                ))}
+                {permissions.map((p, idx) => {
+                  const showCat = idx === 0 || permissions[idx - 1].category !== p.category;
+                  return (
+                    <Fragment key={p.id}>
+                      {showCat ? (
+                        <tr style={{ background: "var(--bg-hover, rgba(255,255,255,0.03))" }}>
+                          <td colSpan={4} style={{ padding: "8px 16px", fontWeight: 700, fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--accent)" }}>
+                            {p.category}
+                          </td>
+                        </tr>
+                      ) : null}
+                      <tr>
+                        <td>
+                          <div style={{ fontWeight: 550, color: "var(--text)" }}>{p.label}</div>
+                          <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)" }}>{p.desc}</div>
+                        </td>
+                        <td style={{ textAlign: "center" }}>
+                          <span style={{ color: "var(--success)" }}>
+                            <Icon name="check" size={15} />
+                          </span>
+                        </td>
+                        <td style={{ textAlign: "center" }}>
+                          <input
+                            type="checkbox"
+                            checked={p.manager}
+                            onChange={() => handleTogglePermission(p.id, "manager")}
+                            style={{ cursor: "pointer", width: "16px", height: "16px", accentColor: "var(--accent)" }}
+                          />
+                        </td>
+                        <td style={{ textAlign: "center" }}>
+                          <input
+                            type="checkbox"
+                            checked={p.closer}
+                            onChange={() => handleTogglePermission(p.id, "closer")}
+                            style={{ cursor: "pointer", width: "16px", height: "16px", accentColor: "var(--accent)" }}
+                          />
+                        </td>
+                      </tr>
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1160,7 +1284,7 @@ export function TeamView() {
                     { path: "/calls", label: "SIM Telephony & Calls", desc: "Android SIM call logs & recordings" },
                     { path: "/whatsapp", label: "WhatsApp QR & Cloud API", desc: "Device pairing & cloud inbox" },
                     { path: "/payments", label: "UPI & Razorpay Invoicing", desc: "Dynamic QR generation & receipts" },
-                    { path: "/import", label: "Multi-Source Lead Import", desc: "CSV, Excel, Sheets & QR extraction" },
+                    { path: "/lead-import", label: "Multi-Source Lead Import", desc: "CSV, Excel, Sheets & QR extraction" },
                     { path: "/automations", label: "AI Automations & Lead Routing", desc: "Round-robin distribution & AI models" },
                     { path: "/settings", label: "Settings & API Vault", desc: "Workspace configuration & credentials" },
                   ].map((item) => (
@@ -1241,6 +1365,110 @@ export function TeamView() {
                   </div>
                   <div style={{ fontSize: "11px", color: "var(--text-secondary)", marginTop: "4px", lineHeight: 1.45 }}>
                     Company Admin credentials, master API keys, and workspace billing remain 100% hidden and unalterable by Managers regardless of any role delegation.
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Closer / Field Agent Navigation Menu Visibility & Admin Governance */}
+            <div style={{ marginTop: "24px", paddingTop: "20px", borderTop: "1px dashed var(--border)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px", flexWrap: "wrap", gap: "10px" }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <span className="chip" data-tone="success" style={{ fontWeight: 650 }}>USER ACCESS</span>
+                    <h3 style={{ fontSize: "var(--fs-body)", fontWeight: 600, margin: 0 }}>Closer / Field User Workspace Access &amp; Feature Unlocks</h3>
+                  </div>
+                  <p style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
+                    By default, Closers receive leads, check their own call recordings, chat with leads, and generate UPI payment links. Advanced growth modules (Bulk Marketing, Plugins, Lead Forms, Import) are locked by default and must be explicitly enabled by Admin.
+                  </p>
+                </div>
+                <button className="btn" data-variant="accent" data-size="sm" onClick={handleSaveMatrix}>
+                  <Icon name="check" size={13} /> Save User Permissions
+                </button>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "16px" }}>
+                {/* Closer Menu Unlocks */}
+                <div className="card" style={{ padding: "16px", background: "var(--bg-surface)" }}>
+                  <div style={{ fontWeight: 600, fontSize: "var(--fs-caption)", textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text-tertiary)", marginBottom: "10px" }}>
+                    Optional Sidebar Modules For Closers (Default: Disabled)
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                    {[
+                      {
+                        path: "/whatsapp",
+                        label: "WhatsApp Bulk Marketing & Campaigns",
+                        desc: "Broadcast Meta Cloud templates and blast campaigns (Disabled for closer by default)",
+                        permId: "whatsapp_bulk_marketing",
+                      },
+                      {
+                        path: "/channels",
+                        label: "Plugins & Channels Configuration",
+                        desc: "Connect WhatsApp QR, Meta Cloud API, webhooks & relays (No use to regular closers)",
+                        permId: "plugins_channels_hub",
+                      },
+                      {
+                        path: "/forms",
+                        label: "Lead Form Builder",
+                        desc: "Design and publish public website lead capture forms",
+                        permId: "forms_builder",
+                      },
+                      {
+                        path: "/lead-import",
+                        label: "Multi-Source Lead Import",
+                        desc: "Import raw leads from CSV, Excel, Google Sheets, or paired device",
+                        permId: "lead_import",
+                      },
+                    ].map((item) => (
+                      <label key={item.path} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderRadius: "6px", background: "var(--bg-hover)", cursor: "pointer" }}>
+                        <div>
+                          <div style={{ fontSize: "var(--fs-body)", fontWeight: 550 }}>{item.label}</div>
+                          <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>{item.desc}</div>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={closerMenuVisibility[item.path] ?? false}
+                          onChange={(e) => {
+                            const val = e.target.checked;
+                            setCloserMenuVisibility((prev) => ({ ...prev, [item.path]: val }));
+                            setPermissions((prev) =>
+                              prev.map((p) => (p.id === item.permId ? { ...p, closer: val } : p))
+                            );
+                          }}
+                          style={{ width: "16px", height: "16px", accentColor: "var(--success)", cursor: "pointer" }}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Closer Core Privileges summary */}
+                <div className="card" style={{ padding: "16px", background: "var(--bg-surface)", display: "flex", flexDirection: "column", gap: "10px" }}>
+                  <div style={{ fontWeight: 600, fontSize: "var(--fs-caption)", textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text-tertiary)" }}>
+                    Default Active Capabilities For Closers
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "12px", color: "var(--text-secondary)" }}>
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
+                      <span style={{ color: "var(--success)", marginTop: "1px" }}><Icon name="check" size={13} /></span>
+                      <div><strong style={{ color: "var(--text)" }}>Pipeline &amp; Lead Grab:</strong> Closer gets assigned leads and can claim unassigned leads from the live pool within their max capacity.</div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
+                      <span style={{ color: "var(--success)", marginTop: "1px" }}><Icon name="check" size={13} /></span>
+                      <div><strong style={{ color: "var(--text)" }}>SIM Call Recordings &amp; Telephony:</strong> Closer can check their own call recordings, inspect audio playback, and view call duration logs.</div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
+                      <span style={{ color: "var(--success)", marginTop: "1px" }}><Icon name="check" size={13} /></span>
+                      <div><strong style={{ color: "var(--text)" }}>Live Multi-Channel Chat:</strong> Closer can reply to customer WhatsApp and web messages in their assigned conversations.</div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
+                      <span style={{ color: "var(--success)", marginTop: "1px" }}><Icon name="check" size={13} /></span>
+                      <div><strong style={{ color: "var(--text)" }}>UPI Dynamic Invoicing:</strong> Closer can generate dynamic customer UPI payment QR codes and payment links.</div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
+                      <span style={{ color: "var(--accent)", marginTop: "1px" }}><Icon name="shield" size={13} /></span>
+                      <div><strong style={{ color: "var(--text)" }}>Data Masking &amp; Isolation:</strong> Customer numbers can be masked, and closers cannot delete records or export full database.</div>
+                    </div>
                   </div>
                 </div>
               </div>
