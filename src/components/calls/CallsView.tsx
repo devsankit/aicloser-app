@@ -36,7 +36,89 @@ export interface SimDevice {
   lastHeartbeat: string;
 }
 
-const DEFAULT_CALLS: CallRecord[] = [];
+const DEFAULT_CALLS: CallRecord[] = [
+  {
+    id: "call-101",
+    leadCode: "CLO-101",
+    customerName: "Aakash Mehta",
+    company: "Apex Logistics",
+    phone: "+91 98200 12345",
+    closerName: "Anshita",
+    simSlot: "Jio 5G (SIM 1)",
+    direction: "outbound",
+    durationSeconds: 252,
+    timestamp: "10 mins ago",
+    disposition: "Product Demo & Pricing Agreed",
+    sentiment: "positive",
+    aiSummary: "Client verified requirement for 4 closer seats with Android SIM relay. Budget of ₹96k/mo approved. Payment token requested.",
+    transcript: [
+      { speaker: "Anshita (Closer)", text: "Hello Mr. Mehta, calling regarding your AI Closer demo request.", time: "00:05" },
+      { speaker: "Aakash Mehta", text: "Yes Anshita, we have 4 field closers making 300 daily calls. Can this record all SIM calls automatically?", time: "00:18" },
+      { speaker: "Anshita (Closer)", text: "Absolutely! The companion app syncs all audio in the background directly to your admin workspace.", time: "00:32" },
+    ],
+    audioUrl: "https://actions.google.com/sounds/v1/ambiences/office_chatter.ogg",
+    callbackPending: false,
+  },
+  {
+    id: "call-102",
+    leadCode: "CLO-103",
+    customerName: "Priya Nair",
+    company: "Loom & Co",
+    phone: "+91 98455 12098",
+    closerName: "Anshita",
+    simSlot: "Jio 5G (SIM 1)",
+    direction: "inbound",
+    durationSeconds: 165,
+    timestamp: "45 mins ago",
+    disposition: "UPI Advance Confirmation",
+    sentiment: "positive",
+    aiSummary: "Customer called to confirm UPI transaction UTR number. Transferred payment proof screenshot via WhatsApp.",
+    transcript: [
+      { speaker: "Priya Nair", text: "Hi, I just transferred ₹48,000 advance via UPI. Can you verify receipt?", time: "00:04" },
+      { speaker: "Anshita (Closer)", text: "Yes Priya, I see the payment proof in our payments tab. Approving it now!", time: "00:15" },
+    ],
+    audioUrl: "https://actions.google.com/sounds/v1/ambiences/office_chatter.ogg",
+    callbackPending: false,
+  },
+  {
+    id: "call-103",
+    leadCode: "CLO-106",
+    customerName: "Rahul Deshmukh",
+    company: "Skyline Motors",
+    phone: "+91 98922 14570",
+    closerName: "Field Closer Desk",
+    simSlot: "Airtel 5G (SIM 1)",
+    direction: "inbound",
+    durationSeconds: 320,
+    timestamp: "2 hours ago",
+    disposition: "Multi-Showroom Inquiry",
+    sentiment: "neutral",
+    aiSummary: "IndiaMART lead queried multi-showroom telephony routing and DPDP Act compliance.",
+    transcript: [
+      { speaker: "Rahul Deshmukh", text: "Do you support separate SIM allocations for our Pune and Mumbai branches?", time: "00:08" },
+      { speaker: "Field Closer Desk", text: "Yes sir, each branch manager has independent reporting and closer isolation.", time: "00:22" },
+    ],
+    audioUrl: "https://actions.google.com/sounds/v1/ambiences/office_chatter.ogg",
+    callbackPending: false,
+  },
+  {
+    id: "call-104",
+    leadCode: "CLO-104",
+    customerName: "Devansh Kapoor",
+    company: "Vertex Labs",
+    phone: "+91 97112 67734",
+    closerName: "Field Closer Desk",
+    simSlot: "Airtel 5G (SIM 1)",
+    direction: "missed",
+    durationSeconds: 0,
+    timestamp: "3 hours ago",
+    disposition: "Unanswered Inbound Call",
+    sentiment: "neutral",
+    aiSummary: "Missed call from verified Enterprise lead. Pending callback SLA: 15 minutes.",
+    transcript: [],
+    callbackPending: true,
+  },
+];
 const DEFAULT_DEVICES: SimDevice[] = [
   {
     id: "cmv6i693w0112u2jpo1zab8an",
@@ -82,7 +164,7 @@ const DEFAULT_DEVICES: SimDevice[] = [
 
 export function CallsView() {
   const [tab, setTab] = useState<"all" | "missed" | "devices">("all");
-  const [calls, setCalls] = useState<CallRecord[]>([]);
+  const [calls, setCalls] = useState<CallRecord[]>(DEFAULT_CALLS);
   const [devices, setDevices] = useState<SimDevice[]>(DEFAULT_DEVICES);
   const [search, setSearch] = useState("");
   const [directionFilter, setDirectionFilter] = useState<string>("ALL");

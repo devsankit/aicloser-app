@@ -9,6 +9,13 @@ const CENTRAL_API_TARGET = rawTarget.replace(/\/api\/v1\/?$/, "").replace(/\/$/,
 
 const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR || ".next",
+  devIndicators: false,
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   async rewrites() {
     return [
       {

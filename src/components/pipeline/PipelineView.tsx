@@ -25,7 +25,7 @@ type SortKey = "recent" | "value" | "priority";
 const PRIORITY_ORDER = { urgent: 0, high: 1, medium: 2, low: 3 } as const;
 
 export function PipelineView() {
-  const { state, moveLead, setLayout } = useApp();
+  const { state, moveLead, setLayout, claimLead } = useApp();
   const scoped = useScopedLeads();
   const [query, setQuery] = useState("");
   const [source, setSource] = useState<Source | "">("");
@@ -354,6 +354,22 @@ export function PipelineView() {
                           {slaLabel(lead.followUp)}
                         </span>
                       </div>
+                      {lead.owner === "Unassigned" && (
+                        <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px dashed var(--border)" }}>
+                          <button
+                            className="btn"
+                            data-variant="accent"
+                            data-size="sm"
+                            style={{ width: "100%", height: 22, fontSize: 10, padding: "0 6px" }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              claimLead(lead.id, state.user?.displayName || "Anshita");
+                            }}
+                          >
+                            <Icon name="hand" size={11} /> Grab Lead (SLA Pool)
+                          </button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}

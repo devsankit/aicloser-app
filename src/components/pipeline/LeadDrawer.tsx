@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { ResizeHandle } from "@/components/ui/ResizeHandle";
-import { LIMITS, money, relativeTime, slaLabel, useApp } from "@/lib/store";
+import { LIMITS, maskPhone, money, relativeTime, slaLabel, useApp } from "@/lib/store";
 import {
   OWNERS,
   PRIORITY_ICON,
@@ -21,12 +21,16 @@ import {
 } from "@/lib/types";
 
 export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void }) {
-  const { moveLead, updateLead, deleteLead, state, setLayout } = useApp();
+  const { moveLead, updateLead, deleteLead, state, setLayout, claimLead, reassignLead } = useApp();
   const [draft, setDraft] = useState(lead);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
   const [phoneCopied, setPhoneCopied] = useState(false);
+  const [showMaskedPhone, setShowMaskedPhone] = useState(false);
+  const [reassignModalOpen, setReassignModalOpen] = useState(false);
+  const [targetCloser, setTargetCloser] = useState("Anshita");
+  const [handoverNote, setHandoverNote] = useState("");
 
   useEffect(() => {
     setDraft(lead);
@@ -168,6 +172,20 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
           </div>
 
           <div style={{ display: "flex", gap: "8px", margin: "12px 0 16px 0", flexWrap: "wrap" }}>
+            {draft.owner === "Unassigned" && (
+              <button
+                className="btn"
+                data-size="sm"
+                data-variant="accent"
+                onClick={() => {
+                  const closerName = state.user?.displayName || "Anshita";
+                  claimLead(lead.id, closerName);
+                  set("owner", closerName);
+                }}
+              >
+                <Icon name="hand" size={13} /> Claim Lead (Grab Pool)
+              </button>
+            )}
             {draft.phone && (
               <>
                 <a
@@ -201,7 +219,84 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
             >
               <Icon name="card" size={13} /> Collect Payment
             </a>
+            <button
+              className="btn"
+              data-size="sm"
+              data-variant="ghost"
+              onClick={() => setReassignModalOpen((v) => !v)}
+              title="Transfer or reassign to another closer with context notes"
+            >
+              <Icon name="branch" size={13} /> Reassign Closer
+            </button>
           </div>
+
+          {reassignModalOpen && (
+            <div
+              className="card"
+              style={{
+                margin: "0 0 16px 0",
+                padding: "12px 14px",
+                background: "var(--bg-soft)",
+                border: "1px solid var(--accent)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                <span style={{ fontWeight: 600, fontSize: "var(--fs-caption)", color: "var(--accent)", display: "flex", alignItems: "center", gap: "6px" }}>
+                  <Icon name="branch" size={13} /> Closer-to-Closer Handover
+                </span>
+                <button
+                  className="icon-btn"
+                  onClick={() => setReassignModalOpen(false)}
+                  style={{ padding: "2px" }}
+                >
+                  <Icon name="close" size={12} />
+                </button>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                <div>
+                  <label style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Target Closer</label>
+                  <select
+                    className="select"
+                    value={targetCloser}
+                    onChange={(e) => setTargetCloser(e.target.value)}
+                    style={{ width: "100%", height: "28px", marginTop: "2px" }}
+                  >
+                    {OWNERS.filter((o) => o !== "Unassigned" && o !== draft.owner).map((o) => (
+                      <option key={o} value={o}>{o}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Handover Context / Reason</label>
+                  <input
+                    className="input"
+                    value={handoverNote}
+                    onChange={(e) => setHandoverNote(e.target.value)}
+                    placeholder="e.g. Lead requested product demo callback; price negotiation approved"
+                    style={{ marginTop: "2px" }}
+                  />
+                </div>
+                <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end", marginTop: "4px" }}>
+                  <button className="btn" data-size="sm" onClick={() => setReassignModalOpen(false)}>Cancel</button>
+                  <button
+                    className="btn"
+                    data-size="sm"
+                    data-variant="accent"
+                    onClick={() => {
+                      reassignLead(lead.id, targetCloser, handoverNote);
+                      set("owner", targetCloser);
+                      if (handoverNote) {
+                        set("notes", `${draft.notes ? draft.notes + "\n\n" : ""}[Reassigned to ${targetCloser}]: ${handoverNote}`);
+                      }
+                      setReassignModalOpen(false);
+                    }}
+                  >
+                    Confirm Reassignment
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="field-rows">
             <div className="field-row">
@@ -378,13 +473,28 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
               <span className="field-label">
                 <Icon name="phone" size={14} /> Phone
               </span>
-              <input
-                className="input"
-                inputMode="tel"
-                value={draft.phone}
-                onChange={(e) => set("phone", e.target.value)}
-                aria-label="Phone"
-              />
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", flex: 1 }}>
+                <input
+                  className="input"
+                  inputMode="tel"
+                  value={showMaskedPhone ? maskPhone(draft.phone, true) : draft.phone}
+                  onChange={(e) => set("phone", e.target.value)}
+                  readOnly={showMaskedPhone}
+                  aria-label="Phone"
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  className="chip"
+                  data-tone={showMaskedPhone ? "info" : "default"}
+                  onClick={() => setShowMaskedPhone((v) => !v)}
+                  title={showMaskedPhone ? "Click to view full phone number" : "Click to mask phone number (+91 98765 •••••)"}
+                  style={{ cursor: "pointer", fontSize: "11px", height: "26px", border: "none" }}
+                >
+                  <Icon name={showMaskedPhone ? "shield" : "eye"} size={11} />
+                  {showMaskedPhone ? "Masked" : "Raw"}
+                </button>
+              </div>
             </div>
           </div>
 

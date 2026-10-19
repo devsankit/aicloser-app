@@ -10,7 +10,19 @@ export type StageId =
   | "won"
   | "lost";
 
-export type Source = "Website" | "WhatsApp" | "Referral" | "Ads" | "Cold call" | "Lead form";
+export type Source =
+  | "Website"
+  | "WhatsApp"
+  | "WhatsApp QR"
+  | "Google Sheets"
+  | "Excel"
+  | "Email"
+  | "IndiaMART"
+  | "Justdial"
+  | "Referral"
+  | "Ads"
+  | "Cold call"
+  | "Lead form";
 export type Segment = "SMB" | "Enterprise" | "Agency";
 
 export type Priority = "urgent" | "high" | "medium" | "low";
@@ -74,9 +86,22 @@ export const STAGES: StageMeta[] = [
   { id: "lost", label: "Closed Lost", short: "Lost", tone: "danger", status: "cancelled", icon: "x-circle" },
 ];
 
-export const SOURCES: Source[] = ["Website", "WhatsApp", "Referral", "Ads", "Cold call", "Lead form"];
+export const SOURCES: Source[] = [
+  "Website",
+  "WhatsApp",
+  "WhatsApp QR",
+  "Google Sheets",
+  "Excel",
+  "Email",
+  "IndiaMART",
+  "Justdial",
+  "Referral",
+  "Ads",
+  "Cold call",
+  "Lead form",
+];
 export const SEGMENTS: Segment[] = ["SMB", "Enterprise", "Agency"];
-export const OWNERS = ["Admin", "Unassigned"];
+export const OWNERS = ["Admin", "Unassigned", "Anshita", "Field Closer Desk"];
 
 export const stageMeta = (id: StageId): StageMeta =>
   STAGES.find((s) => s.id === id) ?? STAGES[0];
@@ -100,11 +125,17 @@ export interface SourceMeta {
 
 export function normalizeSource(source?: string | null): Source {
   const s = (source || "").trim().toLowerCase();
+  if (s.includes("qr") || s.includes("linked") || s.includes("companion")) return "WhatsApp QR";
   if (s.includes("what")) return "WhatsApp";
-  if (s.includes("form") || s.includes("sheet") || s.includes("survey")) return "Lead form";
+  if (s.includes("google") || s.includes("gsheet")) return "Google Sheets";
+  if (s.includes("excel") || s.includes("xlsx") || s.includes("xls") || s.includes("csv")) return "Excel";
+  if (s.includes("mail") || s.includes("inbound-email")) return "Email";
+  if (s.includes("indiamart")) return "IndiaMART";
+  if (s.includes("justdial")) return "Justdial";
+  if (s.includes("form") || s.includes("survey")) return "Lead form";
   if (s === "ads" || s.startsWith("ad") || s.includes("meta") || s.includes("facebook") || s.includes("instagram") || s.includes("paid")) return "Ads";
   if (s.includes("ref")) return "Referral";
-  if (s.includes("cold") || s.includes("call") || s.includes("phone") || s.includes("inbound")) return "Cold call";
+  if (s.includes("cold") || s.includes("call") || s.includes("phone") || s.includes("sim")) return "Cold call";
   if (s.includes("web") || s.includes("direct") || s.includes("organic") || s.includes("portal")) return "Website";
   return "Website";
 }
@@ -115,7 +146,19 @@ export function sourceMeta(source?: string): SourceMeta {
     case "Ads":
       return { label: "Meta Ads", icon: "meta", tone: "info" };
     case "WhatsApp":
-      return { label: "WhatsApp", icon: "whatsapp", tone: "success" };
+      return { label: "WhatsApp API", icon: "whatsapp", tone: "success" };
+    case "WhatsApp QR":
+      return { label: "WhatsApp QR", icon: "smartphone", tone: "success" };
+    case "Google Sheets":
+      return { label: "Google Sheets", icon: "sheet", tone: "success" };
+    case "Excel":
+      return { label: "Excel / CSV", icon: "sheet", tone: "accent" };
+    case "Email":
+      return { label: "Inbound Email", icon: "mail", tone: "info" };
+    case "IndiaMART":
+      return { label: "IndiaMART", icon: "globe", tone: "warning" };
+    case "Justdial":
+      return { label: "Justdial", icon: "phone", tone: "warning" };
     case "Referral":
       return { label: "Referral", icon: "users", tone: "accent" };
     case "Cold call":

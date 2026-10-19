@@ -2030,8 +2030,33 @@ svg {
 .table-wrap {
   border: 1px solid var(--border);
   border-radius: var(--r-md);
-  overflow: hidden;
+  overflow-x: auto;
   background: var(--bg-surface);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) var(--bg-hover);
+}
+
+.card > .table-wrap {
+  border: none;
+  border-radius: 0;
+}
+
+.table-wrap::-webkit-scrollbar {
+  height: 8px;
+}
+
+.table-wrap::-webkit-scrollbar-track {
+  background: var(--bg-hover);
+  border-radius: 4px;
+}
+
+.table-wrap::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+
+.table-wrap::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
 }
 
 .table {
@@ -3866,3 +3891,203 @@ svg {
     grid-template-columns: 1fr;
   }
 }
+
+/* ==========================================================================
+   AI Provider & BYOK Vault
+   ========================================================================== */
+
+.ai-provider-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(249, 115, 22, 0.07);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-caption);
+  line-height: 1.5;
+}
+
+.ai-provider-banner-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-sm);
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: #fff;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.ai-provider-banner-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-provider-banner-title {
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ai-provider-banner-desc {
+  color: var(--text-secondary);
+}
+
+.ai-provider-row {
+  display: flex;
+  flex-direction: column;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  gap: 12px;
+  transition: background var(--speed) ease;
+}
+
+.ai-provider-row:last-child {
+  border-bottom: 0;
+}
+
+.ai-provider-row[data-disabled="true"] {
+  opacity: 0.65;
+}
+
+.ai-provider-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ai-provider-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  display: grid;
+  place-items: center;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.ai-provider-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-provider-name-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ai-provider-name {
+  font-size: var(--fs-meta);
+  font-weight: 600;
+}
+
+.ai-provider-desc {
+  font-size: var(--fs-caption);
+  color: var(--text-secondary);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
+.ai-provider-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.ai-provider-config-grid {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr 130px auto;
+  gap: 10px;
+  align-items: center;
+  padding-left: 44px;
+}
+
+@media (max-width: 768px) {
+  .ai-provider-config-grid {
+    grid-template-columns: 1fr;
+    padding-left: 0;
+  }
+}
+
+.ai-key-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.ai-key-input-wrap .input {
+  width: 100%;
+  padding-right: 32px;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+}
+
+.ai-key-input-wrap .toggle-btn {
+  position: absolute;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  border-radius: var(--r-xs);
+}
+
+.ai-key-input-wrap .toggle-btn:hover {
+  color: var(--text);
+}
+
+.ai-telemetry-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--bg-soft);
+  border-bottom: 1px solid var(--border);
+}
+
+@media (max-width: 640px) {
+  .ai-telemetry-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.ai-telemetry-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ai-telemetry-label {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+.ai-telemetry-value {
+  font-size: var(--fs-body);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.ai-telemetry-sub {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+

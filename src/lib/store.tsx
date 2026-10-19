@@ -17,7 +17,7 @@ import { backendLeadToUiLead, uiLeadToBackendPayload, stageIdToBackendStage } fr
 
 const KEY = "closer.ui.v2";
 
-export type Scope = "all" | "mine" | "unassigned";
+export type Scope = "all" | "mine" | "unassigned" | `agent:${string}`;
 
 interface Persisted {
   leads: Lead[];
@@ -56,6 +56,8 @@ interface AppApi {
   updateLead: (id: string, patch: Partial<Lead>) => void;
   addLead: (lead: Omit<Lead, "id" | "updatedAt" | "code">) => void;
   deleteLead: (id: string) => void;
+  claimLead: (id: string, closerName?: string) => void;
+  reassignLead: (id: string, newOwner: string, note?: string) => void;
   refreshLeads: () => Promise<void>;
   loginWorkspace: (
     identifierOrCreds: string | { email?: string; identifier?: string; password?: string; token?: string },
@@ -333,9 +335,6 @@ function readStorage(): Partial<Persisted> | null {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<Persisted>;
-    if (Array.isArray(parsed.leads)) {
-      parsed.leads = parsed.leads.filter((l) => !l.id.startsWith("ld-") && !l.code.startsWith("CLO-10"));
-    }
     return parsed;
   } catch {
     return null;
@@ -587,6 +586,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setState((prev) => ({ ...prev, leads: prev.leads.filter((l) => l.id !== id) }));
   }, []);
 
+  const claimLead = useCallback((id: string, closerName: string = "Anshita") => {
+    updateLead(id, {
+      owner: closerName,
+      tags: ["claimed-lead"],
+      notes: `Claimed from open lead grab pool by ${closerName}.`,
+    });
+  }, [updateLead]);
+
+  const reassignLead = useCallback((id: string, newOwner: string, note?: string) => {
+    updateLead(id, {
+      owner: newOwner,
+      notes: note ? note : `Reassigned to ${newOwner}.`,
+    });
+  }, [updateLead]);
+
   const loginWorkspace = useCallback(
     async (
       identifierOrCreds: string | { email?: string; identifier?: string; password?: string; token?: string },
@@ -707,6 +721,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateLead,
       addLead,
       deleteLead,
+      claimLead,
+      reassignLead,
       refreshLeads,
       loginWorkspace,
       signupWorkspace,
@@ -730,6 +746,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateLead,
       addLead,
       deleteLead,
+      claimLead,
+      reassignLead,
       refreshLeads,
       loginWorkspace,
       signupWorkspace,
@@ -764,8 +782,26 @@ export function useScopedLeads() {
   return useMemo(() => {
     if (state.scope === "mine") return state.leads.filter((l) => l.owner === CURRENT_USER);
     if (state.scope === "unassigned") return state.leads.filter((l) => l.owner === "Unassigned");
+    if (state.scope.startsWith("agent:")) {
+      const targetAgent = state.scope.slice(6).trim().toLowerCase();
+      return state.leads.filter(
+        (l) => l.owner.toLowerCase() === targetAgent || l.owner.toLowerCase().includes(targetAgent)
+      );
+    }
     return state.leads;
   }, [state.leads, state.scope]);
+}
+
+/** Mask phone numbers for closer isolation to prevent lead theft. */
+export function maskPhone(phone?: string | null, shouldMask: boolean = false): string {
+  if (!phone) return "";
+  if (!shouldMask) return phone;
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length >= 10) {
+    const first5 = digits.slice(-10, -5);
+    return `+91 ${first5} •••••`;
+  }
+  return phone.slice(0, Math.floor(phone.length / 2)) + " •••••";
 }
 
 export const money = (n: number) =>

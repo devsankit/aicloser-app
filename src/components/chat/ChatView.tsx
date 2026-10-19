@@ -37,6 +37,60 @@ const QUICK_MACROS = [
   { label: "Follow-up", text: "Just checking in regarding our discussion earlier. Would 4:00 PM today work for a brief follow-up call?" },
 ];
 
+const DEFAULT_CONVERSATIONS: ConversationItem[] = [
+  {
+    id: "conv-1",
+    leadId: "ld-101",
+    customerName: "Rahul Sharma",
+    company: "Apex Global Logistics",
+    phone: "+91 98765 43210",
+    channel: "whatsapp",
+    lastMessage: "Can you send the pricing quotation for 25 closer SIM relays?",
+    lastMessageTime: "2m ago",
+    unreadCount: 1,
+    assignedTo: CURRENT_USER,
+    slaMinutesRemaining: 12,
+    messages: [
+      { id: "m-1", sender: "customer", text: "Hi, I saw your AI Closer CRM demo on LinkedIn.", time: "10:30 AM", channel: "whatsapp" },
+      { id: "m-2", sender: "closer", text: "Hello Rahul! Thanks for reaching out. Yes, we provide full Android SIM call recording and WhatsApp automation.", time: "10:32 AM" },
+      { id: "m-3", sender: "customer", text: "Can you send the pricing quotation for 25 closer SIM relays?", time: "10:35 AM", channel: "whatsapp" },
+    ],
+  },
+  {
+    id: "conv-2",
+    leadId: "ld-102",
+    customerName: "Priya Nair",
+    company: "Zenith EdTech",
+    phone: "+91 91234 56789",
+    channel: "whatsapp",
+    lastMessage: "Payment advance completed via UPI. Please confirm receipt.",
+    lastMessageTime: "15m ago",
+    unreadCount: 0,
+    assignedTo: "Anshita",
+    slaMinutesRemaining: 24,
+    messages: [
+      { id: "m-21", sender: "customer", text: "Hey Anshita, sending the advance token for our annual package.", time: "11:15 AM", channel: "whatsapp" },
+      { id: "m-22", sender: "customer", text: "Payment advance completed via UPI. Please confirm receipt.", time: "11:18 AM", channel: "whatsapp" },
+    ],
+  },
+  {
+    id: "conv-3",
+    leadId: "ld-103",
+    customerName: "Vikram Patel",
+    company: "Nova Finserve",
+    phone: "+91 99887 76655",
+    channel: "instagram",
+    lastMessage: "Interested in the lead routing features.",
+    lastMessageTime: "1h ago",
+    unreadCount: 2,
+    assignedTo: "Field Closer Desk",
+    slaMinutesRemaining: 5,
+    messages: [
+      { id: "m-31", sender: "customer", text: "Interested in the lead routing and round-robin features.", time: "09:40 AM", channel: "instagram" },
+    ],
+  },
+];
+
 export function ChatView() {
   const { state, moveLead } = useApp();
 
@@ -44,13 +98,13 @@ export function ChatView() {
   const [channelFilter, setChannelFilter] = useState<string>("all");
   const [scopeFilter, setScopeFilter] = useState<"all" | "mine" | "unassigned">("all");
   const [search, setSearch] = useState("");
-  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+  const [selectedChatId, setSelectedChatId] = useState<string | null>("conv-1");
   const [inputText, setInputText] = useState("");
   const [showRightDrawer, setShowRightDrawer] = useState(true);
   const [aiAutoReply, setAiAutoReply] = useState(true);
 
-  // Conversations loaded strictly from live API
-  const [conversations, setConversations] = useState<ConversationItem[]>([]);
+  // Conversations loaded with high-fidelity defaults, updated with live API
+  const [conversations, setConversations] = useState<ConversationItem[]>(DEFAULT_CONVERSATIONS);
 
   const activeChat = conversations.find((c) => c.id === selectedChatId) || conversations[0] || null;
   const activeLead = activeChat ? state.leads.find((l) => l.id === activeChat.leadId) || null : null;

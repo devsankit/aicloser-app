@@ -11,10 +11,12 @@ import { NAV } from "@/lib/data";
 import { CURRENT_USER, LIMITS, useApp, type Scope } from "@/lib/store";
 import { WorkspaceLoginDialog } from "@/components/auth/WorkspaceLoginDialog";
 
-const SCOPE_LABEL: Record<Scope, string> = {
+const SCOPE_LABEL: Record<string, string> = {
   all: "All team leads",
   mine: `My leads (${CURRENT_USER})`,
-  unassigned: "Unassigned",
+  unassigned: "Unassigned (Lead Grab Pool)",
+  "agent:Anshita": "Anshita (Senior Closer)",
+  "agent:Field Closer Desk": "Field Closer Desk (SIM Relay)",
 };
 
 const TITLES: Record<string, string> = Object.fromEntries(
@@ -130,6 +132,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [loginModalOpen, setLoginModalOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [managerNavMap, setManagerNavMap] = useState<Record<string, boolean> | null>(null);
   const userMenuRef = useOutsideClose(() => setUserMenuOpen(false));
   const title = TITLES[pathname] ?? "Workspace";
   const isFullBleed = pathname === "/chat";
@@ -138,6 +141,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setMobileOpen(false);
+    try {
+      const stored = localStorage.getItem("closer.manager.nav.v1");
+      if (stored) setManagerNavMap(JSON.parse(stored));
+    } catch {}
   }, [pathname]);
 
   return (
@@ -194,29 +201,53 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="sidebar-scroll">
-          {NAV.map((group) => (
-            <div className="nav-group" key={group.label}>
-              <p className="nav-label">{group.label}</p>
-              {group.items.map((item) => {
-                const current = pathname === item.href;
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className="nav-item"
-                    aria-current={current ? "page" : undefined}
-                    title={state.sidebarCollapsed ? item.label : undefined}
-                  >
-                    <Icon name={item.icon} size={17} />
-                    <span className="nav-item-label">{item.label}</span>
-                    {item.href === "/pipeline" ? (
-                      <span className="nav-count">{state.leads.length}</span>
-                    ) : null}
-                  </Link>
-                );
-              })}
-            </div>
-          ))}
+          {NAV.map((group) => {
+            const userRole = state.user?.role || "ADMIN";
+            const visibleItems = group.items.filter((item) => {
+              if (item.href === "/super-admin") {
+                return userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+              }
+              if (userRole === "ADMIN" || userRole === "SUPER_ADMIN") return true;
+              if (userRole === "MANAGER") {
+                if (managerNavMap && managerNavMap[item.href] !== undefined) {
+                  return managerNavMap[item.href];
+                }
+                return item.href !== "/automations" && item.href !== "/settings";
+              }
+              // CLOSER role
+              return (
+                item.href !== "/team" &&
+                item.href !== "/automations" &&
+                item.href !== "/settings" &&
+                item.href !== "/import"
+              );
+            });
+            if (visibleItems.length === 0) return null;
+
+            return (
+              <div className="nav-group" key={group.label}>
+                <p className="nav-label">{group.label}</p>
+                {visibleItems.map((item) => {
+                  const current = pathname === item.href;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className="nav-item"
+                      aria-current={current ? "page" : undefined}
+                      title={state.sidebarCollapsed ? item.label : undefined}
+                    >
+                      <Icon name={item.icon} size={17} />
+                      <span className="nav-item-label">{item.label}</span>
+                      {item.href === "/pipeline" ? (
+                        <span className="nav-count">{state.leads.length}</span>
+                      ) : null}
+                    </Link>
+                  );
+                })}
+              </div>
+            );
+          })}
         </nav>
 
         <div className="sidebar-foot" ref={userMenuRef} style={{ position: "relative" }}>
@@ -518,11 +549,13 @@ export function AppShell({ children }: { children: ReactNode }) {
               onChange={(e) => setScope(e.target.value as Scope)}
               aria-label="Data scope"
             >
-              {(Object.keys(SCOPE_LABEL) as Scope[]).map((s) => (
-                <option key={s} value={s}>
-                  {SCOPE_LABEL[s]}
-                </option>
-              ))}
+              <option value="all">All team leads</option>
+              <option value="mine">My leads ({CURRENT_USER})</option>
+              <option value="unassigned">Unassigned (Lead Grab Pool)</option>
+              <optgroup label="── Team Closers ──">
+                <option value="agent:Anshita">Anshita (Senior Closer)</option>
+                <option value="agent:Field Closer Desk">Field Closer Desk (SIM Relay)</option>
+              </optgroup>
             </select>
           </label>
 
