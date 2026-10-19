@@ -2,9 +2,17 @@ import type { NextConfig } from "next";
 
 const noIndexHeaders = [{ key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" }];
 
+const rawTarget =
+  process.env.AICLOSER_API_URL?.trim() ||
+  process.env.NEXT_PUBLIC_AICLOSER_API_URL?.trim() ||
+  "https://api.aicloser.in";
+
+const CENTRAL_API_TARGET = rawTarget.replace(/\/api\/v1\/?$/, "").replace(/\/$/, "");
+
 const nextConfig: NextConfig = {
   serverExternalPackages: ["@whiskeysockets/baileys", "pino", "qrcode"],
   turbopack: {},
+  devIndicators: false,
   // The local dashboard is opened through either loopback hostname. Next's
   // dev server otherwise blocks its client chunks when the browser uses the
   // alternate hostname, leaving the server-rendered page but no hydration.
@@ -29,10 +37,10 @@ const nextConfig: NextConfig = {
   },
   async rewrites() {
     return [
-      { source: "/api/v1/auth/login", destination: "/api/mobile/auth/login" },
-      { source: "/api/v1/auth/logout", destination: "/api/auth/logout" },
-      { source: "/api/v1/auth/heartbeat", destination: "/api/auth/heartbeat" },
-      { source: "/api/v1/mobile/sync", destination: "/api/sales/mobile/offline-events/sync" },
+      { source: "/api/v1/:path*", destination: `${CENTRAL_API_TARGET}/api/v1/:path*` },
+      { source: "/api/sales/:path*", destination: `${CENTRAL_API_TARGET}/api/sales/:path*` },
+      { source: "/api/whatsapp-marketing/:path*", destination: `${CENTRAL_API_TARGET}/api/whatsapp-marketing/:path*` },
+      { source: "/api/super-admin/:path*", destination: `${CENTRAL_API_TARGET}/api/super-admin/:path*` },
     ];
   },
   async headers() {

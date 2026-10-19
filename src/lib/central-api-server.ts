@@ -1,5 +1,3 @@
-import "server-only";
-
 import { cookies } from "next/headers";
 
 const CENTRAL_API_BASE = (
@@ -26,10 +24,6 @@ export async function centralApiRequest<T = unknown>(path: string, init: Request
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
-  // A few server-side callers pass plain objects as `body`. The Fetch API
-  // accepts strings/FormData/etc., not raw objects; normalize JSON bodies here
-  // so assignment, stage, and settings requests cannot silently fail with a
-  // malformed payload.
   const rawBody = init.body as unknown;
   const isStructuredBody = rawBody && typeof rawBody === "object" &&
     (typeof FormData === "undefined" || !(rawBody instanceof FormData)) &&

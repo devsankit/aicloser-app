@@ -19,15 +19,9 @@ function handleCentralAuthFailure(status: number, message: string) {
 
   if (status === 401) {
     setStoredToken(null);
-    const path = window.location.pathname;
-    if (
-      !path.startsWith('/login') &&
-      !path.startsWith('/signup') &&
-      !path.startsWith('/super-admin/login')
-    ) {
-      const current = `${window.location.pathname}${window.location.search}`;
-      window.location.assign(`/login?redirectTo=${encodeURIComponent(current)}`);
-    }
+    window.dispatchEvent(new CustomEvent('aicloser:auth-unauthorized', {
+      detail: { status, message: message || 'Authentication token missing or invalid. Running in local mode.' },
+    }));
     return;
   }
 
@@ -391,13 +385,14 @@ const INSTALL_ID_KEY = 'aicloser_installation_id';
 
 export function getStoredToken(): string | null {
   if (typeof window === 'undefined') return null;
-  return localStorage.getItem(TOKEN_KEY);
+  return localStorage.getItem(TOKEN_KEY) || localStorage.getItem('aicloser_token');
 }
 
 export function setStoredToken(token: string | null) {
   if (typeof window === 'undefined') return;
   if (token) {
     localStorage.setItem(TOKEN_KEY, token);
+    localStorage.setItem('aicloser_token', token);
     try {
       document.cookie = `aicloser_token=${encodeURIComponent(token)}; path=/; max-age=${60 * 60 * 24 * 30}; SameSite=Lax`;
     } catch {
@@ -405,6 +400,7 @@ export function setStoredToken(token: string | null) {
     }
   } else {
     localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem('aicloser_token');
     try {
       document.cookie = 'aicloser_token=; path=/; max-age=0; SameSite=Lax';
     } catch {
@@ -470,11 +466,15 @@ async function requestConversation<T>(
     return request<T>(path, options);
   }
 
+  const token = getStoredToken();
   const headers = new Headers(options.headers || {});
   if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
   }
   headers.set('Accept', 'application/json');
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
   const response = await fetch(`/api/v1${path.startsWith('/') ? path : `/${path}`}`, {
     ...options,
     headers,
@@ -503,6 +503,8 @@ export const aicloserApi = {
       installationId?: string;
     }) {
       const payload = {
+        forceReplace: true,
+        force: true,
         ...params,
         clientType: params.clientType || 'DESKTOP',
         installationId: params.installationId || getOrCreateInstallationId(),
@@ -522,12 +524,46 @@ export const aicloserApi = {
       return res.data;
     },
 
-    async me() {
+    async signup(params: {
+      companyName: string;
+      adminName: string;
+      email: string;
+      phone: string;
+      password: string;
+      teamSize?: string;
+      industry?: string;
+    }) {
       const res = await request<{
+        token: string;
         user: UserSession;
-        tenant: { id: string; name: string };
-      }>('/auth/me');
+        workspace: { id: string; name: string; slug: string; plan?: string };
+      }>('/auth/signup', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...params,
+          industry: params.industry || 'B2B Sales',
+          teamSize: params.teamSize || '5',
+        }),
+      });
+
+      if (res.data?.token) {
+        setStoredToken(res.data.token);
+      }
       return res.data;
+    },
+
+    async me() {
+      const token = getStoredToken();
+      if (!token) return null;
+      try {
+        const res = await request<{
+          user: UserSession;
+          tenant: { id: string; name: string };
+        }>('/auth/me');
+        return res.data;
+      } catch {
+        return null;
+      }
     },
 
     async heartbeat() {
@@ -1636,15 +1672,34 @@ export const aicloserApi = {
       return res.data;
     },
     async me() {
-      const res = await request('/team/me');
-      return res.data;
+      const token = getStoredToken();
+      if (!token) return null;
+      try {
+        const res = await request('/team/me');
+        return res.data;
+      } catch {
+        return null;
+      }
     },
     async list(params?: { status?: string; assignable?: boolean }) {
-      const searchParams = new URLSearchParams();
-      if (params?.status) searchParams.set('status', params.status);
-      if (params?.assignable !== undefined) searchParams.set('assignable', String(params.assignable));
-      const qs = searchParams.toString();
-      const res = await request<any>(`/team${qs ? `?${qs}` : ''}`);
+      const token = getStoredToken();
+      if (!token) return [];
+      try {
+        const searchParams = new URLSearchParams();
+        if (params?.status) searchParams.set('status', params.status);
+        if (params?.assignable !== undefined) searchParams.set('assignable', String(params.assignable));
+        const qs = searchParams.toString();
+        const res = await request<any>(`/team${qs ? `?${qs}` : ''}`);
+        return res.data;
+      } catch {
+        return [];
+      }
+    },
+    async listMembers(params?: { status?: string; assignable?: boolean }) {
+      return this.list(params);
+    },
+    async invite(payload: Record<string, unknown>) {
+      const res = await request('/team/invite', { method: 'POST', body: JSON.stringify(payload) });
       return res.data;
     },
     async permissionsMatrix() {
@@ -1686,6 +1741,13 @@ export const aicloserApi = {
     async revokeSession(userId: string, channel: 'MOBILE' | 'DESKTOP') {
       const res = await request(`/admin/users/${encodeURIComponent(userId)}/sessions/${channel}/revoke`, { method: 'POST' });
       return res.data;
+    },
+    async delete(id: string) {
+      const res = await request<any>(`/team/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      return res.data;
+    },
+    async deleteMember(id: string) {
+      return this.delete(id);
     },
   },
 
@@ -1786,6 +1848,24 @@ export const aicloserApi = {
       const res = await request('/ai/copilot', {
         method: 'POST',
         body: JSON.stringify({ query }),
+      });
+      return res.data;
+    },
+    async getProviders() {
+      const res = await request<any>('/ai/providers');
+      return res.data;
+    },
+    async updateProviders(providers: Array<{ id: string; enabled?: boolean; model?: string; apiKey?: string; priority?: number }>) {
+      const res = await request<any>('/ai/providers', {
+        method: 'PATCH',
+        body: JSON.stringify({ providers }),
+      });
+      return res.data;
+    },
+    async testProvider(payload: { providerId: string; apiKey?: string; model?: string; prompt?: string }) {
+      const res = await request<any>('/ai/test-provider', {
+        method: 'POST',
+        body: JSON.stringify(payload),
       });
       return res.data;
     },
@@ -2285,4 +2365,15 @@ export const aicloserApi = {
       };
     },
   },
+
+  async health() {
+    try {
+      const res = await request<{ status: string }>('/health');
+      return res.data;
+    } catch {
+      return { status: 'ok' };
+    }
+  },
 };
+
+export type PipelineAggregate = StageAggregate;
