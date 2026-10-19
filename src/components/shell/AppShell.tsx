@@ -372,6 +372,31 @@ export function AppShell({ children }: { children: ReactNode }) {
               </div>
 
               {/* Menu Actions */}
+              <a
+                href="/latestapk"
+                download="aicloser-latest.apk"
+                onClick={() => setUserMenuOpen(false)}
+                className="user-menu-item"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "7px 10px",
+                  borderRadius: "var(--r-sm, 6px)",
+                  fontSize: "var(--fs-meta, 13px)",
+                  color: "var(--text)",
+                  textDecoration: "none",
+                }}
+              >
+                <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <Icon name="phone" size={14} style={{ color: "#22c55e" }} />
+                  <span>Download Companion App</span>
+                </span>
+                <span className="chip" data-tone="success" style={{ fontSize: "9px", padding: "1px 5px", fontWeight: 600 }}>
+                  APK
+                </span>
+              </a>
+
               <Link
                 href="/settings"
                 onClick={() => setUserMenuOpen(false)}
@@ -453,6 +478,67 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           ) : null}
 
+          {/* App Download Option in Sidebar Foot */}
+          {!state.sidebarCollapsed ? (
+            <a
+              href="/latestapk"
+              download="aicloser-latest.apk"
+              className="sidebar-app-download-btn"
+              title="Download AI Closer Companion Android App (.APK)"
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: "24px",
+                    height: "24px",
+                    borderRadius: "6px",
+                    background: "rgba(34, 197, 94, 0.15)",
+                    color: "#22c55e",
+                    flexShrink: 0,
+                  }}
+                >
+                  <Icon name="phone" size={13} />
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", minWidth: 0, lineHeight: 1.2 }}>
+                  <span style={{ fontWeight: 600, fontSize: "12px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    Download App
+                  </span>
+                  <span style={{ fontSize: "10px", color: "var(--text-tertiary)" }}>
+                    Android Companion
+                  </span>
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                <span
+                  className="chip"
+                  data-tone="success"
+                  style={{
+                    fontSize: "9px",
+                    padding: "1px 5px",
+                    fontWeight: 600,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.5px",
+                  }}
+                >
+                  APK
+                </span>
+                <Icon name="download" size={13} style={{ color: "var(--text-secondary)" }} />
+              </div>
+            </a>
+          ) : (
+            <a
+              href="/latestapk"
+              download="aicloser-latest.apk"
+              className="sidebar-app-download-btn-collapsed"
+              title="Download Android Companion App (.APK)"
+            >
+              <Icon name="download" size={16} />
+            </a>
+          )}
+
           {/* User Profile Bar */}
           <div
             style={{
@@ -483,7 +569,17 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span className="avatar">{(state.user?.displayName || CURRENT_USER).slice(0, 2).toUpperCase()}</span>
               <span className="sidebar-user-copy">
                 <span className="sidebar-user-name">{state.user?.displayName || CURRENT_USER}</span>
-                <span className="sidebar-user-meta">Owner · Workspace</span>
+                <span className="sidebar-user-meta">
+                  {state.user?.role === "ADMIN"
+                    ? "Admin · Workspace"
+                    : state.user?.role === "CLOSER"
+                    ? "Sales Closer · Workspace"
+                    : state.user?.role === "MANAGER"
+                    ? "Manager · Workspace"
+                    : state.user?.role
+                    ? `${state.user.role} · Workspace`
+                    : "Owner · Workspace"}
+                </span>
               </span>
               <Icon
                 name="chevron-down"

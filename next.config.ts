@@ -33,6 +33,8 @@ const nextConfig: NextConfig = {
       { source: "/sales", destination: "/", permanent: true },
       { source: "/sales/login", destination: "/login", permanent: true },
       { source: "/sales/signup", destination: "/signup", permanent: true },
+      { source: "/latestapk", destination: "/downloads/aicloser-latest.apk", permanent: false },
+      { source: "/latest-apk", destination: "/downloads/aicloser-latest.apk", permanent: false },
     ];
   },
   async rewrites() {
