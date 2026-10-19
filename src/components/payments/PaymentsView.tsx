@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { CURRENT_USER, useApp } from "@/lib/store";
+import { aicloserApi } from "@/lib/api-client";
 
 export interface PaymentTransaction {
   id: string;
@@ -18,74 +19,12 @@ export interface PaymentTransaction {
   proofNote?: string;
 }
 
-const DEFAULT_TRANSACTIONS: PaymentTransaction[] = [
-  {
-    id: "PAY-911",
-    leadCode: "CLO-101",
-    customerName: "Anshita Rao",
-    company: "Nimbus Interiors",
-    amount: 96000,
-    method: "UPI",
-    closer: "Aarav Sharma",
-    status: "proof_uploaded",
-    utr: "428901289102",
-    createdAt: "Today, 11:50 AM",
-    proofNote: "Client completed UPI transfer via PhonePe. Screenshot attached for verification.",
-  },
-  {
-    id: "PAY-908",
-    leadCode: "CLO-104",
-    customerName: "Devansh Kapoor",
-    company: "Vertex Labs",
-    amount: 130000,
-    method: "Bank Transfer",
-    closer: "Rohan Mehta",
-    status: "settled",
-    utr: "IMPS4901238910",
-    createdAt: "Yesterday, 4:45 PM",
-  },
-  {
-    id: "PAY-904",
-    leadCode: "CLO-105",
-    customerName: "Farah Khan",
-    company: "Meridian Stays",
-    amount: 190000,
-    method: "UPI",
-    closer: "Aarav Sharma",
-    status: "settled",
-    utr: "UPI9823901234",
-    createdAt: "15 Oct 2026",
-  },
-  {
-    id: "PAY-899",
-    leadCode: "CLO-102",
-    customerName: "Karan Mehta",
-    company: "Ambition Realty",
-    amount: 148000,
-    method: "UPI",
-    closer: "Aarav Sharma",
-    status: "pending",
-    createdAt: "16 Oct 2026",
-  },
-  {
-    id: "PAY-892",
-    leadCode: "CLO-106",
-    customerName: "Rahul Deshmukh",
-    company: "Skyline Motors",
-    amount: 130000,
-    method: "UPI",
-    closer: "Meera Joshi",
-    status: "proof_uploaded",
-    utr: "510928391023",
-    createdAt: "Yesterday, 2:30 PM",
-    proofNote: "Advance payment 50% for 6 closer licenses.",
-  },
-];
+const DEFAULT_TRANSACTIONS: PaymentTransaction[] = [];
 
 export function PaymentsView() {
   const { state, moveLead } = useApp();
   const [tab, setTab] = useState<"links" | "proofs" | "settings">("links");
-  const [transactions, setTransactions] = useState<PaymentTransaction[]>(DEFAULT_TRANSACTIONS);
+  const [transactions, setTransactions] = useState<PaymentTransaction[]>([]);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedProofTx, setSelectedProofTx] = useState<PaymentTransaction | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
@@ -100,6 +39,51 @@ export function PaymentsView() {
     .filter((t) => t.status === "settled")
     .reduce((acc, t) => acc + t.amount, 0);
 
+  // Live API Fetch
+  useEffect(() => {
+    let active = true;
+    aicloserApi.payments
+      .list({ limit: 50 })
+      .then((res) => {
+        if (!active || !res?.payments?.length) return;
+        const mapped: PaymentTransaction[] = res.payments.map((p: any) => ({
+          id: p.id,
+          leadCode: p.lead?.leadCode || `CLO-${p.id.slice(-4).toUpperCase()}`,
+          customerName: p.customerName || p.lead?.customerName || "Customer",
+          company: p.lead?.customFields?.company || "Direct Account",
+          amount: p.totalAmount || p.baseAmount || 0,
+          method:
+            p.method === "UPI"
+              ? "UPI"
+              : p.method === "BANK_TRANSFER"
+              ? "Bank Transfer"
+              : "Cards / Netbanking",
+          closer: p.agent?.displayName || CURRENT_USER,
+          status:
+            p.status === "SETTLED"
+              ? "settled"
+              : p.status === "PROOF_UPLOADED"
+              ? "proof_uploaded"
+              : p.status === "REJECTED"
+              ? "rejected"
+              : "pending",
+          utr: p.utrReference,
+          createdAt: new Date(p.createdAt).toLocaleDateString("en-IN", {
+            day: "numeric",
+            month: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          proofNote: p.note,
+        }));
+        setTransactions(mapped);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const handleApproveProof = (txId: string) => {
     const tx = transactions.find((t) => t.id === txId);
     if (!tx) return;
@@ -108,6 +92,9 @@ export function PaymentsView() {
     setTransactions((prev) =>
       prev.map((t) => (t.id === txId ? { ...t, status: "settled" } : t))
     );
+
+    // Call live API
+    aicloserApi.payments.approve(txId).catch(() => {});
 
     // Auto-advance lead to Won in CRM
     const matchedLead = state.leads.find((l) => l.code === tx.leadCode);
@@ -124,6 +111,7 @@ export function PaymentsView() {
     setTransactions((prev) =>
       prev.map((t) => (t.id === txId ? { ...t, status: "rejected" } : t))
     );
+    aicloserApi.payments.reject(txId, "Proof rejected").catch(() => {});
     setSelectedProofTx(null);
     setBanner("Payment proof rejected. Notification sent to customer for re-upload.");
     setTimeout(() => setBanner(null), 4000);
@@ -131,12 +119,13 @@ export function PaymentsView() {
 
   const handleCreateLink = () => {
     const lead = state.leads.find((l) => l.id === selectedLeadId) || state.leads[0];
+    const amountNum = Number(linkAmount.replace(/\D/g, "")) || 48000;
     const newTx: PaymentTransaction = {
       id: `PAY-${Math.floor(100 + Math.random() * 900)}`,
       leadCode: lead.code,
       customerName: lead.name,
       company: lead.company,
-      amount: Number(linkAmount.replace(/\D/g, "")) || 48000,
+      amount: amountNum,
       method: "UPI",
       closer: CURRENT_USER,
       status: "pending",
@@ -145,6 +134,19 @@ export function PaymentsView() {
 
     setTransactions([newTx, ...transactions]);
     setIsCreateOpen(false);
+
+    // Send to live API
+    aicloserApi.payments
+      .createUpiLink({
+        leadId: lead.id,
+        amount: amountNum,
+        customerName: lead.name,
+        customerPhone: lead.phone,
+        customerEmail: lead.email,
+        productName: linkDescription,
+      })
+      .catch(() => {});
+
     setBanner(`Dynamic payment link created for ${lead.name} (₹${newTx.amount.toLocaleString("en-IN")})`);
     setTimeout(() => setBanner(null), 4000);
   };
@@ -264,8 +266,21 @@ export function PaymentsView() {
                 </tr>
               </thead>
               <tbody>
-                {transactions.map((tx) => (
-                  <tr key={tx.id}>
+                {transactions.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} style={{ textAlign: "center", padding: "48px 20px", color: "var(--text-secondary)" }}>
+                      <div style={{ display: "inline-flex", padding: 10, borderRadius: "50%", background: "var(--bg-soft)", marginBottom: 8 }}>
+                        <Icon name="card" size={20} />
+                      </div>
+                      <div style={{ fontWeight: 600, color: "var(--text)" }}>No transactions yet</div>
+                      <div style={{ fontSize: "12px", color: "var(--text-tertiary)", marginTop: 4 }}>
+                        Real Razorpay and UPI customer settlements will appear here automatically.
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  transactions.map((tx) => (
+                    <tr key={tx.id}>
                     <td>
                       <span className="chip" data-tone="accent" style={{ fontSize: "11px", fontFamily: "var(--mono)" }}>
                         {tx.id}
@@ -335,7 +350,7 @@ export function PaymentsView() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                )))}
               </tbody>
             </table>
           </div>

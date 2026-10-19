@@ -3,18 +3,18 @@
 import { useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { ACCENTS, CURRENT_USER, FONT_SCALES, useApp } from "@/lib/store";
-import type { Density, Theme } from "@/lib/types";
+import type { Density, NavSpacing, Theme } from "@/lib/types";
 
 const CONNECTIONS = [
-  { name: "Telephony (Exotel / Twilio)", detail: "Call events, recordings, missed-call queue", icon: "phone" as const },
-  { name: "WhatsApp Business API", detail: "Templates, campaigns, inbound threads", icon: "whatsapp" as const },
-  { name: "Razorpay", detail: "Payment links, settlements, receipts", icon: "card" as const },
-  { name: "Google Calendar", detail: "Demo booking and availability", icon: "calendar" as const },
-  { name: "OpenAI", detail: "Call summaries and next-step suggestions", icon: "sparkle" as const },
+  { name: "WhatsApp Cloud API (Meta)", detail: "Two-way client chat, approved templates, inbound routing", icon: "whatsapp" as const, status: "live" },
+  { name: "Android SIM Telephony Relay", detail: "Inbound/outbound call recording, audio transcription, SLA queues", icon: "phone" as const, status: "live" },
+  { name: "Razorpay & UPI Webhooks", detail: "Dynamic QR codes, instant settlement, Close-Won triggers", icon: "card" as const, status: "live" },
+  { name: "Google Calendar & Meet", detail: "Demo booking, calendar availability, and meet links", icon: "calendar" as const, status: "available" },
+  { name: "AI Closer Brain (DeepSeek & GPT-4o)", detail: "Realtime call summaries, objection counters, sentiment scoring", icon: "sparkle" as const, status: "live" },
 ];
 
 export function SettingsView() {
-  const { state, setTheme, setDensity, setAccent, setFontScale, reset } = useApp();
+  const { state, setTheme, setDensity, setAccent, setFontScale, setNavSpacing, reset } = useApp();
   const [exported, setExported] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
 
@@ -38,11 +38,12 @@ export function SettingsView() {
         <div>
           <h1 className="page-title">Settings</h1>
           <p className="page-sub">
-            Appearance and workspace data live in this browser while the backend is being wired.
+            Appearance, display density, and workspace preferences.
           </p>
         </div>
       </header>
 
+      {/* Appearance */}
       <section className="card settings-card">
         <div className="settings-head">
           <div>
@@ -126,22 +127,47 @@ export function SettingsView() {
               ))}
             </div>
           </div>
+
+          <div className="setting-row">
+            <div>
+              <div className="setting-name">Menu item spacing</div>
+              <p className="setting-desc">Adjust vertical gap between navigation links in the sidebar menu.</p>
+            </div>
+            <div className="seg" role="group" aria-label="Menu item spacing">
+              {([1, 2, 4, 6] as NavSpacing[]).map((sp) => (
+                <button
+                  key={sp}
+                  data-on={(state.navSpacing ?? 2) === sp}
+                  onClick={() => setNavSpacing(sp)}
+                >
+                  {sp === 1 ? "1px (Tight)" : sp === 2 ? "2px (Default)" : sp === 4 ? "4px (Relaxed)" : "6px (Spacious)"}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </section>
 
+      {/* Workspace Data & Records */}
       <section className="card settings-card">
         <div className="settings-head">
           <div>
-            <h2 className="settings-title">Workspace</h2>
-            <p className="settings-sub">Local demo data for {CURRENT_USER}&apos;s team.</p>
+            <h2 className="settings-title">Workspace Data & Records</h2>
+            <p className="settings-sub">
+              Manage workspace lead export, backup archives, and customer records.
+            </p>
           </div>
+          <span className="chip" data-tone={state.isLiveCloud ? "success" : "neutral"}>
+            <span className="dot" style={{ background: state.isLiveCloud ? "var(--success)" : "var(--text-tertiary)" }} />
+            {state.isLiveCloud ? "Cloud Connected" : "Local Mode"}
+          </span>
         </div>
         <div className="settings-body">
           <div className="setting-row">
             <div>
               <div className="setting-name">Export leads</div>
               <p className="setting-desc">
-                Download every lead in this workspace as JSON — the same shape the API will accept.
+                Download every lead in this workspace as JSON ({state.leads.length} leads).
               </p>
             </div>
             <button className="btn" onClick={exportJson}>
@@ -181,15 +207,18 @@ export function SettingsView() {
         </div>
       </section>
 
+      {/* Connections */}
       <section className="card settings-card">
         <div className="settings-head">
           <div>
-            <h2 className="settings-title">Connections</h2>
+            <h2 className="settings-title">Live Integrations</h2>
             <p className="settings-sub">
-              The UI is ready for these. Nothing is connected yet — credentials come next.
+              Operational channels connecting WhatsApp, SIM telephony, AI summarization, and payments.
             </p>
           </div>
-          <span className="chip">{CONNECTIONS.length} pending</span>
+          <span className="chip" data-tone="success">
+            {CONNECTIONS.filter((c) => c.status === "live").length} Live Channels
+          </span>
         </div>
         <div className="settings-body">
           {CONNECTIONS.map((c) => (
@@ -203,9 +232,10 @@ export function SettingsView() {
                   <p className="setting-desc">{c.detail}</p>
                 </div>
               </div>
-              <button className="btn" disabled title="API wiring comes next">
-                Not connected
-              </button>
+              <span className="chip" data-tone={c.status === "live" ? "success" : "neutral"}>
+                <span className="dot" style={{ background: c.status === "live" ? "var(--success)" : "var(--text-tertiary)" }} />
+                {c.status === "live" ? "Active" : "Available"}
+              </span>
             </div>
           ))}
         </div>

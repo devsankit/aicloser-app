@@ -3,12 +3,15 @@
 import { useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { ResizeHandle } from "@/components/ui/ResizeHandle";
-import { compactMoney, isOverdue, LIMITS, relativeTime, slaLabel, useApp, useScopedLeads } from "@/lib/store";
+import { compactMoney, isOverdue, LIMITS, money, relativeTime, slaLabel, useApp, useScopedLeads } from "@/lib/store";
 import {
+  isOpenStage,
+  normalizeSource,
   PRIORITY_ICON,
   SEGMENTS,
   SOURCES,
   STAGES,
+  sourceMeta,
   type Lead,
   type Segment,
   type Source,
@@ -32,13 +35,16 @@ export function PipelineView() {
   const [dragging, setDragging] = useState<string | null>(null);
   const [overStage, setOverStage] = useState<StageId | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
+  const [addStage, setAddStage] = useState<StageId | null>(null);
   const boardRef = useRef<HTMLDivElement | null>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const rows = scoped.filter((l) => {
-      if (source && l.source !== source) return false;
+      if (source) {
+        const leadSrc = normalizeSource(l.source);
+        if (leadSrc !== source && l.source !== source) return false;
+      }
       if (segment && l.segment !== segment) return false;
       if (!q) return true;
       return (
@@ -47,13 +53,23 @@ export function PipelineView() {
         l.code.toLowerCase().includes(q) ||
         l.phone.includes(q) ||
         l.email.toLowerCase().includes(q) ||
-        l.tags.some((t) => t.includes(q))
+        l.tags.some((t) => t.toLowerCase().includes(q))
       );
     });
     return rows.sort((a, b) => {
-      if (sort === "value") return b.value - a.value;
-      if (sort === "priority") return PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
-      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      if (sort === "value") {
+        return b.value - a.value || a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
+      }
+      if (sort === "priority") {
+        return (
+          PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority] ||
+          b.value - a.value ||
+          a.id.localeCompare(b.id)
+        );
+      }
+      const bTime = new Date(b.updatedAt).getTime() || 0;
+      const aTime = new Date(a.updatedAt).getTime() || 0;
+      return bTime - aTime || a.id.localeCompare(b.id);
     });
   }, [scoped, query, source, segment, sort]);
 
@@ -65,7 +81,7 @@ export function PipelineView() {
   }, [filtered]);
 
   const openValue = filtered
-    .filter((l) => l.stage !== "won" && l.stage !== "lost")
+    .filter((l) => isOpenStage(l.stage))
     .reduce((sum, l) => sum + l.value, 0);
 
   const active = state.leads.find((l) => l.id === selected) ?? null;
@@ -92,6 +108,11 @@ export function PipelineView() {
         if (next) {
           e.preventDefault();
           moveLead(lead.id, next.id);
+          // Retain focus on moved card in target column
+          requestAnimationFrame(() => {
+            const card = boardRef.current?.querySelector<HTMLElement>(`[data-lead="${lead.id}"]`);
+            card?.focus();
+          });
         }
       } else {
         // move focus to the same row in the neighbouring column
@@ -111,15 +132,18 @@ export function PipelineView() {
         <div>
           <h1 className="page-title">Pipeline</h1>
           <p className="page-sub">
-            {filtered.length} leads · {compactMoney(openValue)} open · drag a card or select it and
-            press ⇧ ← →
+            {filtered.length} leads ·{" "}
+            <span title={`Exact open pipeline value: ${money(openValue)}`}>
+              {compactMoney(openValue)}
+            </span>{" "}
+            open · drag a card or select it and press ⇧ ← →
           </p>
         </div>
         <div className="page-actions">
           <button className="btn" onClick={() => setFit((f) => !f)} aria-pressed={fit}>
             <Icon name="panel" size={14} /> {fit ? "Fixed columns" : "Fit board"}
           </button>
-          <button className="btn" data-variant="primary" onClick={() => setAdding(true)}>
+          <button className="btn" data-variant="primary" onClick={() => setAddStage("new")}>
             <Icon name="pencil" size={14} /> New lead
           </button>
         </div>
@@ -150,7 +174,7 @@ export function PipelineView() {
           <option value="">All sources</option>
           {SOURCES.map((s) => (
             <option key={s} value={s}>
-              {s}
+              {sourceMeta(s).label}
             </option>
           ))}
         </select>
@@ -170,13 +194,13 @@ export function PipelineView() {
         </select>
 
         <div className="seg pipe-sort" role="group" aria-label="Sort cards">
-          <button data-on={sort === "recent"} onClick={() => setSort("recent")}>
+          <button data-on={sort === "recent"} onClick={() => setSort("recent")} aria-pressed={sort === "recent"}>
             <Icon name="clock" size={12} /> Recent
           </button>
-          <button data-on={sort === "value"} onClick={() => setSort("value")}>
+          <button data-on={sort === "value"} onClick={() => setSort("value")} aria-pressed={sort === "value"}>
             <Icon name="graph" size={12} /> Value
           </button>
-          <button data-on={sort === "priority"} onClick={() => setSort("priority")}>
+          <button data-on={sort === "priority"} onClick={() => setSort("priority")} aria-pressed={sort === "priority"}>
             <Icon name="priority-high" size={12} /> Priority
           </button>
         </div>
@@ -187,7 +211,7 @@ export function PipelineView() {
       <div className="chip-row">
         {source ? (
           <span className="chip-x">
-            Source <b>{source}</b>
+            Source <b>{sourceMeta(source).label}</b>
             <button className="x" onClick={() => setSource("")} aria-label="Clear source filter">
               <Icon name="close" size={11} />
             </button>
@@ -246,15 +270,13 @@ export function PipelineView() {
             >
               <header className="col-head">
                 <h2 className="col-title">
-                  <span className="sg" data-status={stage.status}>
-                    <Icon name={`status-${stage.status}`} size={13} />
-                  </span>
+                  <span className="stage-icon-badge" data-tone={stage.tone}><Icon name={stage.icon} size={15} /></span>
                   {stage.label}
                 </h2>
                 <span className="col-count">{cards.length}</span>
                 <button
                   className="icon-btn col-add"
-                  onClick={() => setAdding(true)}
+                  onClick={() => setAddStage(stage.id)}
                   aria-label={`Add lead to ${stage.label}`}
                   title={`Add lead to ${stage.label}`}
                 >
@@ -270,11 +292,12 @@ export function PipelineView() {
                   <Icon name="more" size={14} />
                 </button>
               </header>
-              <p className="col-value">{total ? compactMoney(total) : "—"}</p>
+              <p className="col-value" title={`Exact stage total: ${money(total)}`}>{total ? compactMoney(total) : "—"}</p>
 
               <div className="col-cards">
                 {cards.map((lead) => {
                   const overdue = isOverdue(lead.followUp) && lead.stage !== "won" && lead.stage !== "lost";
+                  const src = sourceMeta(lead.source);
                   return (
                     <div
                       key={lead.id}
@@ -297,8 +320,8 @@ export function PipelineView() {
                       onKeyDown={(e) => onCardKeyDown(e, lead, stageIndex)}
                     >
                       <div className="lead-top">
-                        <span className="sg" data-status={stage.status}>
-                          <Icon name={`status-${stage.status}`} size={13} />
+                        <span className="stage-icon-badge" data-tone={src.tone} title={`Lead source: ${src.label}`}>
+                          <Icon name={src.icon} size={15} />
                         </span>
                         <h3 className="lead-name">{lead.name}</h3>
                         <Icon
@@ -312,11 +335,11 @@ export function PipelineView() {
                         <Icon name="building" size={12} /> {lead.company}
                       </p>
                       <div className="lead-meta">
-                        <span className="chip">
-                          <Icon name="layers" size={11} /> {lead.segment}
+                        <span className="chip" data-tone={src.tone}>
+                          <Icon name={src.icon} size={11} /> {src.label}
                         </span>
                         <span className="pill">
-                          <span className="dot" style={{ color: "var(--accent)" }} /> {lead.source}
+                          <Icon name="layers" size={11} /> {lead.segment}
                         </span>
                       </div>
                       <div className="lead-foot">
@@ -325,7 +348,7 @@ export function PipelineView() {
                         </span>
                         <span className="lead-owner">{lead.owner}</span>
                         <span className="lead-code">{lead.code}</span>
-                        <span className="lead-value">{compactMoney(lead.value)}</span>
+                        <span className="lead-value" title={`Exact deal value: ${money(lead.value)}`}>{compactMoney(lead.value)}</span>
                         <span className="lead-sla" data-overdue={overdue}>
                           {overdue ? <Icon name="flame" size={11} /> : null}
                           {slaLabel(lead.followUp)}
@@ -336,7 +359,7 @@ export function PipelineView() {
                 })}
 
                 {!cards.length ? (
-                  <button className="col-empty" onClick={() => setAdding(true)}>
+                  <button className="col-empty" onClick={() => setAddStage(stage.id)}>
                     <Icon name="plus" size={13} /> Add a lead
                   </button>
                 ) : null}
@@ -374,7 +397,7 @@ export function PipelineView() {
       </p>
 
       {active ? <LeadDrawer lead={active} onClose={() => setSelected(null)} /> : null}
-      {adding ? <AddLeadDialog defaultStage="new" onClose={() => setAdding(false)} /> : null}
+      {addStage ? <AddLeadDialog defaultStage={addStage} onClose={() => setAddStage(null)} /> : null}
     </div>
   );
 }

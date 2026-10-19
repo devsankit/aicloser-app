@@ -86,7 +86,8 @@ export function CommandPalette() {
       run: () => router.push("/contacts"),
     }));
 
-    const assignees: Command[] = ["Aarav", "Meera", "Rohan", "Unassigned"].map((owner) => ({
+    const availableOwners = Array.from(new Set([CURRENT_USER, "Unassigned", ...state.leads.map((l) => l.owner).filter(Boolean)]));
+    const assignees: Command[] = availableOwners.map((owner) => ({
       id: `owner-${owner}`,
       label: `Leads owned by ${owner}`,
       group: "Filter",

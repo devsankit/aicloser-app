@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { CURRENT_USER, useApp } from "@/lib/store";
 import { STAGES, type StageId } from "@/lib/types";
+import { aicloserApi } from "@/lib/api-client";
 
 interface ChatMessage {
   id: string;
@@ -43,89 +44,16 @@ export function ChatView() {
   const [channelFilter, setChannelFilter] = useState<string>("all");
   const [scopeFilter, setScopeFilter] = useState<"all" | "mine" | "unassigned">("all");
   const [search, setSearch] = useState("");
-  const [selectedChatId, setSelectedChatId] = useState<string>("chat-01");
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [inputText, setInputText] = useState("");
   const [showRightDrawer, setShowRightDrawer] = useState(true);
   const [aiAutoReply, setAiAutoReply] = useState(true);
 
-  // Conversations mapped to live leads
-  const [conversations, setConversations] = useState<ConversationItem[]>([
-    {
-      id: "chat-01",
-      leadId: "ld-01", // Anshita Rao
-      customerName: "Anshita Rao",
-      company: "Nimbus Interiors",
-      phone: "9839047231",
-      channel: "whatsapp",
-      lastMessage: "Wants a callback after 6pm. Can we discuss pricing?",
-      lastMessageTime: "11m ago",
-      unreadCount: 1,
-      assignedTo: "Aarav",
-      slaMinutesRemaining: 8,
-      messages: [
-        { id: "m1", sender: "customer", text: "Hi, I filled the demo request on your website.", time: "11:20 AM", channel: "whatsapp" },
-        { id: "m2", sender: "closer", text: "Hello Anshita! Glad to connect. I saw your request for Nimbus Interiors.", time: "11:22 AM", status: "read" },
-        { id: "m3", sender: "customer", text: "We need 6 closer seats and SIM call recording. What would that cost?", time: "11:25 AM", channel: "whatsapp" },
-        { id: "m4", sender: "system", text: "Lead moved to In Progress by Aarav Sharma", time: "11:26 AM" },
-        { id: "m5", sender: "closer", text: "That fits our Pro tier perfectly at ₹96,000/year. All 6 SIMs get automatic call audio recording and transcription.", time: "11:28 AM", status: "read" },
-        { id: "m6", sender: "customer", text: "Great. Can we do a call after 6pm to finalize?", time: "11:45 AM", channel: "whatsapp" },
-      ],
-    },
-    {
-      id: "chat-02",
-      leadId: "ld-03", // Priya Nair
-      customerName: "Priya Nair",
-      company: "Loom & Co",
-      phone: "9845512098",
-      channel: "whatsapp",
-      lastMessage: "Asked about SIM-based calling and call recording limits.",
-      lastMessageTime: "24m ago",
-      unreadCount: 0,
-      assignedTo: "Meera",
-      slaMinutesRemaining: 35,
-      messages: [
-        { id: "m1", sender: "customer", text: "Does AI Closer work with Airtel corporate postpaids?", time: "10:14 AM", channel: "whatsapp" },
-        { id: "m2", sender: "closer", text: "Yes Priya! It works with Airtel, Jio and Vi without installing any proxy dialer on the phones.", time: "10:16 AM", status: "read" },
-        { id: "m3", sender: "customer", text: "Understood, sending this to our IT director.", time: "10:30 AM", channel: "whatsapp" },
-      ],
-    },
-    {
-      id: "chat-03",
-      leadId: "ld-02", // Karan Mehta
-      customerName: "Karan Mehta",
-      company: "Ambition Realty",
-      phone: "9987021145",
-      channel: "instagram",
-      lastMessage: "Downloaded the broker playbook, need commercial quote.",
-      lastMessageTime: "1h ago",
-      unreadCount: 2,
-      assignedTo: "Aarav",
-      messages: [
-        { id: "m1", sender: "customer", text: "Hey saw your reel on real estate closer tracking.", time: "09:40 AM", channel: "instagram" },
-        { id: "m2", sender: "customer", text: "Do you offer WhatsApp drip automations for property leads?", time: "09:42 AM", channel: "instagram" },
-      ],
-    },
-    {
-      id: "chat-04",
-      leadId: "ld-05", // Farah Khan
-      customerName: "Farah Khan",
-      company: "Meridian Stays",
-      phone: "9820019944",
-      channel: "website",
-      lastMessage: "Payment link received, verifying with finance.",
-      lastMessageTime: "2h ago",
-      unreadCount: 0,
-      assignedTo: "Rohan",
-      messages: [
-        { id: "m1", sender: "customer", text: "We are ready to move forward with the 12-seat annual plan.", time: "08:15 AM", channel: "website" },
-        { id: "m2", sender: "closer", text: "Awesome! Here is your custom UPI payment link: https://closer.ai/pay/meridian-96k", time: "08:20 AM", status: "read" },
-        { id: "m3", sender: "customer", text: "Payment link received, verifying with finance.", time: "08:35 AM", channel: "website" },
-      ],
-    },
-  ]);
+  // Conversations loaded strictly from live API
+  const [conversations, setConversations] = useState<ConversationItem[]>([]);
 
-  const activeChat = conversations.find((c) => c.id === selectedChatId) || conversations[0];
-  const activeLead = state.leads.find((l) => l.id === activeChat.leadId) || state.leads[0];
+  const activeChat = conversations.find((c) => c.id === selectedChatId) || conversations[0] || null;
+  const activeLead = activeChat ? state.leads.find((l) => l.id === activeChat.leadId) || null : null;
 
   const filteredConversations = useMemo(() => {
     return conversations.filter((c) => {
@@ -147,12 +75,45 @@ export function ChatView() {
     });
   }, [conversations, channelFilter, scopeFilter, search]);
 
+  useEffect(() => {
+    let active = true;
+    aicloserApi.conversations
+      .list({ limit: 30 })
+      .then((res) => {
+        if (!active || !res?.conversations?.length) return;
+        const mapped: ConversationItem[] = res.conversations.map((c: any) => ({
+          id: c.id,
+          leadId: c.leadId || `ld-${c.id.slice(-4)}`,
+          customerName: c.customerName || "Customer",
+          company: c.lead?.company || "Direct Account",
+          phone: c.customerPhone || "",
+          channel: (c.channel === "instagram"
+            ? "instagram"
+            : c.channel === "website"
+            ? "website"
+            : "whatsapp") as "whatsapp" | "instagram" | "website",
+          lastMessage: c.lastMessageSnippet || c.lastMessage?.body || "Conversation active",
+          lastMessageTime: "Recent",
+          unreadCount: c.unreadCount || 0,
+          assignedTo: c.assignedAgent?.displayName || "Unassigned",
+          slaMinutesRemaining: 15,
+          messages: [],
+        }));
+        setConversations(mapped);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const handleSendMessage = () => {
-    if (!inputText.trim()) return;
+    if (!inputText.trim() || !activeChat) return;
+    const textToSend = inputText.trim();
     const newMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
       sender: "closer",
-      text: inputText.trim(),
+      text: textToSend,
       time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       status: "sent",
     };
@@ -163,7 +124,7 @@ export function ChatView() {
           ? {
               ...c,
               messages: [...c.messages, newMsg],
-              lastMessage: inputText.trim(),
+              lastMessage: textToSend,
               lastMessageTime: "Just now",
               unreadCount: 0,
             }
@@ -171,6 +132,9 @@ export function ChatView() {
       )
     );
     setInputText("");
+
+    // Send to live API
+    aicloserApi.conversations.sendMessage(activeChat.id, textToSend).catch(() => {});
   };
 
   const handleApplyMacro = (text: string) => {
@@ -202,15 +166,7 @@ export function ChatView() {
   };
 
   return (
-    <div
-      className="chat-workspace"
-      style={{
-        display: "flex",
-        height: "calc(100vh - var(--topbar-h))",
-        overflow: "hidden",
-        background: "var(--bg)",
-      }}
-    >
+    <div className="chat-workspace">
       <h1 className="sr-only">Live multi-channel chat</h1>
       {/* 1. Left Column: Conversations List */}
       <aside
@@ -268,8 +224,19 @@ export function ChatView() {
 
         {/* Conversation Rows */}
         <div style={{ flex: 1, overflowY: "auto" }}>
-          {filteredConversations.map((chat) => {
-            const isSelected = chat.id === activeChat.id;
+          {filteredConversations.length === 0 ? (
+            <div style={{ padding: "40px 16px", textAlign: "center", color: "var(--text-secondary)", fontSize: "12px" }}>
+              <div style={{ display: "inline-flex", padding: 10, borderRadius: "50%", background: "var(--bg-soft)", marginBottom: 8 }}>
+                <Icon name="message" size={20} />
+              </div>
+              <div style={{ fontWeight: 600, color: "var(--text)" }}>Inbox Empty</div>
+              <div style={{ color: "var(--text-tertiary)", marginTop: 4, fontSize: "11px" }}>
+                Real messages from WhatsApp, Instagram, and web forms will appear here automatically.
+              </div>
+            </div>
+          ) : (
+            filteredConversations.map((chat) => {
+              const isSelected = activeChat ? chat.id === activeChat.id : false;
             return (
               <div
                 key={chat.id}
@@ -378,13 +345,24 @@ export function ChatView() {
                 </div>
               </div>
             );
-          })}
+          }))}
         </div>
       </aside>
 
       {/* 2. Middle Column: Active Chat Thread Workspace */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-        {/* Thread Header */}
+      {!activeChat ? (
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)", padding: 40 }}>
+          <div style={{ width: 48, height: 48, borderRadius: "50%", background: "var(--bg-soft)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 12 }}>
+            <Icon name="message" size={24} />
+          </div>
+          <div style={{ fontWeight: 650, fontSize: "15px", color: "var(--text)" }}>No Active Conversation</div>
+          <div style={{ fontSize: "12px", color: "var(--text-tertiary)", marginTop: 4, maxWidth: 320, textAlign: "center" }}>
+            Incoming WhatsApp, Instagram, and web chats will appear in the inbox on the left.
+          </div>
+        </div>
+      ) : (
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+          {/* Thread Header */}
         <header
           style={{
             height: "54px",
@@ -613,6 +591,7 @@ export function ChatView() {
           </button>
         </footer>
       </div>
+      )}
 
       {/* 3. Right Column: CRM 360° Lead Context */}
       {showRightDrawer && activeLead && (

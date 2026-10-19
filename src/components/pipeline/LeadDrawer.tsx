@@ -11,6 +11,7 @@ import {
   SEGMENTS,
   SOURCES,
   STAGES,
+  sourceMeta,
   stageMeta,
   type Lead,
   type Priority,
@@ -25,6 +26,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [phoneCopied, setPhoneCopied] = useState(false);
 
   useEffect(() => {
     setDraft(lead);
@@ -83,7 +85,11 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
     draft.tags.join(",") !== lead.tags.join(",");
 
   const meta = stageMeta(draft.stage);
-  const dateValue = new Date(draft.followUp).toISOString().slice(0, 10);
+  const dateValue = (() => {
+    if (!draft.followUp) return "";
+    const d = new Date(draft.followUp);
+    return isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+  })();
 
   return (
     <div className="overlay" data-kind="drawer" onClick={onClose} role="presentation">
@@ -109,12 +115,29 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
             >
               <Icon name={copied ? "check" : "link"} size={14} />
             </button>
-            <button className="icon-btn" title="Copy phone" aria-label="Copy phone number">
-              <Icon name="copy" size={14} />
+            <button
+              className="icon-btn"
+              title="Copy phone"
+              aria-label="Copy phone number"
+              onClick={() => {
+                if (draft.phone) {
+                  navigator.clipboard?.writeText(draft.phone);
+                  setPhoneCopied(true);
+                  setTimeout(() => setPhoneCopied(false), 1500);
+                }
+              }}
+            >
+              <Icon name={phoneCopied ? "check" : "copy"} size={14} />
             </button>
-            <button className="icon-btn" title="Activity" aria-label="Lead activity">
+            <a
+              href={`/contacts?lead=${lead.id}`}
+              className="icon-btn"
+              title="Activity & 360 View"
+              aria-label="Lead activity"
+              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}
+            >
               <Icon name="branch" size={14} />
-            </button>
+            </a>
             <button
               className="icon-btn"
               onClick={onClose}
@@ -128,9 +151,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
 
         <div className="drawer-body">
           <div className="drawer-title-block">
-            <span className="sg" data-status={meta.status}>
-              <Icon name={`status-${meta.status}`} size={16} />
-            </span>
+            <span className="stage-icon-badge" data-tone={meta.tone}><Icon name={meta.icon} size={16} /></span>
             <input
               className="drawer-title-input"
               value={draft.name}
@@ -146,10 +167,46 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
             />
           </div>
 
+          <div style={{ display: "flex", gap: "8px", margin: "12px 0 16px 0", flexWrap: "wrap" }}>
+            {draft.phone && (
+              <>
+                <a
+                  href={`https://wa.me/${draft.phone.replace(/\D/g, "")}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn"
+                  data-size="sm"
+                  data-variant="accent"
+                  style={{ textDecoration: "none" }}
+                >
+                  <Icon name="whatsapp" size={13} /> WhatsApp
+                </a>
+                <a
+                  href={`tel:${draft.phone}`}
+                  className="btn"
+                  data-size="sm"
+                  data-variant="ghost"
+                  style={{ textDecoration: "none" }}
+                >
+                  <Icon name="phone" size={13} /> Call
+                </a>
+              </>
+            )}
+            <a
+              href={`/payments?leadId=${lead.id}&phone=${encodeURIComponent(draft.phone)}&name=${encodeURIComponent(draft.name)}`}
+              className="btn"
+              data-size="sm"
+              data-variant="ghost"
+              style={{ textDecoration: "none" }}
+            >
+              <Icon name="card" size={13} /> Collect Payment
+            </a>
+          </div>
+
           <div className="field-rows">
             <div className="field-row">
               <span className="field-label">
-                <Icon name={`status-${meta.status}`} size={14} /> Status
+                <Icon name={meta.icon} size={15} /> Status
               </span>
               <select
                 className="select"
@@ -196,9 +253,17 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                   className="input"
                   type="date"
                   value={dateValue}
-                  onChange={(e) =>
-                    set("followUp", new Date(`${e.target.value}T11:00:00`).toISOString())
-                  }
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (!val) {
+                      set("followUp", "");
+                    } else {
+                      const parsed = new Date(`${val}T11:00:00`);
+                      if (!isNaN(parsed.getTime())) {
+                        set("followUp", parsed.toISOString());
+                      }
+                    }
+                  }}
                   aria-label="Next follow-up"
                 />
                 <span className="pill">{slaLabel(draft.followUp)}</span>
@@ -251,7 +316,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
               >
                 {SOURCES.map((s) => (
                   <option key={s} value={s}>
-                    {s}
+                    {sourceMeta(s).label}
                   </option>
                 ))}
               </select>

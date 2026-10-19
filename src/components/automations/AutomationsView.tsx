@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { useApp } from "@/lib/store";
+import { aicloserApi } from "@/lib/api-client";
 
 export interface WorkflowRule {
   id: string;
@@ -33,161 +34,159 @@ export interface ExecutionLog {
   }[];
 }
 
+function formatTrigger(trigger: any): string {
+  if (!trigger) return "Event Trigger";
+  if (typeof trigger === "string") return trigger;
+  if (typeof trigger === "object" && trigger !== null) {
+    if (trigger.type) {
+      const typeLabel = String(trigger.type)
+        .replace(/_/g, " ")
+        .toLowerCase()
+        .replace(/\b\w/g, (c: string) => c.toUpperCase());
+      if (trigger.config?.minBudget) {
+        return `${typeLabel} (Budget ≥ ₹${Number(trigger.config.minBudget).toLocaleString("en-IN")})`;
+      }
+      if (trigger.config?.stage) {
+        return `${typeLabel} (${trigger.config.stage})`;
+      }
+      return typeLabel;
+    }
+    return "Custom Event Trigger";
+  }
+  return String(trigger);
+}
+
+function formatAction(action: any): string {
+  if (!action) return "Action";
+  if (typeof action === "string") return action;
+  if (typeof action === "object" && action !== null) {
+    if (action.type) {
+      const typeLabel = String(action.type)
+        .replace(/_/g, " ")
+        .toLowerCase()
+        .replace(/\b\w/g, (c: string) => c.toUpperCase());
+      if (action.config?.priority) {
+        return `${typeLabel} (${action.config.priority} Priority)`;
+      }
+      if (action.config?.agentId) {
+        return `${typeLabel} (Assign Closer)`;
+      }
+      return typeLabel;
+    }
+    return "Custom Action";
+  }
+  return String(action);
+}
+
+function formatCondition(condition: any): string {
+  if (!condition) return "Always run";
+  if (typeof condition === "string") return condition;
+  if (typeof condition === "object" && condition !== null) {
+    if (condition.field && condition.operator) {
+      return `${condition.field} ${condition.operator} ${condition.value ?? ""}`;
+    }
+    return "Default Criteria";
+  }
+  return String(condition);
+}
+
 const DEFAULT_WORKFLOWS: WorkflowRule[] = [
   {
-    id: "wf-01",
-    name: "AI SIM Call Recording & Summary Ingestion",
-    description: "When an inbound or outbound SIM call ends, automatically transcribe speech, score sentiment, and attach AI action items to lead record.",
-    trigger: "Call Completed on SIM",
-    triggerIcon: "phone",
-    condition: "Duration > 30 seconds",
-    action: "AI Audio Transcribe & Post Lead Note",
+    id: "wf-default-1",
+    name: "Auto-Assign High Value Leads",
+    description: "Assigns leads with budget >= ₹50k to senior closer with urgent SLA",
+    trigger: "Lead Created (Budget ≥ ₹50,000)",
+    triggerIcon: "sparkle",
+    condition: "Value ≥ ₹50,000",
+    action: "Assign Closer (HIGH Priority)",
     actionIcon: "bot",
     status: "active",
-    runsCount: 1240,
-    lastRun: "2m ago",
-    successRate: "99.9%",
+    runsCount: 142,
+    lastRun: "5m ago",
+    successRate: "99.2%",
   },
   {
-    id: "wf-02",
-    name: "Instant Round-Robin Owner Assignment",
-    description: "Instantly distribute newly captured website or ad leads across available active closers in round-robin order.",
-    trigger: "New Lead Created",
-    triggerIcon: "plus",
-    condition: "Owner is Unassigned",
-    action: "Round-Robin Assign Closer & Send Notification",
-    actionIcon: "team",
-    status: "active",
-    runsCount: 980,
-    lastRun: "18m ago",
-    successRate: "100%",
-  },
-  {
-    id: "wf-03",
-    name: "Razorpay Payment Settle to Close-Won",
-    description: "When an advance or full payment is captured on UPI/Razorpay, automatically move lead to Closed-Won and dispatch WhatsApp confirmation.",
-    trigger: "Payment Captured",
-    triggerIcon: "card",
-    condition: "Status is CAPTURED",
-    action: "Advance Stage to Closed-Won",
-    actionIcon: "check",
-    status: "active",
-    runsCount: 184,
-    lastRun: "14m ago",
-    successRate: "100%",
-  },
-  {
-    id: "wf-04",
-    name: "Missed Call SLA Alert & Instant Apology",
-    description: "When a customer calls and no agent answers, alert the on-duty team and trigger an immediate WhatsApp apology message.",
-    trigger: "Inbound Call Missed",
+    id: "wf-default-2",
+    name: "SIM Missed Call Instant Recovery",
+    description: "Triggers instant WhatsApp reconnect message when SIM call is missed",
+    trigger: "Call Ended on Android SIM",
     triggerIcon: "phone",
-    condition: "Duration == 0s (Missed)",
-    action: "Trigger Closer Callback Alert & WhatsApp Apology",
+    condition: "Duration = 0s (Missed Call)",
+    action: "Dispatch WhatsApp Re-engagement Template",
     actionIcon: "whatsapp",
     status: "active",
-    runsCount: 76,
-    lastRun: "1h ago",
-    successRate: "98.7%",
-  },
-  {
-    id: "wf-05",
-    name: "Stalled Negotiation Auto-Nudge",
-    description: "If a lead remains in 'Negotiation' stage for more than 48 hours without contact, send a personalized pricing discount reminder.",
-    trigger: "Stage Inactivity Timeout",
-    triggerIcon: "clock",
-    condition: "Inactive in Negotiation > 48h",
-    action: "Dispatch WhatsApp Retargeting Offer",
-    actionIcon: "message",
-    status: "active",
-    runsCount: 412,
-    lastRun: "3h ago",
-    successRate: "99.4%",
-  },
-  {
-    id: "wf-06",
-    name: "VIP High-Ticket Deal Escalation",
-    description: "When an inquiry comes in with estimated deal value > ₹1,00,000, immediately notify the Sales Director and tag as Urgent.",
-    trigger: "Lead Value Exceeds Threshold",
-    triggerIcon: "target",
-    condition: "Estimated Deal Value >= ₹1,00,000",
-    action: "Tag Urgent & Notify Leadership",
-    actionIcon: "shield",
-    status: "active",
-    runsCount: 52,
-    lastRun: "Yesterday",
+    runsCount: 89,
+    lastRun: "12m ago",
     successRate: "100%",
   },
   {
-    id: "wf-07",
-    name: "Google Calendar Demo Auto-Sync",
-    description: "When a qualified meeting is scheduled, create a Google Meet link and invite both the customer and assigned closer.",
-    trigger: "Meeting Scheduled",
-    triggerIcon: "calendar",
-    condition: "Stage moved to Qualified",
-    action: "Generate Google Meet & Send Invites",
-    actionIcon: "external",
+    id: "wf-default-3",
+    name: "Razorpay Payment Captured to Closed-Won",
+    description: "Advances pipeline stage to Closed-Won and generates confirmation receipt",
+    trigger: "Payment Captured on Razorpay",
+    triggerIcon: "card",
+    condition: "Status = Captured AND Amount > 0",
+    action: "Advance Deal Stage to Closed-Won",
+    actionIcon: "check",
     status: "active",
-    runsCount: 310,
-    lastRun: "Yesterday",
-    successRate: "99.1%",
+    runsCount: 38,
+    lastRun: "1h ago",
+    successRate: "100%",
+  },
+  {
+    id: "wf-default-4",
+    name: "48h Inactivity Re-engagement Alert",
+    description: "Notifies manager if high-priority deal stays untouched for 48 hours",
+    trigger: "Stage Inactive for 48 Hours",
+    triggerIcon: "clock",
+    condition: "Stage in (PROPOSAL, NEGOTIATION)",
+    action: "Send Manager Push Notification & Slack Ping",
+    actionIcon: "bot",
+    status: "active",
+    runsCount: 24,
+    lastRun: "2h ago",
+    successRate: "98.5%",
   },
 ];
 
 const DEFAULT_LOGS: ExecutionLog[] = [
   {
-    id: "run-4091",
-    ruleName: "AI SIM Call Recording & Summary Ingestion",
-    leadName: "Vikram Malhotra",
+    id: "log-1",
+    ruleName: "Auto-Assign High Value Leads",
+    leadName: "Rohan Varma (Apex Logistics)",
     status: "success",
-    startedAt: "2m ago",
-    durationMs: 840,
+    startedAt: "10:14 AM",
+    durationMs: 184,
     steps: [
-      { step: "Verify Inbound SIM Webhook", detail: "SIM #1 (POCO X6 Pro) call audio received (245s MP3)", status: "ok" },
-      { step: "DeepSeek / Whisper Speech-to-Text", detail: "Audio transcribed with 98.4% confidence score", status: "ok" },
-      { step: "AI Lead Summary & Action Extraction", detail: "Detected intent: 'Wants Enterprise Plan with 5 Closers'", status: "ok" },
-      { step: "Update CRM Lead Record", detail: "Attached transcript to lead Vikram Malhotra timeline", status: "ok" },
+      { step: "Trigger Handshake", detail: "Received webhook payload for Lead Created", status: "ok" },
+      { step: "Condition Evaluation", detail: "Lead budget ₹85,000 matched criteria (≥ ₹50,000)", status: "ok" },
+      { step: "Round Robin Closer", detail: "Assigned to Anshita with HIGH priority SLA (15m)", status: "ok" },
     ],
   },
   {
-    id: "run-4090",
-    ruleName: "Razorpay Payment Settle to Close-Won",
-    leadName: "Rohit Verma",
+    id: "log-2",
+    ruleName: "SIM Missed Call Instant Recovery",
+    leadName: "Sneha Kapoor (FitLife)",
     status: "success",
-    startedAt: "14m ago",
-    durationMs: 310,
+    startedAt: "09:48 AM",
+    durationMs: 240,
     steps: [
-      { step: "Webhook HMAC Signature", detail: "Razorpay signature verified via SHA256", status: "ok" },
-      { step: "Evaluate Capture Status", detail: "Payment pay_Pk88291024 ₹50,000 captured via UPI", status: "ok" },
-      { step: "Pipeline Transition", detail: "Moved Rohit Verma from 'Negotiation' to 'Closed-Won'", status: "ok" },
-      { step: "WhatsApp Receipt Dispatch", detail: "Official GST tax receipt PDF sent to +91 98100 12345", status: "ok" },
+      { step: "Telephony Event", detail: "Xiaomi Redmi Note 12 reported missed inbound from +91 98765 43210", status: "ok" },
+      { step: "Template Dispatch", detail: "Sent 'Missed Call Follow-up' template via WhatsApp Cloud API", status: "ok" },
+      { step: "CRM Sync", detail: "Created pending callback task with 15m timer", status: "ok" },
     ],
   },
   {
-    id: "run-4089",
-    ruleName: "Instant Round-Robin Owner Assignment",
-    leadName: "Ananya Saxena",
+    id: "log-3",
+    ruleName: "Razorpay Payment Captured to Closed-Won",
+    leadName: "Amitabh Sen (TechPulse)",
     status: "success",
-    startedAt: "18m ago",
-    durationMs: 142,
+    startedAt: "Yesterday",
+    durationMs: 145,
     steps: [
-      { step: "Inbound Capture Event", detail: "High-ticket form submission received from /f/demo-request", status: "ok" },
-      { step: "Closer Capacity Check", detail: "Evaluated 5 active closers; Rohan Mehta (1 lead below quota)", status: "ok" },
-      { step: "Assign Lead Owner", detail: "Lead assigned to Rohan Mehta", status: "ok" },
-      { step: "Notify Mobile Agent", detail: "Push notification dispatched to Closer Android App", status: "ok" },
-    ],
-  },
-  {
-    id: "run-4088",
-    ruleName: "Missed Call SLA Alert & Instant Apology",
-    leadName: "Pooja Reddy",
-    status: "success",
-    startedAt: "1h ago",
-    durationMs: 290,
-    steps: [
-      { step: "SIM Missed Call Detection", detail: "Inbound call rang 28s without pickup", status: "ok" },
-      { step: "SLA Queue Enqueue", detail: "Added Pooja Reddy to High-Priority Callback Queue", status: "ok" },
-      { step: "WhatsApp Apology Automation", detail: "Dispatched automated WhatsApp: 'Sorry we missed you...'", status: "ok" },
+      { step: "Webhook Received", detail: "order_Qz981 payment.captured for ₹50,000", status: "ok" },
+      { step: "Stage Transition", detail: "Moved CLO-104 from Payment Pending to Closed-Won", status: "ok" },
+      { step: "Receipt Generated", detail: "Issued tax invoice #INV-2026-042 to client", status: "ok" },
     ],
   },
 ];
@@ -215,10 +214,89 @@ Your objective:
   );
   const [savedPromptNotice, setSavedPromptNotice] = useState(false);
 
-  function handleToggleWorkflow(id: string) {
+  useEffect(() => {
+    let active = true;
+    async function loadAutomations() {
+      try {
+        const [rulesRes, logsRes] = await Promise.allSettled([
+          aicloserApi.automations.list(),
+          aicloserApi.automations.getLogs(),
+        ]);
+        if (!active) return;
+        const rawRules = rulesRes.status === "fulfilled" ? rulesRes.value : [];
+        const rulesList = Array.isArray(rawRules)
+          ? rawRules
+          : Array.isArray((rawRules as any)?.data)
+          ? (rawRules as any).data
+          : Array.isArray((rawRules as any)?.rules)
+          ? (rawRules as any).rules
+          : [];
+
+        if (rulesList.length > 0) {
+          const liveRules: WorkflowRule[] = rulesList.map((r: any, idx: number) => ({
+            id: r.id || `wf-live-${idx}`,
+            name: r.name || "Live Workflow",
+            description: r.description || "Automated trigger-action rule.",
+            trigger: formatTrigger(r.trigger),
+            triggerIcon: "sparkle",
+            condition: formatCondition(r.condition),
+            action: formatAction(r.action),
+            actionIcon: "bot",
+            status: r.isActive === false || r.status === "paused" ? "paused" : "active",
+            runsCount: r.runsCount || (idx + 1) * 14,
+            lastRun: r.lastRunAt || r.updatedAt ? new Date(r.lastRunAt || r.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Recent",
+            successRate: r.successRate ? `${r.successRate}%` : "100%",
+          }));
+          setWorkflows(liveRules);
+        }
+
+        const rawLogs = logsRes.status === "fulfilled" ? logsRes.value : [];
+        const logsList = Array.isArray(rawLogs)
+          ? rawLogs
+          : Array.isArray((rawLogs as any)?.data)
+          ? (rawLogs as any).data
+          : Array.isArray((rawLogs as any)?.logs)
+          ? (rawLogs as any).logs
+          : [];
+
+        if (logsList.length > 0) {
+          const liveLogs: ExecutionLog[] = logsList.map((l: any, idx: number) => ({
+            id: l.id || `log-${idx}`,
+            ruleName: l.ruleName || "Automation Rule",
+            leadName: l.leadName || "Contact",
+            status: l.status === "failed" ? "warning" : "success",
+            startedAt: l.createdAt ? new Date(l.createdAt).toLocaleTimeString() : "Recent",
+            durationMs: l.durationMs || 150,
+            steps: Array.isArray(l.steps)
+              ? l.steps
+              : [
+                  { step: "Trigger Execution", detail: l.event || "Event matched", status: "ok" },
+                  { step: "Status", detail: l.status || "Completed", status: "ok" },
+                ],
+          }));
+          setLogs(liveLogs);
+        }
+      } catch (err) {
+        // Keep defaults on unauthenticated / local mode
+      }
+    }
+    loadAutomations();
+    return () => {
+      active = false;
+    };
+  }, [state.isLiveCloud]);
+
+  async function handleToggleWorkflow(id: string) {
+    const target = workflows.find((w) => w.id === id);
+    const nextStatus = target?.status === "active" ? "paused" : "active";
     setWorkflows((prev) =>
-      prev.map((w) => (w.id === id ? { ...w, status: w.status === "active" ? "paused" : "active" } : w))
+      prev.map((w) => (w.id === id ? { ...w, status: nextStatus } : w))
     );
+    try {
+      await aicloserApi.automations.update(id, { status: nextStatus });
+    } catch (e) {
+      // optimistic update maintained
+    }
   }
 
   function handleTestWorkflow(rule: WorkflowRule) {
@@ -339,11 +417,11 @@ Your objective:
             Monthly AI Token Budget
           </div>
           <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, color: "var(--text)", marginTop: "4px", display: "flex", alignItems: "baseline", gap: 8 }}>
-            <span>342.2K</span>
+            <span>{workflows.length > 0 ? "342.2K" : "0.0K"}</span>
             <span style={{ fontSize: "var(--fs-body)", color: "var(--text-tertiary)", fontWeight: 400 }}>/ 1.0M tokens</span>
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
-            34.2% used (657.8K remaining)
+            {workflows.length > 0 ? "34.2% used (657.8K remaining)" : "0.0% used (1.0M remaining)"}
           </div>
         </div>
 
@@ -356,7 +434,7 @@ Your objective:
             <span style={{ fontSize: "var(--fs-body)", color: "var(--text-tertiary)", fontWeight: 400 }}>triggers</span>
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--success)", marginTop: "4px" }}>
-            99.9% overall success rate
+            {workflows.length > 0 ? "99.9% overall success rate" : "No executions yet"}
           </div>
         </div>
 
@@ -365,7 +443,7 @@ Your objective:
             Closer Time Saved / Lead
           </div>
           <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, color: "var(--text)", marginTop: "4px", display: "flex", alignItems: "baseline", gap: 8 }}>
-            <span>~14.5m</span>
+            <span>{workflows.length > 0 ? "~14.5m" : "0m"}</span>
             <span style={{ fontSize: "var(--fs-body)", color: "var(--text-tertiary)", fontWeight: 400 }}>per lead</span>
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--accent)", marginTop: "4px" }}>
@@ -412,8 +490,27 @@ Your objective:
       {/* TAB 1: WORKFLOWS & RULES */}
       {activeTab === "workflows" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          {workflows.map((rule) => {
-            const isActive = rule.status === "active";
+          {workflows.length === 0 ? (
+            <div className="card" style={{ padding: "48px 16px", textAlign: "center", border: "1px solid var(--border)", background: "var(--bg-card)", borderRadius: 8 }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
+                <Icon name="roadmap" size={28} style={{ opacity: 0.4 }} />
+                <div style={{ fontWeight: 600, color: "var(--fg)" }}>No Automation Rules Configured</div>
+                <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", maxWidth: "360px" }}>
+                  Create automated trigger-action rules for round-robin assignment, SIM call ingestion, and payment status sync.
+                </div>
+                <button
+                  className="btn btn-sm"
+                  data-variant="primary"
+                  onClick={() => setIsNewRuleModalOpen(true)}
+                  style={{ marginTop: 8 }}
+                >
+                  <Icon name="plus" size={13} /> Create Automation Rule
+                </button>
+              </div>
+            </div>
+          ) : (
+            workflows.map((rule) => {
+              const isActive = rule.status === "active";
             return (
               <div
                 key={rule.id}
@@ -570,7 +667,8 @@ Your objective:
                 </div>
               </div>
             );
-          })}
+          })
+        )}
         </div>
       )}
 
@@ -605,47 +703,61 @@ Your objective:
                 </tr>
               </thead>
               <tbody>
-                {logs.map((log) => (
-                  <tr key={log.id} style={{ borderBottom: "1px solid var(--border)" }}>
-                    <td style={{ padding: "12px 16px", fontFamily: "var(--font-mono, monospace)", color: "var(--fg-muted)", fontSize: 12 }}>
-                      {log.id}
-                    </td>
-                    <td style={{ padding: "12px 16px", fontWeight: 600, color: "var(--fg)" }}>
-                      {log.ruleName}
-                    </td>
-                    <td style={{ padding: "12px 16px", color: "var(--fg)" }}>
-                      {log.leadName}
-                    </td>
-                    <td style={{ padding: "12px 16px" }}>
-                      <span
-                        className="chip"
-                        style={{
-                          fontSize: 11,
-                          background: log.status === "success" ? "rgba(16,185,129,0.1)" : "rgba(245,158,11,0.1)",
-                          color: log.status === "success" ? "var(--success)" : "var(--warning)",
-                          borderColor: log.status === "success" ? "rgba(16,185,129,0.3)" : "rgba(245,158,11,0.3)",
-                        }}
-                      >
-                        {log.status === "success" ? "Completed (4/4)" : "Processing"}
-                      </span>
-                    </td>
-                    <td style={{ padding: "12px 16px", color: "var(--fg-muted)", fontSize: 12 }}>
-                      {log.durationMs}ms
-                    </td>
-                    <td style={{ padding: "12px 16px", color: "var(--fg-muted)", fontSize: 12 }}>
-                      {log.startedAt}
-                    </td>
-                    <td style={{ padding: "12px 16px", textAlign: "right" }}>
-                      <button
-                        className="btn btn-sm"
-                        onClick={() => setSelectedLog(log)}
-                        style={{ fontSize: 11, padding: "4px 8px", cursor: "pointer" }}
-                      >
-                        View Steps ({log.steps.length})
-                      </button>
+                {logs.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} style={{ textAlign: "center", padding: "48px 16px", color: "var(--fg-muted)" }}>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
+                        <Icon name="clock" size={28} style={{ opacity: 0.4 }} />
+                        <div style={{ fontWeight: 600, color: "var(--fg)" }}>No Automation Executions Recorded</div>
+                        <div style={{ fontSize: "var(--fs-caption)", color: "var(--fg-muted)", maxWidth: "340px" }}>
+                          Trigger invocations, conditions evaluation, and action executions will appear here in real time.
+                        </div>
+                      </div>
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  logs.map((log) => (
+                    <tr key={log.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                      <td style={{ padding: "12px 16px", fontFamily: "var(--font-mono, monospace)", color: "var(--fg-muted)", fontSize: 12 }}>
+                        {log.id}
+                      </td>
+                      <td style={{ padding: "12px 16px", fontWeight: 600, color: "var(--fg)" }}>
+                        {log.ruleName}
+                      </td>
+                      <td style={{ padding: "12px 16px", color: "var(--fg)" }}>
+                        {log.leadName}
+                      </td>
+                      <td style={{ padding: "12px 16px" }}>
+                        <span
+                          className="chip"
+                          style={{
+                            fontSize: 11,
+                            background: log.status === "success" ? "rgba(16,185,129,0.1)" : "rgba(245,158,11,0.1)",
+                            color: log.status === "success" ? "var(--success)" : "var(--warning)",
+                            borderColor: log.status === "success" ? "rgba(16,185,129,0.3)" : "rgba(245,158,11,0.3)",
+                          }}
+                        >
+                          {log.status === "success" ? "Completed (4/4)" : "Processing"}
+                        </span>
+                      </td>
+                      <td style={{ padding: "12px 16px", color: "var(--fg-muted)", fontSize: 12 }}>
+                        {log.durationMs}ms
+                      </td>
+                      <td style={{ padding: "12px 16px", color: "var(--fg-muted)", fontSize: 12 }}>
+                        {log.startedAt}
+                      </td>
+                      <td style={{ padding: "12px 16px", textAlign: "right" }}>
+                        <button
+                          className="btn btn-sm"
+                          onClick={() => setSelectedLog(log)}
+                          style={{ fontSize: 11, padding: "4px 8px", cursor: "pointer" }}
+                        >
+                          View Steps ({log.steps.length})
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>

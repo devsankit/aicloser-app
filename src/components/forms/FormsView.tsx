@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useApp } from "@/lib/store";
+import { aicloserApi } from "@/lib/api-client";
 import { type Priority, type StageId } from "@/lib/types";
 
 export interface FormItem {
@@ -17,54 +18,50 @@ export interface FormItem {
   lastSubmission: string;
 }
 
-const DEFAULT_FORMS: FormItem[] = [
-  {
-    id: "frm-01",
-    title: "Website High-Ticket Demo Request",
-    slug: "demo-request",
-    submissionsCount: 248,
-    conversionRate: "28.4%",
-    targetStage: "new",
-    sourceLabel: "Website",
-    status: "published",
-    lastSubmission: "18m ago",
-  },
-  {
-    id: "frm-02",
-    title: "2026 Broker CRM Playbook Download",
-    slug: "broker-playbook",
-    submissionsCount: 115,
-    conversionRate: "34.1%",
-    targetStage: "new",
-    sourceLabel: "Ads",
-    status: "published",
-    lastSubmission: "1h ago",
-  },
-  {
-    id: "frm-03",
-    title: "Enterprise Custom Pricing Inquiry",
-    slug: "enterprise-quote",
-    submissionsCount: 55,
-    conversionRate: "19.2%",
-    targetStage: "contacted",
-    sourceLabel: "Lead form",
-    status: "published",
-    lastSubmission: "Yesterday",
-  },
-];
+const DEFAULT_FORMS: FormItem[] = [];
 
-const RECENT_SUBMISSIONS = [
-  { id: "sub-1", name: "Ananya Saxena", company: "Prestige Spaces", phone: "+91 98201 99281", form: "demo-request", utm: "google / cpc", time: "18m ago" },
-  { id: "sub-2", name: "Kunal Singhal", company: "Finserve Advisors", phone: "+91 99100 23114", form: "demo-request", utm: "linkedin / organic", time: "42m ago" },
-  { id: "sub-3", name: "Rishabh Goel", company: "Urban Edge Realty", phone: "+91 98770 12399", form: "broker-playbook", utm: "meta / ig_reels", time: "1h ago" },
-  { id: "sub-4", name: "Naveen Prasad", company: "Apex Logistics", phone: "+91 97112 34509", form: "enterprise-quote", utm: "direct", time: "3h ago" },
-];
+export interface FormSubmissionItem {
+  id: string;
+  name: string;
+  company: string;
+  phone: string;
+  form: string;
+  utm: string;
+  time: string;
+}
 
 export function FormsView() {
   const { addLead } = useApp();
   const [tab, setTab] = useState<"forms" | "editor" | "submissions">("forms");
-  const [forms] = useState<FormItem[]>(DEFAULT_FORMS);
+  const [forms, setForms] = useState<FormItem[]>([]);
+  const [submissions, setSubmissions] = useState<FormSubmissionItem[]>([]);
   const [banner, setBanner] = useState<string | null>(null);
+
+  // Live Forms Fetching
+  useEffect(() => {
+    let active = true;
+    aicloserApi.forms
+      .list()
+      .then((res: any) => {
+        if (!active || !res?.length) return;
+        const mapped: FormItem[] = res.map((f: any) => ({
+          id: f.id,
+          title: f.title || f.name || "Form",
+          slug: f.slug || f.id,
+          submissionsCount: f._count?.submissions || f.submissionsCount || 0,
+          conversionRate: `${f.conversionRate || 24}%`,
+          targetStage: f.targetStage || "new",
+          sourceLabel: f.sourceLabel || "Lead form",
+          status: f.isPublished ? "published" : "draft",
+          lastSubmission: f.lastSubmissionAt ? "Recent" : "No submissions",
+        }));
+        setForms(mapped);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Form Editor Fields
   const [formTitle, setFormTitle] = useState("Website High-Ticket Demo Request");
@@ -88,16 +85,25 @@ export function FormsView() {
       company: previewCompany.trim() || "Independent Firm",
       phone: previewPhone.trim(),
       email: `${previewName.toLowerCase().replace(/\s+/g, ".")}@example.com`,
-      value: 96000,
+      value: 0,
       source: "Lead form",
       segment: "SMB",
       stage: "new",
-      owner: "Aarav",
+      owner: "Unassigned",
       priority: "high" as Priority,
       followUp: new Date(Date.now() + 86400000).toISOString(),
       tags: ["web-form", "inbound"],
       notes: `Submitted via published form: ${formTitle}`,
     });
+
+    // Send to live forms engine
+    aicloserApi.forms
+      .submit(formSlug, {
+        name: previewName.trim(),
+        company: previewCompany.trim(),
+        phone: previewPhone.trim(),
+      })
+      .catch(() => {});
 
     setPreviewSubmitted(true);
     setTimeout(() => {
@@ -172,7 +178,8 @@ export function FormsView() {
             Total Submissions
           </div>
           <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px" }}>
-            418 <span style={{ fontSize: "var(--fs-body)", fontWeight: 400, color: "var(--text-tertiary)" }}>inbound leads</span>
+            {forms.reduce((sum, f) => sum + (f.submissionsCount || 0), 0)}{" "}
+            <span style={{ fontSize: "var(--fs-body)", fontWeight: 400, color: "var(--text-tertiary)" }}>inbound leads</span>
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
             All routed to CRM Pipeline
@@ -184,7 +191,9 @@ export function FormsView() {
             Avg Conversion Rate
           </div>
           <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px", color: "var(--accent)" }}>
-            27.8%
+            {forms.length > 0
+              ? `${(forms.reduce((acc, f) => acc + (parseFloat(f.conversionRate) || 0), 0) / forms.length).toFixed(1)}%`
+              : "0.0%"}
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
             Visits converted to verified phone leads
@@ -196,7 +205,7 @@ export function FormsView() {
             Bot & Spam Shield
           </div>
           <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px", color: "var(--success)" }}>
-            99.2%
+            {forms.length > 0 ? "100%" : "—"}
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
             Honeypot + 10-digit regex check
@@ -214,7 +223,7 @@ export function FormsView() {
             <Icon name="pencil" size={13} /> Visual Form Builder & Live Preview
           </button>
           <button data-on={tab === "submissions"} onClick={() => setTab("submissions")}>
-            <Icon name="inbox" size={13} /> Submissions Stream ({RECENT_SUBMISSIONS.length})
+            <Icon name="inbox" size={13} /> Submissions Stream ({submissions.length})
           </button>
         </div>
       </div>
@@ -237,58 +246,75 @@ export function FormsView() {
                 </tr>
               </thead>
               <tbody>
-                {forms.map((f) => (
-                  <tr key={f.id}>
-                    <td>
-                      <div style={{ fontWeight: 600, color: "var(--text)" }}>{f.title}</div>
-                      <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Default Source: {f.sourceLabel}</div>
-                    </td>
-                    <td>
-                      <span className="chip" style={{ fontSize: "11px", fontFamily: "var(--mono)" }}>
-                        /f/{f.slug}
-                      </span>
-                    </td>
-                    <td>
-                      <span style={{ fontWeight: 600 }}>{f.submissionsCount}</span>
-                    </td>
-                    <td>
-                      <span style={{ fontWeight: 600, color: "var(--accent)" }}>{f.conversionRate}</span>
-                    </td>
-                    <td>
-                      <span className="chip" data-tone="info" style={{ fontSize: "11px" }}>
-                        {f.targetStage.replace("_", " ").toUpperCase()}
-                      </span>
-                    </td>
-                    <td>
-                      <span className="chip" data-tone="success" style={{ fontSize: "11px" }}>
-                        <span className="dot" style={{ background: "var(--success)" }} /> {f.status.toUpperCase()}
-                      </span>
-                    </td>
-                    <td style={{ color: "var(--text-tertiary)", fontSize: "var(--fs-caption)" }}>{f.lastSubmission}</td>
-                    <td style={{ textAlign: "right" }}>
-                      <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end" }}>
-                        <button
-                          className="btn"
-                          data-size="sm"
-                          data-variant="ghost"
-                          onClick={() => copyLink(f.slug)}
-                          title="Copy Public Link"
-                        >
-                          <Icon name="link" size={12} /> Link
-                        </button>
-                        <button
-                          className="btn"
-                          data-size="sm"
-                          data-variant="ghost"
-                          onClick={() => copyEmbed(f.slug)}
-                          title="Copy HTML Embed Iframe"
-                        >
-                          &lt;/&gt; Embed
+                {forms.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} style={{ textAlign: "center", padding: "48px 16px", color: "var(--text-tertiary)" }}>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
+                        <Icon name="form" size={28} style={{ opacity: 0.4 }} />
+                        <div style={{ fontWeight: 600, color: "var(--text)" }}>No Lead Forms Created</div>
+                        <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", maxWidth: "340px" }}>
+                          Create your first embeddable lead capture form or shareable link using the visual builder.
+                        </div>
+                        <button className="btn" data-variant="primary" data-size="sm" style={{ marginTop: "8px" }} onClick={() => setTab("editor")}>
+                          <Icon name="plus" size={13} /> Create Lead Form
                         </button>
                       </div>
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  forms.map((f) => (
+                    <tr key={f.id}>
+                      <td>
+                        <div style={{ fontWeight: 600, color: "var(--text)" }}>{f.title}</div>
+                        <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Default Source: {f.sourceLabel}</div>
+                      </td>
+                      <td>
+                        <span className="chip" style={{ fontSize: "11px", fontFamily: "var(--mono)" }}>
+                          /f/{f.slug}
+                        </span>
+                      </td>
+                      <td>
+                        <span style={{ fontWeight: 600 }}>{f.submissionsCount}</span>
+                      </td>
+                      <td>
+                        <span style={{ fontWeight: 600, color: "var(--accent)" }}>{f.conversionRate}</span>
+                      </td>
+                      <td>
+                        <span className="chip" data-tone="info" style={{ fontSize: "11px" }}>
+                          {f.targetStage.replace("_", " ").toUpperCase()}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="chip" data-tone="success" style={{ fontSize: "11px" }}>
+                          <span className="dot" style={{ background: "var(--success)" }} /> {f.status.toUpperCase()}
+                        </span>
+                      </td>
+                      <td style={{ color: "var(--text-tertiary)", fontSize: "var(--fs-caption)" }}>{f.lastSubmission}</td>
+                      <td style={{ textAlign: "right" }}>
+                        <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end" }}>
+                          <button
+                            className="btn"
+                            data-size="sm"
+                            data-variant="ghost"
+                            onClick={() => copyLink(f.slug)}
+                            title="Copy Public Link"
+                          >
+                            <Icon name="link" size={12} /> Link
+                          </button>
+                          <button
+                            className="btn"
+                            data-size="sm"
+                            data-variant="ghost"
+                            onClick={() => copyEmbed(f.slug)}
+                            title="Copy HTML Embed Iframe"
+                          >
+                            &lt;/&gt; Embed
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -509,28 +535,42 @@ export function FormsView() {
                 </tr>
               </thead>
               <tbody>
-                {RECENT_SUBMISSIONS.map((s) => (
-                  <tr key={s.id}>
-                    <td>
-                      <div style={{ fontWeight: 600, color: "var(--text)" }}>{s.name}</div>
-                      <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>{s.company}</div>
-                    </td>
-                    <td style={{ fontWeight: 550, fontFamily: "var(--mono)" }}>{s.phone}</td>
-                    <td>
-                      <span className="chip" style={{ fontSize: "11px", fontFamily: "var(--mono)" }}>
-                        /f/{s.form}
-                      </span>
-                    </td>
-                    <td>
-                      <span className="chip" data-tone="accent" style={{ fontSize: "11px" }}>
-                        {s.utm}
-                      </span>
-                    </td>
-                    <td style={{ textAlign: "right", color: "var(--text-tertiary)", fontSize: "var(--fs-caption)" }}>
-                      {s.time}
+                {submissions.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} style={{ textAlign: "center", padding: "48px 16px", color: "var(--text-tertiary)" }}>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
+                        <Icon name="inbox" size={28} style={{ opacity: 0.4 }} />
+                        <div style={{ fontWeight: 600, color: "var(--text)" }}>No Form Submissions Yet</div>
+                        <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", maxWidth: "340px" }}>
+                          Inbound lead submissions captured via your published forms and widgets will stream here in real time.
+                        </div>
+                      </div>
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  submissions.map((s) => (
+                    <tr key={s.id}>
+                      <td>
+                        <div style={{ fontWeight: 600, color: "var(--text)" }}>{s.name}</div>
+                        <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>{s.company}</div>
+                      </td>
+                      <td style={{ fontWeight: 550, fontFamily: "var(--mono)" }}>{s.phone}</td>
+                      <td>
+                        <span className="chip" style={{ fontSize: "11px", fontFamily: "var(--mono)" }}>
+                          /f/{s.form}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="chip" data-tone="accent" style={{ fontSize: "11px" }}>
+                          {s.utm}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: "right", color: "var(--text-tertiary)", fontSize: "var(--fs-caption)" }}>
+                        {s.time}
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>

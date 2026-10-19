@@ -9,6 +9,7 @@ import { KeyboardProvider } from "@/components/keyboard/KeyboardProvider";
 import { Kbd } from "@/components/keyboard/Kbd";
 import { NAV } from "@/lib/data";
 import { CURRENT_USER, LIMITS, useApp, type Scope } from "@/lib/store";
+import { WorkspaceLoginDialog } from "@/components/auth/WorkspaceLoginDialog";
 
 const SCOPE_LABEL: Record<Scope, string> = {
   all: "All team leads",
@@ -80,7 +81,7 @@ function GlobalSearch() {
   return (
     <div className="search-wrap" ref={boxRef}>
       <div className="search">
-        <Icon name="search" size={14} />
+        <Icon name="search" size={16} />
         <input
           ref={inputRef}
           value={query}
@@ -124,10 +125,16 @@ function GlobalSearch() {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { state, toggleSidebar, setTheme, setScope, setLayout, setQuickAdd, setPalette } = useApp();
+  const router = useRouter();
+  const { state, toggleSidebar, setTheme, setScope, setLayout, setQuickAdd, setPalette, refreshLeads, logoutWorkspace } = useApp();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [loginModalOpen, setLoginModalOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useOutsideClose(() => setUserMenuOpen(false));
   const title = TITLES[pathname] ?? "Workspace";
+  const isFullBleed = pathname === "/chat";
   const isWide = pathname === "/pipeline";
+  const pageClass = isFullBleed ? "page page-full" : isWide ? "page page-wide" : "page";
 
   useEffect(() => {
     setMobileOpen(false);
@@ -162,7 +169,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             aria-label={state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             title={state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
-            <Icon name="panel" size={15} />
+            <Icon name="panel" size={17} />
           </button>
         </div>
 
@@ -172,7 +179,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             onClick={() => setQuickAdd(true)}
             title="Create lead · C"
           >
-            <Icon name="pencil" size={14} />
+            <Icon name="plus" size={16} />
             <span className="nav-item-label">New lead</span>
             <span className="kbd">C</span>
           </button>
@@ -182,7 +189,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             aria-label="Open command menu"
             title="Command menu · ⌘K"
           >
-            <Icon name="search" size={15} />
+            <Icon name="search" size={16} />
           </button>
         </div>
 
@@ -200,7 +207,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                     aria-current={current ? "page" : undefined}
                     title={state.sidebarCollapsed ? item.label : undefined}
                   >
-                    <Icon name={item.icon} size={15} />
+                    <Icon name={item.icon} size={17} />
                     <span className="nav-item-label">{item.label}</span>
                     {item.href === "/pipeline" ? (
                       <span className="nav-count">{state.leads.length}</span>
@@ -212,15 +219,224 @@ export function AppShell({ children }: { children: ReactNode }) {
           ))}
         </nav>
 
-        <div className="sidebar-foot">
-          <Link href="/settings" className="sidebar-user" title="Account settings">
-            <span className="avatar">{CURRENT_USER.slice(0, 2).toUpperCase()}</span>
-            <span className="sidebar-user-copy">
-              <span className="sidebar-user-name">{CURRENT_USER} Sharma</span>
-              <span className="sidebar-user-meta">Owner · Growth</span>
-            </span>
-            <Icon name="chevron-down" size={13} />
-          </Link>
+        <div className="sidebar-foot" ref={userMenuRef} style={{ position: "relative" }}>
+          {userMenuOpen ? (
+            <div
+              className="user-menu-popover card"
+              style={{
+                position: "absolute",
+                bottom: "calc(100% + 8px)",
+                left: state.sidebarCollapsed ? "52px" : "8px",
+                right: state.sidebarCollapsed ? "auto" : "8px",
+                width: state.sidebarCollapsed ? "240px" : "auto",
+                background: "var(--bg-elevated, var(--bg-soft))",
+                border: "1px solid var(--border-strong, var(--border))",
+                boxShadow: "0 10px 28px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.2)",
+                borderRadius: "var(--r-md, 8px)",
+                padding: "6px",
+                zIndex: 1000,
+                display: "flex",
+                flexDirection: "column",
+                gap: "2px",
+              }}
+            >
+              {/* User Identity Header */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  padding: "8px 10px",
+                  borderBottom: "1px solid var(--border)",
+                  marginBottom: "4px",
+                }}
+              >
+                <span className="avatar">
+                  {(state.user?.displayName || CURRENT_USER).slice(0, 2).toUpperCase()}
+                </span>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div
+                    style={{
+                      fontSize: "var(--fs-meta, 13px)",
+                      fontWeight: 600,
+                      color: "var(--text)",
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {state.user?.displayName || CURRENT_USER}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "11px",
+                      color: "var(--text-tertiary)",
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {state.user?.email || "admin@aicloser.in"}
+                  </div>
+                </div>
+                <span
+                  className="chip"
+                  data-tone={state.apiConnected ? "success" : "neutral"}
+                  style={{ fontSize: "10px", padding: "1px 6px" }}
+                >
+                  {state.apiConnected ? "Cloud" : "Local"}
+                </span>
+              </div>
+
+              {/* Menu Actions */}
+              <Link
+                href="/settings"
+                onClick={() => setUserMenuOpen(false)}
+                className="user-menu-item"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  padding: "7px 10px",
+                  borderRadius: "var(--r-sm, 6px)",
+                  fontSize: "var(--fs-meta, 13px)",
+                  color: "var(--text)",
+                  textDecoration: "none",
+                }}
+              >
+                <Icon name="settings" size={14} />
+                <span>Workspace Settings</span>
+              </Link>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setUserMenuOpen(false);
+                  setPalette(true);
+                }}
+                className="user-menu-item"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  width: "100%",
+                  padding: "7px 10px",
+                  borderRadius: "var(--r-sm, 6px)",
+                  fontSize: "var(--fs-meta, 13px)",
+                  color: "var(--text)",
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <Icon name="command" size={14} />
+                  <span>Command Palette</span>
+                </span>
+                <span style={{ fontSize: "10px", color: "var(--text-tertiary)", fontFamily: "var(--mono)" }}>⌘K</span>
+              </button>
+
+              <div style={{ height: "1px", background: "var(--border)", margin: "4px 0" }} />
+
+              {/* Logout Option */}
+              <button
+                type="button"
+                onClick={async () => {
+                  setUserMenuOpen(false);
+                  await logoutWorkspace();
+                  router.push("/login");
+                }}
+                className="user-menu-item-danger"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  width: "100%",
+                  padding: "7px 10px",
+                  borderRadius: "var(--r-sm, 6px)",
+                  fontSize: "var(--fs-meta, 13px)",
+                  color: "#ef4444",
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  textAlign: "left",
+                  fontWeight: 550,
+                }}
+              >
+                <Icon name="logout" size={14} />
+                <span>Log out</span>
+              </button>
+            </div>
+          ) : null}
+
+          {/* User Profile Bar */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              width: "100%",
+              gap: "4px",
+            }}
+          >
+            <button
+              type="button"
+              className="sidebar-user"
+              onClick={() => setUserMenuOpen((prev) => !prev)}
+              aria-expanded={userMenuOpen}
+              title={state.sidebarCollapsed ? `${state.user?.displayName || CURRENT_USER} · Click for menu & logout` : "User menu & options"}
+              style={{
+                background: userMenuOpen ? "var(--bg-hover)" : undefined,
+                border: "none",
+                cursor: "pointer",
+                font: "inherit",
+                color: "inherit",
+                outline: "none",
+                flex: 1,
+                minWidth: 0,
+              }}
+            >
+              <span className="avatar">{(state.user?.displayName || CURRENT_USER).slice(0, 2).toUpperCase()}</span>
+              <span className="sidebar-user-copy">
+                <span className="sidebar-user-name">{state.user?.displayName || CURRENT_USER}</span>
+                <span className="sidebar-user-meta">Owner · Workspace</span>
+              </span>
+              <Icon
+                name="chevron-down"
+                size={14}
+                style={{
+                  transform: userMenuOpen ? "rotate(180deg)" : "rotate(0deg)",
+                  transition: "transform 0.2s ease",
+                }}
+              />
+            </button>
+
+            {/* Direct Quick Logout Button */}
+            {!state.sidebarCollapsed && (
+              <button
+                type="button"
+                onClick={async () => {
+                  await logoutWorkspace();
+                  router.push("/login");
+                }}
+                className="icon-btn"
+                title="Log out of workspace"
+                style={{
+                  color: "var(--text-tertiary)",
+                  width: "28px",
+                  height: "28px",
+                  borderRadius: "var(--r-sm)",
+                  display: "grid",
+                  placeItems: "center",
+                  flex: "0 0 auto",
+                  cursor: "pointer",
+                }}
+              >
+                <Icon name="logout" size={14} />
+              </button>
+            )}
+          </div>
         </div>
 
         {!state.sidebarCollapsed ? (
@@ -254,7 +470,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           <div className="topbar-lead">
             <span className="breadcrumb">
-              Closer <Icon name="chevron-right" size={12} /> <strong>{title}</strong>
+              Closer <Icon name="chevron-right" size={14} /> <strong>{title}</strong>
             </span>
           </div>
 
@@ -262,8 +478,40 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           <GlobalSearch />
 
+          <button
+            className="btn"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "7px",
+              fontSize: "12px",
+              padding: "4px 10px",
+              borderRadius: "6px",
+              height: "28px",
+              background: state.apiConnected ? "rgba(34, 197, 94, 0.12)" : "rgba(255, 255, 255, 0.05)",
+              border: `1px solid ${state.apiConnected ? "rgba(34, 197, 94, 0.3)" : "var(--border)"}`,
+              color: state.apiConnected ? "#22c55e" : "var(--fg-muted)",
+              cursor: "pointer",
+            }}
+            onClick={() => setLoginModalOpen(true)}
+            title={state.apiConnected ? `Connected to live API (${state.user?.displayName || "Cloud"}) · Click to manage` : "Local Demo mode · Click to sign in & load real data"}
+          >
+            <span
+              style={{
+                width: "6px",
+                height: "6px",
+                borderRadius: "50%",
+                backgroundColor: state.apiConnected ? "#22c55e" : "#eab308",
+                display: "inline-block",
+              }}
+            />
+            <span className="hide-sm">
+              {state.isLoadingApi ? "Syncing..." : state.apiConnected ? "Live Cloud" : "Local Demo"}
+            </span>
+          </button>
+
           <label className="scope">
-            <Icon name="target" size={13} />
+            <Icon name="target" size={15} />
             <span>Viewing</span>
             <select
               value={state.scope}
@@ -285,7 +533,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               aria-pressed={state.theme === "light"}
               title="Light · T"
             >
-              <Icon name="sun" size={13} />
+              <Icon name="sun" size={15} />
               <span className="hide-sm">Light</span>
             </button>
             <button
@@ -294,7 +542,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               aria-pressed={state.theme === "dark"}
               title="Dark · T"
             >
-              <Icon name="moon" size={13} />
+              <Icon name="moon" size={15} />
               <span className="hide-sm">Dark</span>
             </button>
           </div>
@@ -305,18 +553,25 @@ export function AppShell({ children }: { children: ReactNode }) {
             aria-label="Command menu"
             title="Command menu · ⌘K"
           >
-            <Icon name="command" size={15} />
+            <Icon name="command" size={17} />
           </button>
 
-          <span className="avatar" title={`${CURRENT_USER} Sharma`}>
-            {CURRENT_USER.slice(0, 2).toUpperCase()}
-          </span>
+          <button
+            type="button"
+            className="avatar"
+            onClick={() => setUserMenuOpen((p) => !p)}
+            style={{ border: "none", cursor: "pointer", font: "inherit", padding: 0 }}
+            title={`${state.user?.displayName || CURRENT_USER} · User menu`}
+          >
+            {(state.user?.displayName || CURRENT_USER).slice(0, 2).toUpperCase()}
+          </button>
         </header>
 
-        <main className={isWide ? "page page-wide" : "page"}>{children}</main>
+        <main className={pageClass}>{children}</main>
       </div>
 
       <KeyboardProvider />
+      {loginModalOpen ? <WorkspaceLoginDialog onClose={() => setLoginModalOpen(false)} /> : null}
     </div>
   );
 }

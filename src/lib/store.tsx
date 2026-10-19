@@ -11,7 +11,9 @@ import {
   type ReactNode,
 } from "react";
 import { SEED_LEADS } from "./data";
-import type { Density, FontScale, Lead, StageId, Theme } from "./types";
+import type { Density, FontScale, Lead, NavSpacing, StageId, Theme } from "./types";
+import { aicloserApi, type UserSession } from "./api-client";
+import { backendLeadToUiLead, uiLeadToBackendPayload, stageIdToBackendStage } from "./lead-mapper";
 
 const KEY = "closer.ui.v2";
 
@@ -25,6 +27,8 @@ interface Persisted {
   accent: string;
   /** Base type scale. */
   fontScale: FontScale;
+  /** Sidebar menu item vertical spacing in px. */
+  navSpacing: NavSpacing;
   sidebarWidth: number;
   colWidth: number;
   drawerWidth: number;
@@ -38,6 +42,12 @@ interface AppState extends Persisted {
   paletteOpen: boolean;
   sheetOpen: boolean;
   quickAddOpen: boolean;
+  /** Live API sync status */
+  apiConnected: boolean;
+  isLiveCloud: boolean;
+  isLoadingApi: boolean;
+  user: UserSession | null;
+  workspaceAuth: { user: UserSession | null } | null;
 }
 
 interface AppApi {
@@ -46,10 +56,25 @@ interface AppApi {
   updateLead: (id: string, patch: Partial<Lead>) => void;
   addLead: (lead: Omit<Lead, "id" | "updatedAt" | "code">) => void;
   deleteLead: (id: string) => void;
+  refreshLeads: () => Promise<void>;
+  loginWorkspace: (
+    identifierOrCreds: string | { email?: string; identifier?: string; password?: string; token?: string },
+    password?: string
+  ) => Promise<{ success: boolean; error?: string }>;
+  signupWorkspace: (params: {
+    companyName: string;
+    adminName: string;
+    email: string;
+    phone: string;
+    password: string;
+    teamSize?: string;
+  }) => Promise<{ success: boolean; error?: string }>;
+  logoutWorkspace: () => Promise<void>;
   setTheme: (theme: Theme) => void;
   setDensity: (density: Density) => void;
   setAccent: (accent: string) => void;
   setFontScale: (scale: FontScale) => void;
+  setNavSpacing: (spacing: NavSpacing) => void;
   toggleSidebar: () => void;
   setScope: (scope: Scope) => void;
   setLayout: (patch: Partial<Pick<Persisted, "sidebarWidth" | "colWidth" | "drawerWidth">>) => void;
@@ -61,7 +86,7 @@ interface AppApi {
 
 const AppContext = createContext<AppApi | null>(null);
 
-export const CURRENT_USER = "Aarav";
+export const CURRENT_USER = "Admin";
 
 /** Resizable limits, in px. */
 export const LIMITS = {
@@ -248,8 +273,8 @@ export function fontTokens(scale: FontScale): Record<string, string> {
   );
 }
 
-/** Apply accent + type scale to the document root. Safe to call pre-hydration. */
-export function applyAppearance(accent: string, fontScale: FontScale, theme: Theme) {
+/** Apply accent + type scale + nav item spacing to the document root. Safe to call pre-hydration. */
+export function applyAppearance(accent: string, fontScale: FontScale, theme: Theme, navSpacing: NavSpacing = 2) {
   const root = document.documentElement;
   const tokens = accentTokens(accent, theme);
   root.style.setProperty("--accent", tokens.base);
@@ -261,6 +286,7 @@ export function applyAppearance(accent: string, fontScale: FontScale, theme: The
   root.style.setProperty("--bg-selected", tokens.selected);
   root.style.setProperty("--info", tokens.base);
   root.style.setProperty("--info-soft", tokens.infoSoft);
+  root.style.setProperty("--nav-item-gap", `${navSpacing}px`);
   const fonts = fontTokens(fontScale);
   for (const [name, value] of Object.entries(fonts)) {
     root.style.setProperty(`--fs-${name}`, value);
@@ -273,12 +299,16 @@ const normalizeAccent = (value: unknown): string =>
 const normalizeFontScale = (value: unknown): FontScale =>
   value === "sm" || value === "lg" || value === "xl" ? value : "md";
 
+const normalizeNavSpacing = (value: unknown): NavSpacing =>
+  value === 1 || value === 2 || value === 4 || value === 6 ? (value as NavSpacing) : 2;
+
 const initialState: AppState = {
   leads: SEED_LEADS,
   theme: "dark",
   density: "comfortable",
   accent: BRAND_ACCENT,
   fontScale: "md",
+  navSpacing: 2,
   sidebarWidth: 244,
   colWidth: 288,
   drawerWidth: 460,
@@ -288,6 +318,11 @@ const initialState: AppState = {
   paletteOpen: false,
   sheetOpen: false,
   quickAddOpen: false,
+  apiConnected: false,
+  isLiveCloud: false,
+  isLoadingApi: false,
+  user: null,
+  workspaceAuth: null,
 };
 
 const clamp = (value: number, [min, max]: readonly [number, number]) =>
@@ -296,7 +331,12 @@ const clamp = (value: number, [min, max]: readonly [number, number]) =>
 function readStorage(): Partial<Persisted> | null {
   try {
     const raw = window.localStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as Partial<Persisted>) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<Persisted>;
+    if (Array.isArray(parsed.leads)) {
+      parsed.leads = parsed.leads.filter((l) => !l.id.startsWith("ld-") && !l.code.startsWith("CLO-10"));
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -307,6 +347,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const authToken = params.get("auth_token") || params.get("token");
+      if (authToken) {
+        window.localStorage.setItem("aicloser_auth_token", authToken);
+        window.localStorage.setItem("aicloser_token", authToken);
+        document.cookie = `aicloser_token=${encodeURIComponent(authToken)}; path=/; max-age=2592000; SameSite=Lax`;
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete("auth_token");
+        cleanUrl.searchParams.delete("token");
+        window.history.replaceState({}, "", cleanUrl.toString());
+      }
+    }
     const saved = readStorage();
     setState((prev) => ({
       ...prev,
@@ -316,6 +369,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       density: saved?.density === "compact" ? "compact" : "comfortable",
       accent: normalizeAccent(saved?.accent),
       fontScale: normalizeFontScale(saved?.fontScale),
+      navSpacing: normalizeNavSpacing(saved?.navSpacing),
       sidebarWidth: saved?.sidebarWidth ? clamp(saved.sidebarWidth, LIMITS.sidebar) : prev.sidebarWidth,
       colWidth: saved?.colWidth ? clamp(saved.colWidth, LIMITS.col) : prev.colWidth,
       drawerWidth: saved?.drawerWidth
@@ -331,12 +385,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     root.style.setProperty("--sidebar-w", `${state.sidebarWidth}px`);
     root.style.setProperty("--col-w", `${state.colWidth}px`);
     root.style.setProperty("--drawer-w", `${state.drawerWidth}px`);
-    applyAppearance(state.accent, state.fontScale, state.theme);
+    applyAppearance(state.accent, state.fontScale, state.theme, state.navSpacing);
   }, [
     state.theme,
     state.density,
     state.accent,
     state.fontScale,
+    state.navSpacing,
     state.sidebarWidth,
     state.colWidth,
     state.drawerWidth,
@@ -353,6 +408,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           density: state.density,
           accent: state.accent,
           fontScale: state.fontScale,
+          navSpacing: state.navSpacing,
           sidebarWidth: state.sidebarWidth,
           colWidth: state.colWidth,
           drawerWidth: state.drawerWidth,
@@ -371,11 +427,100 @@ export function AppProvider({ children }: { children: ReactNode }) {
     state.density,
     state.accent,
     state.fontScale,
+    state.navSpacing,
     state.sidebarWidth,
     state.colWidth,
     state.drawerWidth,
     state.hydrated,
   ]);
+
+  const refreshLeads = useCallback(async () => {
+    try {
+      setState((p) => ({ ...p, isLoadingApi: true }));
+      const me = await aicloserApi.auth.me().catch(() => null);
+      if (me?.user) {
+        const { leads: apiLeads } = await aicloserApi.leads.list({ limit: 100 }).catch(() => ({ leads: [] }));
+        if (apiLeads && apiLeads.length > 0) {
+          const mapped = apiLeads.map(backendLeadToUiLead);
+          setState((p) => ({
+            ...p,
+            leads: mapped,
+            apiConnected: true,
+            isLiveCloud: true,
+            user: me.user,
+            workspaceAuth: { user: me.user },
+            isLoadingApi: false,
+          }));
+          return;
+        }
+        setState((p) => ({
+          ...p,
+          apiConnected: true,
+          isLiveCloud: true,
+          user: me.user,
+          workspaceAuth: { user: me.user },
+          isLoadingApi: false,
+        }));
+        return;
+      }
+      setState((p) => ({ ...p, apiConnected: false, isLiveCloud: false, workspaceAuth: null, isLoadingApi: false }));
+    } catch {
+      setState((p) => ({ ...p, apiConnected: false, isLiveCloud: false, workspaceAuth: null, isLoadingApi: false }));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (state.hydrated) {
+      void refreshLeads();
+    }
+  }, [state.hydrated, refreshLeads]);
+
+  // Realtime Server-Sent Events (SSE) stream for multi-agent updates
+  useEffect(() => {
+    if (!state.apiConnected) return;
+
+    try {
+      const unsubscribe = aicloserApi.realtime.connect({
+        onEvent: (event: { type: string; payload: any }) => {
+          if (!event?.type) return;
+
+          // Dispatch event to window so Chat and Calls views can react
+          window.dispatchEvent(new CustomEvent("aicloser:realtime", { detail: event }));
+
+          if (event.type === "lead.created" && event.payload) {
+            const newLead = backendLeadToUiLead(event.payload);
+            setState((prev) => {
+              if (prev.leads.some((l) => l.id === newLead.id)) return prev;
+              return { ...prev, leads: [newLead, ...prev.leads] };
+            });
+          } else if (
+            (event.type === "lead.updated" || event.type === "lead.stage_changed") &&
+            event.payload?.id
+          ) {
+            const updated = backendLeadToUiLead(event.payload);
+            setState((prev) => ({
+              ...prev,
+              leads: prev.leads.map((l) => (l.id === updated.id ? updated : l)),
+            }));
+          } else if (event.type === "lead.deleted" && event.payload?.id) {
+            setState((prev) => ({
+              ...prev,
+              leads: prev.leads.filter((l) => l.id !== event.payload.id),
+            }));
+          }
+        },
+        onError: () => {
+          // Keep working if SSE connection drops
+        },
+      });
+
+      return () => {
+        unsubscribe();
+      };
+    } catch {
+      // Ignore if SSE unsupported in environment
+    }
+  }, [state.apiConnected]);
 
   const moveLead = useCallback((id: string, stage: StageId) => {
     setState((prev) => {
@@ -388,7 +533,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ),
       };
     });
-  }, []);
+    if (state.apiConnected) {
+      aicloserApi.leads.updateKanbanPosition(id, stageIdToBackendStage(stage), 0).catch(() => {});
+    }
+  }, [state.apiConnected]);
 
   const updateLead = useCallback((id: string, patch: Partial<Lead>) => {
     setState((prev) => ({
@@ -397,9 +545,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         l.id === id ? { ...l, ...patch, id: l.id, updatedAt: new Date().toISOString() } : l,
       ),
     }));
-  }, []);
+    if (state.apiConnected) {
+      aicloserApi.leads.update(id, uiLeadToBackendPayload(patch)).catch(() => {});
+      if (patch.notes) {
+        aicloserApi.leads.addNote(id, patch.notes).catch(() => {});
+      }
+    }
+  }, [state.apiConnected]);
 
   const addLead = useCallback((input: Omit<Lead, "id" | "updatedAt" | "code">) => {
+    const tempId = `ld-${Date.now().toString(36)}`;
     setState((prev) => {
       const highest = prev.leads.reduce((max, l) => {
         const n = Number(l.code?.replace(/\D/g, "")) || 0;
@@ -407,16 +562,99 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }, 100);
       const lead: Lead = {
         ...input,
-        id: `ld-${Date.now().toString(36)}`,
+        id: tempId,
         code: `CLO-${highest + 1}`,
         updatedAt: new Date().toISOString(),
       };
       return { ...prev, leads: [lead, ...prev.leads] };
     });
-  }, []);
+
+    if (state.apiConnected) {
+      aicloserApi.leads.create(uiLeadToBackendPayload(input))
+        .then((created) => {
+          if (created?.id) {
+            setState((prev) => ({
+              ...prev,
+              leads: prev.leads.map((l) => (l.id === tempId ? backendLeadToUiLead(created) : l)),
+            }));
+          }
+        })
+        .catch(() => {});
+    }
+  }, [state.apiConnected]);
 
   const deleteLead = useCallback((id: string) => {
     setState((prev) => ({ ...prev, leads: prev.leads.filter((l) => l.id !== id) }));
+  }, []);
+
+  const loginWorkspace = useCallback(
+    async (
+      identifierOrCreds: string | { email?: string; identifier?: string; password?: string; token?: string },
+      pwdArg?: string
+    ) => {
+      try {
+        setState((p) => ({ ...p, isLoadingApi: true }));
+        if (typeof identifierOrCreds === "object") {
+          if (identifierOrCreds.token) {
+            if (typeof window !== "undefined") {
+              window.localStorage.setItem("aicloser_token", identifierOrCreds.token);
+              document.cookie = `aicloser_token=${encodeURIComponent(identifierOrCreds.token)}; path=/; max-age=2592000; SameSite=Lax`;
+            }
+            await refreshLeads();
+            return { success: true };
+          }
+          const id = identifierOrCreds.identifier || identifierOrCreds.email || "";
+          const pw = identifierOrCreds.password || "";
+          const result = await aicloserApi.auth.login({ identifier: id, password: pw, clientType: "DESKTOP" });
+          if (result?.token) {
+            await refreshLeads();
+            return { success: true };
+          }
+          return { success: false, error: "Invalid credentials" };
+        } else {
+          const result = await aicloserApi.auth.login({ identifier: identifierOrCreds, password: pwdArg || "", clientType: "DESKTOP" });
+          if (result?.token) {
+            await refreshLeads();
+            return { success: true };
+          }
+          return { success: false, error: "Invalid credentials" };
+        }
+      } catch (e: any) {
+        setState((p) => ({ ...p, isLoadingApi: false }));
+        return { success: false, error: e?.message || "Failed to sign in" };
+      }
+    },
+    [refreshLeads]
+  );
+
+  const signupWorkspace = useCallback(
+    async (params: {
+      companyName: string;
+      adminName: string;
+      email: string;
+      phone: string;
+      password: string;
+      teamSize?: string;
+    }) => {
+      try {
+        setState((p) => ({ ...p, isLoadingApi: true }));
+        const result = await aicloserApi.auth.signup(params);
+        if (result?.token) {
+          await refreshLeads();
+          return { success: true };
+        }
+        return { success: false, error: "Signup succeeded but no token received" };
+      } catch (e: any) {
+        setState((p) => ({ ...p, isLoadingApi: false }));
+        return { success: false, error: e?.message || "Failed to create workspace" };
+      }
+    },
+    [refreshLeads],
+  );
+
+  const logoutWorkspace = useCallback(async () => {
+    await aicloserApi.auth.logout();
+    setState((p) => ({ ...p, apiConnected: false, isLiveCloud: false, user: null, workspaceAuth: null }));
   }, []);
 
   const setTheme = useCallback((theme: Theme) => setState((p) => ({ ...p, theme })), []);
@@ -427,6 +665,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
   const setFontScale = useCallback(
     (fontScale: FontScale) => setState((p) => ({ ...p, fontScale: normalizeFontScale(fontScale) })),
+    [],
+  );
+  const setNavSpacing = useCallback(
+    (navSpacing: NavSpacing) => setState((p) => ({ ...p, navSpacing: normalizeNavSpacing(navSpacing) })),
     [],
   );
   const toggleSidebar = useCallback(
@@ -451,7 +693,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
-  const reset = useCallback(() => setState((prev) => ({ ...prev, leads: SEED_LEADS })), []);
+  const reset = useCallback(() => {
+    setState((prev) => ({ ...prev, leads: [] }));
+    try {
+      window.localStorage.removeItem(KEY);
+    } catch {}
+  }, []);
 
   const api = useMemo<AppApi>(
     () => ({
@@ -460,10 +707,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateLead,
       addLead,
       deleteLead,
+      refreshLeads,
+      loginWorkspace,
+      signupWorkspace,
+      logoutWorkspace,
       setTheme,
       setDensity,
       setAccent,
       setFontScale,
+      setNavSpacing,
       toggleSidebar,
       setScope,
       setLayout,
@@ -478,10 +730,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateLead,
       addLead,
       deleteLead,
+      refreshLeads,
+      loginWorkspace,
+      signupWorkspace,
+      logoutWorkspace,
       setTheme,
       setDensity,
       setAccent,
       setFontScale,
+      setNavSpacing,
       toggleSidebar,
       setScope,
       setLayout,
@@ -529,8 +786,11 @@ export const compactMoney = (n: number) => {
  * hydration a moment later produce the same string, and date fallbacks pin a
  * time zone so both environments format identically.
  */
-export const relativeTime = (iso: string) => {
-  const diff = Date.now() - new Date(iso).getTime();
+export const relativeTime = (iso?: string | null) => {
+  if (!iso) return "just now";
+  const parsed = new Date(iso).getTime();
+  if (isNaN(parsed)) return "just now";
+  const diff = Date.now() - parsed;
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
@@ -545,20 +805,27 @@ export const relativeTime = (iso: string) => {
   });
 };
 
-/** SLA label for a follow-up date: "3d overdue" / "in 2d" / "today". */
-export const slaLabel = (iso: string) => {
+/** SLA label for a follow-up date: "3d overdue" / "in 2d" / "today" / "no date". */
+export const slaLabel = (iso?: string | null) => {
+  if (!iso) return "no date";
+  const target = new Date(iso);
+  if (isNaN(target.getTime())) return "no date";
   const start = new Date();
   start.setHours(0, 0, 0, 0);
-  const target = new Date(iso);
   target.setHours(0, 0, 0, 0);
   const days = Math.round((target.getTime() - start.getTime()) / 86400000);
   if (days === 0) return "today";
   if (days === 1) return "tomorrow";
+  if (days === -1) return "1d overdue";
   if (days > 1) return `in ${days}d`;
   return `${Math.abs(days)}d overdue`;
 };
 
-export const isOverdue = (iso: string) => new Date(iso).getTime() < Date.now();
+export const isOverdue = (iso?: string | null) => {
+  if (!iso) return false;
+  const t = new Date(iso).getTime();
+  return !isNaN(t) && t < Date.now();
+};
 
 /** Platform-aware modifier label for keyboard hints. */
 export const isMac = () =>

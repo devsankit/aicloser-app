@@ -9,6 +9,7 @@ import {
   SEGMENTS,
   SOURCES,
   STAGES,
+  sourceMeta,
   type Priority,
   type Segment,
   type Source,
@@ -23,6 +24,7 @@ export function AddLeadDialog({
   onClose: () => void;
 }) {
   const { addLead } = useApp();
+  const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     name: "",
     company: "",
@@ -47,10 +49,17 @@ export function AddLeadDialog({
   }, [onClose]);
 
   const submit = () => {
+    if (submitting) return;
     if (!form.name.trim()) return setError("Give the lead a name.");
     if (!form.company.trim()) return setError("Company is required.");
     if (!/^[6-9]\d{9}$/.test(form.phone.trim()))
       return setError("Enter a 10-digit Indian mobile number starting with 6–9.");
+
+    setSubmitting(true);
+    const parsedFollowUp = form.followUp ? new Date(`${form.followUp}T11:00:00`) : new Date(Date.now() + 86400000);
+    const followUpIso = !isNaN(parsedFollowUp.getTime())
+      ? parsedFollowUp.toISOString()
+      : new Date(Date.now() + 86400000).toISOString();
 
     addLead({
       name: form.name.trim(),
@@ -63,7 +72,7 @@ export function AddLeadDialog({
       stage: form.stage,
       owner: form.owner,
       priority: form.priority,
-      followUp: new Date(`${form.followUp}T11:00:00`).toISOString(),
+      followUp: followUpIso,
       tags: [],
       notes: "",
     });
@@ -170,7 +179,7 @@ export function AddLeadDialog({
               >
                 {SOURCES.map((s) => (
                   <option key={s} value={s}>
-                    {s}
+                    {sourceMeta(s).label}
                   </option>
                 ))}
               </select>
@@ -243,11 +252,11 @@ export function AddLeadDialog({
         </div>
 
         <footer className="dialog-foot">
-          <button className="btn" onClick={onClose}>
+          <button className="btn" onClick={onClose} disabled={submitting}>
             Cancel
           </button>
-          <button className="btn" data-variant="primary" onClick={submit}>
-            Add lead
+          <button className="btn" data-variant="primary" onClick={submit} disabled={submitting}>
+            {submitting ? "Adding..." : "Add lead"}
           </button>
         </footer>
       </div>

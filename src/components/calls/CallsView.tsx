@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
+import { aicloserApi } from "@/lib/api-client";
 
 export type CallDirection = "inbound" | "outbound" | "missed";
 
@@ -35,156 +36,137 @@ export interface SimDevice {
   lastHeartbeat: string;
 }
 
-const DEFAULT_CALLS: CallRecord[] = [
-  {
-    id: "call-01",
-    leadCode: "CLO-101",
-    customerName: "Anshita Rao",
-    company: "Nimbus Interiors",
-    phone: "+91 98390 47231",
-    closerName: "Aarav Sharma",
-    simSlot: "Jio SIM 1",
-    direction: "inbound",
-    durationSeconds: 382, // 6m 22s
-    timestamp: "11:45 AM today",
-    disposition: "Interested (Ready for Demo)",
-    sentiment: "positive",
-    aiSummary: "Client confirmed interest in 6 closer seats. Discussed ₹96,000 Pro package. Requested follow-up callback at 6:00 PM for commercial signoff.",
-    transcript: [
-      { speaker: "Customer", text: "Hello Aarav, I called to check on the CRM demo details.", time: "00:05" },
-      { speaker: "Aarav", text: "Hi Anshita! Yes, we have dedicated SIM audio logging for all 6 closer phones.", time: "00:15" },
-      { speaker: "Customer", text: "That sounds great. What is the annual settlement for 6 seats?", time: "01:10" },
-      { speaker: "Aarav", text: "That is ₹96,000 for the full year with unlimited call recordings and WhatsApp Cloud integration.", time: "01:30" },
-      { speaker: "Customer", text: "Perfect. Let us connect at 6pm to do the onboarding.", time: "05:40" },
-    ],
-  },
-  {
-    id: "call-02",
-    leadCode: "CLO-103",
-    customerName: "Priya Nair",
-    company: "Loom & Co",
-    phone: "+91 98455 12098",
-    closerName: "Meera Joshi",
-    simSlot: "Airtel SIM 2",
-    direction: "outbound",
-    durationSeconds: 245, // 4m 05s
-    timestamp: "10:30 AM today",
-    disposition: "Follow-up Scheduled",
-    sentiment: "neutral",
-    aiSummary: "Followed up on WhatsApp inquiry. Customer will review technical SIM compatibility with internal IT head.",
-    transcript: [
-      { speaker: "Meera", text: "Hi Priya, calling from Closer AI regarding your Airtel SIM inquiry.", time: "00:04" },
-      { speaker: "Customer", text: "Hi Meera. Does your recording app run smoothly in the background without battery drainage?", time: "00:20" },
-      { speaker: "Meera", text: "Yes, it uses background audio foreground service with less than 2% battery consumption per day.", time: "00:45" },
-    ],
-  },
-  {
-    id: "call-03",
-    leadCode: "CLO-102",
-    customerName: "Karan Mehta",
-    company: "Ambition Realty",
-    phone: "+91 99870 21145",
-    closerName: "Aarav Sharma",
-    simSlot: "Jio SIM 1",
-    direction: "missed",
-    durationSeconds: 0,
-    timestamp: "10:12 AM today",
-    disposition: "Missed Call (Unreturned)",
-    sentiment: "neutral",
-    aiSummary: "Customer called while line was busy on another lead. High priority callback required.",
-    transcript: [],
-    callbackPending: true,
-  },
-  {
-    id: "call-04",
-    leadCode: "CLO-104",
-    customerName: "Devansh Kapoor",
-    company: "Vertex Labs",
-    phone: "+91 98111 00223",
-    closerName: "Rohan Mehta",
-    simSlot: "Vi SIM 1",
-    direction: "outbound",
-    durationSeconds: 410, // 6m 50s
-    timestamp: "Yesterday, 4:20 PM",
-    disposition: "Negotiation (Commercial Quote)",
-    sentiment: "positive",
-    aiSummary: "Discussed custom payment schedule. Client agreed to pay 50% advance via UPI link.",
-    transcript: [
-      { speaker: "Rohan", text: "Good afternoon Devansh! Sharing the invoice for your 12 seats.", time: "00:10" },
-      { speaker: "Customer", text: "Can we split the payment into two milestone installments?", time: "00:45" },
-      { speaker: "Rohan", text: "Yes, we can do ₹1.3L today and ₹1.3L after 30 days.", time: "01:20" },
-    ],
-  },
-  {
-    id: "call-05",
-    leadCode: "CLO-106",
-    customerName: "Rahul Deshmukh",
-    company: "Skyline Motors",
-    phone: "+91 98990 33441",
-    closerName: "Meera Joshi",
-    simSlot: "Airtel SIM 2",
-    direction: "missed",
-    durationSeconds: 0,
-    timestamp: "Yesterday, 2:15 PM",
-    disposition: "Missed Call (Unreturned)",
-    sentiment: "neutral",
-    aiSummary: "Inbound call missed during team review. Needs callback.",
-    transcript: [],
-    callbackPending: true,
-  },
-];
-
+const DEFAULT_CALLS: CallRecord[] = [];
 const DEFAULT_DEVICES: SimDevice[] = [
   {
-    id: "dev-01",
-    closer: "Aarav Sharma",
-    phoneModel: "POCO X5 Pro 5G",
-    simCarrier: "Jio (SIM 1)",
-    simNumber: "+91 98765 43210",
-    battery: 88,
+    id: "cmv6i693w0112u2jpo1zab8an",
+    closer: "Anshita",
+    phoneModel: "Xiaomi Redmi Note 12 5G",
+    simCarrier: "Jio 5G (SIM 1)",
+    simNumber: "+91 76185 34225",
+    battery: 92,
     recordingService: "active",
     lastHeartbeat: "Just now",
   },
   {
-    id: "dev-02",
-    closer: "Meera Joshi",
-    phoneModel: "Vivo V29 5G",
-    simCarrier: "Airtel (SIM 2)",
-    simNumber: "+91 98450 11223",
-    battery: 74,
+    id: "cmvc1q5oz000124jpf0f9glfc",
+    closer: "Anshita",
+    phoneModel: "Samsung Galaxy M34 5G",
+    simCarrier: "Airtel 5G (SIM 2)",
+    simNumber: "+91 99933 28124",
+    battery: 88,
     recordingService: "active",
-    lastHeartbeat: "1m ago",
+    lastHeartbeat: "1 min ago",
   },
   {
-    id: "dev-03",
-    closer: "Rohan Mehta",
-    phoneModel: "Samsung Galaxy M34",
-    simCarrier: "Vodafone Idea (SIM 1)",
-    simNumber: "+91 99123 44556",
-    battery: 92,
+    id: "dev-sim-03-vivo",
+    closer: "Ankit Rathore",
+    phoneModel: "Vivo Y200e 5G",
+    simCarrier: "Jio 5G (SIM 1)",
+    simNumber: "+91 70787 36123",
+    battery: 95,
     recordingService: "active",
-    lastHeartbeat: "3m ago",
+    lastHeartbeat: "2 mins ago",
   },
   {
-    id: "dev-04",
-    closer: "Sneha Kapoor",
-    phoneModel: "OnePlus Nord CE 3",
-    simCarrier: "Jio (SIM 1)",
-    simNumber: "+91 98111 22334",
-    battery: 45,
-    recordingService: "standby",
-    lastHeartbeat: "18m ago",
+    id: "dev-sim-04-poco",
+    closer: "Field Closer Desk",
+    phoneModel: "POCO M6 Pro 5G",
+    simCarrier: "Airtel 5G (SIM 1)",
+    simNumber: "+91 98765 43210",
+    battery: 79,
+    recordingService: "active",
+    lastHeartbeat: "3 mins ago",
   },
 ];
 
 export function CallsView() {
   const [tab, setTab] = useState<"all" | "missed" | "devices">("all");
-  const [calls, setCalls] = useState<CallRecord[]>(DEFAULT_CALLS);
+  const [calls, setCalls] = useState<CallRecord[]>([]);
+  const [devices, setDevices] = useState<SimDevice[]>(DEFAULT_DEVICES);
   const [search, setSearch] = useState("");
   const [directionFilter, setDirectionFilter] = useState<string>("ALL");
   const [activeAudioId, setActiveAudioId] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [selectedTranscriptCall, setSelectedTranscriptCall] = useState<CallRecord | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    aicloserApi.calls
+      .list({ limit: 50 })
+      .then((res) => {
+        if (!active || !res?.calls?.length) return;
+        const mapped: CallRecord[] = res.calls.map((c: any) => ({
+          id: c.id,
+          leadCode: c.assignment?.id ? `CLO-${c.assignment.id.slice(-4).toUpperCase()}` : "CLO-LIVE",
+          customerName: c.assignment?.customerName || "Customer",
+          company: c.assignment?.stage || "Direct Line",
+          phone: c.phoneNumber || c.assignment?.customerPhone || "",
+          closerName: c.agent?.user?.displayName || "Closer Agent",
+          simSlot: "Jio SIM 1",
+          direction:
+            c.direction === "INBOUND"
+              ? "inbound"
+              : c.durationSeconds === 0
+              ? "missed"
+              : "outbound",
+          durationSeconds: c.durationSeconds || 0,
+          timestamp: new Date(c.startedAt).toLocaleTimeString("en-IN", {
+            hour: "2-digit",
+            minute: "2-digit",
+          }) + " today",
+          disposition: c.outcome || c.status || "Completed",
+          sentiment: "positive",
+          aiSummary: c.note || "Live SIM Telemetry call logged.",
+          transcript: [],
+          audioUrl: c.recordingUrl,
+          callbackPending: c.durationSeconds === 0,
+        }));
+        setCalls(mapped);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Listen for realtime incoming SIM calls
+  useEffect(() => {
+    const onRealtime = (e: any) => {
+      const event = e.detail;
+      if (event?.type === "call.recorded" && event.payload) {
+        const c = event.payload;
+        const newRecord: CallRecord = {
+          id: c.id,
+          leadCode: c.assignment?.id ? `CLO-${c.assignment.id.slice(-4).toUpperCase()}` : "CLO-LIVE",
+          customerName: c.assignment?.customerName || "Customer",
+          company: c.assignment?.stage || "Direct Line",
+          phone: c.phoneNumber || c.assignment?.customerPhone || "",
+          closerName: c.agent?.user?.displayName || "Closer Agent",
+          simSlot: "Jio SIM 1",
+          direction:
+            c.direction === "INBOUND"
+              ? "inbound"
+              : c.durationSeconds === 0
+              ? "missed"
+              : "outbound",
+          durationSeconds: c.durationSeconds || 0,
+          timestamp: "Just now",
+          disposition: c.outcome || "Recorded Call",
+          sentiment: "positive",
+          aiSummary: c.note || "Live SIM Telemetry call logged.",
+          transcript: [],
+          audioUrl: c.recordingUrl,
+          callbackPending: c.durationSeconds === 0,
+        };
+        setCalls((prev) => [newRecord, ...prev]);
+      }
+    };
+    window.addEventListener("aicloser:realtime", onRealtime);
+    return () => window.removeEventListener("aicloser:realtime", onRealtime);
+  }, []);
 
   const formatDuration = (sec: number) => {
     if (!sec) return "00:00";
@@ -193,12 +175,40 @@ export function CallsView() {
     return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
   };
 
-  const handleTogglePlay = (callId: string) => {
+  const handleTogglePlay = async (callId: string) => {
     if (activeAudioId === callId) {
-      setIsPlaying(!isPlaying);
-    } else {
-      setActiveAudioId(callId);
-      setIsPlaying(true);
+      if (isPlaying) {
+        audioRef.current?.pause();
+        setIsPlaying(false);
+      } else {
+        audioRef.current?.play().catch(() => {});
+        setIsPlaying(true);
+      }
+      return;
+    }
+
+    const call = calls.find((c) => c.id === callId);
+    setActiveAudioId(callId);
+    setIsPlaying(true);
+
+    try {
+      let src = call?.audioUrl;
+      if (!src && !callId.startsWith("call-")) {
+        const blob = await aicloserApi.calls.getRecordingBlob(callId).catch(() => null);
+        if (blob) {
+          src = URL.createObjectURL(blob);
+        }
+      }
+      if (src && audioRef.current) {
+        audioRef.current.src = src;
+        audioRef.current.play().catch(() => {
+          setIsPlaying(false);
+        });
+      } else {
+        setIsPlaying(false);
+      }
+    } catch {
+      setIsPlaying(false);
     }
   };
 
@@ -305,7 +315,7 @@ export function CallsView() {
             SIM Telephony Engine
           </div>
           <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px", color: "var(--success)" }}>
-            4 / 4 Active
+            {devices.filter((d) => d.recordingService === "active").length} / {devices.length} Active
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
             Direct Android audio background sync
@@ -323,7 +333,7 @@ export function CallsView() {
             <Icon name="clock" size={13} /> Missed Call Queue ({missedCalls.length})
           </button>
           <button data-on={tab === "devices"} onClick={() => setTab("devices")}>
-            <Icon name="plug" size={13} /> Connected SIM Devices (4)
+            <Icon name="plug" size={13} /> Connected SIM Devices ({devices.length})
           </button>
         </div>
       </div>
@@ -368,10 +378,23 @@ export function CallsView() {
                 </tr>
               </thead>
               <tbody>
-                {filteredCalls.map((c) => {
-                  const isCurrentPlaying = activeAudioId === c.id && isPlaying;
-                  return (
-                    <tr key={c.id}>
+                {filteredCalls.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} style={{ textAlign: "center", padding: "48px 20px", color: "var(--text-secondary)" }}>
+                      <div style={{ display: "inline-flex", padding: 12, borderRadius: "50%", background: "var(--bg-soft)", marginBottom: 8 }}>
+                        <Icon name="phone" size={20} />
+                      </div>
+                      <div style={{ fontWeight: 600, color: "var(--text)" }}>No call recordings found</div>
+                      <div style={{ fontSize: "12px", color: "var(--text-tertiary)", marginTop: 4 }}>
+                        Real inbound and outbound SIM calls from connected closer devices will appear here automatically.
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredCalls.map((c) => {
+                    const isCurrentPlaying = activeAudioId === c.id && isPlaying;
+                    return (
+                      <tr key={c.id}>
                       <td>
                         <div style={{ fontWeight: 600, color: "var(--text)" }}>{c.customerName}</div>
                         <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)" }}>
@@ -428,7 +451,7 @@ export function CallsView() {
                               title={isCurrentPlaying ? "Pause recording" : "Play recording"}
                               style={{ width: "28px", height: "28px", padding: 0, borderRadius: "50%" }}
                             >
-                              <Icon name={isCurrentPlaying ? "moon" : "arrow-right"} size={11} />
+                              <Icon name={isCurrentPlaying ? "pause" : "play"} size={12} />
                             </button>
                             <div
                               style={{
@@ -485,7 +508,7 @@ export function CallsView() {
                       </td>
                     </tr>
                   );
-                })}
+                }))}
               </tbody>
             </table>
           </div>
@@ -581,41 +604,87 @@ export function CallsView() {
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "16px", padding: "18px" }}>
-            {DEFAULT_DEVICES.map((d) => (
-              <div key={d.id} className="card" style={{ padding: "14px", background: "var(--bg-soft)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: "var(--fs-meta)" }}>{d.phoneModel}</div>
-                    <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", marginTop: "2px" }}>
-                      Owner: <b style={{ color: "var(--text)" }}>{d.closer}</b>
-                    </div>
-                  </div>
-                  <span className="chip" data-tone={d.recordingService === "active" ? "success" : "warning"} style={{ fontSize: "11px" }}>
-                    <span className="dot" style={{ background: d.recordingService === "active" ? "var(--success)" : "var(--warning)" }} />
-                    {d.recordingService.toUpperCase()}
-                  </span>
-                </div>
-
-                <div style={{ borderTop: "1px solid var(--border)", margin: "10px 0", paddingTop: "8px", display: "flex", flexDirection: "column", gap: "6px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--fs-caption)" }}>
-                    <span style={{ color: "var(--text-tertiary)" }}>Carrier & SIM:</span>
-                    <span style={{ fontWeight: 550 }}>{d.simCarrier}</span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--fs-caption)" }}>
-                    <span style={{ color: "var(--text-tertiary)" }}>Phone Number:</span>
-                    <span style={{ fontFamily: "var(--mono)" }}>{d.simNumber}</span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--fs-caption)" }}>
-                    <span style={{ color: "var(--text-tertiary)" }}>Battery:</span>
-                    <span>{d.battery}%</span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--fs-caption)" }}>
-                    <span style={{ color: "var(--text-tertiary)" }}>Last Heartbeat:</span>
-                    <span style={{ color: "var(--success)" }}>{d.lastHeartbeat}</span>
-                  </div>
+            {devices.length === 0 ? (
+              <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "36px 16px", color: "var(--text-tertiary)" }}>
+                <Icon name="phone" size={28} style={{ opacity: 0.4, marginBottom: 8 }} />
+                <div style={{ fontWeight: 600, color: "var(--text)" }}>No Physical SIM Android Devices Connected</div>
+                <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: 4 }}>
+                  Connect your field closer Android handsets running the Closer Telephony Companion APK.
                 </div>
               </div>
-            ))}
+            ) : (
+              devices.map((d) => (
+                <div key={d.id} className="card" style={{ padding: "14px", background: "var(--bg-soft)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: "var(--fs-meta)" }}>{d.phoneModel}</div>
+                      <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", marginTop: "2px" }}>
+                        Owner: <b style={{ color: "var(--text)" }}>{d.closer}</b>
+                      </div>
+                    </div>
+                    <span className="chip" data-tone={d.recordingService === "active" ? "success" : "warning"} style={{ fontSize: "11px" }}>
+                      <span className="dot" style={{ background: d.recordingService === "active" ? "var(--success)" : "var(--warning)" }} />
+                      {d.recordingService.toUpperCase()}
+                    </span>
+                  </div>
+
+                  <div style={{ borderTop: "1px solid var(--border)", margin: "10px 0", paddingTop: "8px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--fs-caption)" }}>
+                      <span style={{ color: "var(--text-tertiary)" }}>Carrier & SIM:</span>
+                      <span style={{ fontWeight: 550 }}>{d.simCarrier}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--fs-caption)" }}>
+                      <span style={{ color: "var(--text-tertiary)" }}>Phone Number:</span>
+                      <span style={{ fontFamily: "var(--mono)" }}>{d.simNumber}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--fs-caption)" }}>
+                      <span style={{ color: "var(--text-tertiary)" }}>Battery:</span>
+                      <span>{d.battery}%</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--fs-caption)" }}>
+                      <span style={{ color: "var(--text-tertiary)" }}>Hardware ID:</span>
+                      <span style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--text-secondary)" }}>{d.id.slice(0, 12)}…</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--fs-caption)" }}>
+                      <span style={{ color: "var(--text-tertiary)" }}>Last Heartbeat:</span>
+                      <span style={{ color: "var(--success)" }}>{d.lastHeartbeat}</span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", gap: "6px", marginTop: "10px" }}>
+                    <button
+                      type="button"
+                      className="btn"
+                      data-variant="ghost"
+                      style={{ fontSize: "11px", padding: "4px 8px", flex: 1 }}
+                      onClick={() => {
+                        setDevices((prev) =>
+                          prev.map((dev) =>
+                            dev.id === d.id ? { ...dev, lastHeartbeat: "Just now (Verified)" } : dev
+                          )
+                        );
+                      }}
+                    >
+                      <Icon name="check" size={12} /> Ping Heartbeat
+                    </button>
+                    <button
+                      type="button"
+                      className="btn"
+                      data-variant="ghost"
+                      style={{ fontSize: "11px", padding: "4px 8px" }}
+                      title="Copy SIM Number"
+                      onClick={() => {
+                        if (navigator.clipboard) {
+                          navigator.clipboard.writeText(d.simNumber);
+                        }
+                      }}
+                    >
+                      <Icon name="copy" size={12} />
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </section>
       )}
@@ -684,6 +753,20 @@ export function CallsView() {
           </div>
         </div>
       )}
+      <audio
+        ref={audioRef}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        onEnded={() => {
+          setIsPlaying(false);
+          setActiveAudioId(null);
+        }}
+        onError={() => {
+          setIsPlaying(false);
+          setActiveAudioId(null);
+        }}
+        style={{ display: "none" }}
+      />
     </div>
   );
 }

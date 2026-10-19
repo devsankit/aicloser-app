@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { CURRENT_USER } from "@/lib/store";
+import { aicloserApi } from "@/lib/api-client";
 
 export type TeamRole = "ADMIN" | "MANAGER" | "CLOSER";
 
@@ -32,83 +33,7 @@ export interface PermissionRow {
   closer: boolean;
 }
 
-const DEFAULT_MEMBERS: TeamMember[] = [
-  {
-    id: "tm-1",
-    name: "Aarav Sharma",
-    email: "aarav@aicloser.in",
-    phone: "+91 98765 43210",
-    role: "ADMIN",
-    status: "active",
-    simConnected: true,
-    maxCapacity: 20,
-    assignedLeads: 6,
-    pipelineValue: 870000,
-    dealsWon: 4,
-    inRoundRobin: true,
-    joinedAt: "Jan 2026",
-  },
-  {
-    id: "tm-2",
-    name: "Meera Joshi",
-    email: "meera@aicloser.in",
-    phone: "+91 98450 11223",
-    role: "MANAGER",
-    status: "active",
-    simConnected: true,
-    maxCapacity: 15,
-    assignedLeads: 4,
-    pipelineValue: 560000,
-    dealsWon: 3,
-    inRoundRobin: true,
-    joinedAt: "Feb 2026",
-  },
-  {
-    id: "tm-3",
-    name: "Rohan Mehta",
-    email: "rohan@aicloser.in",
-    phone: "+91 99123 44556",
-    role: "CLOSER",
-    status: "active",
-    simConnected: true,
-    maxCapacity: 15,
-    assignedLeads: 4,
-    pipelineValue: 620000,
-    dealsWon: 3,
-    inRoundRobin: true,
-    joinedAt: "Mar 2026",
-  },
-  {
-    id: "tm-4",
-    name: "Sneha Kapoor",
-    email: "sneha@aicloser.in",
-    phone: "+91 98111 22334",
-    role: "CLOSER",
-    status: "away",
-    simConnected: false,
-    maxCapacity: 10,
-    assignedLeads: 2,
-    pipelineValue: 210000,
-    dealsWon: 1,
-    inRoundRobin: false,
-    joinedAt: "Apr 2026",
-  },
-  {
-    id: "tm-5",
-    name: "Vikram Singhania",
-    email: "vikram@aicloser.in",
-    phone: "+91 97222 33445",
-    role: "CLOSER",
-    status: "offline",
-    simConnected: false,
-    maxCapacity: 12,
-    assignedLeads: 0,
-    pipelineValue: 0,
-    dealsWon: 0,
-    inRoundRobin: false,
-    joinedAt: "May 2026",
-  },
-];
+const DEFAULT_MEMBERS: TeamMember[] = [];
 
 const DEFAULT_PERMISSIONS: PermissionRow[] = [
   {
@@ -203,13 +128,7 @@ const DEFAULT_PERMISSIONS: PermissionRow[] = [
   },
 ];
 
-const AUDIT_LOGS = [
-  { id: "a1", action: "Role update", detail: "Meera Joshi promoted to Manager", user: "Aarav Sharma", time: "2 hours ago" },
-  { id: "a2", action: "Round-Robin", detail: "Equal weight distribution enabled for 4 active closers", user: "Aarav Sharma", time: "4 hours ago" },
-  { id: "a3", action: "Capacity changed", detail: "Rohan Mehta capacity set to 15 leads", user: "Meera Joshi", time: "1 day ago" },
-  { id: "a4", action: "Member added", detail: "Vikram Singhania invited as Sales Closer", user: "Aarav Sharma", time: "3 days ago" },
-  { id: "a5", action: "SIM connected", detail: "Rohan Mehta bound physical SIM (+91 99123 44556)", user: "Rohan Mehta", time: "4 days ago" },
-];
+const AUDIT_LOGS: Array<{ id: string; action: string; detail: string; user: string; time: string }> = [];
 
 export function TeamView() {
   const [tab, setTab] = useState<"members" | "matrix" | "routing" | "audit">("members");
@@ -237,7 +156,10 @@ export function TeamView() {
       const stored = localStorage.getItem("closer.team.v1");
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed.members) setMembers(parsed.members);
+        if (parsed.members && Array.isArray(parsed.members)) {
+          const clean = parsed.members.filter((m: any) => !m.id?.startsWith("tm-"));
+          setMembers(clean);
+        }
         if (parsed.permissions) setPermissions(parsed.permissions);
         if (parsed.routingAlgorithm) setRoutingAlgorithm(parsed.routingAlgorithm);
         if (parsed.routingHoursOnly !== undefined) setRoutingHoursOnly(parsed.routingHoursOnly);
@@ -246,6 +168,65 @@ export function TeamView() {
     } catch {
       // Ignore
     }
+  }, []);
+
+  // Live API Fetch for Team Closers
+  useEffect(() => {
+    let active = true;
+    aicloserApi.team
+      .listMembers()
+      .then((res: any) => {
+        if (!active || !res?.length) return;
+        const mapped: TeamMember[] = res.map((m: any) => ({
+          id: m.id,
+          name: m.user?.displayName || m.displayName || "Closer Agent",
+          email: m.user?.email || m.email || "",
+          phone: m.user?.phone || m.phone || "",
+          role: m.role === "ADMIN" ? "ADMIN" : m.role === "MANAGER" ? "MANAGER" : "CLOSER",
+          status: m.isActive ? "active" : "offline",
+          simConnected: true,
+          maxCapacity: m.maxCapacity || 15,
+          assignedLeads: m._count?.assignedLeads || 0,
+          pipelineValue: m.pipelineValue || 0,
+          dealsWon: m.dealsWon || 0,
+          inRoundRobin: m.inRoundRobin ?? true,
+          joinedAt: m.createdAt
+            ? new Date(m.createdAt).toLocaleDateString("en-IN", { month: "short", year: "numeric" })
+            : "Jan 2026",
+        }));
+        setMembers(mapped);
+      })
+      .catch(async () => {
+        try {
+          const me: any = await aicloserApi.team.me();
+          if (active && me?.id) {
+            setMembers([
+              {
+                id: me.id,
+                name: me.displayName || "Closer Agent",
+                email: me.email || "",
+                phone: me.phone || "",
+                role: me.role === "ADMIN" ? "ADMIN" : me.role === "MANAGER" ? "MANAGER" : "CLOSER",
+                status: me.status === "ACTIVE" ? "active" : "offline",
+                simConnected: true,
+                maxCapacity: me.maxActiveLeads || 25,
+                assignedLeads: me.assignedLeadsCount || 0,
+                pipelineValue: 0,
+                dealsWon: 0,
+                inRoundRobin: true,
+                joinedAt: me.createdAt
+                  ? new Date(me.createdAt).toLocaleDateString("en-IN", { month: "short", year: "numeric" })
+                  : "Jan 2026",
+              },
+            ]);
+          }
+        } catch {
+          // Ignore
+        }
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   const saveToStorage = (updatedMembers = members, updatedPerms = permissions) => {
@@ -335,6 +316,12 @@ export function TeamView() {
     const updated = [...members, newMember];
     setMembers(updated);
     saveToStorage(updated, permissions);
+
+    // Live API invite dispatch
+    aicloserApi.team
+      .invite({ email: newMember.email, role: newMember.role })
+      .catch(() => {});
+
     setIsInviteOpen(false);
     setInviteName("");
     setInviteEmail("");
@@ -519,7 +506,23 @@ export function TeamView() {
                 </tr>
               </thead>
               <tbody>
-                {filteredMembers.map((member) => (
+                {filteredMembers.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} style={{ textAlign: "center", padding: "48px 16px", color: "var(--text-tertiary)" }}>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
+                        <Icon name="users" size={28} style={{ opacity: 0.4 }} />
+                        <div style={{ fontWeight: 600, color: "var(--text)" }}>No Team Members Found</div>
+                        <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", maxWidth: "340px" }}>
+                          Invite closers, managers, and admins to collaborate in your sales workspace.
+                        </div>
+                        <button className="btn" data-variant="primary" data-size="sm" style={{ marginTop: "8px" }} onClick={() => setIsInviteOpen(true)}>
+                          <Icon name="plus" size={13} /> Invite Member
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredMembers.map((member) => (
                   <tr key={member.id}>
                     <td>
                       <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
@@ -646,7 +649,8 @@ export function TeamView() {
                       )}
                     </td>
                   </tr>
-                ))}
+                ))
+              )}
               </tbody>
             </table>
           </div>
@@ -852,20 +856,34 @@ export function TeamView() {
                 </tr>
               </thead>
               <tbody>
-                {AUDIT_LOGS.map((log) => (
-                  <tr key={log.id}>
-                    <td>
-                      <span className="chip" data-tone="accent" style={{ fontSize: "11px" }}>
-                        {log.action}
-                      </span>
-                    </td>
-                    <td style={{ color: "var(--text)", fontWeight: 500 }}>{log.detail}</td>
-                    <td style={{ color: "var(--text-secondary)", fontSize: "var(--fs-caption)" }}>{log.user}</td>
-                    <td style={{ textAlign: "right", color: "var(--text-tertiary)", fontSize: "var(--fs-caption)" }}>
-                      {log.time}
+                {AUDIT_LOGS.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} style={{ textAlign: "center", padding: "48px 16px", color: "var(--text-tertiary)" }}>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
+                        <Icon name="history" size={28} style={{ opacity: 0.4 }} />
+                        <div style={{ fontWeight: 600, color: "var(--text)" }}>No Security Audit Events Yet</div>
+                        <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", maxWidth: "340px" }}>
+                          Role changes, permissions adjustments, and user invitations will be logged here.
+                        </div>
+                      </div>
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  AUDIT_LOGS.map((log) => (
+                    <tr key={log.id}>
+                      <td>
+                        <span className="chip" data-tone="accent" style={{ fontSize: "11px" }}>
+                          {log.action}
+                        </span>
+                      </td>
+                      <td style={{ color: "var(--text)", fontWeight: 500 }}>{log.detail}</td>
+                      <td style={{ color: "var(--text-secondary)", fontSize: "var(--fs-caption)" }}>{log.user}</td>
+                      <td style={{ textAlign: "right", color: "var(--text-tertiary)", fontSize: "var(--fs-caption)" }}>
+                        {log.time}
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>

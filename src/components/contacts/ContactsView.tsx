@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { LeadDrawer } from "@/components/pipeline/LeadDrawer";
 import { compactMoney, relativeTime, useApp, useScopedLeads } from "@/lib/store";
-import { PRIORITY_ICON, PRIORITY_LABEL, STAGES, stageMeta, type StageId } from "@/lib/types";
+import { PRIORITY_ICON, PRIORITY_LABEL, STAGES, stageMeta, sourceMeta, type StageId } from "@/lib/types";
 
 type SortKey = "name" | "value" | "updated";
 
@@ -116,6 +116,34 @@ export function ContactsView() {
     setSelection(new Set());
   };
 
+  const handleExportCsv = () => {
+    if (!rows.length) return;
+    const headers = ["Code", "Name", "Company", "Phone", "Email", "Stage", "Value", "Owner", "Tags", "UpdatedAt"];
+    const csvRows = [headers.join(",")];
+    for (const r of rows) {
+      csvRows.push([
+        `"${r.code || ""}"`,
+        `"${(r.name || "").replace(/"/g, '""')}"`,
+        `"${(r.company || "").replace(/"/g, '""')}"`,
+        `"${r.phone || ""}"`,
+        `"${r.email || ""}"`,
+        `"${r.stage || ""}"`,
+        r.value || 0,
+        `"${(r.owner || "").replace(/"/g, '""')}"`,
+        `"${(r.tags || []).join("; ")}"`,
+        `"${r.updatedAt || ""}"`,
+      ].join(","));
+    }
+    const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `closer-contacts-${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   let index = -1;
 
   return (
@@ -139,7 +167,7 @@ export function ContactsView() {
             <option value="name">Sort: name</option>
             <option value="value">Sort: deal value</option>
           </select>
-          <button className="btn">
+          <button className="btn" onClick={handleExportCsv}>
             <Icon name="download" size={14} /> Export
           </button>
         </div>
@@ -240,10 +268,8 @@ export function ContactsView() {
                 aria-expanded={!isCollapsed}
                 onClick={() => toggleGroup(group.meta.id)}
               >
-                <span className="sg" data-status={group.meta.status}>
-                  <Icon name={`status-${group.meta.status}`} size={14} />
-                </span>
-                {group.meta.label}
+                <span className="list-group-icon" data-tone={group.meta.tone}><Icon name={group.meta.icon} size={14} /></span>
+                <span className="list-group-title">{group.meta.label}</span>
                 <span className="list-group-count">{group.items.length}</span>
                 <Icon
                   name={isCollapsed ? "chevron-right" : "chevron-down"}
@@ -257,6 +283,7 @@ export function ContactsView() {
                     index += 1;
                     const idx = index;
                     const isSelected = selection.has(lead.id);
+                    const src = sourceMeta(lead.source);
                     return (
                       <div
                         key={lead.id}
@@ -271,15 +298,25 @@ export function ContactsView() {
                           if (e.key === "Enter") setSelected(lead.id);
                         }}
                       >
-                        <span className="list-id">{lead.code}</span>
-                        <span className="sg" data-status={group.meta.status}>
-                          <Icon name={`status-${group.meta.status}`} size={14} />
+                        <span className="list-prio" title={`Priority: ${PRIORITY_LABEL[lead.priority]}`}>
+                          <Icon
+                            name={PRIORITY_ICON[lead.priority] as never}
+                            size={14}
+                            className="prio"
+                            data-priority={lead.priority}
+                            aria-label={PRIORITY_LABEL[lead.priority]}
+                          />
                         </span>
+                        <span className="list-id">{lead.code}</span>
                         <span className="list-title">
                           <strong>{lead.name}</strong>
                           <span>{lead.company}</span>
                         </span>
-                        <span className="list-cell">{lead.source}</span>
+                        <span className="list-cell">
+                          <span className="linear-tag" data-tone={src.tone}>
+                            <Icon name={src.icon} size={11} /> {src.label}
+                          </span>
+                        </span>
                         <span className="list-cell th-num">{compactMoney(lead.value)}</span>
                         <span className="list-avatar">
                           <span
@@ -289,16 +326,7 @@ export function ContactsView() {
                           </span>
                           <span className="list-cell">{lead.owner}</span>
                         </span>
-                        <span className="list-cell hide-sm">{relativeTime(lead.updatedAt)}</span>
-                        <span className="list-avatar hide-sm" style={{ marginLeft: "auto" }}>
-                          <Icon
-                            name={PRIORITY_ICON[lead.priority] as never}
-                            size={13}
-                            className="prio"
-                            data-priority={lead.priority}
-                            aria-label={PRIORITY_LABEL[lead.priority]}
-                          />
-                        </span>
+                        <span className="list-cell hide-sm" style={{ textAlign: "right" }}>{relativeTime(lead.updatedAt)}</span>
                       </div>
                     );
                   })

@@ -1,32 +1,32 @@
 import type { IconName } from "@/components/ui/Icon";
 import type { Lead, Priority } from "./types";
 
-const daysAgo = (n: number) => {
+const daysAgo = (days: number) => {
   const d = new Date();
-  d.setDate(d.getDate() - n);
-  d.setHours(9 + (n % 8), (n * 13) % 60, 0, 0);
+  d.setDate(d.getDate() - days);
+  d.setHours(11, 0, 0, 0);
   return d.toISOString();
 };
 
 const BASE: Omit<Lead, "code" | "priority" | "followUp">[] = [
   {
     id: "ld-01",
-    name: "Anshita Rao",
-    company: "Nimbus Interiors",
-    phone: "9839047231",
-    email: "anshita@nimbusinteriors.in",
+    name: "Aakash Mehta",
+    company: "Apex Logistics",
+    phone: "9820012345",
+    email: "aakash@apexlogistics.in",
     value: 96000,
     source: "Website",
-    segment: "SMB",
+    segment: "Enterprise",
     stage: "new",
-    owner: "Unassigned",
-    tags: ["inbound", "hot"],
-    notes: "Filled the demo form on the pricing page. Wants a callback after 6pm.",
+    owner: "Admin",
+    tags: ["high-intent", "inbound"],
+    notes: "Requested a quote for 4 telecaller seats. Needs call recording.",
     updatedAt: daysAgo(0),
   },
   {
     id: "ld-02",
-    name: "Karan Mehta",
+    name: "Karan Shah",
     company: "Ambition Realty",
     phone: "9987021145",
     email: "karan@ambitionrealty.com",
@@ -34,7 +34,7 @@ const BASE: Omit<Lead, "code" | "priority" | "followUp">[] = [
     source: "Ads",
     segment: "Agency",
     stage: "new",
-    owner: "Aarav",
+    owner: "Admin",
     tags: ["meta-ads"],
     notes: "Downloaded the broker playbook, no reply yet.",
     updatedAt: daysAgo(1),
@@ -49,7 +49,7 @@ const BASE: Omit<Lead, "code" | "priority" | "followUp">[] = [
     source: "WhatsApp",
     segment: "SMB",
     stage: "contacted",
-    owner: "Meera",
+    owner: "Admin",
     tags: ["whatsapp"],
     notes: "Asked about SIM-based calling and call recording limits.",
     updatedAt: daysAgo(1),
@@ -64,7 +64,7 @@ const BASE: Omit<Lead, "code" | "priority" | "followUp">[] = [
     source: "Referral",
     segment: "Enterprise",
     stage: "contacted",
-    owner: "Rohan",
+    owner: "Admin",
     tags: ["referral", "enterprise"],
     notes: "Referred by Ambition Realty. Needs 12 seats and CRM sync.",
     updatedAt: daysAgo(2),
@@ -79,7 +79,7 @@ const BASE: Omit<Lead, "code" | "priority" | "followUp">[] = [
     source: "Lead form",
     segment: "SMB",
     stage: "in_progress",
-    owner: "Aarav",
+    owner: "Admin",
     tags: ["healthcare"],
     notes: "Comparing us with two other tools. Wants the WhatsApp demo.",
     updatedAt: daysAgo(2),
@@ -94,7 +94,7 @@ const BASE: Omit<Lead, "code" | "priority" | "followUp">[] = [
     source: "Cold call",
     segment: "SMB",
     stage: "in_progress",
-    owner: "Meera",
+    owner: "Admin",
     tags: ["automotive"],
     notes: "Two showrooms, wants per-location call routing.",
     updatedAt: daysAgo(3),
@@ -109,7 +109,7 @@ const BASE: Omit<Lead, "code" | "priority" | "followUp">[] = [
     source: "Website",
     segment: "Agency",
     stage: "demo",
-    owner: "Rohan",
+    owner: "Admin",
     tags: ["demo-booked"],
     notes: "Demo booked for Friday 11:30am. Wants the agency plan walkthrough.",
     updatedAt: daysAgo(3),
@@ -124,7 +124,7 @@ const BASE: Omit<Lead, "code" | "priority" | "followUp">[] = [
     source: "Referral",
     segment: "Enterprise",
     stage: "demo",
-    owner: "Aarav",
+    owner: "Admin",
     tags: ["education", "demo-booked"],
     notes: "Demo done. Asked for a security questionnaire and DPDP note.",
     updatedAt: daysAgo(4),
@@ -139,7 +139,7 @@ const BASE: Omit<Lead, "code" | "priority" | "followUp">[] = [
     source: "WhatsApp",
     segment: "SMB",
     stage: "follow_up",
-    owner: "Meera",
+    owner: "Admin",
     tags: ["renewal-risk"],
     notes: "Went quiet after pricing. Follow up with the starter plan.",
     updatedAt: daysAgo(4),
@@ -154,7 +154,7 @@ const BASE: Omit<Lead, "code" | "priority" | "followUp">[] = [
     source: "Cold call",
     segment: "Enterprise",
     stage: "follow_up",
-    owner: "Rohan",
+    owner: "Admin",
     tags: ["logistics"],
     notes: "Legal review in progress. Needs the DPA signed by their counsel.",
     updatedAt: daysAgo(5),
@@ -169,7 +169,7 @@ const BASE: Omit<Lead, "code" | "priority" | "followUp">[] = [
     source: "Ads",
     segment: "SMB",
     stage: "negotiation",
-    owner: "Aarav",
+    owner: "Admin",
     tags: ["discount-asked"],
     notes: "Asked for 15% off on annual. Approved 10% + onboarding.",
     updatedAt: daysAgo(5),
@@ -184,7 +184,7 @@ const BASE: Omit<Lead, "code" | "priority" | "followUp">[] = [
     source: "Referral",
     segment: "Enterprise",
     stage: "negotiation",
-    owner: "Meera",
+    owner: "Admin",
     tags: ["enterprise", "legal"],
     notes: "Procurement wants quarterly billing instead of annual.",
     updatedAt: daysAgo(6),
@@ -199,7 +199,7 @@ const BASE: Omit<Lead, "code" | "priority" | "followUp">[] = [
     source: "Website",
     segment: "Agency",
     stage: "won",
-    owner: "Rohan",
+    owner: "Admin",
     tags: ["closed-won"],
     notes: "Signed the agency plan. Kickoff call scheduled for Monday.",
     updatedAt: daysAgo(6),
@@ -214,7 +214,7 @@ const BASE: Omit<Lead, "code" | "priority" | "followUp">[] = [
     source: "Lead form",
     segment: "SMB",
     stage: "won",
-    owner: "Aarav",
+    owner: "Admin",
     tags: ["closed-won"],
     notes: "Paid in full. Wants onboarding for 6 telecallers.",
     updatedAt: daysAgo(7),
@@ -229,7 +229,7 @@ const BASE: Omit<Lead, "code" | "priority" | "followUp">[] = [
     source: "WhatsApp",
     segment: "SMB",
     stage: "lost",
-    owner: "Meera",
+    owner: "Admin",
     tags: ["budget"],
     notes: "Chose a cheaper dialer. Revisit in 6 months.",
     updatedAt: daysAgo(8),
@@ -244,7 +244,7 @@ const BASE: Omit<Lead, "code" | "priority" | "followUp">[] = [
     source: "Cold call",
     segment: "Agency",
     stage: "lost",
-    owner: "Rohan",
+    owner: "Admin",
     tags: ["no-response"],
     notes: "No response after five attempts. Marked lost.",
     updatedAt: daysAgo(9),
@@ -259,7 +259,7 @@ const BASE: Omit<Lead, "code" | "priority" | "followUp">[] = [
     source: "Ads",
     segment: "Enterprise",
     stage: "in_progress",
-    owner: "Aarav",
+    owner: "Admin",
     tags: ["hospitality"],
     notes: "Property-level routing across 4 hotels. Sent the pricing sheet.",
     updatedAt: daysAgo(1),
@@ -300,12 +300,7 @@ const followUpFor = (index: number) => {
   return day.toISOString();
 };
 
-export const SEED_LEADS: Lead[] = BASE.map((lead, index) => ({
-  ...lead,
-  code: `CLO-${101 + index}`,
-  priority: PRIORITY_CYCLE[index % PRIORITY_CYCLE.length],
-  followUp: followUpFor(index),
-}));
+export const SEED_LEADS: Lead[] = [];
 
 export interface NavItem {
   href: string;

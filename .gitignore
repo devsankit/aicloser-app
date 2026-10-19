@@ -42,3 +42,11 @@ next-env.d.ts
 
 # isolated production build
 .next-build
+
+# test & dev artifacts
+dev.log*
+test-chrome-profile/
+public/__axe.js
+*.png
+evidence/
+suite-results.json

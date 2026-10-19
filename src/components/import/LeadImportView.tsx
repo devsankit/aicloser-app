@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { useApp } from "@/lib/store";
+import { aicloserApi } from "@/lib/api-client";
 import { OWNERS, STAGES, type Priority, type Segment, type Source, type StageId } from "@/lib/types";
 
 interface ImportBatch {
@@ -17,47 +18,7 @@ interface ImportBatch {
   status: "completed" | "rolled_back";
 }
 
-const DEFAULT_BATCHES: ImportBatch[] = [
-  {
-    id: "BAT-882",
-    filename: "meta_ads_interiors_leads_oct.csv",
-    totalRows: 120,
-    importedCount: 112,
-    duplicateCount: 8,
-    assignedOwner: "Round-Robin",
-    stage: "new",
-    timestamp: "Today, 10:15 AM",
-    status: "completed",
-  },
-  {
-    id: "BAT-881",
-    filename: "broker_playbook_downloads.xlsx",
-    totalRows: 65,
-    importedCount: 62,
-    duplicateCount: 3,
-    assignedOwner: "Aarav Sharma",
-    stage: "new",
-    timestamp: "Yesterday, 3:45 PM",
-    status: "completed",
-  },
-  {
-    id: "BAT-879",
-    filename: "webinar_registrations_sep.csv",
-    totalRows: 240,
-    importedCount: 218,
-    duplicateCount: 22,
-    assignedOwner: "Meera Joshi",
-    stage: "contacted",
-    timestamp: "12 Oct 2026",
-    status: "completed",
-  },
-];
-
-const SAMPLE_CSV_PREVIEW = [
-  { name: "Vikrant Malhotra", company: "Skyline Real Estate", phone: "9819923412", email: "vikrant@skylinerealty.in", value: "125000", source: "Ads", segment: "SMB" },
-  { name: "Kavita Sen", company: "Elysian Design Studio", phone: "9820034567", email: "kavita@elysiandesign.com", value: "88000", source: "Website", segment: "Agency" },
-  { name: "Sameer Joshi", company: "Optima Logistics", phone: "9988776655", email: "sameer@optimalogistics.in", value: "195000", source: "Cold call", segment: "Enterprise" },
-];
+const DEFAULT_BATCHES: ImportBatch[] = [];
 
 export function LeadImportView() {
   const { addLead } = useApp();
@@ -67,8 +28,10 @@ export function LeadImportView() {
   // Wizard state
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [uploadedFile, setUploadedFile] = useState<{ name: string; size: string; rows: number } | null>(null);
+  const [parsedRows, setParsedRows] = useState<Record<string, string>[]>([]);
+  const [detectedHeaders, setDetectedHeaders] = useState<string[]>([]);
   const [targetStage, setTargetStage] = useState<StageId>("new");
-  const [targetOwner, setTargetOwner] = useState<string>("Aarav");
+  const [targetOwner, setTargetOwner] = useState<string>("Unassigned");
   const [targetSource] = useState<Source>("Ads");
   const [dedupMode, setDedupMode] = useState<"skip" | "overwrite">("skip");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -85,54 +48,101 @@ export function LeadImportView() {
     segment: "segment",
   });
 
-  const handleLoadSample = () => {
-    setUploadedFile({
-      name: "sample_inbound_leads.csv",
-      size: "24.6 KB",
-      rows: SAMPLE_CSV_PREVIEW.length,
-    });
-    setStep(2);
-  };
-
-  const handleSimulateFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setUploadedFile({
-        name: file.name,
-        size: `${(file.size / 1024).toFixed(1)} KB`,
-        rows: 42,
-      });
-      setStep(2);
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+      if (lines.length > 1) {
+        const headers = lines[0].split(",").map((h) => h.trim().replace(/^["']|["']$/g, ""));
+        const rows = lines.slice(1).map((line) => {
+          const vals = line.split(",").map((v) => v.trim().replace(/^["']|["']$/g, ""));
+          const obj: Record<string, string> = {};
+          headers.forEach((h, idx) => {
+            obj[h] = vals[idx] || "";
+          });
+          return obj;
+        });
+
+        setDetectedHeaders(headers);
+        setParsedRows(rows);
+        setUploadedFile({
+          name: file.name,
+          size: `${(file.size / 1024).toFixed(1)} KB`,
+          rows: rows.length,
+        });
+
+        // Auto match mappings
+        const findHeader = (candidates: string[]) =>
+          headers.find((h) => candidates.some((c) => h.toLowerCase().includes(c.toLowerCase()))) || headers[0] || "";
+
+        setMappings({
+          name: findHeader(["name", "full_name", "client", "contact"]),
+          company: findHeader(["company", "business", "organization", "firm"]),
+          phone: findHeader(["phone", "mobile", "sim", "tel"]),
+          email: findHeader(["email", "mail"]),
+          value: findHeader(["value", "budget", "amount", "deal"]),
+          source: findHeader(["source", "channel"]),
+          segment: findHeader(["segment", "type"]),
+        });
+
+        setStep(2);
+      }
+    } catch (err) {
+      console.error("Failed to parse CSV file", err);
     }
   };
 
   const handleExecuteImport = () => {
     setIsProcessing(true);
     setTimeout(() => {
-      // Add preview leads to store
-      SAMPLE_CSV_PREVIEW.forEach((item) => {
+      // Add real parsed leads to store
+      parsedRows.forEach((item) => {
+        const name = item[mappings.name] || item["name"] || item["Name"] || "Imported Lead";
+        const company = item[mappings.company] || item["company"] || item["Company"] || "Independent Firm";
+        const phone = item[mappings.phone] || item["phone"] || item["Phone"] || "";
+        const email = item[mappings.email] || item["email"] || item["Email"] || "";
+        const val = Number(item[mappings.value] || item["value"] || item["budget"]) || 0;
+
         addLead({
-          name: item.name,
-          company: item.company,
-          phone: item.phone,
-          email: item.email,
-          value: Number(item.value) || 75000,
-          source: (item.source as Source) || targetSource,
-          segment: (item.segment as Segment) || "SMB",
+          name,
+          company,
+          phone,
+          email,
+          value: val,
+          source: (item[mappings.source] as Source) || targetSource,
+          segment: (item[mappings.segment] as Segment) || "SMB",
           stage: targetStage,
           owner: targetOwner,
-          priority: "high" as Priority,
+          priority: "medium" as Priority,
           followUp: new Date(Date.now() + 2 * 86400000).toISOString(),
           tags: ["imported-batch"],
           notes: "Imported via CSV batch processor.",
         });
       });
 
+      // Dispatch to Live API
+      aicloserApi.leads
+        .import({
+          source: targetSource,
+          rows: parsedRows.map((item) => ({
+            customerName: item[mappings.name] || item["name"] || "Imported Lead",
+            customerPhone: item[mappings.phone] || item["phone"] || "",
+            customerEmail: item[mappings.email] || item["email"] || "",
+            serviceInterest: item[mappings.company] || item["company"] || "",
+            notes: "Imported via CSV batch processor.",
+          })),
+          duplicateAction: dedupMode === "overwrite" ? "OVERWRITE" : "SKIP",
+          distributionMode: targetOwner === "Round-Robin" ? "ROUND_ROBIN" : "MANUAL",
+        })
+        .catch(() => {});
+
       const newBatch: ImportBatch = {
         id: `BAT-${Math.floor(100 + Math.random() * 900)}`,
         filename: uploadedFile?.name || "import_leads.csv",
-        totalRows: uploadedFile?.rows || 3,
-        importedCount: uploadedFile?.rows || 3,
+        totalRows: parsedRows.length,
+        importedCount: parsedRows.length,
         duplicateCount: 0,
         assignedOwner: targetOwner,
         stage: targetStage,
@@ -144,9 +154,10 @@ export function LeadImportView() {
       setIsProcessing(false);
       setStep(1);
       setUploadedFile(null);
+      setParsedRows([]);
       setImportSuccessBanner(`Successfully imported ${newBatch.importedCount} leads into the pipeline!`);
       setTimeout(() => setImportSuccessBanner(null), 4000);
-    }, 1200);
+    }, 800);
   };
 
   const handleRollback = (batchId: string) => {
@@ -175,7 +186,7 @@ export function LeadImportView() {
             </span>
           )}
           <a
-            href="data:text/csv;charset=utf-8,name,company,phone,email,value,source,segment%0AVikrant%20Malhotra,Skyline%20Real%20Estate,9819923412,vikrant@skyline.in,125000,Ads,SMB"
+            href="data:text/csv;charset=utf-8,name,company,phone,email,value,source,segment%0ASunil%20Verma,Verma%20Industries,9823456789,sunil@verma.in,50000,Website,SMB"
             download="closer_sample_leads.csv"
             className="btn"
             data-variant="ghost"
@@ -199,7 +210,7 @@ export function LeadImportView() {
             Total Leads Imported
           </div>
           <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px" }}>
-            425 <span style={{ fontSize: "var(--fs-body)", fontWeight: 400, color: "var(--text-tertiary)" }}>leads</span>
+            {batches.reduce((sum, b) => sum + b.importedCount, 0)} <span style={{ fontSize: "var(--fs-body)", fontWeight: 400, color: "var(--text-tertiary)" }}>leads</span>
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
             Across {batches.length} completed batches
@@ -211,7 +222,7 @@ export function LeadImportView() {
             Duplicate Filter
           </div>
           <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px", color: "var(--success)" }}>
-            33 blocked
+            {batches.reduce((sum, b) => sum + b.duplicateCount, 0)} blocked
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
             Prevented double-calling same client
@@ -290,12 +301,9 @@ export function LeadImportView() {
 
               <div style={{ display: "flex", justifyContent: "center", gap: "12px", alignItems: "center" }}>
                 <label className="btn" data-variant="primary" style={{ cursor: "pointer" }}>
-                  <Icon name="plus" size={13} /> Browse Files
-                  <input type="file" accept=".csv,.xlsx,.xls" onChange={handleSimulateFileUpload} style={{ display: "none" }} />
+                  <Icon name="plus" size={13} /> Select CSV Spreadsheet
+                  <input type="file" accept=".csv" onChange={handleFileUpload} style={{ display: "none" }} />
                 </label>
-                <button className="btn" data-variant="ghost" onClick={handleLoadSample}>
-                  <Icon name="sparkle" size={13} /> Load Sample 3 Leads (Instant Test)
-                </button>
               </div>
             </section>
           )}
@@ -348,14 +356,21 @@ export function LeadImportView() {
                           onChange={(e) => setMappings({ ...mappings, name: e.target.value })}
                           style={{ width: "100%" }}
                         >
-                          <option value="name">name (Matched)</option>
-                          <option value="full_name">full_name</option>
-                          <option value="client">client</option>
+                          <option value="">Select column</option>
+                          {detectedHeaders.map((h) => (
+                            <option key={h} value={h}>
+                              {h}
+                            </option>
+                          ))}
                         </select>
                       </td>
-                      <td style={{ color: "var(--text)", fontWeight: 500 }}>Vikrant Malhotra</td>
+                      <td style={{ color: "var(--text)", fontWeight: 500 }}>
+                        {parsedRows[0]?.[mappings.name] || "—"}
+                      </td>
                       <td style={{ textAlign: "right" }}>
-                        <span className="chip" data-tone="success" style={{ fontSize: "11px" }}>Mapped</span>
+                        <span className="chip" data-tone={mappings.name ? "success" : "neutral"} style={{ fontSize: "11px" }}>
+                          {mappings.name ? "Mapped" : "Unmapped"}
+                        </span>
                       </td>
                     </tr>
 
@@ -371,13 +386,21 @@ export function LeadImportView() {
                           onChange={(e) => setMappings({ ...mappings, company: e.target.value })}
                           style={{ width: "100%" }}
                         >
-                          <option value="company">company (Matched)</option>
-                          <option value="business">business</option>
+                          <option value="">Select column</option>
+                          {detectedHeaders.map((h) => (
+                            <option key={h} value={h}>
+                              {h}
+                            </option>
+                          ))}
                         </select>
                       </td>
-                      <td style={{ color: "var(--text)", fontWeight: 500 }}>Skyline Real Estate</td>
+                      <td style={{ color: "var(--text)", fontWeight: 500 }}>
+                        {parsedRows[0]?.[mappings.company] || "—"}
+                      </td>
                       <td style={{ textAlign: "right" }}>
-                        <span className="chip" data-tone="success" style={{ fontSize: "11px" }}>Mapped</span>
+                        <span className="chip" data-tone={mappings.company ? "success" : "neutral"} style={{ fontSize: "11px" }}>
+                          {mappings.company ? "Mapped" : "Unmapped"}
+                        </span>
                       </td>
                     </tr>
 
@@ -393,14 +416,21 @@ export function LeadImportView() {
                           onChange={(e) => setMappings({ ...mappings, phone: e.target.value })}
                           style={{ width: "100%" }}
                         >
-                          <option value="phone">phone (Matched)</option>
-                          <option value="mobile">mobile</option>
-                          <option value="contact">contact</option>
+                          <option value="">Select column</option>
+                          {detectedHeaders.map((h) => (
+                            <option key={h} value={h}>
+                              {h}
+                            </option>
+                          ))}
                         </select>
                       </td>
-                      <td style={{ color: "var(--text)", fontFamily: "var(--mono)" }}>9819923412</td>
+                      <td style={{ color: "var(--text)", fontFamily: "var(--mono)" }}>
+                        {parsedRows[0]?.[mappings.phone] || "—"}
+                      </td>
                       <td style={{ textAlign: "right" }}>
-                        <span className="chip" data-tone="success" style={{ fontSize: "11px" }}>Mapped</span>
+                        <span className="chip" data-tone={mappings.phone ? "success" : "neutral"} style={{ fontSize: "11px" }}>
+                          {mappings.phone ? "Mapped" : "Unmapped"}
+                        </span>
                       </td>
                     </tr>
 
@@ -416,12 +446,21 @@ export function LeadImportView() {
                           onChange={(e) => setMappings({ ...mappings, email: e.target.value })}
                           style={{ width: "100%" }}
                         >
-                          <option value="email">email (Matched)</option>
+                          <option value="">Select column</option>
+                          {detectedHeaders.map((h) => (
+                            <option key={h} value={h}>
+                              {h}
+                            </option>
+                          ))}
                         </select>
                       </td>
-                      <td style={{ color: "var(--text-secondary)" }}>vikrant@skylinerealty.in</td>
+                      <td style={{ color: "var(--text-secondary)" }}>
+                        {parsedRows[0]?.[mappings.email] || "—"}
+                      </td>
                       <td style={{ textAlign: "right" }}>
-                        <span className="chip" data-tone="success" style={{ fontSize: "11px" }}>Mapped</span>
+                        <span className="chip" data-tone={mappings.email ? "success" : "neutral"} style={{ fontSize: "11px" }}>
+                          {mappings.email ? "Mapped" : "Unmapped"}
+                        </span>
                       </td>
                     </tr>
 
@@ -437,13 +476,21 @@ export function LeadImportView() {
                           onChange={(e) => setMappings({ ...mappings, value: e.target.value })}
                           style={{ width: "100%" }}
                         >
-                          <option value="value">value (Matched)</option>
-                          <option value="budget">budget</option>
+                          <option value="">Select column</option>
+                          {detectedHeaders.map((h) => (
+                            <option key={h} value={h}>
+                              {h}
+                            </option>
+                          ))}
                         </select>
                       </td>
-                      <td style={{ color: "var(--text)", fontWeight: 600 }}>₹1,25,000</td>
+                      <td style={{ color: "var(--text)", fontWeight: 600 }}>
+                        {parsedRows[0]?.[mappings.value] ? `₹${Number(parsedRows[0][mappings.value]).toLocaleString()}` : "—"}
+                      </td>
                       <td style={{ textAlign: "right" }}>
-                        <span className="chip" data-tone="success" style={{ fontSize: "11px" }}>Mapped</span>
+                        <span className="chip" data-tone={mappings.value ? "success" : "neutral"} style={{ fontSize: "11px" }}>
+                          {mappings.value ? "Mapped" : "Unmapped"}
+                        </span>
                       </td>
                     </tr>
                   </tbody>
@@ -590,49 +637,66 @@ export function LeadImportView() {
                 </tr>
               </thead>
               <tbody>
-                {batches.map((b) => (
-                  <tr key={b.id}>
-                    <td>
-                      <span className="chip" data-tone="accent" style={{ fontSize: "11px", fontFamily: "var(--mono)" }}>
-                        {b.id}
-                      </span>
-                    </td>
-                    <td style={{ fontWeight: 600, color: "var(--text)" }}>{b.filename}</td>
-                    <td>{b.totalRows}</td>
-                    <td>
-                      <span style={{ fontWeight: 600, color: "var(--success)" }}>{b.importedCount}</span>
-                      {b.duplicateCount > 0 && (
-                        <span style={{ color: "var(--text-tertiary)", fontSize: "11px", marginLeft: "4px" }}>
-                          ({b.duplicateCount} dupes skipped)
-                        </span>
-                      )}
-                    </td>
-                    <td>{b.assignedOwner}</td>
-                    <td style={{ color: "var(--text-tertiary)", fontSize: "var(--fs-caption)" }}>{b.timestamp}</td>
-                    <td>
-                      <span
-                        className="chip"
-                        data-tone={b.status === "completed" ? "success" : "danger"}
-                        style={{ fontSize: "11px" }}
-                      >
-                        {b.status === "completed" ? "Completed" : "Rolled Back"}
-                      </span>
-                    </td>
-                    <td style={{ textAlign: "right" }}>
-                      {b.status === "completed" && (
-                        <button
-                          className="btn"
-                          data-size="sm"
-                          data-variant="danger"
-                          onClick={() => handleRollback(b.id)}
-                          style={{ height: "24px", fontSize: "11px" }}
-                        >
-                          Undo Batch
+                {batches.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} style={{ textAlign: "center", padding: "48px 16px", color: "var(--text-tertiary)" }}>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
+                        <Icon name="upload" size={28} style={{ opacity: 0.4 }} />
+                        <div style={{ fontWeight: 600, color: "var(--text)" }}>No Import Batches Yet</div>
+                        <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", maxWidth: "340px" }}>
+                          Spreadsheets and CSV files imported into your CRM will appear here with 1-click rollback support.
+                        </div>
+                        <button className="btn" data-variant="primary" data-size="sm" style={{ marginTop: "8px" }} onClick={() => setTab("wizard")}>
+                          <Icon name="plus" size={13} /> Import Spreadsheet
                         </button>
-                      )}
+                      </div>
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  batches.map((b) => (
+                    <tr key={b.id}>
+                      <td>
+                        <span className="chip" data-tone="accent" style={{ fontSize: "11px", fontFamily: "var(--mono)" }}>
+                          {b.id}
+                        </span>
+                      </td>
+                      <td style={{ fontWeight: 600, color: "var(--text)" }}>{b.filename}</td>
+                      <td>{b.totalRows}</td>
+                      <td>
+                        <span style={{ fontWeight: 600, color: "var(--success)" }}>{b.importedCount}</span>
+                        {b.duplicateCount > 0 && (
+                          <span style={{ color: "var(--text-tertiary)", fontSize: "11px", marginLeft: "4px" }}>
+                            ({b.duplicateCount} dupes skipped)
+                          </span>
+                        )}
+                      </td>
+                      <td>{b.assignedOwner}</td>
+                      <td style={{ color: "var(--text-tertiary)", fontSize: "var(--fs-caption)" }}>{b.timestamp}</td>
+                      <td>
+                        <span
+                          className="chip"
+                          data-tone={b.status === "completed" ? "success" : "danger"}
+                          style={{ fontSize: "11px" }}
+                        >
+                          {b.status === "completed" ? "Completed" : "Rolled Back"}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        {b.status === "completed" && (
+                          <button
+                            className="btn"
+                            data-size="sm"
+                            data-variant="danger"
+                            onClick={() => handleRollback(b.id)}
+                            style={{ height: "24px", fontSize: "11px" }}
+                          >
+                            Undo Batch
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
