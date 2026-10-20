@@ -623,13 +623,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setState((prev) => ({ ...prev, leads: prev.leads.filter((l) => l.id !== id) }));
   }, []);
 
-  const claimLead = useCallback((id: string, closerName: string = "Anshita") => {
+  const claimLead = useCallback((id: string, closerName?: string) => {
+    const finalCloser = closerName || state.user?.displayName || "Admin";
     updateLead(id, {
-      owner: closerName,
+      owner: finalCloser,
       tags: ["claimed-lead"],
-      notes: `Claimed from open lead grab pool by ${closerName}.`,
+      notes: `Claimed from open lead grab pool by ${finalCloser}.`,
     });
-  }, [updateLead]);
+  }, [updateLead, state.user?.displayName]);
 
   const fetchPoolLeads = useCallback(async (): Promise<LeadPoolItem[]> => {
     setState((prev) => ({ ...prev, isPoolLoading: true }));
@@ -652,8 +653,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const claimFromPool = useCallback(
     async (
       poolItemId: string,
-      closerName: string = "Anshita"
+      closerName?: string
     ): Promise<{ success: boolean; message?: string; lead?: Lead }> => {
+      const finalCloser = closerName || state.user?.displayName || "Admin";
       const currentItem = state.poolLeads.find((p) => p.id === poolItemId);
 
       // Optimistically remove from pool immediately
@@ -683,10 +685,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
               segment: (currentItem?.segment as Segment) || "SMB",
               stage: "new",
               priority: (currentItem?.priority as Priority) || "medium",
-              owner: closerName,
+              owner: finalCloser,
               followUp: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
               tags: ["grabbed-pool", currentItem?.source || "google-sheets"],
-              notes: `⚡ Grabbed from open lead pool by ${closerName}.`,
+              notes: `⚡ Grabbed from open lead pool by ${finalCloser}.`,
               updatedAt: new Date().toISOString(),
             };
           }

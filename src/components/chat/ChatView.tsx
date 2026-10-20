@@ -408,7 +408,7 @@ export function ChatView() {
   // Share & Assign Modals State
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
-  const [shareTargetUser, setShareTargetUser] = useState("Anshita");
+  const [shareTargetUser, setShareTargetUser] = useState("Admin");
   const [sharePermission, setSharePermission] = useState<"VIEW" | "REPLY">("REPLY");
   const [shareLoading, setShareLoading] = useState(false);
   const [shareSuccess, setShareSuccess] = useState<string | null>(null);
@@ -517,7 +517,7 @@ export function ChatView() {
     if (teamMembers.length > 0) {
       return teamMembers.map((m) => m.name);
     }
-    const set = new Set<string>(["Admin", "Anshita", "Field Closer Desk"]);
+    const set = new Set<string>(["Admin"]);
     if (state.user?.displayName) set.add(state.user.displayName);
     state.leads.forEach((l) => {
       if (l.owner && l.owner !== "Unassigned") set.add(l.owner);

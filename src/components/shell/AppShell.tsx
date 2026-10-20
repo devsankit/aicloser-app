@@ -10,13 +10,12 @@ import { Kbd } from "@/components/keyboard/Kbd";
 import { NAV } from "@/lib/data";
 import { CURRENT_USER, LIMITS, useApp, type Scope } from "@/lib/store";
 import { WorkspaceLoginDialog } from "@/components/auth/WorkspaceLoginDialog";
+import { aicloserApi } from "@/lib/api-client";
 
 const SCOPE_LABEL: Record<string, string> = {
   all: "All team leads",
   mine: `My leads (${CURRENT_USER})`,
   unassigned: "Unassigned (Lead Grab Pool)",
-  "agent:Anshita": "Anshita (Senior Closer)",
-  "agent:Field Closer Desk": "Field Closer Desk (SIM Relay)",
 };
 
 const TITLES: Record<string, string> = Object.fromEntries(
@@ -139,6 +138,46 @@ export function AppShell({ children }: { children: ReactNode }) {
     "/forms": false,
     "/lead-import": false,
   });
+  const [workspaceInactive, setWorkspaceInactive] = useState<boolean>(false);
+  const [impersonatingName, setImpersonatingName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setImpersonatingName(window.localStorage.getItem("aicloser_impersonating_name"));
+    }
+  }, [pathname]);
+
+  useEffect(() => {
+    if (pathname.startsWith("/super-admin") || pathname === "/login") {
+      setWorkspaceInactive(false);
+      return;
+    }
+
+    const checkWorkspaceStatus = async () => {
+      try {
+        const plan = await aicloserApi.workspace.getPlan();
+        if (plan) {
+          const isSuspended =
+            plan.isSuspended === true ||
+            plan.status === "SUSPENDED" ||
+            plan.status === "LOCKED";
+          const isExpired =
+            plan.expiryDate && new Date(plan.expiryDate).getTime() < Date.now();
+          const isInactive =
+            isSuspended ||
+            Boolean(isExpired) ||
+            plan.subscriptionStatus === "INACTIVE" ||
+            plan.subscriptionStatus === "EXPIRED" ||
+            plan.paymentStatus === "UNPAID";
+          setWorkspaceInactive(isInactive);
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    void checkWorkspaceStatus();
+  }, [pathname]);
   const userMenuRef = useOutsideClose(() => setUserMenuOpen(false));
   const title = TITLES[pathname] ?? "Workspace";
   const isFullBleed = pathname === "/chat";
@@ -661,6 +700,47 @@ export function AppShell({ children }: { children: ReactNode }) {
       />
 
       <div className="main">
+        {impersonatingName ? (
+          <div
+            style={{
+              background: "var(--accent)",
+              color: "#ffffff",
+              padding: "6px 16px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              fontSize: "var(--fs-caption)",
+              fontWeight: 600,
+              zIndex: 50,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Icon name="shield" size={14} />
+              <span>Super Admin View: Currently managing workspace <u>{impersonatingName}</u></span>
+            </div>
+            <button
+              type="button"
+              className="btn btn-sm"
+              style={{ background: "#ffffff", color: "#111827", height: 24, fontSize: 11, padding: "0 10px", fontWeight: 700 }}
+              onClick={async () => {
+                if (typeof window !== "undefined") {
+                  window.localStorage.removeItem("aicloser_impersonating_tenant");
+                  window.localStorage.removeItem("aicloser_impersonating_name");
+                }
+                await aicloserApi.superAdmin.returnFromImpersonation().catch(() => null);
+                window.location.href = "/super-admin";
+              }}
+            >
+              Exit to Super Admin
+            </button>
+          </div>
+        ) : null}
+        {workspaceInactive ? (
+          <div className="workspace-inactive-banner" role="alert">
+            <Icon name="warning" size={16} />
+            <span>⚠️ Your workspace subscription is inactive or expired. Please contact support to activate.</span>
+          </div>
+        ) : null}
         <header className="topbar">
           <button
             className="icon-btn mobile-menu"
@@ -691,10 +771,6 @@ export function AppShell({ children }: { children: ReactNode }) {
               <option value="all">All team leads</option>
               <option value="mine">My leads ({CURRENT_USER})</option>
               <option value="unassigned">Unassigned (Lead Grab Pool)</option>
-              <optgroup label="── Team Closers ──">
-                <option value="agent:Anshita">Anshita (Senior Closer)</option>
-                <option value="agent:Field Closer Desk">Field Closer Desk (SIM Relay)</option>
-              </optgroup>
             </select>
           </label>
 

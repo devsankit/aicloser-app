@@ -119,7 +119,7 @@ export const SOURCES: Source[] = [
   "Lead form",
 ];
 export const SEGMENTS: Segment[] = ["SMB", "Enterprise", "Agency"];
-export const OWNERS = ["Admin", "Unassigned", "Anshita", "Field Closer Desk"];
+export const OWNERS = ["Admin", "Unassigned"];
 
 export const stageMeta = (id: StageId): StageMeta =>
   STAGES.find((s) => s.id === id) ?? STAGES[0];

@@ -285,6 +285,9 @@ svg {
   border-right: 1px solid var(--border);
   transition: width var(--speed) ease, flex-basis var(--speed) ease;
   min-height: 0;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
 }
 
 .sidebar[data-collapsed="true"] {
@@ -473,9 +476,10 @@ svg {
 
 .sidebar-scroll {
   flex: 1 1 auto;
-  overflow-y: auto;
-  padding: 4px 8px 12px;
   min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 8px 12px;
 }
 
 .nav-group + .nav-group {
@@ -565,6 +569,7 @@ svg {
 
 .sidebar-foot {
   flex: 0 0 auto;
+  margin-top: auto;
   border-top: 1px solid var(--border);
   padding: 8px;
 }
@@ -3983,6 +3988,41 @@ svg {
   gap: 14px;
 }
 
+.auth-form .btn {
+  width: 100%;
+}
+
+.auth-conflict-card {
+  padding: 14px;
+  background: var(--warning-soft);
+  border: 1px solid var(--warning);
+  border-radius: var(--r-md);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.auth-conflict-title {
+  font-size: var(--fs-meta);
+  font-weight: 600;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.auth-conflict-desc {
+  font-size: var(--fs-caption);
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.auth-conflict-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .auth-divider {
   display: flex;
   align-items: center;
@@ -4376,3 +4416,462 @@ svg {
   background: rgba(239, 68, 68, 0.08);
 }
 
+/* ============================================================ */
+/* SUPER ADMIN & FORM DIALOG DESIGN TOKENS                      */
+/* ============================================================ */
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 640px) {
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.password-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.password-input-wrap .input {
+  width: 100%;
+  padding-right: 64px;
+}
+
+.password-toggle-action {
+  position: absolute;
+  right: 6px;
+  height: 24px;
+  font-size: 11px;
+  padding: 0 6px;
+}
+
+.quick-date-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.expiry-cell-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.expiry-cell-date {
+  font-size: var(--fs-caption);
+  color: var(--text-secondary);
+}
+
+.expiry-cell-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.expiry-date-picker-inline {
+  height: 24px;
+  font-size: 11px;
+  padding: 0 4px;
+  width: 115px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-family: inherit;
+}
+
+.status-cell-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.table-action-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+
+/* ============================================================ */
+/* PIPELINE & DASHBOARD DESIGN SYSTEM UTILITIES                 */
+/* ============================================================ */
+
+/* Pipeline header view toggle row */
+.pipe-title-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+/* Claim feedback banner in Lead Pool */
+.pool-feedback {
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: var(--r-md);
+  font-weight: 550;
+  font-size: var(--fs-meta);
+  border: 1px solid var(--border);
+}
+
+.pool-feedback[data-status="success"] {
+  background: var(--success-soft);
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.pool-feedback[data-status="quota_limit"] {
+  background: var(--warning-soft);
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.pool-feedback[data-status="already_claimed"] {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* Pool Banner Card Sub-Elements */
+.pool-banner-info {
+  flex: 1;
+  min-width: 260px;
+}
+
+.pool-banner-tag-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.pool-banner-title {
+  font-size: var(--fs-page);
+  font-weight: 650;
+  margin: 0 0 6px;
+  color: var(--text);
+}
+
+.pool-banner-desc {
+  font-size: var(--fs-caption);
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Pool Quota Card Elements */
+.pool-quota-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.pool-quota-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pool-quota-desc {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  margin: 4px 0 8px;
+  line-height: 1.4;
+}
+
+.pool-quota-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.pool-quota-num {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.pool-quota-max {
+  font-size: var(--fs-meta);
+  color: var(--text-tertiary);
+}
+
+.pool-progress-track {
+  height: 6px;
+  width: 100%;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.pool-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.pool-progress-fill[data-quota="true"] {
+  background: var(--danger);
+}
+
+.pool-quota-caption {
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+
+/* Pool Card Sub-Elements */
+.pool-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.pool-card-lead-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pool-card-name {
+  font-size: var(--fs-body);
+  font-weight: 650;
+  margin: 0;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pool-card-sub {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.pool-card-contacts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0;
+  font-size: var(--fs-caption);
+  color: var(--text-secondary);
+}
+
+.pool-card-contact-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pool-card-phone {
+  font-family: var(--mono);
+  font-weight: 550;
+}
+
+.pool-card-wa-link {
+  color: #25D366;
+  margin-left: 4px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.pool-card-email {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pool-card-inquiry {
+  background: var(--bg-soft);
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-caption);
+  color: var(--text);
+  margin-bottom: 12px;
+  line-height: 1.4;
+}
+
+.pool-card-inquiry-lbl {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  font-weight: 600;
+  margin-bottom: 2px;
+  letter-spacing: 0.04em;
+}
+
+.pool-card-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  margin-top: auto;
+  gap: 10px;
+}
+
+.pool-card-time {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.pool-card-assign-select {
+  height: 30px;
+  font-size: var(--fs-caption);
+  padding: 0 8px;
+  min-width: 150px;
+}
+
+/* SLA grab in kanban column */
+.lead-sla-claim {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+}
+
+.lead-sla-btn {
+  width: 100%;
+  height: 22px;
+  font-size: 10px;
+  padding: 0 6px;
+  font-weight: 600;
+}
+
+/* Telephony Floor Banner in Dashboard */
+.telephony-floor-banner {
+  padding: 12px 18px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.telephony-floor-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.telephony-floor-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.telephony-floor-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.telephony-floor-title {
+  font-size: var(--fs-meta);
+  font-weight: 650;
+  color: var(--text);
+}
+
+.telephony-floor-sub {
+  font-size: var(--fs-caption);
+  color: var(--text-secondary);
+}
+
+.telephony-floor-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.telephony-floor-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-caption);
+  color: var(--text-secondary);
+}
+
+.telephony-floor-status strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Dashboard Owner & Activity Sub-Elements */
+.owner-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 90px;
+}
+
+.owner-sub {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+/* ============================================================ */
+/* SEAT STEPPER, AMOUNT INPUT & WORKSPACE WARNING BANNER        */
+/* ============================================================ */
+
+.seat-stepper-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.seat-stepper-group .btn {
+  height: 26px;
+  width: 26px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.table-amount-input {
+  width: 100px;
+  height: 26px;
+  font-size: 12px;
+  padding: 0 6px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text);
+  font-family: var(--mono);
+}
+
+.workspace-inactive-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+  border-bottom: 1px solid rgba(239, 68, 68, 0.25);
+  padding: 8px 16px;
+  font-size: var(--fs-meta, 13px);
+  font-weight: 600;
+  text-align: center;
+  z-index: 100;
+}

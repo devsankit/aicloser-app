@@ -30,7 +30,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
   const [phoneCopied, setPhoneCopied] = useState(false);
   const [showMaskedPhone, setShowMaskedPhone] = useState(false);
   const [reassignModalOpen, setReassignModalOpen] = useState(false);
-  const [targetCloser, setTargetCloser] = useState("Anshita");
+  const [targetCloser, setTargetCloser] = useState("Admin");
   const [handoverNote, setHandoverNote] = useState("");
 
   const allOwners = useMemo(() => {
@@ -188,7 +188,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                 data-size="sm"
                 data-variant="accent"
                 onClick={() => {
-                  const closerName = state.user?.displayName || "Anshita";
+                  const closerName = state.user?.displayName || "Admin";
                   claimLead(lead.id, closerName);
                   set("owner", closerName);
                 }}

@@ -18,6 +18,8 @@ export type TenantWorkspace = {
   createdAt: string;
   expiresAt: string | null;
   monthlyRevenue: number;
+  monthlyAmount?: number;
+  paymentStatus?: "PAID" | "PENDING";
   activeSims: number;
   users?: TenantUser[];
 };
@@ -107,6 +109,7 @@ export function SuperAdminView() {
   const [authRequired, setAuthRequired] = useState(false);
   const [loginEmail, setLoginEmail] = useState("hello.ankitrathore@gmail.com");
   const [loginPassword, setLoginPassword] = useState("");
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [selectedWorkspace, setSelectedWorkspace] = useState<TenantWorkspace | null>(null);
@@ -128,12 +131,24 @@ export function SuperAdminView() {
   const [newWsSlug, setNewWsSlug] = useState("");
   const [newWsEmail, setNewWsEmail] = useState("");
   const [newWsPhone, setNewWsPhone] = useState("");
-    const [newWsSeats, setNewWsSeats] = useState(5);
+  const [newWsPassword, setNewWsPassword] = useState("Admin@123");
+  const [showWsPassword, setShowWsPassword] = useState(false);
+  const [newWsSeats, setNewWsSeats] = useState(5);
+  const [newWsMonthlyAmount, setNewWsMonthlyAmount] = useState<number>(9999);
+  const [newWsExpiry, setNewWsExpiry] = useState(() => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() + 1);
+    return d.toISOString().slice(0, 10);
+  });
+  const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false);
 
   const [newUsrName, setNewUsrName] = useState("");
   const [newUsrEmail, setNewUsrEmail] = useState("");
   const [newUsrPhone, setNewUsrPhone] = useState("");
-  const [newUsrRole, setNewUsrRole] = useState<"ADMIN" | "MANAGER" | "USER">("USER");
+  const [newUsrRole, setNewUsrRole] = useState<"SALES_AGENT" | "MANAGER" | "ADMIN">("SALES_AGENT");
+  const [newUsrPassword, setNewUsrPassword] = useState("Closer@123");
+  const [showUsrPassword, setShowUsrPassword] = useState(false);
+  const [isCreatingUser, setIsCreatingUser] = useState(false);
 
   // Global AI Engine Master Controls
   const [groqMasterKey, setGroqMasterKey] = useState("gsk_master_free_prod_••••••••••••••••");
@@ -151,13 +166,17 @@ export function SuperAdminView() {
 
   // Sync from central backend API
   const refreshCentralData = async (notify = true) => {
+    const token = getStoredToken();
+    if (!token) {
+      setAuthRequired(true);
+      setIsLoading(false);
+      setIsSyncing(false);
+      return;
+    }
     setIsSyncing(true);
     try {
       const tenants = await aicloserApi.superAdmin.getTenants().catch((err: any) => {
-        const msg = String(err?.message || err);
-        if (msg.includes("401") || msg.includes("403") || msg.includes("Forbidden") || msg.includes("Unauthorized")) {
-          setAuthRequired(true);
-        }
+        setAuthRequired(true);
         return null;
       });
 
@@ -174,16 +193,15 @@ export function SuperAdminView() {
           ownerPhone: t.ownerPhone || t.owner?.phone || "-",
           createdAt: t.createdAt || new Date().toISOString(),
           expiresAt: t.packageExpiresAt || t.expiresAt || null,
-          monthlyRevenue: Number(t.maxSeats || 5) * 1999,
+          monthlyAmount: Number(t.monthlyAmount || (t.settings as any)?.monthlyAmount || Number(t.maxSeats || 5) * 1999),
+          monthlyRevenue: Number(t.monthlyAmount || (t.settings as any)?.monthlyAmount || Number(t.maxSeats || 5) * 1999),
+          paymentStatus: (t.paymentStatus || (t.settings as any)?.paymentStatus || "PAID") as "PAID" | "PENDING",
           activeSims: Number(t.stats?.callsCount || 0),
           users: t.users || [],
         }));
         setWorkspaces(mapped);
       } else {
-        const token = getStoredToken();
-        if (!token) {
-          setAuthRequired(true);
-        }
+        setAuthRequired(true);
       }
 
       // Live reviews
@@ -220,6 +238,12 @@ export function SuperAdminView() {
   }
 
   useEffect(() => {
+    const token = getStoredToken();
+    if (!token) {
+      setAuthRequired(true);
+      setIsLoading(false);
+      return;
+    }
     void refreshCentralData(false);
   }, []);
 
@@ -229,9 +253,15 @@ export function SuperAdminView() {
     const active = workspaces.filter((w) => w.status === "ACTIVE").length;
     const suspended = workspaces.filter((w) => w.status === "SUSPENDED").length;
     const totalSeats = workspaces.reduce((sum, w) => sum + w.maxSeats, 0);
-    const mrr = totalSeats * 1999;
+    const paidMrr = workspaces
+      .filter((w) => w.paymentStatus === "PAID")
+      .reduce((sum, w) => sum + Number(w.monthlyAmount || w.monthlyRevenue || 0), 0);
+    const pendingMrr = workspaces
+      .filter((w) => w.paymentStatus === "PENDING")
+      .reduce((sum, w) => sum + Number(w.monthlyAmount || w.monthlyRevenue || 0), 0);
+    const totalMrr = paidMrr + pendingMrr;
     const totalSims = devices.filter((d) => d.status === "ONLINE").length;
-    return { total, active, suspended, totalSeats, mrr, totalSims };
+    return { total, active, suspended, totalSeats, mrr: totalMrr, paidMrr, pendingMrr, totalSims };
   }, [workspaces, devices]);
 
   // Filtered workspaces
@@ -296,6 +326,36 @@ export function SuperAdminView() {
     }
   };
 
+  // Update billing amount
+  const handleUpdateAmount = async (ws: TenantWorkspace, newAmount: number) => {
+    const val = Number(newAmount) || 0;
+    setWorkspaces((prev) =>
+      prev.map((w) => (w.id === ws.id ? { ...w, monthlyAmount: val, monthlyRevenue: val } : w))
+    );
+    try {
+      await aicloserApi.superAdmin.updateTenantAmount(ws.id, val);
+      showToast(`Billing amount for ${ws.name} set to ₹${val.toLocaleString("en-IN")}/mo.`);
+    } catch (err: any) {
+      showToast(err?.message || `Failed to update billing amount.`);
+      await refreshCentralData(false);
+    }
+  };
+
+  // Toggle tenant payment status (Paid <-> Pending)
+  const handleTogglePaymentStatus = async (ws: TenantWorkspace) => {
+    const nextStatus: "PAID" | "PENDING" = ws.paymentStatus === "PAID" ? "PENDING" : "PAID";
+    setWorkspaces((prev) =>
+      prev.map((w) => (w.id === ws.id ? { ...w, paymentStatus: nextStatus } : w))
+    );
+    try {
+      await aicloserApi.superAdmin.updateTenantPaymentStatus(ws.id, nextStatus);
+      showToast(`Payment status for ${ws.name} marked as ${nextStatus === "PAID" ? "Paid / Done" : "Pending"}.`);
+    } catch (err: any) {
+      showToast(err?.message || `Failed to update payment status.`);
+      await refreshCentralData(false);
+    }
+  };
+
   const handleSuperAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoggingIn(true);
@@ -317,9 +377,13 @@ export function SuperAdminView() {
           return;
         }
         setStoredToken(data.data.token);
+        if (typeof document !== "undefined") {
+          document.cookie = `aicloser_token=${encodeURIComponent(data.data.token)}; path=/; max-age=${60 * 60 * 24 * 30}; SameSite=Lax`;
+          document.cookie = `gx_session=${encodeURIComponent(data.data.token)}; path=/; max-age=${60 * 60 * 24 * 30}; SameSite=Lax`;
+        }
         setAuthRequired(false);
         showToast("Authenticated as Super Admin.");
-        void refreshCentralData(true);
+        await refreshCentralData(true);
       } else {
         setLoginError(data?.message || "Invalid credentials. Please enter Super Admin password.");
       }
@@ -330,7 +394,36 @@ export function SuperAdminView() {
     }
   };
 
-  // Expiry extension
+  const handleSuperAdminLogout = async () => {
+    try {
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem("aicloser_auth_token");
+        window.localStorage.removeItem("aicloser_token");
+        window.localStorage.removeItem("closer_token");
+        window.localStorage.removeItem("gx_session");
+        window.localStorage.removeItem("aicloser_impersonating_tenant");
+        window.localStorage.removeItem("aicloser_impersonating_name");
+        window.sessionStorage.clear();
+      }
+      setStoredToken(null);
+      if (typeof document !== "undefined") {
+        document.cookie = "aicloser_token=; path=/; max-age=0; SameSite=Lax";
+        document.cookie = "gx_session=; path=/; max-age=0; SameSite=Lax";
+        document.cookie = "gx_role=; path=/; max-age=0; SameSite=Lax";
+        document.cookie = "gx_tenant=; path=/; max-age=0; SameSite=Lax";
+      }
+      await Promise.allSettled([
+        fetch("/api/v1/auth/logout", { method: "POST" }),
+        fetch("/api/auth/logout", { method: "POST" }),
+      ]).catch(() => null);
+    } finally {
+      if (typeof window !== "undefined") {
+        window.location.href = "/super-admin/login";
+      }
+    }
+  };
+
+  // Expiry extension by days
   const handleExtendExpiry = async (ws: TenantWorkspace, daysToAdd: number) => {
     const currentExpiry = ws.expiresAt ? new Date(ws.expiresAt) : new Date();
     currentExpiry.setDate(currentExpiry.getDate() + daysToAdd);
@@ -339,8 +432,53 @@ export function SuperAdminView() {
     try {
       await aicloserApi.superAdmin.updateTenantExpiry(ws.id, isoExpiry);
       showToast(`Extended ${ws.name} subscription by +${daysToAdd} days.`);
+    } catch (err: any) {
+      showToast(err?.message || `Failed to extend subscription.`);
+      await refreshCentralData(false);
+    }
+  };
+
+  // Custom date expiry setter
+  const handleSetCustomExpiry = async (ws: TenantWorkspace, dateStr: string) => {
+    if (!dateStr) return;
+    try {
+      const isoExpiry = new Date(dateStr + "T23:59:59.999Z").toISOString();
+      setWorkspaces((prev) => prev.map((w) => (w.id === ws.id ? { ...w, expiresAt: isoExpiry } : w)));
+      await aicloserApi.superAdmin.updateTenantExpiry(ws.id, isoExpiry);
+      showToast(`Subscription expiry for ${ws.name} set to ${dateStr}`);
+    } catch (err: any) {
+      showToast(err?.message || `Failed to update expiry date.`);
+      await refreshCentralData(false);
+    }
+  };
+
+  // Toggle workspace roster and fetch live users
+  const handleToggleRoster = async (ws: TenantWorkspace) => {
+    if (selectedWorkspace?.id === ws.id) {
+      setSelectedWorkspace(null);
+      return;
+    }
+    setSelectedWorkspace(ws);
+    try {
+      const usersData = await aicloserApi.superAdmin.getTenantUsers(ws.id).catch(() => null);
+      const rawUsers = Array.isArray(usersData) ? usersData : (usersData as any)?.users;
+      if (Array.isArray(rawUsers)) {
+        const mappedUsers: TenantUser[] = rawUsers.map((u: any) => ({
+          id: String(u.id),
+          displayName: u.displayName || u.name || "Agent",
+          email: u.email || "-",
+          phone: u.phone || "-",
+          role: u.role || "CLOSER",
+          status: u.packageStatus === "ACTIVE" ? "ACTIVE" : "PAUSED",
+          agentCode: u.agentCode || "GX-CL",
+          createdAt: u.createdAt ? new Date(u.createdAt).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+          lastLoginAt: u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : "Never",
+        }));
+        setSelectedWorkspace((prev) => (prev && prev.id === ws.id ? { ...prev, users: mappedUsers, activeUsersCount: mappedUsers.length } : prev));
+        setWorkspaces((prev) => prev.map((w) => (w.id === ws.id ? { ...w, users: mappedUsers, activeUsersCount: mappedUsers.length } : w)));
+      }
     } catch {
-      showToast(`Extended subscription by +${daysToAdd} days.`);
+      // ignore
     }
   };
 
@@ -355,6 +493,7 @@ export function SuperAdminView() {
       if (typeof window !== "undefined") {
         window.localStorage.setItem("aicloser_impersonating_tenant", ws.id);
         window.localStorage.setItem("aicloser_impersonating_name", ws.name);
+        window.location.href = "/pipeline";
       }
       showToast(`Switching context: Impersonating ${ws.name}...`);
     } catch {
@@ -372,76 +511,92 @@ export function SuperAdminView() {
     showToast("Returned to Super Admin Command Center.");
   };
 
-  // Add Workspace
-  const handleCreateWorkspace = () => {
-    if (!newWsName.trim()) return;
-    const newWs: TenantWorkspace = {
-      id: `ws-${Date.now().toString(36)}`,
-      name: newWsName.trim(),
-      slug: (newWsSlug || newWsName).toLowerCase().replace(/\s+/g, "-"),
-            status: "ACTIVE",
-      maxSeats: newWsSeats,
-      activeUsersCount: 1,
-      ownerEmail: newWsEmail || "admin@workspace.in",
-      ownerPhone: newWsPhone || "+91 99999 00000",
-      createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 365 * 86400000).toISOString(),
-      monthlyRevenue: Number(newWsSeats || 5) * 1999,
-      activeSims: 1,
-      users: [
-        {
-          id: `usr-${Date.now()}`,
-          displayName: newWsName + " Admin",
-          email: newWsEmail,
-          phone: newWsPhone,
-          role: "ADMIN",
-          status: "ACTIVE",
-          agentCode: "GX-NEW",
-          createdAt: new Date().toISOString().slice(0, 10),
-          lastLoginAt: "Never",
-        },
-      ],
-    };
-    setWorkspaces([newWs, ...workspaces]);
-    setIsAddWorkspaceModal(false);
-    setNewWsName("");
-    setNewWsSlug("");
-    setNewWsEmail("");
-    setNewWsPhone("");
-    showToast(`Workspace ${newWs.name} created successfully.`);
+  // Provision Workspace with live central API dispatch
+  const handleCreateWorkspace = async () => {
+    if (!newWsName.trim()) {
+      showToast("Company name is required.");
+      return;
+    }
+    if (!newWsEmail.trim()) {
+      showToast("Founder email is required.");
+      return;
+    }
+    setIsCreatingWorkspace(true);
+    try {
+      const slug = (newWsSlug || newWsName).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const expiresAtIso = newWsExpiry ? new Date(newWsExpiry + "T23:59:59.999Z").toISOString() : undefined;
+
+      const payload = {
+        name: newWsName.trim(),
+        slug: slug || `ws-${Date.now().toString(36)}`,
+        ownerEmail: newWsEmail.trim().toLowerCase(),
+        ownerPhone: newWsPhone.trim(),
+        ownerPassword: newWsPassword.trim() || "Admin@123",
+        maxSeats: Number(newWsSeats) || 5,
+        monthlyAmount: Number(newWsMonthlyAmount) || 9999,
+        expiresAt: expiresAtIso,
+        packageExpiresAt: expiresAtIso,
+      };
+
+      const res = await aicloserApi.superAdmin.createTenant(payload);
+      if (res?.id && newWsMonthlyAmount) {
+        await aicloserApi.superAdmin.updateTenantAmount(res.id, Number(newWsMonthlyAmount) || 9999).catch(() => null);
+      }
+      showToast(`Company Profile "${newWsName.trim()}" created successfully.`);
+      setIsAddWorkspaceModal(false);
+      setNewWsName("");
+      setNewWsSlug("");
+      setNewWsEmail("");
+      setNewWsPhone("");
+      setNewWsPassword("Admin@123");
+      setNewWsMonthlyAmount(9999);
+      setShowWsPassword(false);
+      await refreshCentralData(false);
+    } catch (err: any) {
+      showToast(err?.message || "Failed to create company profile on central server.");
+    } finally {
+      setIsCreatingWorkspace(false);
+    }
   };
 
-  // Add User to Workspace
-  const handleCreateUser = () => {
-    if (!targetWorkspaceForAction || !newUsrName.trim()) return;
-    const targetWs = targetWorkspaceForAction;
-    const newUser: TenantUser = {
-      id: `usr-${Date.now()}`,
-      displayName: newUsrName.trim(),
-      email: newUsrEmail.trim() || `${newUsrName.toLowerCase().replace(/\s+/g, ".")}@${targetWs.slug}.com`,
-      phone: newUsrPhone.trim() || "+91 98000 00000",
-      role: newUsrRole,
-      status: "ACTIVE",
-      agentCode: `GX-${Math.floor(100 + Math.random() * 900)}`,
-      createdAt: new Date().toISOString().slice(0, 10),
-      lastLoginAt: "Never",
-    };
-    setWorkspaces((prev) =>
-      prev.map((w) =>
-        w.id === targetWs.id
-          ? {
-              ...w,
-              activeUsersCount: w.activeUsersCount + 1,
-              users: [...(w.users || []), newUser],
-            }
-          : w
-      )
-    );
-    setIsAddUserModal(false);
-    setNewUsrName("");
-    setNewUsrEmail("");
-    setNewUsrPhone("");
-    showToast(`Added ${newUser.displayName} to ${targetWs.name}`);
+  // Add User to Workspace with live central API dispatch
+  const handleCreateUser = async () => {
+    if (!targetWorkspaceForAction || !newUsrName.trim()) {
+      showToast("User name is required.");
+      return;
+    }
+    if (!newUsrEmail.trim()) {
+      showToast("User email address is required.");
+      return;
+    }
+    setIsCreatingUser(true);
+    try {
+      const payload = {
+        displayName: newUsrName.trim(),
+        email: newUsrEmail.trim().toLowerCase(),
+        phone: newUsrPhone.trim(),
+        role: newUsrRole,
+        password: newUsrPassword.trim() || "Closer@123",
+      };
+
+      await aicloserApi.superAdmin.createTenantUser(targetWorkspaceForAction.id, payload);
+      showToast(`Added ${newUsrName.trim()} to ${targetWorkspaceForAction.name}`);
+      setIsAddUserModal(false);
+      setNewUsrName("");
+      setNewUsrEmail("");
+      setNewUsrPhone("");
+      setNewUsrPassword("Closer@123");
+      setShowUsrPassword(false);
+
+      if (selectedWorkspace?.id === targetWorkspaceForAction.id) {
+        await handleToggleRoster(targetWorkspaceForAction);
+      }
+      await refreshCentralData(false);
+    } catch (err: any) {
+      showToast(err?.message || "Failed to create user in workspace.");
+    } finally {
+      setIsCreatingUser(false);
+    }
   };
 
   // Review Status update
@@ -455,8 +610,94 @@ export function SuperAdminView() {
     }
   };
 
+  if (authRequired) {
+    return (
+      <div style={{ maxWidth: 440, margin: "60px auto", padding: "0 16px" }}>
+        <div className="card" style={{ padding: 28, boxShadow: "var(--shadow-md)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+            <div style={{
+              width: 40,
+              height: 40,
+              borderRadius: "var(--r-md)",
+              background: "var(--accent-soft)",
+              color: "var(--accent)",
+              display: "grid",
+              placeItems: "center"
+            }}>
+              <Icon name="shield" size={20} />
+            </div>
+            <div>
+              <h2 style={{ fontSize: "var(--fs-title)", fontWeight: 750, margin: 0, color: "var(--text)" }}>Super Admin Access</h2>
+              <p style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", margin: "3px 0 0" }}>
+                Authentication required to view company workspaces
+              </p>
+            </div>
+          </div>
+
+          {loginError && (
+            <div className="pool-feedback" data-status="already_claimed" style={{ marginBottom: 16 }}>
+              <Icon name="alert-circle" size={16} />
+              <span>{loginError}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSuperAdminLogin} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div className="field">
+              <label>Super Admin Email</label>
+              <input
+                type="email"
+                className="input"
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
+                required
+                placeholder="hello.ankitrathore@gmail.com"
+              />
+            </div>
+            <div className="field">
+              <label>Master Password</label>
+              <div className="password-input-wrap">
+                <input
+                  type={showLoginPassword ? "text" : "password"}
+                  className="input"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  required
+                  placeholder="Enter Super Admin password"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  className="btn btn-sm password-toggle-action"
+                  data-variant="ghost"
+                  onClick={() => setShowLoginPassword(!showLoginPassword)}
+                  tabIndex={-1}
+                >
+                  {showLoginPassword ? "Hide" : "Show"}
+                </button>
+              </div>
+            </div>
+            <button
+              type="submit"
+              className="btn"
+              data-variant="primary"
+              disabled={isLoggingIn}
+              style={{ width: "100%", justifyContent: "center", marginTop: 6 }}
+            >
+              {isLoggingIn ? "Authenticating..." : "Authenticate as Super Admin"}
+            </button>
+            <div style={{ textAlign: "center", marginTop: 8 }}>
+              <a href="/super-admin/login" style={{ fontSize: "var(--fs-caption)", color: "var(--accent)", textDecoration: "underline" }}>
+                Or sign in via Super Admin Login Portal →
+              </a>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="super-admin-layout" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+    <div className="super-admin-layout" style={{ display: "flex", flexDirection: "column", gap: 20, paddingBottom: 80 }}>
       {/* IMPERSONATION NOTICE BANNER (WHEN ACTIVE) */}
       {impersonatingTenant && (
         <div
@@ -517,7 +758,7 @@ export function SuperAdminView() {
                 </span>
               </div>
               <p style={{ margin: "4px 0 0", color: "var(--text-tertiary)", fontSize: "var(--fs-meta)" }}>
-                Multi-tenant agency control, closer seats allocation, Android SIM relays, WhatsApp gateways & AI token quotas.
+                Multi-tenant company profiles, closer seats allocation, Android SIM relays, WhatsApp gateways & AI token quotas.
               </p>
             </div>
           </div>
@@ -538,7 +779,17 @@ export function SuperAdminView() {
               onClick={() => setIsAddWorkspaceModal(true)}
             >
               <Icon name="plus" size={14} />
-              <span>New Agency Workspace</span>
+              <span>+ New Company Profile</span>
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm"
+              data-variant="danger"
+              onClick={handleSuperAdminLogout}
+              title="Sign out of Super Admin Command Center"
+            >
+              <Icon name="logout" size={14} />
+              <span>Logout</span>
             </button>
           </div>
         </div>
@@ -556,7 +807,7 @@ export function SuperAdminView() {
         >
           <div className="card" style={{ padding: "12px 16px", background: "var(--bg-soft)" }}>
             <div style={{ color: "var(--text-tertiary)", fontSize: "var(--fs-caption)", fontWeight: 550 }}>
-              REGISTERED WORKSPACES
+              REGISTERED COMPANIES
             </div>
             <div style={{ fontSize: "var(--fs-metric)", fontWeight: 700, marginTop: 4 }}>
               {stats.total}
@@ -596,8 +847,8 @@ export function SuperAdminView() {
             </div>
             <div style={{ fontSize: "var(--fs-metric)", fontWeight: 700, marginTop: 4 }}>
               ₹{stats.mrr.toLocaleString("en-IN")}
-              <span style={{ fontSize: "var(--fs-caption)", fontWeight: 500, color: "var(--text-tertiary)", marginLeft: 6 }}>
-                / mo
+              <span style={{ fontSize: "var(--fs-caption)", fontWeight: 500, color: "var(--text-secondary)", marginLeft: 6 }}>
+                ₹{stats.paidMrr.toLocaleString("en-IN")} Paid{stats.pendingMrr > 0 ? ` · ₹${stats.pendingMrr.toLocaleString("en-IN")} Pending` : ""}
               </span>
             </div>
           </div>
@@ -625,7 +876,7 @@ export function SuperAdminView() {
             style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
           >
             <Icon name="building" size={14} />
-            <span>Workspaces & Closer Seats</span>
+            <span>Company Profiles & Seats</span>
             <span className="chip" style={{ height: 18, padding: "0 5px", fontSize: 10 }}>
               {workspaces.length}
             </span>
@@ -743,8 +994,10 @@ export function SuperAdminView() {
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Agency / Workspace</th>
+                    <th>Company Profile / Workspace</th>
                     <th>Seats Allocation (Users / Mo)</th>
+                    <th>Monthly Amount (₹)</th>
+                    <th>Payment Status</th>
                     <th>Status</th>
                     <th>Active SIMs</th>
                     <th>Expiry & Billing</th>
@@ -755,71 +1008,107 @@ export function SuperAdminView() {
                   {filteredWorkspaces.map((ws) => (
                     <tr key={ws.id}>
                       <td>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                          <span style={{ fontWeight: 600, color: "var(--text)" }}>{ws.name}</span>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            <span style={{ fontWeight: 600, color: "var(--text)" }}>{ws.name}</span>
+                            {ws.createdAt && !isNaN(new Date(ws.createdAt).getTime()) && (
+                              <span className="chip" style={{ fontSize: "10.5px", padding: "1px 7px", color: "var(--text-secondary)" }}>
+                                Signup: {new Date(ws.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                              </span>
+                            )}
+                          </div>
                           <span style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", fontFamily: "var(--mono)" }}>
-                            {ws.slug} · {ws.ownerEmail}
+                            {ws.slug} · {ws.ownerEmail} · <strong style={{ color: "var(--text)" }}>{ws.ownerPhone || "No Phone"}</strong>
                           </span>
                         </div>
                       </td>
                       <td>
                         <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                           <button
+                            type="button"
                             className="btn btn-sm"
                             onClick={() => handleUpdateSeats(ws, -1)}
                             disabled={ws.maxSeats <= 1}
-                            style={{ height: 26, width: 26, padding: 0, justifyContent: "center" }}
-                            title="Decrease seat capacity (-1)"
+                            title="Decrease seats (-1)"
                           >
-                            <Icon name="minus" size={12} />
+                            -
                           </button>
-                          <button
+                          <span
+                            className="chip"
+                            data-tone={ws.activeUsersCount > ws.maxSeats ? "danger" : "accent"}
                             onClick={() => {
                               setTargetWorkspaceForAction(ws);
                               setCustomSeatsCount(ws.maxSeats);
                               setIsSeatsModal(true);
                             }}
-                            className="chip"
-                            data-tone={ws.activeUsersCount > ws.maxSeats ? "danger" : "accent"}
-                            style={{ height: 26, padding: "0 10px", cursor: "pointer", fontWeight: 700 }}
+                            style={{ cursor: "pointer", fontWeight: 700 }}
                             title="Click to set custom seat limit"
                           >
                             {ws.activeUsersCount} / {ws.maxSeats} Seats
-                          </button>
+                          </span>
                           <button
+                            type="button"
                             className="btn btn-sm"
                             onClick={() => handleUpdateSeats(ws, 1)}
-                            style={{ height: 26, width: 26, padding: 0, justifyContent: "center" }}
-                            title="Increase seat capacity (+1)"
+                            title="Increase seats (+1)"
                           >
-                            <Icon name="plus" size={12} />
+                            +
                           </button>
-                          <select
-                            className="select"
-                            value={ws.maxSeats}
-                            onChange={(e) => handleDirectSeatChange(ws, Number(e.target.value))}
-                            style={{ height: 26, fontSize: "var(--fs-caption)", padding: "0 20px 0 6px", width: "auto" }}
-                            title="Quick select seat package"
-                          >
-                            {[1, 2, 3, 5, 8, 10, 15, 20, 25, 50, 100].map((num) => (
-                              <option key={num} value={num}>
-                                {num} Seats
-                              </option>
-                            ))}
-                          </select>
+                        </div>
+                      </td>
+                      <td>
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", fontWeight: 600 }}>₹</span>
+                          <input
+                            type="number"
+                            className="input"
+                            style={{ width: 100, height: 28, fontSize: "var(--fs-caption)", padding: "0 8px" }}
+                            defaultValue={ws.monthlyRevenue || 0}
+                            key={`${ws.id}-${ws.monthlyRevenue}`}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                            }}
+                            onBlur={async (e) => {
+                              const val = Number(e.target.value);
+                              if (!isNaN(val) && val !== ws.monthlyRevenue) {
+                                await handleUpdateAmount(ws, val);
+                              }
+                            }}
+                          />
                         </div>
                       </td>
                       <td>
                         <button
-                          onClick={() => handleToggleStatus(ws)}
-                          className={`chip ${ws.status === "ACTIVE" ? "" : ""}`}
-                          data-tone={ws.status === "ACTIVE" ? "success" : "danger"}
-                          style={{ cursor: "pointer", border: "none" }}
-                          title="Click to toggle Active / Suspended status"
+                          type="button"
+                          className="chip"
+                          data-tone={ws.paymentStatus === "PAID" ? "success" : "warning"}
+                          onClick={() => handleTogglePaymentStatus(ws)}
+                          style={{ cursor: "pointer" }}
+                          title="Click to toggle Payment Paid / Pending"
                         >
                           <span className="dot" />
-                          <span>{ws.status}</span>
+                          <span>{ws.paymentStatus === "PAID" ? "Paid / Done" : "Pending"}</span>
                         </button>
+                      </td>
+                      <td>
+                        <div className="status-cell-wrap">
+                          <span
+                            className="chip"
+                            data-tone={ws.status === "ACTIVE" ? "success" : "danger"}
+                          >
+                            <span className="dot" />
+                            <span>{ws.status}</span>
+                          </span>
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            data-variant={ws.status === "ACTIVE" ? "danger" : "primary"}
+                            onClick={() => handleToggleStatus(ws)}
+                            title={ws.status === "ACTIVE" ? "Deactivate workspace" : "Activate workspace"}
+                          >
+                            {ws.status === "ACTIVE" ? "Deactivate" : "Activate"}
+                          </button>
+                        </div>
                       </td>
                       <td>
                         <span className="chip" data-tone={ws.activeSims > 0 ? "success" : "warning"}>
@@ -828,52 +1117,78 @@ export function SuperAdminView() {
                         </span>
                       </td>
                       <td>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                          <span style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)" }}>
-                            {ws.expiresAt ? new Date(ws.expiresAt).toLocaleDateString("en-IN", { month: "short", day: "numeric", year: "numeric" }) : "No expiry set"}
+                        <div className="expiry-cell-wrap">
+                          <span className="expiry-cell-date">
+                            {ws.expiresAt
+                              ? new Date(ws.expiresAt).toLocaleDateString("en-IN", {
+                                  month: "short",
+                                  day: "numeric",
+                                  year: "numeric",
+                                })
+                              : "No expiry set"}
                           </span>
-                          <div style={{ display: "flex", gap: 4 }}>
+                          <div className="expiry-cell-actions">
+                            <input
+                              type="date"
+                              className="expiry-date-picker-inline"
+                              value={ws.expiresAt ? new Date(ws.expiresAt).toISOString().slice(0, 10) : ""}
+                              onChange={(e) => handleSetCustomExpiry(ws, e.target.value)}
+                              title="Set custom expiry date"
+                            />
                             <button
+                              type="button"
                               className="btn btn-sm"
-                              style={{ height: 20, fontSize: 10, padding: "0 5px" }}
                               onClick={() => handleExtendExpiry(ws, 30)}
                               title="Extend subscription by 30 days"
                             >
                               +30d
                             </button>
                             <button
+                              type="button"
                               className="btn btn-sm"
-                              style={{ height: 20, fontSize: 10, padding: "0 5px" }}
                               onClick={() => handleExtendExpiry(ws, 90)}
                               title="Extend subscription by 90 days"
                             >
                               +90d
                             </button>
+                            <button
+                              type="button"
+                              className="btn btn-sm"
+                              onClick={() => handleExtendExpiry(ws, 365)}
+                              title="Extend subscription by 1 year"
+                            >
+                              +1y
+                            </button>
                           </div>
                         </div>
                       </td>
                       <td style={{ textAlign: "right" }}>
-                        <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                        <div className="table-action-wrap">
                           <button
+                            type="button"
                             className="btn btn-sm"
                             data-variant="accent"
                             onClick={() => handleImpersonateWorkspace(ws)}
                             title="Instant one-click workspace login / impersonation"
                           >
                             <Icon name="external" size={12} />
-                            <span>Impersonate</span>
+                            <span>Login as Admin</span>
                           </button>
                           <button
+                            type="button"
                             className="btn btn-sm"
-                            onClick={() => {
-                              setSelectedWorkspace(selectedWorkspace?.id === ws.id ? null : ws);
-                            }}
+                            onClick={() => handleToggleRoster(ws)}
                             title="Inspect workspace closer team"
                           >
                             <Icon name="team" size={12} />
-                            <span>{selectedWorkspace?.id === ws.id ? "Hide Users" : `Users (${ws.users?.length || ws.activeUsersCount})`}</span>
+                            <span>
+                              {selectedWorkspace?.id === ws.id
+                                ? "Hide Users"
+                                : `Users (${ws.users?.length || ws.activeUsersCount || 0})`}
+                            </span>
                           </button>
                           <button
+                            type="button"
                             className="btn btn-sm"
                             onClick={() => {
                               setTargetWorkspaceForAction(ws);
@@ -889,7 +1204,7 @@ export function SuperAdminView() {
                   ))}
                   {filteredWorkspaces.length === 0 && (
                     <tr>
-                      <td colSpan={7} style={{ textAlign: "center", padding: "40px 20px", color: "var(--text-tertiary)" }}>
+                      <td colSpan={8} style={{ textAlign: "center", padding: "40px 20px", color: "var(--text-tertiary)" }}>
                         No workspaces found matching “{searchQuery}”.
                       </td>
                     </tr>
@@ -1234,7 +1549,7 @@ export function SuperAdminView() {
                 </span>
               </div>
               <p style={{ fontSize: "var(--fs-meta)", color: "var(--text-secondary)", margin: "0 0 16px" }}>
-                Multi-device Baileys WhatsApp web socket gateway for zero-cost agency message synchronization.
+                Multi-device Baileys WhatsApp web socket gateway for zero-cost company message synchronization.
               </p>
 
               <div style={{ display: "grid", gap: 12 }}>
@@ -1282,7 +1597,7 @@ export function SuperAdminView() {
               </span>
             </div>
             <p style={{ fontSize: "var(--fs-meta)", color: "var(--text-secondary)", margin: "0 0 20px" }}>
-              Super Admin master keys serve as the global fallback whenever a customer agency does not provide their own BYOK key.
+              Super Admin master keys serve as the global fallback whenever a customer company does not provide their own BYOK key.
             </p>
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
@@ -1575,18 +1890,23 @@ export function SuperAdminView() {
           <div className="dialog">
             <div className="dialog-head">
               <Icon name="building" size={18} />
-              <h2>Provision New Agency Workspace</h2>
-              <button className="icon-btn" onClick={() => setIsAddWorkspaceModal(false)} style={{ marginLeft: "auto" }}>
+              <h2>Create Company Profile</h2>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => setIsAddWorkspaceModal(false)}
+                style={{ marginLeft: "auto" }}
+              >
                 <Icon name="close" size={16} />
               </button>
             </div>
             <div className="dialog-body">
               <div className="field">
-                <label>Agency / Company Name *</label>
+                <label>Company Name *</label>
                 <input
                   type="text"
                   className="input"
-                  placeholder="e.g. Apex Closer Agency"
+                  placeholder="e.g. Apex Closer Systems"
                   value={newWsName}
                   onChange={(e) => {
                     setNewWsName(e.target.value);
@@ -1594,6 +1914,7 @@ export function SuperAdminView() {
                       setNewWsSlug(e.target.value.toLowerCase().replace(/\s+/g, "-"));
                     }
                   }}
+                  disabled={isCreatingWorkspace}
                 />
               </div>
 
@@ -1606,6 +1927,7 @@ export function SuperAdminView() {
                   value={newWsSlug}
                   onChange={(e) => setNewWsSlug(e.target.value)}
                   style={{ fontFamily: "var(--mono)" }}
+                  disabled={isCreatingWorkspace}
                 />
               </div>
 
@@ -1618,6 +1940,7 @@ export function SuperAdminView() {
                     placeholder="founder@apex.com"
                     value={newWsEmail}
                     onChange={(e) => setNewWsEmail(e.target.value)}
+                    disabled={isCreatingWorkspace}
                   />
                 </div>
                 <div className="field">
@@ -1628,28 +1951,133 @@ export function SuperAdminView() {
                     placeholder="+91 98200 12345"
                     value={newWsPhone}
                     onChange={(e) => setNewWsPhone(e.target.value)}
+                    disabled={isCreatingWorkspace}
                   />
                 </div>
               </div>
 
               <div className="field">
-                  <label>Contracted Closer Seats (Per User / Mo) *</label>
+                <label>Founder Password *</label>
+                <div className="password-input-wrap">
                   <input
-                    type="number"
+                    type={showWsPassword ? "text" : "password"}
                     className="input"
-                    min={1}
-                    max={100}
-                    value={newWsSeats}
-                    onChange={(e) => setNewWsSeats(Number(e.target.value))}
+                    placeholder="e.g. Admin@123"
+                    value={newWsPassword}
+                    onChange={(e) => setNewWsPassword(e.target.value)}
+                    disabled={isCreatingWorkspace}
                   />
+                  <button
+                    type="button"
+                    className="btn btn-sm password-toggle-action"
+                    data-variant="ghost"
+                    onClick={() => setShowWsPassword(!showWsPassword)}
+                    tabIndex={-1}
+                  >
+                    {showWsPassword ? "Hide" : "Show"}
+                  </button>
                 </div>
+                <span className="card-sub">
+                  Initial credentials for the company owner to log in and manage the workspace.
+                </span>
+              </div>
+
+              <div className="field">
+                <label>Contracted Closer Seats (Per User / Mo) *</label>
+                <input
+                  type="number"
+                  className="input"
+                  min={1}
+                  max={500}
+                  value={newWsSeats}
+                  onChange={(e) => setNewWsSeats(Number(e.target.value))}
+                  disabled={isCreatingWorkspace}
+                />
+              </div>
+
+              <div className="field">
+                <label>Monthly Subscription Amount (₹) *</label>
+                <input
+                  type="number"
+                  className="input"
+                  min={0}
+                  step={100}
+                  value={newWsMonthlyAmount}
+                  onChange={(e) => setNewWsMonthlyAmount(Number(e.target.value))}
+                  disabled={isCreatingWorkspace}
+                />
+              </div>
+
+              <div className="field">
+                <label>Subscription Expiry Date *</label>
+                <input
+                  type="date"
+                  className="input"
+                  value={newWsExpiry}
+                  onChange={(e) => setNewWsExpiry(e.target.value)}
+                  disabled={isCreatingWorkspace}
+                />
+                <div className="quick-date-pills">
+                  <span className="card-sub" style={{ margin: 0 }}>Quick set:</span>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    data-variant="outline"
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() + 30);
+                      setNewWsExpiry(d.toISOString().slice(0, 10));
+                    }}
+                    disabled={isCreatingWorkspace}
+                  >
+                    +30 Days
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    data-variant="outline"
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() + 90);
+                      setNewWsExpiry(d.toISOString().slice(0, 10));
+                    }}
+                    disabled={isCreatingWorkspace}
+                  >
+                    +90 Days
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    data-variant="outline"
+                    onClick={() => {
+                      const d = new Date();
+                      d.setFullYear(d.getFullYear() + 1);
+                      setNewWsExpiry(d.toISOString().slice(0, 10));
+                    }}
+                    disabled={isCreatingWorkspace}
+                  >
+                    +1 Year
+                  </button>
+                </div>
+              </div>
             </div>
             <div className="dialog-foot">
-              <button className="btn btn-sm" onClick={() => setIsAddWorkspaceModal(false)}>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => setIsAddWorkspaceModal(false)}
+                disabled={isCreatingWorkspace}
+              >
                 Cancel
               </button>
-              <button className="btn btn-sm" data-variant="accent" onClick={handleCreateWorkspace}>
-                Provision Workspace
+              <button
+                type="button"
+                className="btn btn-sm"
+                data-variant="accent"
+                onClick={handleCreateWorkspace}
+                disabled={isCreatingWorkspace}
+              >
+                {isCreatingWorkspace ? "Creating Company..." : "Create Company Profile"}
               </button>
             </div>
           </div>
@@ -1665,7 +2093,12 @@ export function SuperAdminView() {
             <div className="dialog-head">
               <Icon name="user-plus" size={18} />
               <h2>Add Team Member to {targetWorkspaceForAction.name}</h2>
-              <button className="icon-btn" onClick={() => setIsAddUserModal(false)} style={{ marginLeft: "auto" }}>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => setIsAddUserModal(false)}
+                style={{ marginLeft: "auto" }}
+              >
                 <Icon name="close" size={16} />
               </button>
             </div>
@@ -1675,21 +2108,23 @@ export function SuperAdminView() {
                 <input
                   type="text"
                   className="input"
-                  placeholder="e.g. Anshita Sharma"
+                  placeholder="e.g. Priya Sharma"
                   value={newUsrName}
                   onChange={(e) => setNewUsrName(e.target.value)}
+                  disabled={isCreatingUser}
                 />
               </div>
 
               <div className="grid-2">
                 <div className="field">
-                  <label>Email Address</label>
+                  <label>Email Address *</label>
                   <input
                     type="email"
                     className="input"
-                    placeholder="anshita@agency.in"
+                    placeholder="anshita@company.in"
                     value={newUsrEmail}
                     onChange={(e) => setNewUsrEmail(e.target.value)}
+                    disabled={isCreatingUser}
                   />
                 </div>
                 <div className="field">
@@ -1700,29 +2135,68 @@ export function SuperAdminView() {
                     placeholder="+91 98200 88771"
                     value={newUsrPhone}
                     onChange={(e) => setNewUsrPhone(e.target.value)}
+                    disabled={isCreatingUser}
                   />
                 </div>
               </div>
 
               <div className="field">
-                <label>Assigned Role</label>
+                <label>Assigned Role *</label>
                 <select
                   className="select"
                   value={newUsrRole}
                   onChange={(e) => setNewUsrRole(e.target.value as any)}
+                  disabled={isCreatingUser}
                 >
-                  <option value="CLOSER">CLOSER (Sales Agent)</option>
+                  <option value="SALES_AGENT">CLOSER (Sales Agent)</option>
                   <option value="MANAGER">MANAGER (Team Lead)</option>
                   <option value="ADMIN">ADMIN (Workspace Admin)</option>
                 </select>
               </div>
+
+              <div className="field">
+                <label>User Password *</label>
+                <div className="password-input-wrap">
+                  <input
+                    type={showUsrPassword ? "text" : "password"}
+                    className="input"
+                    placeholder="e.g. Closer@123"
+                    value={newUsrPassword}
+                    onChange={(e) => setNewUsrPassword(e.target.value)}
+                    disabled={isCreatingUser}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-sm password-toggle-action"
+                    data-variant="ghost"
+                    onClick={() => setShowUsrPassword(!showUsrPassword)}
+                    tabIndex={-1}
+                  >
+                    {showUsrPassword ? "Hide" : "Show"}
+                  </button>
+                </div>
+                <span className="card-sub">
+                  Initial password (minimum 6 characters) for this user to sign in to mobile & web app.
+                </span>
+              </div>
             </div>
             <div className="dialog-foot">
-              <button className="btn btn-sm" onClick={() => setIsAddUserModal(false)}>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => setIsAddUserModal(false)}
+                disabled={isCreatingUser}
+              >
                 Cancel
               </button>
-              <button className="btn btn-sm" data-variant="accent" onClick={handleCreateUser}>
-                Create Closer User
+              <button
+                type="button"
+                className="btn btn-sm"
+                data-variant="accent"
+                onClick={handleCreateUser}
+                disabled={isCreatingUser}
+              >
+                {isCreatingUser ? "Creating User..." : "Create Closer User"}
               </button>
             </div>
           </div>

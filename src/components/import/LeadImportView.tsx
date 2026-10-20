@@ -22,39 +22,12 @@ interface ImportBatch {
   status: "completed" | "rolled_back";
 }
 
-const DEFAULT_BATCHES: ImportBatch[] = [
-  {
-    id: "BAT-101",
-    filename: "q3_b2b_inquiries.csv",
-    channel: "csv",
-    totalRows: 48,
-    importedCount: 46,
-    duplicateCount: 2,
-    assignedOwner: "Round-Robin",
-    stage: "new",
-    timestamp: "2 hours ago",
-    status: "completed",
-  },
-  {
-    id: "BAT-102",
-    filename: "WhatsApp QR Chats Relay",
-    channel: "whatsapp_qr",
-    totalRows: 18,
-    importedCount: 18,
-    duplicateCount: 0,
-    assignedOwner: "Anshita",
-    stage: "contacted",
-    timestamp: "Yesterday",
-    status: "completed",
-  },
-];
-
 export function LeadImportView() {
   const { addLead, state } = useApp();
   const router = useRouter();
   const [tab, setTab] = useState<"wizard" | "history">("wizard");
   const [channel, setChannel] = useState<ImportChannel>("csv");
-  const [batches, setBatches] = useState<ImportBatch[]>(DEFAULT_BATCHES);
+  const [batches, setBatches] = useState<ImportBatch[]>([]);
 
   // Wizard state
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -137,29 +110,6 @@ export function LeadImportView() {
     } catch (err) {
       console.error("Failed to parse CSV file", err);
     }
-  };
-
-  const handleLoadSampleCsv = () => {
-    const headers = ["name", "company", "phone", "email", "value", "source", "segment"];
-    const sampleRows = [
-      { name: "Sunil Verma", company: "Verma Industries", phone: "+91 98234 56789", email: "sunil@verma.in", value: "85000", source: "Excel", segment: "SMB" },
-      { name: "Pooja Malhotra", company: "Zenith Marketing", phone: "+91 97112 34567", email: "pooja@zenith.io", value: "140000", source: "Excel", segment: "Agency" },
-      { name: "Rameshwar Rao", company: "Rao Cold Storage", phone: "+91 99401 22334", email: "rameshwar@raocold.com", value: "220000", source: "Excel", segment: "Enterprise" },
-      { name: "Divya Nambiar", company: "Kite FinTech", phone: "+91 98840 55667", email: "divya@kitefin.in", value: "310000", source: "Excel", segment: "Enterprise" },
-      { name: "Chetan Saxena", company: "Aura Logistics", phone: "+91 98101 99887", email: "chetan@auralog.com", value: "95000", source: "Excel", segment: "SMB" },
-    ];
-    applyDetectedRows("closer_sample_b2b_leads.csv", "4.2 KB", headers, sampleRows, "Excel");
-  };
-
-  const handleLoadSampleExcel = () => {
-    const headers = ["Customer Name", "Business Account", "Contact Number", "Email Address", "Project Budget", "Territory"];
-    const sampleRows = [
-      { "Customer Name": "Vikram Singhania", "Business Account": "Singhania Logistics", "Contact Number": "+91 98201 11223", "Email Address": "vikram@singhania.in", "Project Budget": "175000", Territory: "North" },
-      { "Customer Name": "Natasha Roy", "Business Account": "Prism Creative Studios", "Contact Number": "+91 98765 88990", "Email Address": "natasha@prismstudio.co", "Project Budget": "92000", Territory: "West" },
-      { "Customer Name": "Gautam Adani Corp Rep", "Business Account": "Kutch Ports Hub", "Contact Number": "+91 99099 44332", "Email Address": "rep.kutch@adani.com", "Project Budget": "450000", Territory: "West" },
-      { "Customer Name": "Shalini Pillai", "Business Account": "AyurVeda Naturals", "Contact Number": "+91 94471 22334", "Email Address": "shalini@ayurnaturals.in", "Project Budget": "68000", Territory: "South" },
-    ];
-    applyDetectedRows("enterprise_q4_pipeline.xlsx", "18.4 KB", headers, sampleRows, "Excel");
   };
 
   const handleFetchGoogleSheets = async () => {
@@ -293,7 +243,7 @@ export function LeadImportView() {
     setIsProcessing(true);
     setTimeout(() => {
       // Rotation closers: STRICTLY EXCLUDE ADMIN
-      const eligibleClosers = ["Anshita", "Field Closer Desk"];
+      const eligibleClosers = [state.user?.displayName || "Active Closer Desk"];
       let closerIdx = 0;
 
       parsedRows.forEach((item) => {
@@ -357,7 +307,7 @@ export function LeadImportView() {
         duplicateCount: 0,
         assignedOwner:
           targetOwner === "Round-Robin"
-            ? "Round-Robin (Anshita & Field Desk)"
+            ? "Automated Round-Robin"
             : targetOwner === "Unassigned"
             ? "⚡ Lead Grab Pool"
             : targetOwner,
@@ -401,13 +351,7 @@ export function LeadImportView() {
               <Icon name="check" size={13} /> {importSuccessBanner}
             </span>
           )}
-          <button
-            onClick={handleLoadSampleCsv}
-            className="btn"
-            data-variant="ghost"
-          >
-            <Icon name="sparkle" size={13} /> Load Sample Leads
-          </button>
+          
         </div>
       </header>
 
@@ -675,9 +619,7 @@ export function LeadImportView() {
                       <Icon name="plus" size={13} /> Select CSV File
                       <input type="file" accept=".csv" onChange={handleFileUpload} style={{ display: "none" }} />
                     </label>
-                    <button type="button" className="btn" data-variant="ghost" onClick={handleLoadSampleCsv}>
-                      <Icon name="sparkle" size={13} /> Load Sample CSV (5 Leads)
-                    </button>
+                    
                   </div>
                 </section>
               )}
@@ -716,9 +658,7 @@ export function LeadImportView() {
                       <Icon name="plus" size={13} /> Select Excel Workbook
                       <input type="file" accept=".xlsx,.xls" onChange={handleFileUpload} style={{ display: "none" }} />
                     </label>
-                    <button type="button" className="btn" data-variant="ghost" onClick={handleLoadSampleExcel}>
-                      <Icon name="sparkle" size={13} /> Load Sample Excel (4 Leads)
-                    </button>
+                    
                   </div>
                 </section>
               )}
@@ -1182,8 +1122,6 @@ export function LeadImportView() {
                   >
                     <option value="Round-Robin">⚡ Automated Round-Robin (Equal across Active Closers)</option>
                     <option value="Unassigned">Open Lead Grab Pool (Unassigned / Claimable)</option>
-                    <option value="Anshita">Anshita (Senior Closer)</option>
-                    <option value="Field Closer Desk">Field Closer Desk (SIM Relay)</option>
                   </select>
                   <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Distribute evenly or assign to a dedicated closer.</span>
                   {targetOwner === "Round-Robin" && (

@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 export default async function SuperAdminPage() {
   await requirePageRole(["SUPER_ADMIN"], "/super-admin");
   return (
-    <main style={{ minHeight: "100vh", background: "var(--bg)", padding: "24px 32px" }}>
+    <main style={{ minHeight: "100vh", height: "100%", overflowY: "auto", background: "var(--bg)", padding: "24px 32px 80px" }}>
       <SuperAdminView />
     </main>
   );

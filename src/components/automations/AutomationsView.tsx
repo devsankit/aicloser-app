@@ -182,106 +182,9 @@ function formatCondition(condition: any): string {
   return String(condition);
 }
 
-const DEFAULT_WORKFLOWS: WorkflowRule[] = [
-  {
-    id: "wf-default-1",
-    name: "Auto-Assign High Value Leads",
-    description: "Assigns leads with budget >= ₹50k to senior closer with urgent SLA",
-    trigger: "Lead Created (Budget ≥ ₹50,000)",
-    triggerIcon: "sparkle",
-    condition: "Value ≥ ₹50,000",
-    action: "Assign Closer (HIGH Priority)",
-    actionIcon: "bot",
-    status: "active",
-    runsCount: 142,
-    lastRun: "5m ago",
-    successRate: "99.2%",
-  },
-  {
-    id: "wf-default-2",
-    name: "SIM Missed Call Instant Recovery",
-    description: "Triggers instant WhatsApp reconnect message when SIM call is missed",
-    trigger: "Call Ended on Android SIM",
-    triggerIcon: "phone",
-    condition: "Duration = 0s (Missed Call)",
-    action: "Dispatch WhatsApp Re-engagement Template",
-    actionIcon: "whatsapp",
-    status: "active",
-    runsCount: 89,
-    lastRun: "12m ago",
-    successRate: "100%",
-  },
-  {
-    id: "wf-default-3",
-    name: "Razorpay Payment Captured to Closed-Won",
-    description: "Advances pipeline stage to Closed-Won and generates confirmation receipt",
-    trigger: "Payment Captured on Razorpay",
-    triggerIcon: "card",
-    condition: "Status = Captured AND Amount > 0",
-    action: "Advance Deal Stage to Closed-Won",
-    actionIcon: "check",
-    status: "active",
-    runsCount: 38,
-    lastRun: "1h ago",
-    successRate: "100%",
-  },
-  {
-    id: "wf-default-4",
-    name: "48h Inactivity Re-engagement Alert",
-    description: "Notifies manager if high-priority deal stays untouched for 48 hours",
-    trigger: "Stage Inactive for 48 Hours",
-    triggerIcon: "clock",
-    condition: "Stage in (PROPOSAL, NEGOTIATION)",
-    action: "Send Manager Push Notification & Slack Ping",
-    actionIcon: "bot",
-    status: "active",
-    runsCount: 24,
-    lastRun: "2h ago",
-    successRate: "98.5%",
-  },
-];
+const DEFAULT_WORKFLOWS: WorkflowRule[] = [];
 
-const DEFAULT_LOGS: ExecutionLog[] = [
-  {
-    id: "log-1",
-    ruleName: "Auto-Assign High Value Leads",
-    leadName: "Rohan Varma (Apex Logistics)",
-    status: "success",
-    startedAt: "10:14 AM",
-    durationMs: 184,
-    steps: [
-      { step: "Trigger Handshake", detail: "Received webhook payload for Lead Created", status: "ok" },
-      { step: "Condition Evaluation", detail: "Lead budget ₹85,000 matched criteria (≥ ₹50,000)", status: "ok" },
-      { step: "Round Robin Closer", detail: "Assigned to Anshita with HIGH priority SLA (15m)", status: "ok" },
-    ],
-  },
-  {
-    id: "log-2",
-    ruleName: "SIM Missed Call Instant Recovery",
-    leadName: "Sneha Kapoor (FitLife)",
-    status: "success",
-    startedAt: "09:48 AM",
-    durationMs: 240,
-    steps: [
-      { step: "Telephony Event", detail: "Xiaomi Redmi Note 12 reported missed inbound from +91 98765 43210", status: "ok" },
-      { step: "Template Dispatch", detail: "Sent 'Missed Call Follow-up' template via WhatsApp Cloud API", status: "ok" },
-      { step: "CRM Sync", detail: "Created pending callback task with 15m timer", status: "ok" },
-    ],
-  },
-  {
-    id: "log-3",
-    ruleName: "Razorpay Payment Captured to Closed-Won",
-    leadName: "Amitabh Sen (TechPulse)",
-    status: "success",
-    startedAt: "Yesterday",
-    durationMs: 145,
-    steps: [
-      { step: "Webhook Received", detail: "order_Qz981 payment.captured for ₹50,000", status: "ok" },
-      { step: "Stage Transition", detail: "Moved CLO-104 from Payment Pending to Closed-Won", status: "ok" },
-      { step: "Receipt Generated", detail: "Issued tax invoice #INV-2026-042 to client", status: "ok" },
-    ],
-  },
-];
+const DEFAULT_LOGS: ExecutionLog[] = [];
 
 export function AutomationsView() {
   const { state } = useApp();
@@ -357,65 +260,79 @@ Your objective:
     async function loadAutomations() {
       try {
         const [rulesRes, logsRes] = await Promise.allSettled([
-          aicloserApi.automations.list(),
-          aicloserApi.automations.getLogs(),
+          fetch('/api/sales/automations').then(r => r.ok ? r.json() : null),
+          fetch('/api/sales/automations/logs').then(r => r.ok ? r.json() : null),
         ]);
         if (!active) return;
-        const rawRules = rulesRes.status === "fulfilled" ? rulesRes.value : [];
-        const rulesList = Array.isArray(rawRules)
-          ? rawRules
-          : Array.isArray((rawRules as any)?.data)
-          ? (rawRules as any).data
-          : Array.isArray((rawRules as any)?.rules)
-          ? (rawRules as any).rules
-          : [];
 
-        if (rulesList.length > 0) {
-          const liveRules: WorkflowRule[] = rulesList.map((r: any, idx: number) => ({
-            id: r.id || `wf-live-${idx}`,
-            name: r.name || "Live Workflow",
-            description: r.description || "Automated trigger-action rule.",
-            trigger: formatTrigger(r.trigger),
-            triggerIcon: "sparkle",
-            condition: formatCondition(r.condition),
-            action: formatAction(r.action),
-            actionIcon: "bot",
-            status: r.isActive === false || r.status === "paused" ? "paused" : "active",
-            runsCount: r.runsCount || (idx + 1) * 14,
-            lastRun: r.lastRunAt || r.updatedAt ? new Date(r.lastRunAt || r.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Recent",
-            successRate: r.successRate ? `${r.successRate}%` : "100%",
-          }));
-          setWorkflows(liveRules);
+        let rulesList = [];
+        if (rulesRes.status === 'fulfilled' && rulesRes.value) {
+          const v = rulesRes.value;
+          rulesList = Array.isArray(v.rules) ? v.rules : Array.isArray(v) ? v : [];
+        }
+        if (rulesList.length === 0) {
+          try {
+            const fb = await aicloserApi.automations.list();
+            rulesList = Array.isArray(fb) ? fb : Array.isArray(fb?.rules) ? fb.rules : Array.isArray(fb?.data) ? fb.data : [];
+          } catch {}
         }
 
-        const rawLogs = logsRes.status === "fulfilled" ? logsRes.value : [];
-        const logsList = Array.isArray(rawLogs)
-          ? rawLogs
-          : Array.isArray((rawLogs as any)?.data)
-          ? (rawLogs as any).data
-          : Array.isArray((rawLogs as any)?.logs)
-          ? (rawLogs as any).logs
-          : [];
+        if (rulesList.length > 0) {
+          const liveRules = rulesList.map((r, idx) => ({
+            id: r.id || 'wf-live-' + idx,
+            name: r.name || 'Live Workflow',
+            description: r.description || 'Automated trigger-action rule.',
+            trigger: formatTrigger(r.trigger),
+            triggerIcon: 'sparkle',
+            condition: formatCondition(r.condition),
+            action: formatAction(r.action),
+            actionIcon: 'bot',
+            status: r.isActive === false || r.status === 'paused' ? 'paused' : 'active',
+            runsCount: r.runsCount || 0,
+            lastRun: r.lastRunAt || r.updatedAt ? new Date(r.lastRunAt || r.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Never',
+            successRate: r.successRate ? (r.successRate + '%') : '100%',
+          }));
+          setWorkflows(liveRules);
+        } else {
+          setWorkflows([]);
+        }
+
+        let logsList = [];
+        if (logsRes.status === 'fulfilled' && logsRes.value) {
+          const v = logsRes.value;
+          logsList = Array.isArray(v.logs) ? v.logs : Array.isArray(v) ? v : [];
+        }
+        if (logsList.length === 0) {
+          try {
+            const fbLogs = await aicloserApi.automations.getLogs();
+            logsList = Array.isArray(fbLogs) ? fbLogs : Array.isArray(fbLogs?.logs) ? fbLogs.logs : Array.isArray(fbLogs?.data) ? fbLogs.data : [];
+          } catch {}
+        }
 
         if (logsList.length > 0) {
-          const liveLogs: ExecutionLog[] = logsList.map((l: any, idx: number) => ({
-            id: l.id || `log-${idx}`,
-            ruleName: l.ruleName || "Automation Rule",
-            leadName: l.leadName || "Contact",
-            status: l.status === "failed" ? "warning" : "success",
-            startedAt: l.createdAt ? new Date(l.createdAt).toLocaleTimeString() : "Recent",
+          const liveLogs = logsList.map((l, idx) => ({
+            id: l.id || 'log-' + idx,
+            ruleName: l.ruleName || 'Automation Rule',
+            leadName: l.leadName || 'Contact',
+            status: l.status === 'failed' ? 'warning' : 'success',
+            startedAt: l.createdAt ? new Date(l.createdAt).toLocaleTimeString() : 'Recent',
             durationMs: l.durationMs || 150,
             steps: Array.isArray(l.steps)
               ? l.steps
               : [
-                  { step: "Trigger Execution", detail: l.event || "Event matched", status: "ok" },
-                  { step: "Status", detail: l.status || "Completed", status: "ok" },
+                  { step: 'Trigger Execution', detail: l.event || 'Event matched', status: 'ok' },
+                  { step: 'Status', detail: l.status || 'Completed', status: 'ok' },
                 ],
           }));
           setLogs(liveLogs);
+        } else {
+          setLogs([]);
         }
       } catch (err) {
-        // Keep defaults on unauthenticated / local mode
+        if (active) {
+          setWorkflows([]);
+          setLogs([]);
+        }
       }
     }
     loadAutomations();
@@ -852,20 +769,23 @@ Your objective:
       {activeTab === "workflows" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {workflows.length === 0 ? (
-            <div className="card" style={{ padding: "48px 16px", textAlign: "center", border: "1px solid var(--border)", background: "var(--bg-card)", borderRadius: 8 }}>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
-                <Icon name="roadmap" size={28} style={{ opacity: 0.4 }} />
-                <div style={{ fontWeight: 600, color: "var(--fg)" }}>No Automation Rules Configured</div>
-                <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", maxWidth: "360px" }}>
-                  Create automated trigger-action rules for round-robin assignment, SIM call ingestion, and payment status sync.
+            <div className="card">
+              <div className="empty">
+                <div className="empty-icon">
+                  <Icon name="roadmap" size={20} />
                 </div>
+                <h3>No automation workflows configured yet.</h3>
+                <p>
+                  Configure automated trigger-action rules for round-robin assignment, SIM call ingestion, and payment status sync.
+                </p>
                 <button
-                  className="btn btn-sm"
+                  className="btn"
                   data-variant="primary"
-                  onClick={() => setIsNewRuleModalOpen(true)}
-                  style={{ marginTop: 8 }}
+                  data-size="sm"
+                  onClick={() => setIsCreateOpen(true)}
                 >
-                  <Icon name="plus" size={13} /> Create Automation Rule
+                  <Icon name="plus" size={13} />
+                  <span>Create Automation Rule</span>
                 </button>
               </div>
             </div>
@@ -1389,25 +1309,17 @@ Your objective:
               <div style={{ fontWeight: 600, fontSize: "var(--fs-meta)", marginBottom: "8px" }}>Eligible Closers in Active Pool</div>
               <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
                 <div className="card" style={{ padding: "10px 14px", display: "flex", alignItems: "center", gap: "10px", background: "var(--bg-soft)" }}>
-                  <span className="avatar" style={{ width: 28, height: 28, fontSize: 11 }}>AN</span>
+                  <span className="avatar" style={{ width: 28, height: 28, fontSize: 11 }}>AC</span>
                   <div>
-                    <div style={{ fontWeight: 600, fontSize: "var(--fs-caption)" }}>Anshita (Senior Closer)</div>
-                    <div style={{ fontSize: "11px", color: "var(--success)" }}>● Active in RR · 18 Active Leads · Max 35</div>
-                  </div>
-                </div>
-
-                <div className="card" style={{ padding: "10px 14px", display: "flex", alignItems: "center", gap: "10px", background: "var(--bg-soft)" }}>
-                  <span className="avatar" style={{ width: 28, height: 28, fontSize: 11 }}>FC</span>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: "var(--fs-caption)" }}>Field Closer Desk (SIM Relay)</div>
-                    <div style={{ fontSize: "11px", color: "var(--success)" }}>● Active in RR · 12 Active Leads · Max 25</div>
+                    <div style={{ fontWeight: 600, fontSize: "var(--fs-caption)" }}>Active Closer Desk</div>
+                    <div style={{ fontSize: "11px", color: "var(--success)" }}>● Active in Round-Robin · High Availability</div>
                   </div>
                 </div>
 
                 <div className="card" style={{ padding: "10px 14px", display: "flex", alignItems: "center", gap: "10px", background: "var(--bg-soft)", opacity: 0.7 }}>
                   <span className="avatar" style={{ width: 28, height: 28, fontSize: 11, background: "var(--border)" }}>AD</span>
                   <div>
-                    <div style={{ fontWeight: 600, fontSize: "var(--fs-caption)" }}>Ankit Rathore (Admin)</div>
+                    <div style={{ fontWeight: 600, fontSize: "var(--fs-caption)" }}>Company Admin</div>
                     <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>🛡️ Excluded (Company Admin Rule)</div>
                   </div>
                 </div>
@@ -1466,13 +1378,15 @@ Your objective:
               <tbody>
                 {logs.length === 0 ? (
                   <tr>
-                    <td colSpan={7} style={{ textAlign: "center", padding: "48px 16px", color: "var(--fg-muted)" }}>
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
-                        <Icon name="clock" size={28} style={{ opacity: 0.4 }} />
-                        <div style={{ fontWeight: 600, color: "var(--fg)" }}>No Automation Executions Recorded</div>
-                        <div style={{ fontSize: "var(--fs-caption)", color: "var(--fg-muted)", maxWidth: "340px" }}>
-                          Trigger invocations, conditions evaluation, and action executions will appear here in real time.
+                    <td colSpan={7}>
+                      <div className="empty">
+                        <div className="empty-icon">
+                          <Icon name="clock" size={20} />
                         </div>
+                        <h3>No automation executions recorded yet</h3>
+                        <p>
+                          Trigger invocations, conditions evaluation, and action executions will appear here in real time.
+                        </p>
                       </div>
                     </td>
                   </tr>
