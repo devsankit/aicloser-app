@@ -47,12 +47,84 @@ export function PipelineView() {
   const [disappearedIds, setDisappearedIds] = useState<Set<string>>(new Set());
   const [claimFeedback, setClaimFeedback] = useState<{ id?: string; status: "success" | "already_claimed" | "quota_limit"; message: string } | null>(null);
 
+  const userRole = state.user?.role || "ADMIN";
+  const isAdmin = userRole === "ADMIN" || userRole === "SUPER_ADMIN" || userRole === "MANAGER";
   const closerName = state.user?.displayName || "Calling Ankit";
   const myActiveLeads = state.leads.filter(
-    (l) => l.stage !== "won" && l.stage !== "lost" && (l.owner === closerName || state.scope === "all")
+    (l) => l.stage !== "won" && l.stage !== "lost" && (l.owner === closerName || (!isAdmin && state.scope === "all"))
   ).length;
   const myCap = (state.user as any)?.maxActiveLeads || 25;
-  const isAtQuota = myActiveLeads >= myCap;
+  const isAtQuota = !isAdmin && myActiveLeads >= myCap;
+  const [isDistributing, setIsDistributing] = useState(false);
+
+  const availableClosers = useMemo(() => {
+    const list = new Set<string>();
+    list.add("Anshita (Senior Closer)");
+    list.add("Field Closer Desk (SIM Relay)");
+    state.leads.forEach((l) => {
+      if (l.owner && l.owner.trim() && l.owner !== "Admin" && l.owner !== "System") {
+        list.add(l.owner);
+      }
+    });
+    return Array.from(list);
+  }, [state.leads]);
+
+  const handleAssignLead = async (item: LeadPoolItem, targetCloser: string) => {
+    if (claimingId || !targetCloser) return;
+    setClaimingId(item.id);
+    try {
+      const cleanCloser = targetCloser.split(" (")[0];
+      const res = await claimFromPool(item.id, cleanCloser);
+      setClaimingId(null);
+      if (res.success) {
+        setDisappearedIds((prev) => new Set(prev).add(item.id));
+        setClaimFeedback({
+          id: item.id,
+          status: "success",
+          message: `✅ Lead "${item.customerName || "Customer"}" assigned to ${cleanCloser}! Added to New Leads.`,
+        });
+        setTimeout(() => setClaimFeedback(null), 4000);
+      } else {
+        setClaimFeedback({
+          id: item.id,
+          status: "already_claimed",
+          message: res.message || "Failed to assign lead.",
+        });
+        setTimeout(() => setClaimFeedback(null), 4000);
+      }
+    } catch {
+      setClaimingId(null);
+    }
+  };
+
+  const handleAutoDistributeAll = async () => {
+    if (isDistributing || openPoolList.length === 0) return;
+    const closers = ["Anshita", "Field Closer Desk"];
+    state.leads.forEach((l) => {
+      if (l.owner && !closers.includes(l.owner) && l.owner !== "Admin" && l.owner !== "System") {
+        closers.push(l.owner);
+      }
+    });
+    if (closers.length === 0) return;
+
+    setIsDistributing(true);
+    let distributedCount = 0;
+    for (let i = 0; i < openPoolList.length; i++) {
+      const item = openPoolList[i];
+      const target = closers[i % closers.length];
+      try {
+        await claimFromPool(item.id, target);
+        setDisappearedIds((prev) => new Set(prev).add(item.id));
+        distributedCount++;
+      } catch {}
+    }
+    setIsDistributing(false);
+    setClaimFeedback({
+      status: "success",
+      message: `⚡ Successfully distributed ${distributedCount} leads across ${closers.length} closers via Round-Robin!`,
+    });
+    setTimeout(() => setClaimFeedback(null), 5000);
+  };
 
   const openPoolList = useMemo(() => {
     const q = poolQuery.trim().toLowerCase();
@@ -229,7 +301,7 @@ export function PipelineView() {
                 }}
               >
                 <Icon name="zap" size={13} />
-                <span>Lead Grab Pool</span>
+                <span>{isAdmin ? "Unassigned Pool" : "Lead Grab Pool"}</span>
                 <span
                   style={{
                     fontSize: "11px",
@@ -240,7 +312,7 @@ export function PipelineView() {
                     color: "var(--accent)",
                   }}
                 >
-                  {openPoolList.length || state.poolCount || 573}
+                  {openPoolList.length || state.poolCount || 0}
                 </span>
               </button>
             </div>
@@ -256,7 +328,7 @@ export function PipelineView() {
               </>
             ) : (
               <>
-                ⚡ <b>First-Come, First-Served Pool</b> · {openPoolList.length} unassigned leads waiting · Grabbing a lead instantly claims it and moves it into your New Leads.
+                ⚡ <b>{isAdmin ? "Unassigned Leads Pool" : "First-Come, First-Served Pool"}</b> · {openPoolList.length} unassigned leads waiting · {isAdmin ? "Distribute leads to team closers or let closers claim them from their Lead Grab Pool." : "Grabbing a lead instantly claims it into your New Leads."}
               </>
             )}
           </p>
@@ -278,7 +350,7 @@ export function PipelineView() {
                     fontWeight: 550,
                   }}
                 >
-                  <Icon name="zap" size={14} /> Open Grab Pool ({openPoolList.length || state.poolCount})
+                  <Icon name="zap" size={14} /> {isAdmin ? "Unassigned Pool" : "Open Grab Pool"} ({openPoolList.length || state.poolCount})
                 </button>
               )}
               <button className="btn" onClick={() => setFit((f) => !f)} aria-pressed={fit}>
@@ -352,7 +424,7 @@ export function PipelineView() {
             </div>
           )}
 
-          {/* Admin Quota & Operating Rule Card */}
+          {/* Admin vs Closer Banner Card */}
           <div className="pool-banner-card">
             <div style={{ flex: 1, minWidth: "260px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
@@ -369,59 +441,93 @@ export function PipelineView() {
                     fontWeight: 600,
                   }}
                 >
-                  <Icon name="zap" size={12} /> First-Come, First-Served Pool
+                  <Icon name={isAdmin ? "users" : "zap"} size={12} /> {isAdmin ? "Admin Distribution Pool" : "First-Come, First-Served Pool"}
                 </span>
                 <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
-                  Realtime Atomic Claiming
+                  {isAdmin ? "Team Lead Routing" : "Realtime Atomic Claiming"}
                 </span>
               </div>
               <h2 style={{ fontSize: "17px", fontWeight: 650, margin: "0 0 6px" }}>
-                {openPoolList.length} Unassigned Leads Ready for Grabbing
+                {openPoolList.length} Unassigned Leads Ready for {isAdmin ? "Distribution" : "Grabbing"}
               </h2>
               <p style={{ fontSize: "12px", color: "var(--text-secondary)", margin: 0, lineHeight: 1.5 }}>
-                Leads imported via Google Sheets, WhatsApp relays, CSV files, and Inbound Webhooks wait here.
-                When you click <b>Grab Lead Now</b>, it is atomically assigned to your CRM pipeline in the <b>New Lead</b> stage.
-                If another closer grabs it first, it immediately disappears from all screens.
+                {isAdmin
+                  ? "Incoming leads imported via Google Sheets, WhatsApp relays, CSV files, and Inbound Webhooks. You can assign each lead directly to a specific closer or auto-distribute them to the team via Round-Robin."
+                  : "Leads imported via Google Sheets, WhatsApp relays, CSV files, and Inbound Webhooks wait here. When you click Grab Lead Now, it is atomically assigned to your CRM pipeline in the New Lead stage."}
               </p>
             </div>
 
-            {/* Quota Meter */}
-            <div className="pool-quota-card">
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-secondary)" }}>
-                  YOUR ACTIVE CAPACITY
-                </span>
-                <span
-                  className="pill"
-                  style={{
-                    fontSize: "11px",
-                    fontWeight: 600,
-                    background: isAtQuota ? "rgba(239, 68, 68, 0.15)" : "rgba(16, 185, 129, 0.15)",
-                    color: isAtQuota ? "#ef4444" : "#10b981",
-                  }}
+            {isAdmin ? (
+              <div className="pool-quota-card" style={{ minWidth: "300px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-secondary)" }}>
+                    TEAM DISTRIBUTION
+                  </span>
+                  <span
+                    className="pill"
+                    style={{
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      background: "rgba(16, 185, 129, 0.15)",
+                      color: "#10b981",
+                    }}
+                  >
+                    Active Routing
+                  </span>
+                </div>
+                <p style={{ fontSize: "11.5px", color: "var(--text-secondary)", margin: "4px 0 8px", lineHeight: 1.4 }}>
+                  Assign leads individually below or auto-distribute across all active closers evenly.
+                </p>
+                <button
+                  type="button"
+                  className="btn"
+                  data-variant="primary"
+                  onClick={handleAutoDistributeAll}
+                  disabled={isDistributing || openPoolList.length === 0}
+                  style={{ width: "100%", justifyContent: "center", gap: "6px", fontSize: "12px", fontWeight: 600 }}
                 >
-                  {isAtQuota ? "⚠️ Quota Full" : `✅ ${Math.max(0, myCap - myActiveLeads)} grabs left`}
-                </span>
+                  <Icon name={isDistributing ? "refresh" : "zap"} size={13} className={isDistributing ? "spin" : ""} />
+                  {isDistributing ? "Distributing leads..." : "⚡ Auto-Distribute (Round-Robin)"}
+                </button>
               </div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
-                <span style={{ fontSize: "20px", fontWeight: 700 }}>{myActiveLeads}</span>
-                <span style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>/ {myCap} max active leads</span>
+            ) : (
+              <div className="pool-quota-card">
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-secondary)" }}>
+                    YOUR ACTIVE CAPACITY
+                  </span>
+                  <span
+                    className="pill"
+                    style={{
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      background: isAtQuota ? "rgba(239, 68, 68, 0.15)" : "rgba(16, 185, 129, 0.15)",
+                      color: isAtQuota ? "#ef4444" : "#10b981",
+                    }}
+                  >
+                    {isAtQuota ? "⚠️ Quota Full" : `✅ ${Math.max(0, myCap - myActiveLeads)} grabs left`}
+                  </span>
+                </div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
+                  <span style={{ fontSize: "20px", fontWeight: 700 }}>{myActiveLeads}</span>
+                  <span style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>/ {myCap} max active leads</span>
+                </div>
+                {/* Progress bar */}
+                <div style={{ height: "6px", width: "100%", background: "var(--border)", borderRadius: "3px", overflow: "hidden" }}>
+                  <div
+                    style={{
+                      height: "100%",
+                      width: `${Math.min(100, (myActiveLeads / myCap) * 100)}%`,
+                      background: isAtQuota ? "#ef4444" : "var(--accent)",
+                      transition: "width 0.3s ease",
+                    }}
+                  />
+                </div>
+                <div style={{ fontSize: "10px", color: "var(--text-tertiary)" }}>
+                  Admin controlled: {closerName} (Cap: {myCap} leads)
+                </div>
               </div>
-              {/* Progress bar */}
-              <div style={{ height: "6px", width: "100%", background: "var(--border)", borderRadius: "3px", overflow: "hidden" }}>
-                <div
-                  style={{
-                    height: "100%",
-                    width: `${Math.min(100, (myActiveLeads / myCap) * 100)}%`,
-                    background: isAtQuota ? "#ef4444" : "var(--accent)",
-                    transition: "width 0.3s ease",
-                  }}
-                />
-              </div>
-              <div style={{ fontSize: "10px", color: "var(--text-tertiary)" }}>
-                Admin controlled: {closerName} (Cap: {myCap} leads)
-              </div>
-            </div>
+            )}
           </div>
 
           {/* Filter Toolbar for Pool */}
@@ -550,42 +656,64 @@ export function PipelineView() {
                       </div>
                     </div>
 
-                    {/* Footer Row: Value + Grab Button */}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "10px", borderTop: "1px solid var(--border)", marginTop: "auto" }}>
-                      <div>
-                        <div style={{ fontSize: "10px", color: "var(--text-tertiary)" }}>Deal Budget</div>
-                        <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text)" }}>
-                          {item.budgetAmount ? money(item.budgetAmount) : "₹75,000"}
-                        </div>
-                      </div>
+                    {/* Footer Row: Assign to Closer (Admin) vs Grab Lead (Closer) -- Deal Budget Removed */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "10px", borderTop: "1px solid var(--border)", marginTop: "auto", gap: "10px" }}>
+                      <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                        {item.createdAt ? `Imported ${relativeTime(item.createdAt)}` : "Unassigned"}
+                      </span>
 
-                      <button
-                        className="btn"
-                        data-variant="primary"
-                        disabled={isClaiming || isAtQuota}
-                        onClick={() => handleClaimLead(item)}
-                        style={{
-                          padding: "6px 14px",
-                          fontSize: "12px",
-                          fontWeight: 600,
-                          opacity: isAtQuota ? 0.6 : 1,
-                        }}
-                        title={isAtQuota ? `Active lead cap reached (${myActiveLeads}/${myCap}). Resolve deals to grab more.` : "Click to claim lead into your pipeline"}
-                      >
-                        {isClaiming ? (
-                          <>
-                            <Icon name="refresh" size={13} className="spin" /> Grabbing...
-                          </>
-                        ) : isAtQuota ? (
-                          <>
-                            <Icon name="alert-circle" size={13} /> Quota Full
-                          </>
-                        ) : (
-                          <>
-                            <Icon name="zap" size={13} /> Grab Lead Now
-                          </>
-                        )}
-                      </button>
+                      {isAdmin ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <select
+                            className="select"
+                            style={{ height: "30px", fontSize: "12px", padding: "0 8px", minWidth: "150px" }}
+                            disabled={isClaiming}
+                            defaultValue=""
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                handleAssignLead(item, e.target.value);
+                                e.target.value = "";
+                              }
+                            }}
+                            aria-label="Assign lead to closer"
+                          >
+                            <option value="" disabled>Assign to Closer ▾</option>
+                            {availableClosers.map((closer) => (
+                              <option key={closer} value={closer}>
+                                {closer}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : (
+                        <button
+                          className="btn"
+                          data-variant="primary"
+                          disabled={isClaiming || isAtQuota}
+                          onClick={() => handleClaimLead(item)}
+                          style={{
+                            padding: "6px 14px",
+                            fontSize: "12px",
+                            fontWeight: 600,
+                            opacity: isAtQuota ? 0.6 : 1,
+                          }}
+                          title={isAtQuota ? `Active lead cap reached (${myActiveLeads}/${myCap}). Resolve deals to grab more.` : "Click to claim lead into your pipeline"}
+                        >
+                          {isClaiming ? (
+                            <>
+                              <Icon name="refresh" size={13} className="spin" /> Grabbing...
+                            </>
+                          ) : isAtQuota ? (
+                            <>
+                              <Icon name="alert-circle" size={13} /> Quota Full
+                            </>
+                          ) : (
+                            <>
+                              <Icon name="zap" size={13} /> Grab Lead Now
+                            </>
+                          )}
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
