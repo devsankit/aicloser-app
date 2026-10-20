@@ -390,11 +390,7 @@ export function ChatView() {
       aicloserApi.leads.update(activeLead.id, { stage: newStage }).catch(() => {});
     }
     if (activeChat) {
-      fetch(`/api/conversations/${encodeURIComponent(activeChat.id)}/lead-status`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ leadStatusId: newStage, stage: newStage, status: newStage }),
-      }).catch(() => {});
+      aicloserApi.conversations.updateStage(activeChat.id, newStage).catch(() => {});
 
       const sysMsg: ChatMessage = {
         id: `sys-${Date.now()}`,
@@ -471,42 +467,20 @@ export function ChatView() {
         });
       } catch {}
 
-      // 3. Query sales team endpoint
+      // 3. Query modern live /api/v1/team endpoint
       try {
-        const res = await fetch("/api/sales/team");
-        if (res.ok) {
-          const json = await res.json();
-          const agents = json.agents || [];
-          agents.forEach((a: any) => {
-            const name = a.displayName || a.name || a.agentCode;
-            if (name && !found.has(name.toLowerCase())) {
-              found.set(name.toLowerCase(), {
-                id: a.id || a.userId || name,
-                name,
-                role: a.role || "Sales Closer",
-              });
-            }
-          });
-        }
-      } catch {}
-
-      // 4. Query sales roles users endpoint
-      try {
-        const res = await fetch("/api/sales/roles/users");
-        if (res.ok) {
-          const json = await res.json();
-          const users = json.users || json.agents || [];
-          users.forEach((u: any) => {
-            const name = u.displayName || u.name || u.email;
-            if (name && !found.has(name.toLowerCase())) {
-              found.set(name.toLowerCase(), {
-                id: u.id || name,
-                name,
-                role: u.role || "Team",
-              });
-            }
-          });
-        }
+        const teamRes: any = await aicloserApi.team.list();
+        const members = Array.isArray(teamRes?.data) ? teamRes.data : Array.isArray(teamRes) ? teamRes : [];
+        members.forEach((m: any) => {
+          const name = m.name || m.displayName || m.email;
+          if (name && !found.has(name.toLowerCase())) {
+            found.set(name.toLowerCase(), {
+              id: m.id || m.userId || name,
+              name,
+              role: m.role || "Sales Closer",
+            });
+          }
+        });
       } catch {}
 
       if (active && found.size > 0) {

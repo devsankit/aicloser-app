@@ -5502,10 +5502,9 @@ function ChatWorkspaceInner({
       if (isDetailsOpen || isNotesMenuOpen) {
         const refreshDetails = activeConversation.leadId
           ? aicloserApi.leads.get360(activeConversation.leadId).then((data) => setCrmDetails(mapCentralCrmDetails(data)))
-          : fetch(`/api/conversations/${encodeURIComponent(activeConversation.id)}/crm-details`, { cache: "no-store" })
-              .then((crmResponse) => crmResponse.json().catch(() => null))
-              .then((crmPayload) => {
-                if (crmPayload?.ok) setCrmDetails(crmPayload.customer360);
+          : aicloserApi.conversations.get360(activeConversation.id)
+              .then((data: any) => {
+                if (data) setCrmDetails(mapCentralCrmDetails(data));
               });
         void refreshDetails
           .catch(() => undefined);

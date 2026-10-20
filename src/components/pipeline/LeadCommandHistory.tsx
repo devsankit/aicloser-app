@@ -173,29 +173,25 @@ export function LeadCommandHistory({
       } catch {}
     }
 
-    // 2. Fetch from conversation crm-details if conversationId provided
+    // 2. Fetch from conversation 360 if conversationId provided
     if (conversationId) {
       try {
-        const res = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/crm-details`);
-        if (res.ok) {
-          const json = await res.json();
-          if (json?.customer360) {
-            const c360 = json.customer360;
-            if (Array.isArray(c360.calls) && c360.calls.length > 0 && fetchedCalls.length === 0) {
-              fetchedCalls = c360.calls;
-            }
-            if (Array.isArray(c360.deals) && c360.deals.length > 0 && fetchedPayments.length === 0) {
-              fetchedPayments = c360.deals;
-            }
-            if (Array.isArray(c360.history) && c360.history.length > 0 && fetchedHistory.length === 0) {
-              fetchedHistory = c360.history;
-            }
-            if (Array.isArray(c360.salesTimeline) && c360.salesTimeline.length > 0 && fetchedNotes.length === 0) {
-              fetchedNotes = c360.salesTimeline;
-            }
+        const c360 = await aicloserApi.conversations.get360(conversationId);
+        if (c360) {
+          if (Array.isArray(c360.calls) && c360.calls.length > 0 && fetchedCalls.length === 0) {
+            fetchedCalls = c360.calls;
           }
-          if (json?.conversation?.nextFollowUpAt && !leadFollowUp) {
-            leadFollowUp = json.conversation.nextFollowUpAt;
+          if (Array.isArray(c360.payments) && c360.payments.length > 0 && fetchedPayments.length === 0) {
+            fetchedPayments = c360.payments;
+          }
+          if (Array.isArray(c360.history) && c360.history.length > 0 && fetchedHistory.length === 0) {
+            fetchedHistory = c360.history;
+          }
+          if (Array.isArray(c360.timeline) && c360.timeline.length > 0 && fetchedNotes.length === 0) {
+            fetchedNotes = c360.timeline;
+          }
+          if (c360.lead?.followUpAt && !leadFollowUp) {
+            leadFollowUp = c360.lead.followUpAt;
           }
         }
       } catch {}
