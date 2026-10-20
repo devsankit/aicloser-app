@@ -315,8 +315,8 @@ const normalizeNavSpacing = (value: unknown): NavSpacing =>
   value === 1 || value === 2 || value === 4 || value === 6 ? (value as NavSpacing) : 2;
 
 const initialState: AppState = {
-  leads: SEED_LEADS,
-  theme: "dark",
+  leads: [],
+  theme: "light",
   density: "comfortable",
   accent: BRAND_ACCENT,
   fontScale: "md",
@@ -335,8 +335,8 @@ const initialState: AppState = {
   isLoadingApi: false,
   user: null,
   workspaceAuth: null,
-  poolLeads: SEED_POOL_LEADS,
-  poolCount: 573,
+  poolLeads: [],
+  poolCount: 0,
   isPoolLoading: false,
 };
 
@@ -348,6 +348,9 @@ function readStorage(): Partial<Persisted> | null {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<Persisted>;
+    if (parsed.leads && Array.isArray(parsed.leads)) {
+      parsed.leads = parsed.leads.filter((l) => !l.id?.startsWith("ld-"));
+    }
     return parsed;
   } catch {
     return null;
@@ -377,7 +380,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ...prev,
       hydrated: true,
       leads: saved?.leads?.length ? saved.leads : prev.leads,
-      theme: saved?.theme === "light" || saved?.theme === "dark" ? saved.theme : prev.theme,
+      theme: saved?.theme === "dark" || saved?.theme === "light" ? saved.theme : "light",
       density: saved?.density === "compact" ? "compact" : "comfortable",
       accent: normalizeAccent(saved?.accent),
       fontScale: normalizeFontScale(saved?.fontScale),
@@ -455,8 +458,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           aicloserApi.leads.list({ limit: 100 }).catch(() => ({ leads: [] })),
           aicloserApi.leads.getPool().catch(() => []),
         ]);
-        const poolList = Array.isArray(poolItems) && poolItems.length > 0 ? poolItems : SEED_POOL_LEADS;
-        const poolCount = Array.isArray(poolItems) && poolItems.length > 0 ? poolItems.length : 573;
+        const poolList = Array.isArray(poolItems) ? poolItems : [];
+        const poolCount = Array.isArray(poolItems) ? poolItems.length : 0;
+        const userTheme: Theme | undefined = me.user?.themePreference
+          ? (String(me.user.themePreference).toLowerCase() === "dark" ? "dark" : "light")
+          : undefined;
         if (apiLeads && apiLeads.length > 0) {
           const mapped = apiLeads.map(backendLeadToUiLead);
           setState((p) => ({
@@ -464,6 +470,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             leads: mapped,
             poolLeads: poolList,
             poolCount,
+            theme: userTheme || p.theme,
             apiConnected: true,
             isLiveCloud: true,
             user: me.user,
@@ -476,6 +483,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ...p,
           poolLeads: poolList,
           poolCount: poolList.length,
+          theme: userTheme || p.theme,
           apiConnected: true,
           isLiveCloud: true,
           user: me.user,
@@ -670,7 +678,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               company: currentItem?.serviceInterest || "Direct Enquiry",
               phone: currentItem?.customerPhone || "",
               email: currentItem?.customerEmail || "",
-              value: currentItem?.budgetAmount || 0,
+              value: Number(currentItem?.budgetAmount) || 0,
               source: normalizeSource(currentItem?.source || "Google Sheets"),
               segment: (currentItem?.segment as Segment) || "SMB",
               stage: "new",
@@ -704,7 +712,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             company: currentItem?.serviceInterest || "Direct Enquiry",
             phone: currentItem?.customerPhone || "",
             email: currentItem?.customerEmail || "",
-            value: currentItem?.budgetAmount || 75000,
+            value: Number(currentItem?.budgetAmount) || 0,
             source: normalizeSource(currentItem?.source || "Google Sheets"),
             segment: (currentItem?.segment as Segment) || "SMB",
             stage: "new",
@@ -809,7 +817,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setState((p) => ({ ...p, apiConnected: false, isLiveCloud: false, user: null, workspaceAuth: null }));
   }, []);
 
-  const setTheme = useCallback((theme: Theme) => setState((p) => ({ ...p, theme })), []);
+  const setTheme = useCallback((theme: Theme) => {
+    setState((p) => ({
+      ...p,
+      theme,
+      user: p.user ? { ...p.user, themePreference: theme } : p.user,
+    }));
+    try {
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("aicloser_theme", theme);
+      }
+    } catch {}
+    aicloserApi.users.updateTheme(theme).catch(() => {});
+  }, []);
   const setDensity = useCallback((density: Density) => setState((p) => ({ ...p, density })), []);
   const setAccent = useCallback(
     (accent: string) => setState((p) => ({ ...p, accent: normalizeAccent(accent) })),
@@ -922,8 +942,16 @@ export function useApp() {
 export function useScopedLeads() {
   const { state } = useApp();
   return useMemo(() => {
-    if (state.scope === "mine") return state.leads.filter((l) => l.owner === CURRENT_USER);
-    if (state.scope === "unassigned") return state.leads.filter((l) => l.owner === "Unassigned");
+    const myName = (state.user?.displayName || CURRENT_USER).toLowerCase();
+    const myId = (state.user as any)?.userId || (state.user as any)?.id;
+    if (state.scope === "mine") {
+      return state.leads.filter(
+        (l) =>
+          (l.owner && l.owner.toLowerCase() === myName) ||
+          (myId && (l as any).assignedAgentId === myId)
+      );
+    }
+    if (state.scope === "unassigned") return state.leads.filter((l) => !l.owner || l.owner === "Unassigned");
     if (state.scope.startsWith("agent:")) {
       const targetAgent = state.scope.slice(6).trim().toLowerCase();
       return state.leads.filter(
@@ -931,7 +959,7 @@ export function useScopedLeads() {
       );
     }
     return state.leads;
-  }, [state.leads, state.scope]);
+  }, [state.leads, state.scope, state.user]);
 }
 
 /** Mask phone numbers for closer isolation to prevent lead theft. */

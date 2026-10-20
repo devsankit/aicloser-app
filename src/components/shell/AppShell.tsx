@@ -244,7 +244,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             const userRole = state.user?.role || "ADMIN";
             const visibleItems = group.items.filter((item) => {
               if (item.href === "/super-admin") {
-                return userRole === "SUPER_ADMIN" || userRole === "ADMIN";
+                return userRole === "SUPER_ADMIN";
               }
               if (userRole === "ADMIN" || userRole === "SUPER_ADMIN") return true;
               if (userRole === "MANAGER") {

@@ -348,12 +348,6 @@ export const NAV: NavGroup[] = [
       { href: "/settings", label: "Settings", icon: "settings" },
     ],
   },
-  {
-    label: "Platform Command",
-    items: [
-      { href: "/super-admin", label: "Super Admin Console", icon: "shield" },
-    ],
-  },
 ];
 
 export const SEED_POOL_LEADS: LeadPoolItem[] = [

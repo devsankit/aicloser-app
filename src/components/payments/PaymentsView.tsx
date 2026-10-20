@@ -13,7 +13,7 @@ export interface PaymentTransaction {
   amount: number;
   method: "UPI" | "Cards / Netbanking" | "Bank Transfer";
   closer: string;
-  status: "settled" | "proof_uploaded" | "pending" | "rejected";
+  status: "settled" | "proof_uploaded" | "pending" | "rejected" | "expired";
   utr?: string;
   createdAt: string;
   proofNote?: string;
@@ -35,9 +35,12 @@ export function PaymentsView() {
   const [linkDescription, setLinkDescription] = useState("Annual Closer CRM Onboarding License");
 
   const pendingProofs = transactions.filter((t) => t.status === "proof_uploaded");
+  const pendingProofsTotal = pendingProofs.reduce((acc, t) => acc + (Number(t.amount) || 0), 0);
   const settledTotal = transactions
     .filter((t) => t.status === "settled")
-    .reduce((acc, t) => acc + t.amount, 0);
+    .reduce((acc, t) => acc + (Number(t.amount) || 0), 0);
+  const openLinks = transactions.filter((t) => t.status === "pending");
+  const openLinksTotal = openLinks.reduce((acc, t) => acc + (Number(t.amount) || 0), 0);
 
   // Live API Fetch
   useEffect(() => {
@@ -51,7 +54,7 @@ export function PaymentsView() {
           leadCode: p.lead?.leadCode || `CLO-${p.id.slice(-4).toUpperCase()}`,
           customerName: p.customerName || p.lead?.customerName || "Customer",
           company: p.lead?.customFields?.company || "Direct Account",
-          amount: p.totalAmount || p.baseAmount || 0,
+          amount: Number(p.totalAmount || p.baseAmount || 0),
           method:
             p.method === "UPI"
               ? "UPI"
@@ -60,12 +63,14 @@ export function PaymentsView() {
               : "Cards / Netbanking",
           closer: p.agent?.displayName || CURRENT_USER,
           status:
-            p.status === "SETTLED"
+            p.status === "SETTLED" || p.status === "PAID"
               ? "settled"
-              : p.status === "PROOF_UPLOADED"
+              : p.status === "PROOF_UPLOADED" || p.status === "CUSTOMER_CONFIRMED"
               ? "proof_uploaded"
-              : p.status === "REJECTED"
+              : p.status === "REJECTED" || p.status === "CANCELLED"
               ? "rejected"
+              : p.status === "EXPIRED"
+              ? "expired"
               : "pending",
           utr: p.utrReference,
           createdAt: new Date(p.createdAt).toLocaleDateString("en-IN", {
@@ -189,7 +194,7 @@ export function PaymentsView() {
             Settled Revenue (Month)
           </div>
           <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px", color: "var(--success)" }}>
-            ₹{(settledTotal / 100000).toFixed(2)}L
+            ₹{settledTotal.toLocaleString("en-IN")}
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
             Verified settlements across CRM deals
@@ -204,19 +209,19 @@ export function PaymentsView() {
             {pendingProofs.length} <span style={{ fontSize: "var(--fs-body)", fontWeight: 400, color: "var(--text-tertiary)" }}>proofs</span>
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--warning)", marginTop: "4px", display: "flex", alignItems: "center", gap: "4px" }}>
-            <span className="dot" style={{ background: "var(--warning)" }} /> ₹{(pendingProofs.reduce((acc, t) => acc + t.amount, 0) / 1000).toFixed(0)}k awaiting approval
+            <span className="dot" style={{ background: "var(--warning)" }} /> ₹{pendingProofsTotal.toLocaleString("en-IN")} awaiting approval
           </div>
         </div>
 
         <div className="card" style={{ padding: "14px 16px" }}>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", fontWeight: 550, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-            Open Payment Links
+            Open Payment Links (Pipeline)
           </div>
           <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px" }}>
-            {transactions.filter((t) => t.status === "pending").length} <span style={{ fontSize: "var(--fs-body)", fontWeight: 400, color: "var(--text-tertiary)" }}>active</span>
+            ₹{openLinksTotal.toLocaleString("en-IN")}
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
-            Shared via WhatsApp & SMS
+            {openLinks.length} active links shared with leads
           </div>
         </div>
 
@@ -313,11 +318,13 @@ export function PaymentsView() {
                             ? "warning"
                             : tx.status === "rejected"
                             ? "danger"
+                            : tx.status === "expired"
+                            ? "neutral"
                             : "accent"
                         }
                         style={{ fontSize: "11px" }}
                       >
-                        <span className="dot" style={{ background: tx.status === "settled" ? "var(--success)" : tx.status === "proof_uploaded" ? "var(--warning)" : "var(--accent)" }} />
+                        <span className="dot" style={{ background: tx.status === "settled" ? "var(--success)" : tx.status === "proof_uploaded" ? "var(--warning)" : tx.status === "rejected" ? "var(--danger)" : tx.status === "expired" ? "var(--text-tertiary)" : "var(--accent)" }} />
                         {tx.status === "proof_uploaded" ? "Proof Uploaded" : tx.status.toUpperCase()}
                       </span>
                     </td>

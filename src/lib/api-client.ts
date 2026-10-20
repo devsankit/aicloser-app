@@ -46,6 +46,7 @@ export interface DashboardSummaryResponse {
   wonAmount: number;
   lostCount: number;
   pipelineValue: number;
+  pendingPaymentLinksCount?: number;
   conversionRate: number;
   stageCounts: Record<string, number>;
 }
@@ -69,6 +70,7 @@ export interface UserSession {
   phone?: string;
   role: 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'SALES_AGENT';
   tenantId: string;
+  themePreference?: 'light' | 'dark' | string;
 }
 
 export interface Lead {
@@ -587,6 +589,32 @@ export const aicloserApi = {
       } finally {
         setStoredToken(null);
       }
+    },
+  },
+
+  // 1b. Users & Profile
+  users: {
+    async getProfile() {
+      const res = await request<UserSession>('/users/profile');
+      return res.data;
+    },
+    async updateProfile(data: { displayName?: string; phone?: string; themePreference?: 'light' | 'dark' }) {
+      const res = await request<UserSession>('/users/profile', {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      });
+      return res.data;
+    },
+    async getTheme() {
+      const res = await request<{ themePreference: 'light' | 'dark' }>('/users/theme');
+      return res.data;
+    },
+    async updateTheme(themePreference: 'light' | 'dark') {
+      const res = await request<{ themePreference: 'light' | 'dark' }>('/users/theme', {
+        method: 'PATCH',
+        body: JSON.stringify({ themePreference }),
+      });
+      return res.data;
     },
   },
 
@@ -1576,6 +1604,40 @@ export const aicloserApi = {
         const res = await request(`/integrations/whatsapp/channels/${encodeURIComponent(id)}`, { method: 'DELETE' });
         return res.data;
       },
+      async createChannel(payload: {
+        wabaId: string;
+        phoneNumberId: string;
+        displayPhoneNumber: string;
+        verifiedName?: string;
+        accessToken?: string;
+        isDefault?: boolean;
+      }) {
+        const res = await request('/integrations/whatsapp/channels', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+        return res.data;
+      },
+      async startEmbeddedSignup() {
+        const res = await request<{ appId: string; configId: string; stateToken: string }>('/integrations/whatsapp/embedded-signup/start', { method: 'POST' });
+        return res.data;
+      },
+      async completeEmbeddedSignup(payload: {
+        code: string;
+        wabaId: string;
+        phoneNumberId: string;
+        displayPhoneNumber?: string;
+        verifiedName?: string;
+      }) {
+        const res = await request<{ id: string; displayPhoneNumber: string; verifiedName?: string; status: string }>(
+          '/integrations/whatsapp/embedded-signup/complete',
+          {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          }
+        );
+        return res.data;
+      },
       async registerPhone(id: string, payload: Record<string, unknown>) {
         const res = await request(`/integrations/whatsapp/channels/${encodeURIComponent(id)}/register-phone`, { method: 'POST', body: JSON.stringify(payload) });
         return res.data;
@@ -1583,6 +1645,48 @@ export const aicloserApi = {
       async subscribeWebhook(id: string) {
         const res = await request(`/integrations/whatsapp/channels/${encodeURIComponent(id)}/subscribe-webhook`, { method: 'POST' });
         return res.data;
+      },
+      devices: {
+        async list() {
+          const res = await request<{ data: any[]; totalPendingLeads: number; totalActiveThreads: number }>('/integrations/whatsapp/devices');
+          return res;
+        },
+        async startPairing(payload?: { name?: string }) {
+          const res = await request<{ sessionId: string; qrData: string; pairingCode: string; deviceName: string; expiresInSec: number; protocol: string; instructions: string[] }>(
+            '/integrations/whatsapp/devices/pair',
+            { method: 'POST', body: JSON.stringify(payload || {}) }
+          );
+          return res.data;
+        },
+        async confirmPairing(payload: { name: string; phoneNumber: string; sessionId?: string }) {
+          const res = await request<{ id: string; name: string; phoneNumber: string; status: string }>(
+            '/integrations/whatsapp/devices/confirm-pair',
+            { method: 'POST', body: JSON.stringify(payload) }
+          );
+          return res.data;
+        },
+        async sync(id: string) {
+          const res = await request(`/integrations/whatsapp/devices/${encodeURIComponent(id)}/sync`, { method: 'POST' });
+          return res.data;
+        },
+        async importLeads(id: string) {
+          const res = await request<{ deviceId: string; deviceName: string; leads: any[]; count: number }>(
+            `/integrations/whatsapp/devices/${encodeURIComponent(id)}/import`,
+            { method: 'POST' }
+          );
+          return res.data;
+        },
+        async importAll() {
+          const res = await request<{ leads: any[]; count: number; devicesCount: number }>(
+            '/integrations/whatsapp/devices/import-all',
+            { method: 'POST' }
+          );
+          return res.data;
+        },
+        async disconnect(id: string) {
+          const res = await request(`/integrations/whatsapp/devices/${encodeURIComponent(id)}`, { method: 'DELETE' });
+          return res;
+        },
       },
     },
     instagram: {
@@ -2092,6 +2196,13 @@ export const aicloserApi = {
       const res = await request(`/super-admin/tenants/${tenantId}/plan`, {
         method: 'PATCH',
         body: JSON.stringify({ planTier }),
+      });
+      return res.data;
+    },
+    async createTenant(payload: { name: string; slug?: string; ownerEmail?: string; ownerPhone?: string; maxSeats?: number }) {
+      const res = await request('/super-admin/tenants', {
+        method: 'POST',
+        body: JSON.stringify(payload),
       });
       return res.data;
     },

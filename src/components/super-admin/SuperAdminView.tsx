@@ -3,15 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Icon } from "@/components/ui/Icon";
-import { aicloserApi, setStoredToken } from "@/lib/api-client";
+import { aicloserApi, getStoredToken, setStoredToken } from "@/lib/api-client";
 import { useApp } from "@/lib/store";
 
 export type TenantWorkspace = {
   id: string;
   name: string;
   slug: string;
-  planTier: "FREE" | "STARTER" | "PRO" | "ENTERPRISE" | string;
-  status: "ACTIVE" | "SUSPENDED" | "PENDING";
+    status: "ACTIVE" | "SUSPENDED" | "PENDING";
   maxSeats: number;
   activeUsersCount: number;
   ownerEmail: string;
@@ -28,7 +27,7 @@ export type TenantUser = {
   displayName: string;
   email: string;
   phone: string;
-  role: "ADMIN" | "MANAGER" | "CLOSER" | "SUPER_ADMIN";
+  role: "ADMIN" | "MANAGER" | "USER" | "SUPER_ADMIN" | "CLOSER" | "SALES_AGENT";
   status: "ACTIVE" | "PAUSED" | "SUSPENDED";
   agentCode?: string;
   createdAt: string;
@@ -91,247 +90,25 @@ export type AuditLogItem = {
   timestamp: string;
 };
 
-const SEED_WORKSPACES: TenantWorkspace[] = [
-  {
-    id: "ws-growth-media",
-    name: "Apex Growth Media",
-    slug: "apex-growth",
-    planTier: "ENTERPRISE",
-    status: "ACTIVE",
-    maxSeats: 12,
-    activeUsersCount: 8,
-    ownerEmail: "founder@apexgrowth.in",
-    ownerPhone: "+91 98200 12345",
-    createdAt: "2025-11-10T10:00:00Z",
-    expiresAt: "2026-11-10T23:59:59Z",
-    monthlyRevenue: 49999,
-    activeSims: 4,
-    users: [
-      { id: "usr-01", displayName: "Aakash Mehta", email: "founder@apexgrowth.in", phone: "+91 98200 12345", role: "ADMIN", status: "ACTIVE", agentCode: "GX-101", createdAt: "2025-11-10", lastLoginAt: "Just now" },
-      { id: "usr-02", displayName: "Rhea Sharma", email: "rhea.closer@apexgrowth.in", phone: "+91 98200 88771", role: "CLOSER", status: "ACTIVE", agentCode: "GX-102", createdAt: "2025-11-15", lastLoginAt: "10m ago" },
-      { id: "usr-03", displayName: "Kavita Roy", email: "kavita.mgr@apexgrowth.in", phone: "+91 98200 66554", role: "MANAGER", status: "ACTIVE", agentCode: "GX-103", createdAt: "2025-11-20", lastLoginAt: "1h ago" },
-    ],
-  },
-  {
-    id: "ws-vertex-realestate",
-    name: "Vertex Realty Group",
-    slug: "vertex-realty",
-    planTier: "PRO",
-    status: "ACTIVE",
-    maxSeats: 8,
-    activeUsersCount: 5,
-    ownerEmail: "sales@vertexrealty.com",
-    ownerPhone: "+91 99870 21145",
-    createdAt: "2026-01-05T12:00:00Z",
-    expiresAt: "2026-07-05T23:59:59Z",
-    monthlyRevenue: 24999,
-    activeSims: 3,
-    users: [
-      { id: "usr-04", displayName: "Karan Shah", email: "sales@vertexrealty.com", phone: "+91 99870 21145", role: "ADMIN", status: "ACTIVE", agentCode: "GX-201", createdAt: "2026-01-05", lastLoginAt: "2h ago" },
-      { id: "usr-05", displayName: "Aditya Jain", email: "aditya@vertexrealty.com", phone: "+91 99870 33441", role: "CLOSER", status: "ACTIVE", agentCode: "GX-202", createdAt: "2026-01-08", lastLoginAt: "4h ago" },
-    ],
-  },
-  {
-    id: "ws-helios-agency",
-    name: "Helios Creative Studio",
-    slug: "helios-creative",
-    planTier: "STARTER",
-    status: "ACTIVE",
-    maxSeats: 3,
-    activeUsersCount: 2,
-    ownerEmail: "admin@heliosagency.io",
-    ownerPhone: "+91 98455 12098",
-    createdAt: "2026-02-14T14:30:00Z",
-    expiresAt: "2026-08-14T23:59:59Z",
-    monthlyRevenue: 9999,
-    activeSims: 1,
-    users: [
-      { id: "usr-06", displayName: "Priya Nair", email: "admin@heliosagency.io", phone: "+91 98455 12098", role: "ADMIN", status: "ACTIVE", agentCode: "GX-301", createdAt: "2026-02-14", lastLoginAt: "Yesterday" },
-    ],
-  },
-  {
-    id: "ws-legacy-infra",
-    name: "Zeta Logistics Hub",
-    slug: "zeta-logistics",
-    planTier: "FREE",
-    status: "SUSPENDED",
-    maxSeats: 1,
-    activeUsersCount: 1,
-    ownerEmail: "contact@zetahub.in",
-    ownerPhone: "+91 98110 93342",
-    createdAt: "2026-03-01T09:00:00Z",
-    expiresAt: "2026-04-01T23:59:59Z",
-    monthlyRevenue: 0,
-    activeSims: 0,
-    users: [
-      { id: "usr-07", displayName: "Manav Gupta", email: "contact@zetahub.in", phone: "+91 98110 93342", role: "ADMIN", status: "SUSPENDED", agentCode: "GX-401", createdAt: "2026-03-01", lastLoginAt: "5d ago" },
-    ],
-  },
-];
-
-const SEED_DEVICES: TelemetryDevice[] = [
-  {
-    id: "dev-01",
-    deviceId: "android-sim-vivo-y200",
-    deviceName: "Vivo Y200 5G",
-    manufacturer: "Vivo",
-    model: "V2307",
-    androidVersion: "Android 14 (OriginOS)",
-    appVersion: "v2.8.4-build.92",
-    simLabel: "SIM 1 (Jio Business)",
-    simNumber: "+91 76185 34225",
-    batteryLevel: 88,
-    recordingStrategy: "ACCESSIBILITY_SERVICE",
-    recordingEnabled: true,
-    status: "ONLINE",
-    lastSeenAt: "12s ago",
-    agentName: "Anshita",
-    workspaceName: "Apex Growth Media",
-  },
-  {
-    id: "dev-02",
-    deviceId: "android-sim-poco-x5",
-    deviceName: "POCO X5 Pro",
-    manufacturer: "Xiaomi",
-    model: "22101320G",
-    androidVersion: "Android 13 (MIUI)",
-    appVersion: "v2.8.4-build.92",
-    simLabel: "SIM 1 (Airtel Corporate)",
-    simNumber: "+91 99933 28124",
-    batteryLevel: 64,
-    recordingStrategy: "NATIVE_RECORDER",
-    recordingEnabled: true,
-    status: "ONLINE",
-    lastSeenAt: "45s ago",
-    agentName: "Field Closer Desk",
-    workspaceName: "Apex Growth Media",
-  },
-  {
-    id: "dev-03",
-    deviceId: "android-sim-samsung-m34",
-    deviceName: "Samsung Galaxy M34",
-    manufacturer: "Samsung",
-    model: "SM-M346B",
-    androidVersion: "Android 14 (OneUI 6.0)",
-    appVersion: "v2.8.2-build.88",
-    simLabel: "SIM 2 (Vodafone Idea)",
-    simNumber: "+91 98765 43210",
-    batteryLevel: 22,
-    recordingStrategy: "ACCESSIBILITY_SERVICE",
-    recordingEnabled: false,
-    status: "SYNCING",
-    lastSeenAt: "3m ago",
-    agentName: "Aditya Jain",
-    workspaceName: "Vertex Realty Group",
-  },
-];
-
-const SEED_CALLS: CallLogStreamItem[] = [
-  {
-    id: "cl-101",
-    customerPhone: "+91 98200 99881",
-    direction: "INBOUND",
-    durationSeconds: 184,
-    status: "COMPLETED",
-    recordingStatus: "UPLOADED",
-    recordingUrl: "https://aicloser.in/sample-recording-1.mp3",
-    agentName: "Anshita",
-    workspaceName: "Apex Growth Media",
-    timestamp: "2m ago",
-  },
-  {
-    id: "cl-102",
-    customerPhone: "+91 99870 11223",
-    direction: "OUTBOUND",
-    durationSeconds: 92,
-    status: "COMPLETED",
-    recordingStatus: "UPLOADED",
-    recordingUrl: "https://aicloser.in/sample-recording-2.mp3",
-    agentName: "Field Closer Desk",
-    workspaceName: "Apex Growth Media",
-    timestamp: "8m ago",
-  },
-  {
-    id: "cl-103",
-    customerPhone: "+91 98455 33445",
-    direction: "OUTBOUND",
-    durationSeconds: 245,
-    status: "COMPLETED",
-    recordingStatus: "SYNCING",
-    agentName: "Aditya Jain",
-    workspaceName: "Vertex Realty Group",
-    timestamp: "14m ago",
-  },
-  {
-    id: "cl-104",
-    customerPhone: "+91 97655 44556",
-    direction: "INBOUND",
-    durationSeconds: 0,
-    status: "MISSED",
-    recordingStatus: "FAILED",
-    agentName: "Aditya Jain",
-    workspaceName: "Vertex Realty Group",
-    timestamp: "22m ago",
-  },
-];
-
-const SEED_REVIEWS: ReviewItem[] = [
-  {
-    id: "rev-1",
-    customerName: "Siddharth Verma",
-    contact: "+91 98201 44552",
-    rating: 5,
-    comment: "Closer transformed our agency conversion rate! Call recording ingestion with instant AI summaries is unbelievable.",
-    source: "Google GMB",
-    status: "RESOLVED",
-    createdAt: "2026-03-12T14:20:00Z",
-    adminNotes: "Featured review on homepage & verified client testimonial.",
-  },
-  {
-    id: "rev-2",
-    customerName: "Neha Chhabra",
-    contact: "+91 99872 11342",
-    rating: 5,
-    comment: "The WhatsApp QR device sync and automatic round robin lead routing saved us 3 full-time ops hires.",
-    source: "Rate Page",
-    status: "CONTACTED",
-    createdAt: "2026-03-14T11:15:00Z",
-    adminNotes: "Sent VIP thank you gift & case study invite.",
-  },
-  {
-    id: "rev-3",
-    customerName: "Rajeev Agarwal",
-    contact: "+91 98450 77881",
-    rating: 4,
-    comment: "Very solid platform. Would love to see more granular permission controls for junior interns.",
-    source: "WhatsApp Inbound",
-    status: "NEW",
-    createdAt: "2026-03-15T09:30:00Z",
-    adminNotes: null,
-  },
-];
-
-const SEED_AUDIT_LOGS: AuditLogItem[] = [
-  { id: "aud-1", user: "Aakash Mehta", email: "founder@apexgrowth.in", workspace: "Apex Growth Media", ip: "49.36.128.4", device: "Chrome 124 / macOS", event: "LOGIN", result: "SUCCESS", timestamp: "Just now" },
-  { id: "aud-2", user: "Super Admin Console", email: "admin@closer.in", workspace: "Global Command", ip: "103.21.144.1", device: "Browser Session", event: "SEAT_UPDATE", result: "SUCCESS", timestamp: "12m ago" },
-  { id: "aud-3", user: "Aditya Jain", email: "aditya@vertexrealty.com", workspace: "Vertex Realty Group", ip: "115.99.201.88", device: "Android Closer Telephony App", event: "SIM_HEARTBEAT", result: "SUCCESS", timestamp: "18m ago" },
-  { id: "aud-4", user: "Manav Gupta", email: "contact@zetahub.in", workspace: "Zeta Logistics Hub", ip: "157.34.19.12", device: "Firefox / Windows", event: "LOGIN", result: "BLOCKED", timestamp: "1h ago" },
-  { id: "aud-5", user: "Priya Nair", email: "admin@heliosagency.io", workspace: "Helios Creative Studio", ip: "182.73.4.9", device: "Safari / iOS", event: "PLAN_CHANGE", result: "SUCCESS", timestamp: "3h ago" },
-];
 
 export function SuperAdminView() {
   const { state } = useApp();
   const [activeTab, setActiveTab] = useState<"workspaces" | "mobile" | "whatsapp" | "ai" | "security" | "reviews">("workspaces");
-  const [workspaces, setWorkspaces] = useState<TenantWorkspace[]>(SEED_WORKSPACES);
-  const [devices, setDevices] = useState<TelemetryDevice[]>(SEED_DEVICES);
-  const [calls, setCalls] = useState<CallLogStreamItem[]>(SEED_CALLS);
-  const [reviews, setReviews] = useState<ReviewItem[]>(SEED_REVIEWS);
-  const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>(SEED_AUDIT_LOGS);
+  const [workspaces, setWorkspaces] = useState<TenantWorkspace[]>([]);
+  const [devices, setDevices] = useState<TelemetryDevice[]>([]);
+  const [calls, setCalls] = useState<CallLogStreamItem[]>([]);
+  const [reviews, setReviews] = useState<ReviewItem[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
 
   // Filters & search
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "SUSPENDED">("ALL");
-  const [tierFilter, setTierFilter] = useState<string>("ALL");
+  const [isLoading, setIsLoading] = useState(true);
+  const [authRequired, setAuthRequired] = useState(false);
+  const [loginEmail, setLoginEmail] = useState("hello.ankitrathore@gmail.com");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [selectedWorkspace, setSelectedWorkspace] = useState<TenantWorkspace | null>(null);
 
   // Modals
@@ -351,13 +128,12 @@ export function SuperAdminView() {
   const [newWsSlug, setNewWsSlug] = useState("");
   const [newWsEmail, setNewWsEmail] = useState("");
   const [newWsPhone, setNewWsPhone] = useState("");
-  const [newWsTier, setNewWsTier] = useState("STARTER");
-  const [newWsSeats, setNewWsSeats] = useState(5);
+    const [newWsSeats, setNewWsSeats] = useState(5);
 
   const [newUsrName, setNewUsrName] = useState("");
   const [newUsrEmail, setNewUsrEmail] = useState("");
   const [newUsrPhone, setNewUsrPhone] = useState("");
-  const [newUsrRole, setNewUsrRole] = useState<"ADMIN" | "MANAGER" | "CLOSER">("CLOSER");
+  const [newUsrRole, setNewUsrRole] = useState<"ADMIN" | "MANAGER" | "USER">("USER");
 
   // Global AI Engine Master Controls
   const [groqMasterKey, setGroqMasterKey] = useState("gsk_master_free_prod_••••••••••••••••");
@@ -377,28 +153,40 @@ export function SuperAdminView() {
   const refreshCentralData = async (notify = true) => {
     setIsSyncing(true);
     try {
-      const tenants = await aicloserApi.superAdmin.getTenants().catch(() => null);
-      if (Array.isArray(tenants) && tenants.length > 0) {
+      const tenants = await aicloserApi.superAdmin.getTenants().catch((err: any) => {
+        const msg = String(err?.message || err);
+        if (msg.includes("401") || msg.includes("403") || msg.includes("Forbidden") || msg.includes("Unauthorized")) {
+          setAuthRequired(true);
+        }
+        return null;
+      });
+
+      if (Array.isArray(tenants)) {
+        setAuthRequired(false);
         const mapped: TenantWorkspace[] = tenants.map((t: any) => ({
           id: String(t.id),
           name: t.name || "Workspace",
           slug: t.slug || t.id,
-          planTier: t.planTier || "STARTER",
           status: t.status === "ACTIVE" ? "ACTIVE" : "SUSPENDED",
-          maxSeats: Number(t.maxSeats || t.editorSeatLimit || 5),
-          activeUsersCount: Number(t.activeUsersCount || 1),
-          ownerEmail: t.ownerEmail || t.owner?.email || "admin@workspace.in",
-          ownerPhone: t.ownerPhone || t.owner?.phone || "+91 99999 00000",
+          maxSeats: Number(t.maxSeats || 5),
+          activeUsersCount: Number(t.stats?.usersCount ?? 1),
+          ownerEmail: t.ownerEmail || t.owner?.email || "-",
+          ownerPhone: t.ownerPhone || t.owner?.phone || "-",
           createdAt: t.createdAt || new Date().toISOString(),
           expiresAt: t.packageExpiresAt || t.expiresAt || null,
-          monthlyRevenue: Number(t.monthlyRevenue || 9999),
-          activeSims: Number(t.activeSims || 1),
+          monthlyRevenue: Number(t.maxSeats || 5) * 1999,
+          activeSims: Number(t.stats?.callsCount || 0),
           users: t.users || [],
         }));
         setWorkspaces(mapped);
+      } else {
+        const token = getStoredToken();
+        if (!token) {
+          setAuthRequired(true);
+        }
       }
 
-      // Check feedback from central API
+      // Live reviews
       const feedback = await aicloserApi.superAdmin.listFeedback().catch(() => null);
       if (feedback && (Array.isArray(feedback) || feedback.items)) {
         const raw = Array.isArray(feedback) ? feedback : feedback.items;
@@ -413,16 +201,23 @@ export function SuperAdminView() {
           createdAt: r.createdAt || new Date().toISOString(),
           adminNotes: r.adminNotes || null,
         }));
-        if (mappedReviews.length > 0) setReviews(mappedReviews);
+        setReviews(mappedReviews);
       }
 
-      if (notify) showToast("Central ecosystem registry synced with live backend.");
+      // Telemetry
+      const telem = await aicloserApi.superAdmin.getTelemetry().catch(() => null);
+      if (telem?.devices && Array.isArray(telem.devices)) {
+        setDevices(telem.devices);
+      }
+
+      if (notify) showToast("Live PostgreSQL ecosystem registry synced.");
     } catch {
-      if (notify) showToast("Central server offline — running on cached master registry.");
+      if (notify) showToast("Central server offline — check network connection.");
     } finally {
       setIsSyncing(false);
+      setIsLoading(false);
     }
-  };
+  }
 
   useEffect(() => {
     void refreshCentralData(false);
@@ -434,7 +229,7 @@ export function SuperAdminView() {
     const active = workspaces.filter((w) => w.status === "ACTIVE").length;
     const suspended = workspaces.filter((w) => w.status === "SUSPENDED").length;
     const totalSeats = workspaces.reduce((sum, w) => sum + w.maxSeats, 0);
-    const mrr = workspaces.filter((w) => w.status === "ACTIVE").reduce((sum, w) => sum + w.monthlyRevenue, 0);
+    const mrr = totalSeats * 1999;
     const totalSims = devices.filter((d) => d.status === "ONLINE").length;
     return { total, active, suspended, totalSeats, mrr, totalSims };
   }, [workspaces, devices]);
@@ -448,10 +243,9 @@ export function SuperAdminView() {
         w.slug.toLowerCase().includes(searchQuery.toLowerCase()) ||
         w.ownerEmail.toLowerCase().includes(searchQuery.toLowerCase());
       const matchStatus = statusFilter === "ALL" || w.status === statusFilter;
-      const matchTier = tierFilter === "ALL" || w.planTier === tierFilter;
-      return matchSearch && matchStatus && matchTier;
+      return matchSearch && matchStatus;
     });
-  }, [workspaces, searchQuery, statusFilter, tierFilter]);
+  }, [workspaces, searchQuery, statusFilter]);
 
   // Seat Stepper Handlers
   const handleUpdateSeats = async (ws: TenantWorkspace, delta: number) => {
@@ -491,14 +285,48 @@ export function SuperAdminView() {
     }
   };
 
-  // Plan Tier change
-  const handleChangeTier = async (ws: TenantWorkspace, nextTier: string) => {
-    setWorkspaces((prev) => prev.map((w) => (w.id === ws.id ? { ...w, planTier: nextTier } : w)));
+  // Direct seat change (Seat-based package management)
+  const handleDirectSeatChange = async (ws: TenantWorkspace, newSeats: number) => {
+    setWorkspaces((prev) => prev.map((w) => (w.id === ws.id ? { ...w, maxSeats: newSeats } : w)));
     try {
-      await aicloserApi.superAdmin.updateTenantPlan(ws.id, nextTier);
-      showToast(`Updated plan tier for ${ws.name} to ${nextTier}`);
+      await aicloserApi.superAdmin.updateTenantSeats(ws.id, newSeats);
+      showToast(`Updated ${ws.name} to ${newSeats} seats.`);
     } catch {
-      showToast(`Plan tier updated to ${nextTier}`);
+      showToast(`Saved seat allocation (${newSeats} seats) locally.`);
+    }
+  };
+
+  const handleSuperAdminLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoggingIn(true);
+    setLoginError(null);
+    try {
+      const res = await fetch("/api/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          identifier: loginEmail.trim(),
+          password: loginPassword,
+          clientType: "DESKTOP",
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.success && data?.data?.token) {
+        if (data.data.user?.role !== "SUPER_ADMIN") {
+          setLoginError("This account does not have SUPER_ADMIN permissions.");
+          return;
+        }
+        setStoredToken(data.data.token);
+        setAuthRequired(false);
+        showToast("Authenticated as Super Admin.");
+        void refreshCentralData(true);
+      } else {
+        setLoginError(data?.message || "Invalid credentials. Please enter Super Admin password.");
+      }
+    } catch {
+      setLoginError("Connection failed. Please check network connection.");
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -551,15 +379,14 @@ export function SuperAdminView() {
       id: `ws-${Date.now().toString(36)}`,
       name: newWsName.trim(),
       slug: (newWsSlug || newWsName).toLowerCase().replace(/\s+/g, "-"),
-      planTier: newWsTier,
-      status: "ACTIVE",
+            status: "ACTIVE",
       maxSeats: newWsSeats,
       activeUsersCount: 1,
       ownerEmail: newWsEmail || "admin@workspace.in",
       ownerPhone: newWsPhone || "+91 99999 00000",
       createdAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 365 * 86400000).toISOString(),
-      monthlyRevenue: newWsTier === "ENTERPRISE" ? 49999 : newWsTier === "PRO" ? 24999 : 9999,
+      monthlyRevenue: Number(newWsSeats || 5) * 1999,
       activeSims: 1,
       users: [
         {
@@ -901,29 +728,7 @@ export function SuperAdminView() {
                   </div>
                 </div>
 
-                <select
-                  className="select"
-                  style={{ width: 140 }}
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value as any)}
-                >
-                  <option value="ALL">All Statuses</option>
-                  <option value="ACTIVE">Active Only</option>
-                  <option value="SUSPENDED">Suspended Only</option>
-                </select>
-
-                <select
-                  className="select"
-                  style={{ width: 150 }}
-                  value={tierFilter}
-                  onChange={(e) => setTierFilter(e.target.value)}
-                >
-                  <option value="ALL">All Plan Tiers</option>
-                  <option value="FREE">Free Tier</option>
-                  <option value="STARTER">Starter</option>
-                  <option value="PRO">Pro Tier</option>
-                  <option value="ENTERPRISE">Enterprise</option>
-                </select>
+                
               </div>
 
               <div style={{ color: "var(--text-tertiary)", fontSize: "var(--fs-caption)" }}>
@@ -939,9 +744,8 @@ export function SuperAdminView() {
                 <thead>
                   <tr>
                     <th>Agency / Workspace</th>
-                    <th>Plan Tier</th>
+                    <th>Seats Allocation (Users / Mo)</th>
                     <th>Status</th>
-                    <th>Closer Seats</th>
                     <th>Active SIMs</th>
                     <th>Expiry & Billing</th>
                     <th style={{ textAlign: "right" }}>Management Actions</th>
@@ -959,17 +763,51 @@ export function SuperAdminView() {
                         </div>
                       </td>
                       <td>
-                        <select
-                          className="select"
-                          value={ws.planTier}
-                          onChange={(e) => handleChangeTier(ws, e.target.value)}
-                          style={{ height: 26, fontSize: "var(--fs-caption)", padding: "0 22px 0 6px" }}
-                        >
-                          <option value="FREE">FREE</option>
-                          <option value="STARTER">STARTER</option>
-                          <option value="PRO">PRO</option>
-                          <option value="ENTERPRISE">ENTERPRISE</option>
-                        </select>
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                          <button
+                            className="btn btn-sm"
+                            onClick={() => handleUpdateSeats(ws, -1)}
+                            disabled={ws.maxSeats <= 1}
+                            style={{ height: 26, width: 26, padding: 0, justifyContent: "center" }}
+                            title="Decrease seat capacity (-1)"
+                          >
+                            <Icon name="minus" size={12} />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setTargetWorkspaceForAction(ws);
+                              setCustomSeatsCount(ws.maxSeats);
+                              setIsSeatsModal(true);
+                            }}
+                            className="chip"
+                            data-tone={ws.activeUsersCount > ws.maxSeats ? "danger" : "accent"}
+                            style={{ height: 26, padding: "0 10px", cursor: "pointer", fontWeight: 700 }}
+                            title="Click to set custom seat limit"
+                          >
+                            {ws.activeUsersCount} / {ws.maxSeats} Seats
+                          </button>
+                          <button
+                            className="btn btn-sm"
+                            onClick={() => handleUpdateSeats(ws, 1)}
+                            style={{ height: 26, width: 26, padding: 0, justifyContent: "center" }}
+                            title="Increase seat capacity (+1)"
+                          >
+                            <Icon name="plus" size={12} />
+                          </button>
+                          <select
+                            className="select"
+                            value={ws.maxSeats}
+                            onChange={(e) => handleDirectSeatChange(ws, Number(e.target.value))}
+                            style={{ height: 26, fontSize: "var(--fs-caption)", padding: "0 20px 0 6px", width: "auto" }}
+                            title="Quick select seat package"
+                          >
+                            {[1, 2, 3, 5, 8, 10, 15, 20, 25, 50, 100].map((num) => (
+                              <option key={num} value={num}>
+                                {num} Seats
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       </td>
                       <td>
                         <button
@@ -982,41 +820,6 @@ export function SuperAdminView() {
                           <span className="dot" />
                           <span>{ws.status}</span>
                         </button>
-                      </td>
-                      <td>
-                        {/* CLOSER SEAT STEPPER */}
-                        <div style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                          <button
-                            className="btn btn-sm"
-                            onClick={() => handleUpdateSeats(ws, -1)}
-                            disabled={ws.maxSeats <= 1}
-                            style={{ height: 24, width: 24, padding: 0, justifyContent: "center" }}
-                            title="Decrease seat capacity"
-                          >
-                            <Icon name="minus" size={12} />
-                          </button>
-                          <button
-                            onClick={() => {
-                              setTargetWorkspaceForAction(ws);
-                              setCustomSeatsCount(ws.maxSeats);
-                              setIsSeatsModal(true);
-                            }}
-                            className="chip"
-                            data-tone="accent"
-                            style={{ height: 24, padding: "0 8px", cursor: "pointer", fontWeight: 700 }}
-                            title="Click to set custom seat limit"
-                          >
-                            {ws.maxSeats} seats
-                          </button>
-                          <button
-                            className="btn btn-sm"
-                            onClick={() => handleUpdateSeats(ws, 1)}
-                            style={{ height: 24, width: 24, padding: 0, justifyContent: "center" }}
-                            title="Increase seat capacity"
-                          >
-                            <Icon name="plus" size={12} />
-                          </button>
-                        </div>
                       </td>
                       <td>
                         <span className="chip" data-tone={ws.activeSims > 0 ? "success" : "warning"}>
@@ -1829,22 +1632,8 @@ export function SuperAdminView() {
                 </div>
               </div>
 
-              <div className="grid-2">
-                <div className="field">
-                  <label>Plan Tier</label>
-                  <select
-                    className="select"
-                    value={newWsTier}
-                    onChange={(e) => setNewWsTier(e.target.value)}
-                  >
-                    <option value="FREE">Free Tier</option>
-                    <option value="STARTER">Starter Tier</option>
-                    <option value="PRO">Pro Tier</option>
-                    <option value="ENTERPRISE">Enterprise Tier</option>
-                  </select>
-                </div>
-                <div className="field">
-                  <label>Closer Seats Quota</label>
+              <div className="field">
+                  <label>Contracted Closer Seats (Per User / Mo) *</label>
                   <input
                     type="number"
                     className="input"
@@ -1854,7 +1643,6 @@ export function SuperAdminView() {
                     onChange={(e) => setNewWsSeats(Number(e.target.value))}
                   />
                 </div>
-              </div>
             </div>
             <div className="dialog-foot">
               <button className="btn btn-sm" onClick={() => setIsAddWorkspaceModal(false)}>

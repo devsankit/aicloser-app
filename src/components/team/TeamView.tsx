@@ -786,7 +786,7 @@ export function TeamView() {
             Team Pipeline
           </div>
           <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px" }}>
-            ₹{(totalPipelineSum / 100000).toFixed(1)}L
+            ₹{totalPipelineSum.toLocaleString("en-IN")}
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
             Across {members.reduce((acc, m) => acc + m.assignedLeads, 0)} assigned active leads
@@ -1013,7 +1013,7 @@ export function TeamView() {
                     </td>
                     <td style={{ whiteSpace: "nowrap" }}>
                       <span style={{ fontWeight: 550 }}>
-                        {member.pipelineValue > 0 ? `₹${(member.pipelineValue / 1000).toFixed(0)}k` : "—"}
+                        {member.pipelineValue > 0 ? `₹${member.pipelineValue.toLocaleString("en-IN")}` : "—"}
                       </span>
                       {member.dealsWon > 0 && (
                         <span style={{ color: "var(--success)", fontSize: "11px", marginLeft: "6px" }}>
