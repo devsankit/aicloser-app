@@ -108,9 +108,32 @@ const CONNECTIONS = [
 ];
 
 export function SettingsView() {
-  const { state, setTheme, setDensity, setAccent, setFontScale, setNavSpacing, reset } = useApp();
+  const { state, setTheme, setDensity, setAccent, setFontScale, setNavSpacing } = useApp();
   const [exported, setExported] = useState(false);
-  const [confirmReset, setConfirmReset] = useState(false);
+
+  // Developer API & Webhook Hub State
+  const [developerToken, setDeveloperToken] = useState<string>("");
+  const [isTokenLoading, setIsTokenLoading] = useState<boolean>(false);
+  const [isRegeneratingToken, setIsRegeneratingToken] = useState<boolean>(false);
+  const [tokenCopied, setTokenCopied] = useState<boolean>(false);
+  const [tokenNotice, setTokenNotice] = useState<string | null>(null);
+
+  // cURL Docs Tab State
+  const [activeCurlTab, setActiveCurlTab] = useState<"create_lead" | "list_leads" | "dispatch_campaign">("create_lead");
+  const [curlCopied, setCurlCopied] = useState<boolean>(false);
+
+  // Live Tester Console State
+  const [testerPreset, setTesterPreset] = useState<string>("GET /api/v1/leads");
+  const [testerEndpoint, setTesterEndpoint] = useState<string>("/api/v1/leads");
+  const [testerMethod, setTesterMethod] = useState<"GET" | "POST">("GET");
+  const [testerBody, setTesterBody] = useState<string>("");
+  const [isSendingTest, setIsSendingTest] = useState<boolean>(false);
+  const [testResult, setTestResult] = useState<{
+    status: number | string;
+    latencyMs?: number;
+    data?: any;
+    error?: string;
+  } | null>(null);
 
   // AI Providers & BYOK State (Zero Hardcoded Keys)
   const [providers, setProviders] = useState<Record<string, ProviderState>>(() => {
@@ -184,7 +207,153 @@ export function SettingsView() {
       .catch(() => {
         // Fallback to local mode silently
       });
+
+    // Fetch developer Bearer token
+    setIsTokenLoading(true);
+    aicloserApi.developer.getToken()
+      .then((res: any) => {
+        const tok = res?.token || res?.data?.token || res?.apiKey;
+        if (tok) setDeveloperToken(tok);
+      })
+      .catch(() => {})
+      .finally(() => setIsTokenLoading(false));
   }, []);
+
+  const handleRegenerateToken = async () => {
+    setIsRegeneratingToken(true);
+    try {
+      const res: any = await aicloserApi.developer.generateToken();
+      const tok = res?.token || res?.data?.token || res?.apiKey;
+      if (tok) {
+        setDeveloperToken(tok);
+        setTokenNotice("✓ New Bearer API token generated successfully.");
+      } else {
+        setTokenNotice("Token regenerated.");
+      }
+    } catch {
+      setTokenNotice("Failed to regenerate token. Please verify admin privileges.");
+    } finally {
+      setIsRegeneratingToken(false);
+      setTimeout(() => setTokenNotice(null), 3500);
+    }
+  };
+
+  const handleCopyToken = () => {
+    if (!developerToken) return;
+    navigator.clipboard.writeText(developerToken);
+    setTokenCopied(true);
+    setTimeout(() => setTokenCopied(false), 2000);
+  };
+
+  const handlePresetChange = (preset: string) => {
+    setTesterPreset(preset);
+    setTestResult(null);
+    if (preset === "GET /api/v1/leads") {
+      setTesterMethod("GET");
+      setTesterEndpoint("/api/v1/leads");
+      setTesterBody("");
+    } else if (preset === "GET /api/v1/reports/unified") {
+      setTesterMethod("GET");
+      setTesterEndpoint("/api/v1/reports/unified");
+      setTesterBody("");
+    } else if (preset === "GET /api/v1/team") {
+      setTesterMethod("GET");
+      setTesterEndpoint("/api/v1/team");
+      setTesterBody("");
+    } else if (preset === "POST /api/v1/leads") {
+      setTesterMethod("POST");
+      setTesterEndpoint("/api/v1/leads");
+      setTesterBody(
+        JSON.stringify(
+          {
+            name: "Vikram Malhotra",
+            phone: "+919876543210",
+            email: "vikram@enterprise.in",
+            source: "API_WEBHOOK",
+            serviceInterest: "B2B Sales CRM Enterprise",
+            budgetAmount: 150000,
+            priority: "HIGH",
+          },
+          null,
+          2
+        )
+      );
+    }
+  };
+
+  const handleSendTestRequest = async () => {
+    setIsSendingTest(true);
+    setTestResult(null);
+    const start = performance.now();
+    try {
+      let parsedBody: any = undefined;
+      if (testerMethod === "POST" && testerBody.trim()) {
+        try {
+          parsedBody = JSON.parse(testerBody);
+        } catch {
+          setTestResult({
+            status: "400 Bad Request",
+            error: "Invalid JSON payload in request body",
+          });
+          setIsSendingTest(false);
+          return;
+        }
+      }
+
+      const res: any = await aicloserApi.developer.testRequest({
+        endpoint: testerEndpoint,
+        method: testerMethod,
+        body: parsedBody,
+      });
+
+      const elapsed = Math.round(performance.now() - start);
+      setTestResult({
+        status: res?.status || (res?.success === false ? "500 Server Error" : "200 OK"),
+        latencyMs: res?.latencyMs || elapsed,
+        data: res?.data ?? res,
+      });
+    } catch (err: any) {
+      const elapsed = Math.round(performance.now() - start);
+      setTestResult({
+        status: err?.status || "500 Error",
+        latencyMs: elapsed,
+        error: err?.message || "Failed to execute request against API engine.",
+      });
+    } finally {
+      setIsSendingTest(false);
+    }
+  };
+
+  const getCurlSnippet = () => {
+    const tokenDisplay = developerToken || "aicloser_sec_live_example";
+    if (activeCurlTab === "create_lead") {
+      return `curl -X POST "https://api.aicloser.com/api/v1/leads" \\
+  -H "Authorization: Bearer ${tokenDisplay}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "name": "Vikram Malhotra",
+    "phone": "+919876543210",
+    "email": "vikram@enterprise.in",
+    "source": "API_WEBHOOK",
+    "serviceInterest": "B2B Sales CRM Enterprise",
+    "budgetAmount": 150000,
+    "priority": "HIGH"
+  }'`;
+    }
+    if (activeCurlTab === "list_leads") {
+      return `curl -X GET "https://api.aicloser.com/api/v1/leads?stage=ALL&limit=25" \\
+  -H "Authorization: Bearer ${tokenDisplay}"`;
+    }
+    return `curl -X POST "https://api.aicloser.com/api/v1/marketing/campaigns/cmp_7841/dispatch" \\
+  -H "Authorization: Bearer ${tokenDisplay}" \\
+  -H "Content-Type: application/json"`;
+  };
+
+  const handleCopyCurl = () => {
+    navigator.clipboard.writeText(getCurlSnippet());
+    setCurlCopied(true);
+    setTimeout(() => setCurlCopied(false), 2000);
+  };
 
   const handleKeyChange = (providerId: string, val: string) => {
     setProviders((prev) => ({
@@ -884,34 +1053,241 @@ export function SettingsView() {
               <Icon name="download" size={14} /> {exported ? "Downloaded" : "Export JSON"}
             </button>
           </div>
+        </div>
+      </section>
 
-          <div className="setting-row">
-            <div>
-              <div className="setting-name">Reset demo data</div>
-              <p className="setting-desc">
-                Restore the 18 seeded leads. Your stage moves and edits are discarded.
-              </p>
+      {/* Developer API & Webhook Hub */}
+      <section className="card settings-card">
+        <div className="settings-head">
+          <div>
+            <h2 className="settings-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Icon name="tag" size={16} />
+              Developer API & Webhook Hub
+            </h2>
+            <p className="settings-sub">
+              Authenticate external integrations, inspect REST endpoint contracts, and test API queries directly in your browser.
+            </p>
+          </div>
+          <span className="chip" data-tone="accent">
+            REST v1 Engine
+          </span>
+        </div>
+
+        <div className="settings-body">
+          {/* Sub-section 1: Bearer API Token */}
+          <div className="setting-row" style={{ alignItems: "flex-start", flexDirection: "column", gap: 10 }}>
+            <div style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div className="setting-name">Workspace Bearer API Token</div>
+                <p className="setting-desc">
+                  Secret key used in the <code style={{ fontFamily: "var(--font-mono, monospace)" }}>Authorization: Bearer &lt;token&gt;</code> HTTP header for incoming webhooks and automated scripts.
+                </p>
+              </div>
+              <span className="chip" data-tone={developerToken ? "success" : "neutral"}>
+                {developerToken ? "Active Key" : "Generating"}
+              </span>
             </div>
-            {confirmReset ? (
-              <div style={{ display: "flex", gap: 8 }}>
-                <button className="btn" onClick={() => setConfirmReset(false)}>
-                  Cancel
-                </button>
+
+            <div style={{ width: "100%", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <div className="dev-token-box" style={{ flex: 1, minWidth: 260 }}>
+                <span className="dev-token-val">
+                  {developerToken
+                    ? (developerToken.length > 20
+                        ? `${developerToken.slice(0, 14)}••••••••••••${developerToken.slice(-6)}`
+                        : developerToken)
+                    : isTokenLoading
+                    ? "Loading token..."
+                    : "aicloser_sec_••••••••••••••••••••••••"}
+                </span>
                 <button
+                  type="button"
                   className="btn"
-                  data-variant="danger"
-                  onClick={() => {
-                    reset();
-                    setConfirmReset(false);
-                  }}
+                  data-size="sm"
+                  data-variant={tokenCopied ? "primary" : "ghost"}
+                  onClick={handleCopyToken}
+                  disabled={!developerToken}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
                 >
-                  Reset
+                  <Icon name={tokenCopied ? "check" : "copy"} size={13} />
+                  <span>{tokenCopied ? "Copied" : "Copy Token"}</span>
                 </button>
               </div>
-            ) : (
-              <button className="btn" onClick={() => setConfirmReset(true)}>
-                <Icon name="trash" size={14} /> Reset
+
+              <button
+                type="button"
+                className="btn"
+                data-size="sm"
+                data-variant="outline"
+                onClick={handleRegenerateToken}
+                disabled={isRegeneratingToken}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+              >
+                <Icon name="refresh" size={13} className={isRegeneratingToken ? "spin" : undefined} />
+                <span>{isRegeneratingToken ? "Regenerating..." : "Regenerate Token"}</span>
               </button>
+            </div>
+
+            {tokenNotice && (
+              <div style={{ fontSize: 12, color: "var(--success)", fontWeight: 550, marginTop: 4 }}>
+                {tokenNotice}
+              </div>
+            )}
+          </div>
+
+          {/* Sub-section 2: Interactive cURL Docs */}
+          <div className="setting-row" style={{ alignItems: "flex-start", flexDirection: "column", gap: 12 }}>
+            <div style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div className="setting-name">Interactive cURL Endpoint Docs</div>
+                <p className="setting-desc">
+                  Pre-formatted terminal commands to ingest leads, query deals, or dispatch marketing campaigns.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn"
+                data-size="sm"
+                onClick={handleCopyCurl}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+              >
+                <Icon name={curlCopied ? "check" : "copy"} size={13} />
+                <span>{curlCopied ? "Copied cURL" : "Copy cURL"}</span>
+              </button>
+            </div>
+
+            <div className="seg" style={{ display: "inline-flex" }}>
+              <button
+                type="button"
+                data-on={activeCurlTab === "create_lead"}
+                onClick={() => setActiveCurlTab("create_lead")}
+              >
+                POST /api/v1/leads
+              </button>
+              <button
+                type="button"
+                data-on={activeCurlTab === "list_leads"}
+                onClick={() => setActiveCurlTab("list_leads")}
+              >
+                GET /api/v1/leads
+              </button>
+              <button
+                type="button"
+                data-on={activeCurlTab === "dispatch_campaign"}
+                onClick={() => setActiveCurlTab("dispatch_campaign")}
+              >
+                POST /api/v1/marketing/campaigns/:id/dispatch
+              </button>
+            </div>
+
+            <div className="dev-code-block" style={{ width: "100%" }}>
+              {getCurlSnippet()}
+            </div>
+          </div>
+
+          {/* Sub-section 3: Live In-Browser API Tester Console */}
+          <div className="setting-row" style={{ alignItems: "flex-start", flexDirection: "column", gap: 12 }}>
+            <div style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div className="setting-name">Live In-Browser API Tester Console</div>
+                <p className="setting-desc">
+                  Execute live requests directly against the API engine without leaving your dashboard.
+                </p>
+              </div>
+              {testResult && (
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <span
+                    className="chip"
+                    data-tone={String(testResult.status).startsWith("2") ? "success" : "danger"}
+                  >
+                    <span
+                      className="dot"
+                      style={{
+                        background: String(testResult.status).startsWith("2") ? "var(--success)" : "var(--danger)",
+                      }}
+                    />
+                    {String(testResult.status)}
+                  </span>
+                  {testResult.latencyMs != null && (
+                    <span className="chip" data-tone="neutral">
+                      {testResult.latencyMs}ms
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div style={{ width: "100%", display: "grid", gridTemplateColumns: "1.5fr 1fr auto", gap: 10, alignItems: "flex-end" }}>
+              <div className="field">
+                <label style={{ fontSize: 11, fontWeight: 600, color: "var(--text-secondary)" }}>
+                  Preset Request
+                </label>
+                <select
+                  className="select"
+                  value={testerPreset}
+                  onChange={(e) => handlePresetChange(e.target.value)}
+                >
+                  <option value="GET /api/v1/leads">GET /api/v1/leads (List CRM Leads)</option>
+                  <option value="GET /api/v1/reports/unified">GET /api/v1/reports/unified (Unified Performance)</option>
+                  <option value="GET /api/v1/team">GET /api/v1/team (Team Members & Closers)</option>
+                  <option value="POST /api/v1/leads">POST /api/v1/leads (Create Lead)</option>
+                </select>
+              </div>
+
+              <div className="field">
+                <label style={{ fontSize: 11, fontWeight: 600, color: "var(--text-secondary)" }}>
+                  Endpoint Path
+                </label>
+                <input
+                  type="text"
+                  className="input"
+                  value={testerEndpoint}
+                  onChange={(e) => setTesterEndpoint(e.target.value)}
+                />
+              </div>
+
+              <button
+                type="button"
+                className="btn"
+                data-variant="primary"
+                onClick={handleSendTestRequest}
+                disabled={isSendingTest}
+                style={{ height: 36, display: "inline-flex", alignItems: "center", gap: 6 }}
+              >
+                <Icon name={isSendingTest ? "refresh" : "sparkle"} size={13} className={isSendingTest ? "spin" : undefined} />
+                <span>{isSendingTest ? "Sending..." : "Send Request"}</span>
+              </button>
+            </div>
+
+            {testerMethod === "POST" && (
+              <div className="field" style={{ width: "100%" }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: "var(--text-secondary)" }}>
+                  JSON Request Payload
+                </label>
+                <textarea
+                  className="textarea"
+                  rows={4}
+                  value={testerBody}
+                  onChange={(e) => setTesterBody(e.target.value)}
+                  style={{ fontFamily: "var(--font-mono, monospace)", fontSize: 12 }}
+                />
+              </div>
+            )}
+
+            {testResult && (
+              <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-secondary)" }}>
+                  Response Body
+                </div>
+                <div className="dev-console-response">
+                  {testResult.error ? (
+                    <span style={{ color: "var(--danger)" }}>{testResult.error}</span>
+                  ) : (
+                    <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+                      {JSON.stringify(testResult.data, null, 2)}
+                    </pre>
+                  )}
+                </div>
+              </div>
             )}
           </div>
         </div>

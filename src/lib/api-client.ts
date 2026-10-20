@@ -2575,6 +2575,24 @@ export const aicloserApi = {
     },
   },
 
+  developer: {
+    async getToken() {
+      const res = await request<any>('/auth/developer-token');
+      return res.data;
+    },
+    async generateToken() {
+      const res = await request<any>('/auth/developer-token', { method: 'POST' });
+      return res.data;
+    },
+    async testRequest(payload: { endpoint: string; method?: string; headers?: Record<string, string>; body?: any }) {
+      const res = await request<any>('/developer/test-request', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      return res.data;
+    },
+  },
+
   async health() {
     try {
       const res = await request<{ status: string }>('/health');

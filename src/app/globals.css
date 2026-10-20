@@ -4954,3 +4954,52 @@ svg {
   margin-top: 16px;
 }
 
+/* ==========================================================================
+   Developer Hub & API Tester Styles
+   ========================================================================== */
+.dev-token-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 10px 14px;
+}
+
+.dev-token-val {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--fs-meta);
+  color: var(--text);
+  letter-spacing: 0.04em;
+  word-break: break-all;
+}
+
+.dev-code-block {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 14px;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.dev-console-response {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 12px 14px;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  max-height: 280px;
+  overflow: auto;
+  color: var(--text-secondary);
+}
+
+
