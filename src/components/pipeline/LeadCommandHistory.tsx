@@ -389,7 +389,14 @@ export function LeadCommandHistory({
     try {
       const iso = new Date(callbackAt).toISOString();
       if (leadId && !leadId.startsWith("ld-") && !leadId.startsWith("lead-")) {
-        await aicloserApi.leads.update(leadId, { followUpAt: iso });
+        await Promise.allSettled([
+          aicloserApi.leads.update(leadId, { followUpAt: iso }),
+          aicloserApi.leads.addTask(leadId, {
+            title: callbackNote.trim() || `Scheduled Callback for ${customerName || "Lead"}`,
+            dueAt: iso,
+            priority: "HIGH",
+          }),
+        ]);
       }
       if (conversationId) {
         await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/notes`, {

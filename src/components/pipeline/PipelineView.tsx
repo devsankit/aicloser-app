@@ -26,7 +26,7 @@ type SortKey = "recent" | "value" | "priority";
 const PRIORITY_ORDER = { urgent: 0, high: 1, medium: 2, low: 3 } as const;
 
 export function PipelineView() {
-  const { state, moveLead, setLayout, claimLead, claimFromPool, fetchPoolLeads } = useApp();
+  const { state, moveLead, setLayout, claimLead, claimFromPool, fetchPoolLeads, autoDistributePool } = useApp();
   const scoped = useScopedLeads();
   const [viewMode, setViewMode] = useState<"board" | "pool">("board");
   const [query, setQuery] = useState("");
@@ -56,6 +56,12 @@ export function PipelineView() {
   const myCap = (state.user as any)?.maxActiveLeads || 25;
   const isAtQuota = !isAdmin && myActiveLeads >= myCap;
   const [isDistributing, setIsDistributing] = useState(false);
+  const [poolLimit, setPoolLimit] = useState<number>(10);
+
+  const handlePoolLimitChange = async (limit: number) => {
+    setPoolLimit(limit);
+    await fetchPoolLeads({ maxVisibleToCloser: limit });
+  };
 
   // Dynamically resolve actual closers from assigned leads and authenticated workspace team
   const availableClosers = useMemo(() => {
@@ -101,41 +107,24 @@ export function PipelineView() {
 
   const handleAutoDistributeAll = async () => {
     if (isDistributing || openPoolList.length === 0) return;
-    const closers: string[] = [];
-    state.leads.forEach((l) => {
-      if (l.owner && !closers.includes(l.owner) && l.owner !== "Admin" && l.owner !== "System" && l.owner !== "Unassigned") {
-        closers.push(l.owner);
-      }
-    });
-    if (state.user?.displayName && !closers.includes(state.user.displayName) && state.user.displayName !== "Admin" && state.user.displayName !== "System") {
-      closers.push(state.user.displayName);
-    }
-    if (closers.length === 0) {
+    setIsDistributing(true);
+    try {
+      const res = await autoDistributePool();
+      setIsDistributing(false);
+      const count = res?.count ?? res?.assignments?.length ?? openPoolList.length;
+      setClaimFeedback({
+        status: "success",
+        message: `⚡ Successfully auto-distributed ${count} lead${count === 1 ? "" : "s"} across active closers via Round-Robin!`,
+      });
+      setTimeout(() => setClaimFeedback(null), 5000);
+    } catch (e: any) {
+      setIsDistributing(false);
       setClaimFeedback({
         status: "already_claimed",
-        message: "No active closers found in team. Please add or invite closers before auto-distributing.",
+        message: e?.message || "Auto-distribution failed. Check that closers are active.",
       });
-      setTimeout(() => setClaimFeedback(null), 4000);
-      return;
+      setTimeout(() => setClaimFeedback(null), 5000);
     }
-
-    setIsDistributing(true);
-    let distributedCount = 0;
-    for (let i = 0; i < openPoolList.length; i++) {
-      const item = openPoolList[i];
-      const target = closers[i % closers.length];
-      try {
-        await claimFromPool(item.id, target);
-        setDisappearedIds((prev) => new Set(prev).add(item.id));
-        distributedCount++;
-      } catch {}
-    }
-    setIsDistributing(false);
-    setClaimFeedback({
-      status: "success",
-      message: `⚡ Successfully distributed ${distributedCount} leads across ${closers.length} closers via Round-Robin!`,
-    });
-    setTimeout(() => setClaimFeedback(null), 5000);
   };
 
   const openPoolList = useMemo(() => {
@@ -485,6 +474,23 @@ export function PipelineView() {
             <span className="col-w-label">
               Showing {openPoolList.length} leads
             </span>
+
+            {isAdmin ? (
+              <div className="seg" role="group" aria-label="Pool display limit">
+                {[5, 10, 20].map((lim) => (
+                  <button
+                    key={lim}
+                    type="button"
+                    data-on={poolLimit === lim}
+                    onClick={() => handlePoolLimitChange(lim)}
+                    aria-pressed={poolLimit === lim}
+                    title={`Show up to ${lim} leads in grab pool`}
+                  >
+                    <span>{lim} leads</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
 
           {/* Lead Cards Grid */}

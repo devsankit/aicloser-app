@@ -63,9 +63,11 @@ interface AppApi {
   claimLead: (id: string, closerName?: string) => void;
   claimFromPool: (
     poolItemId: string,
-    closerName?: string
+    closerName?: string,
+    assignedAgentId?: string
   ) => Promise<{ success: boolean; message?: string; lead?: Lead }>;
-  fetchPoolLeads: () => Promise<LeadPoolItem[]>;
+  autoDistributePool: () => Promise<any>;
+  fetchPoolLeads: (params?: { maxVisibleToCloser?: number }) => Promise<LeadPoolItem[]>;
   reassignLead: (id: string, newOwner: string, note?: string) => void;
   refreshLeads: () => Promise<void>;
   loginWorkspace: (
@@ -631,10 +633,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
   }, [updateLead, state.user?.displayName]);
 
-  const fetchPoolLeads = useCallback(async (): Promise<LeadPoolItem[]> => {
+  const fetchPoolLeads = useCallback(async (params?: { maxVisibleToCloser?: number }): Promise<LeadPoolItem[]> => {
     setState((prev) => ({ ...prev, isPoolLoading: true }));
     try {
-      const items = await aicloserApi.leads.getPool();
+      const items = await aicloserApi.leads.getPool(params);
       const list = Array.isArray(items) ? items : [];
       setState((prev) => ({
         ...prev,
@@ -649,10 +651,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const autoDistributePool = useCallback(async () => {
+    const res = await aicloserApi.leads.autoDistributePool();
+    await Promise.all([fetchPoolLeads(), refreshLeads()]);
+    return res;
+  }, [fetchPoolLeads, refreshLeads]);
+
   const claimFromPool = useCallback(
     async (
       poolItemId: string,
-      closerName?: string
+      closerName?: string,
+      assignedAgentId?: string
     ): Promise<{ success: boolean; message?: string; lead?: Lead }> => {
       const finalCloser = closerName || state.user?.displayName || "Admin";
       const currentItem = state.poolLeads.find((p) => p.id === poolItemId);
@@ -665,7 +674,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }));
 
       try {
-        const res = await aicloserApi.leads.claimFromPool(poolItemId);
+        const res = await aicloserApi.leads.claimFromPool(poolItemId, assignedAgentId);
         if (res && (res as any).success !== false) {
           const rawLead = (res as any).data?.lead || (res as any).lead;
           let newLead: Lead;
@@ -882,6 +891,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       deleteLead,
       claimLead,
       claimFromPool,
+      autoDistributePool,
       fetchPoolLeads,
       reassignLead,
       refreshLeads,
@@ -945,7 +955,8 @@ export function useScopedLeads() {
   return useMemo(() => {
     const myName = (state.user?.displayName || CURRENT_USER).toLowerCase();
     const myId = (state.user as any)?.userId || (state.user as any)?.id;
-    if (state.scope === "mine") {
+    const isCloser = (state.user?.role as string) === "CLOSER" || state.user?.role === "SALES_AGENT";
+    if (isCloser || state.scope === "mine") {
       return state.leads.filter(
         (l) =>
           (l.owner && l.owner.toLowerCase() === myName) ||

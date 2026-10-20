@@ -184,6 +184,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   const isWide = pathname === "/pipeline";
   const pageClass = isFullBleed ? "page page-full" : isWide ? "page page-wide" : "page";
 
+  const isCloser = (state.user?.role as string) === "CLOSER" || state.user?.role === "SALES_AGENT";
+
+  useEffect(() => {
+    if (isCloser && state.scope !== "mine") {
+      setScope("mine");
+    }
+  }, [isCloser, state.scope, setScope]);
+
   const loadNavSettings = () => {
     try {
       const stored = localStorage.getItem("closer.manager.nav.v1");
@@ -760,19 +768,26 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           <GlobalSearch />
 
-          <label className="scope">
-            <Icon name="target" size={15} />
-            <span>Viewing</span>
-            <select
-              value={state.scope}
-              onChange={(e) => setScope(e.target.value as Scope)}
-              aria-label="Data scope"
-            >
-              <option value="all">All team leads</option>
-              <option value="mine">My leads ({CURRENT_USER})</option>
-              <option value="unassigned">Unassigned (Lead Grab Pool)</option>
-            </select>
-          </label>
+          {((state.user?.role as string) === "CLOSER" || state.user?.role === "SALES_AGENT") ? (
+            <div className="chip" data-tone="accent" title="Closer scope: Viewing your assigned leads only">
+              <Icon name="target" size={14} />
+              <span>My leads ({state.user?.displayName || CURRENT_USER})</span>
+            </div>
+          ) : (
+            <label className="scope">
+              <Icon name="target" size={15} />
+              <span>Viewing</span>
+              <select
+                value={state.scope}
+                onChange={(e) => setScope(e.target.value as Scope)}
+                aria-label="Data scope"
+              >
+                <option value="all">All team leads</option>
+                <option value="mine">My leads ({state.user?.displayName || CURRENT_USER})</option>
+                <option value="unassigned">Unassigned (Lead Grab Pool)</option>
+              </select>
+            </label>
+          )}
 
           <div className="seg" role="group" aria-label="Colour theme">
             <button

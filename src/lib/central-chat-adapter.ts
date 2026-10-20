@@ -14,7 +14,7 @@ export async function getCentralConversations(params: URLSearchParams) {
     const value = params.get(key);
     if (value) query.set(key, value);
   }
-  const payload = await centralApiRequest<{ data: CentralConversation[] | { conversations?: CentralConversation[]; pagination?: unknown } }>(`/conversations?${query.toString()}`);
+  const payload = await centralApiRequest<{ data: CentralConversation[] | { conversations?: CentralConversation[]; pagination?: unknown }; pagination?: unknown }>(`/conversations?${query.toString()}`);
   const data = Array.isArray(payload.data) ? payload.data : (payload.data?.conversations ?? []);
   const pagination = Array.isArray(payload.data) ? payload.pagination : payload.data?.pagination;
   return {

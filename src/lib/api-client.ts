@@ -726,8 +726,16 @@ export const aicloserApi = {
       return res.data;
     },
 
-    async getPool() {
-      const res = await requestConversation<LeadPoolItem[]>('/leads/pool');
+    async getPool(params?: { maxVisibleToCloser?: number }) {
+      const qs = params?.maxVisibleToCloser ? `?maxVisibleToCloser=${encodeURIComponent(params.maxVisibleToCloser)}` : '';
+      const res = await requestConversation<LeadPoolItem[]>(`/leads/pool${qs}`);
+      return res.data;
+    },
+
+    async autoDistributePool() {
+      const res = await request<any>('/leads/pool/auto-distribute', {
+        method: 'POST',
+      });
       return res.data;
     },
 

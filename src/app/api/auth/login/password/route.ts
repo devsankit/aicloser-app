@@ -155,7 +155,7 @@ export async function POST(request: Request) {
       tenantId: user.tenantId,
       displayName: user.displayName,
       email: user.email ?? null,
-      phone: user.phone ?? null,
+      phone: user.phone || "",
       packageId: null,
       packageName: null,
       packageAudience: null,
