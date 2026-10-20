@@ -195,25 +195,48 @@ export function AppShell({ children }: { children: ReactNode }) {
         aria-label="Workspace navigation"
       >
         <div className="sidebar-head">
-          <Link href="/dashboard" className="brand">
-            <span className="brand-mark" aria-hidden="true">
-              <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-                <rect width="24" height="24" rx="6" fill="var(--accent)" />
-                <text x="12" y="16" textAnchor="middle" fontSize="10" fontWeight="700" fill="#fff">
-                  AI
-                </text>
-              </svg>
-            </span>
-            <span className="brand-copy">
-              <span className="brand-name">Closer</span>
-              <span className="brand-tag">AI Sales CRM</span>
+          <Link href="/dashboard" className="brand" aria-label="AI Closer Dashboard">
+            <span className="brand-full-logo-wrap">
+              <img
+                src="/assets/closer-logo.png"
+                alt="AI Closer"
+                className="brand-logo-img brand-logo-light"
+                height={26}
+              />
+              <img
+                src="/assets/closer-logo-dark.png"
+                alt="AI Closer"
+                className="brand-logo-img brand-logo-dark"
+                height={26}
+              />
             </span>
           </Link>
           <button
+            type="button"
+            className="brand-collapsed-toggle"
+            onClick={toggleSidebar}
+            aria-label="Expand sidebar"
+            title="Expand sidebar"
+          >
+            <span className="brand-collapsed-icon">
+              <img
+                src="/assets/closer-icon.png"
+                alt="AI Closer"
+                width={28}
+                height={28}
+                className="brand-icon-img"
+              />
+            </span>
+            <span className="brand-collapsed-hover-icon" aria-hidden="true">
+              <Icon name="panel" size={17} />
+            </span>
+          </button>
+          <button
+            type="button"
             className="icon-btn sidebar-collapse"
             onClick={toggleSidebar}
-            aria-label={state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            title={state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-label="Collapse sidebar"
+            title="Collapse sidebar"
           >
             <Icon name="panel" size={17} />
           </button>

@@ -301,12 +301,123 @@ svg {
   flex: 0 0 auto;
 }
 
+.sidebar[data-collapsed="true"] .sidebar-head {
+  padding: 0;
+  justify-content: center;
+  align-items: center;
+  gap: 0;
+}
+
 .brand {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
   flex: 1;
+  text-decoration: none;
+}
+
+.brand-full-logo-wrap {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  max-width: 140px;
+}
+
+.brand-logo-img {
+  height: 26px;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.brand-logo-light {
+  display: block;
+}
+.brand-logo-dark {
+  display: none;
+}
+[data-theme="dark"] .brand-logo-light {
+  display: none;
+}
+[data-theme="dark"] .brand-logo-dark {
+  display: block;
+}
+
+.brand-collapsed-toggle {
+  display: none;
+  position: relative;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin: 0 auto;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--speed) ease;
+}
+
+.brand-collapsed-toggle:hover {
+  background: var(--bg-hover);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.brand-collapsed-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.brand-icon-img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  display: block;
+  border-radius: 7px;
+}
+
+.brand-collapsed-hover-icon {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  pointer-events: none;
+  color: var(--text);
+}
+
+.brand-collapsed-toggle:hover .brand-collapsed-icon {
+  opacity: 0;
+  transform: scale(0.85);
+}
+
+.brand-collapsed-toggle:hover .brand-collapsed-hover-icon {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.sidebar[data-collapsed="true"] .brand {
+  display: none !important;
+}
+
+.sidebar[data-collapsed="true"] .sidebar-collapse {
+  display: none !important;
+}
+
+.sidebar[data-collapsed="true"] .brand-collapsed-toggle {
+  display: flex !important;
 }
 
 .brand-mark {
@@ -2518,6 +2629,17 @@ svg {
   .sidebar[data-collapsed="true"] .brand-copy,
   .sidebar[data-collapsed="true"] .sidebar-user-copy {
     display: revert;
+  }
+
+  .sidebar[data-collapsed="true"] .brand {
+    display: flex !important;
+  }
+  .sidebar[data-collapsed="true"] .brand-collapsed-toggle {
+    display: none !important;
+  }
+  .sidebar[data-collapsed="true"] .sidebar-head {
+    padding: 0 10px 0 12px;
+    justify-content: flex-start;
   }
 
   .sidebar[data-collapsed="true"] .nav-item {
