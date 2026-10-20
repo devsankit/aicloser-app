@@ -2290,6 +2290,17 @@ export const aicloserApi = {
       });
       return res.data;
     },
+    async updateTenant(tenantId: string, payload: Record<string, unknown>) {
+      const res = await request(`/super-admin/tenants/${encodeURIComponent(tenantId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
+      return res.data;
+    },
+    async deleteTenant(tenantId: string) {
+      const res = await request(`/super-admin/tenants/${encodeURIComponent(tenantId)}`, { method: 'DELETE' });
+      return res.data;
+    },
     async updateTenantStatus(tenantId: string, status: 'ACTIVE' | 'SUSPENDED' | 'LOCKED') {
       const res = await request(`/super-admin/tenants/${tenantId}/status`, {
         method: 'PATCH',

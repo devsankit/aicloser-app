@@ -92,6 +92,80 @@ export type AuditLogItem = {
   timestamp: string;
 };
 
+function WorkspaceAmountEditor({
+  ws,
+  onSave,
+}: {
+  ws: TenantWorkspace;
+  onSave: (ws: TenantWorkspace, amount: number) => Promise<void>;
+}) {
+  const currentAmt = ws.monthlyAmount ?? ws.monthlyRevenue ?? 0;
+  const [val, setVal] = useState<string>(String(currentAmt));
+  const [isSaved, setIsSaved] = useState<boolean>(false);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+
+  useEffect(() => {
+    setVal(String(ws.monthlyAmount ?? ws.monthlyRevenue ?? 0));
+  }, [ws.monthlyAmount, ws.monthlyRevenue]);
+
+  const commitSave = async () => {
+    const num = Number(val);
+    if (isNaN(num) || num < 0) return;
+    const current = Number(ws.monthlyAmount ?? ws.monthlyRevenue ?? 0);
+    if (num === current && !isSaved) return;
+    setIsSaving(true);
+    try {
+      await onSave(ws, num);
+      setIsSaved(true);
+      setTimeout(() => setIsSaved(false), 2500);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="table-amount-cell">
+      <span className="table-amount-prefix">₹</span>
+      <input
+        type="number"
+        className="input table-amount-input"
+        value={val}
+        onChange={(e) => {
+          setVal(e.target.value);
+          setIsSaved(false);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.currentTarget.blur();
+            commitSave();
+          }
+        }}
+        onBlur={commitSave}
+        disabled={isSaving}
+        title="Edit monthly billing amount and press Enter or ✓ to save"
+      />
+      {isSaved ? (
+        <span className="amount-save-badge" data-status="saved" title="Amount saved to central database">
+          Saved ✓
+        </span>
+      ) : isSaving ? (
+        <span className="amount-save-badge" data-status="saving" title="Saving amount...">
+          <Icon name="refresh" size={11} className="spin" />
+        </span>
+      ) : (
+        <button
+          type="button"
+          className="btn btn-sm amount-save-btn"
+          data-variant="outline"
+          onClick={commitSave}
+          title="Save amount (₹)"
+        >
+          ✓
+        </button>
+      )}
+    </div>
+  );
+}
 
 export function SuperAdminView() {
   const { state } = useApp();
@@ -120,6 +194,27 @@ export function SuperAdminView() {
   const [isSeatsModal, setIsSeatsModal] = useState(false);
   const [targetWorkspaceForAction, setTargetWorkspaceForAction] = useState<TenantWorkspace | null>(null);
   const [customSeatsCount, setCustomSeatsCount] = useState<number>(5);
+
+  // Delete Workspace Modal
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [workspaceToDelete, setWorkspaceToDelete] = useState<TenantWorkspace | null>(null);
+  const [deleteConfirmInput, setDeleteConfirmInput] = useState("");
+  const [isDeletingWorkspace, setIsDeletingWorkspace] = useState(false);
+
+  // Edit Workspace Modal
+  const [isEditWorkspaceModal, setIsEditWorkspaceModal] = useState(false);
+  const [workspaceToEdit, setWorkspaceToEdit] = useState<TenantWorkspace | null>(null);
+  const [editWsName, setEditWsName] = useState("");
+  const [editWsSlug, setEditWsSlug] = useState("");
+  const [editWsEmail, setEditWsEmail] = useState("");
+  const [editWsPhone, setEditWsPhone] = useState("");
+  const [editWsPlanTier, setEditWsPlanTier] = useState<"STARTER" | "GROWTH" | "PRO" | "AGENCY" | "ENTERPRISE">("GROWTH");
+  const [editWsSeats, setEditWsSeats] = useState(5);
+  const [editWsMonthlyAmount, setEditWsMonthlyAmount] = useState<number>(9999);
+  const [editWsPaymentStatus, setEditWsPaymentStatus] = useState<"PAID" | "PENDING">("PAID");
+  const [editWsStatus, setEditWsStatus] = useState<"ACTIVE" | "SUSPENDED">("ACTIVE");
+  const [editWsExpiry, setEditWsExpiry] = useState("");
+  const [isEditingWorkspace, setIsEditingWorkspace] = useState(false);
 
   // Impersonation state
   const [impersonatingTenant, setImpersonatingTenant] = useState<string | null>(null);
@@ -353,6 +448,98 @@ export function SuperAdminView() {
     } catch (err: any) {
       showToast(err?.message || `Failed to update payment status.`);
       await refreshCentralData(false);
+    }
+  };
+
+  // Open Edit Workspace Profile Modal
+  const handleOpenEditModal = (ws: TenantWorkspace) => {
+    setWorkspaceToEdit(ws);
+    setEditWsName(ws.name || "");
+    setEditWsSlug(ws.slug || "");
+    setEditWsEmail(ws.ownerEmail && ws.ownerEmail !== "-" ? ws.ownerEmail : "");
+    setEditWsPhone(ws.ownerPhone && ws.ownerPhone !== "-" ? ws.ownerPhone : "");
+    setEditWsSeats(ws.maxSeats || 5);
+    setEditWsMonthlyAmount(Number(ws.monthlyAmount ?? ws.monthlyRevenue ?? 0));
+    setEditWsPaymentStatus(ws.paymentStatus || "PAID");
+    setEditWsStatus(ws.status === "ACTIVE" ? "ACTIVE" : "SUSPENDED");
+    setEditWsExpiry(ws.expiresAt ? new Date(ws.expiresAt).toISOString().slice(0, 10) : "");
+    setIsEditWorkspaceModal(true);
+  };
+
+  // Save Edited Workspace Profile
+  const handleSaveEditWorkspace = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!workspaceToEdit) return;
+    setIsEditingWorkspace(true);
+    try {
+      const payload: Record<string, unknown> = {
+        name: editWsName.trim(),
+        slug: editWsSlug.trim(),
+        ownerEmail: editWsEmail.trim(),
+        ownerPhone: editWsPhone.trim(),
+        planTier: editWsPlanTier,
+        maxSeats: Number(editWsSeats) || 1,
+        monthlyAmount: Number(editWsMonthlyAmount) || 0,
+        paymentStatus: editWsPaymentStatus,
+        status: editWsStatus,
+        expiresAt: editWsExpiry ? new Date(editWsExpiry).toISOString() : undefined,
+        packageExpiresAt: editWsExpiry ? new Date(editWsExpiry).toISOString() : undefined,
+      };
+
+      await aicloserApi.superAdmin.updateTenant(workspaceToEdit.id, payload);
+
+      await Promise.allSettled([
+        aicloserApi.superAdmin.updateTenantAmount(workspaceToEdit.id, Number(editWsMonthlyAmount) || 0),
+        aicloserApi.superAdmin.updateTenantSeats(workspaceToEdit.id, Number(editWsSeats) || 1),
+        aicloserApi.superAdmin.updateTenantStatus(workspaceToEdit.id, editWsStatus),
+        aicloserApi.superAdmin.updateTenantPaymentStatus(workspaceToEdit.id, editWsPaymentStatus),
+      ]);
+
+      setWorkspaces((prev) =>
+        prev.map((w) =>
+          w.id === workspaceToEdit.id
+            ? {
+                ...w,
+                name: editWsName.trim(),
+                slug: editWsSlug.trim(),
+                ownerEmail: editWsEmail.trim() || "-",
+                ownerPhone: editWsPhone.trim() || "-",
+                maxSeats: Number(editWsSeats) || 1,
+                monthlyAmount: Number(editWsMonthlyAmount) || 0,
+                monthlyRevenue: Number(editWsMonthlyAmount) || 0,
+                paymentStatus: editWsPaymentStatus,
+                status: editWsStatus,
+                expiresAt: editWsExpiry ? new Date(editWsExpiry).toISOString() : w.expiresAt,
+              }
+            : w
+        )
+      );
+
+      showToast(`Company profile "${editWsName.trim()}" updated successfully.`);
+      setIsEditWorkspaceModal(false);
+      setWorkspaceToEdit(null);
+    } catch (err: any) {
+      showToast(err?.message || "Failed to update company profile.");
+    } finally {
+      setIsEditingWorkspace(false);
+    }
+  };
+
+  // Permanently Delete Workspace
+  const handleDeleteWorkspace = async () => {
+    if (!workspaceToDelete) return;
+    setIsDeletingWorkspace(true);
+    try {
+      await aicloserApi.superAdmin.deleteTenant(workspaceToDelete.id);
+      setWorkspaces((prev) => prev.filter((w) => w.id !== workspaceToDelete.id));
+      showToast(`Workspace "${workspaceToDelete.name}" deleted successfully.`);
+      setIsDeleteModalOpen(false);
+      setWorkspaceToDelete(null);
+      setDeleteConfirmInput("");
+    } catch (err: any) {
+      showToast(err?.message || "Failed to delete workspace on central server.");
+    } finally {
+      setIsDeletingWorkspace(false);
     }
   };
 
@@ -1057,25 +1244,7 @@ export function SuperAdminView() {
                         </div>
                       </td>
                       <td>
-                        <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                          <span style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", fontWeight: 600 }}>₹</span>
-                          <input
-                            type="number"
-                            className="input"
-                            style={{ width: 100, height: 28, fontSize: "var(--fs-caption)", padding: "0 8px" }}
-                            defaultValue={ws.monthlyRevenue || 0}
-                            key={`${ws.id}-${ws.monthlyRevenue}`}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                            }}
-                            onBlur={async (e) => {
-                              const val = Number(e.target.value);
-                              if (!isNaN(val) && val !== ws.monthlyRevenue) {
-                                await handleUpdateAmount(ws, val);
-                              }
-                            }}
-                          />
-                        </div>
+                        <WorkspaceAmountEditor ws={ws} onSave={handleUpdateAmount} />
                       </td>
                       <td>
                         <button
@@ -1177,6 +1346,15 @@ export function SuperAdminView() {
                           <button
                             type="button"
                             className="btn btn-sm"
+                            onClick={() => handleOpenEditModal(ws)}
+                            title="Edit company profile details"
+                          >
+                            <Icon name="pencil" size={12} />
+                            <span>Edit</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-sm"
                             onClick={() => handleToggleRoster(ws)}
                             title="Inspect workspace closer team"
                           >
@@ -1197,6 +1375,20 @@ export function SuperAdminView() {
                             title="Add closer user to this workspace"
                           >
                             <Icon name="user-plus" size={12} />
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            data-variant="danger"
+                            onClick={() => {
+                              setWorkspaceToDelete(ws);
+                              setDeleteConfirmInput("");
+                              setIsDeleteModalOpen(true);
+                            }}
+                            title="Permanently delete company profile"
+                          >
+                            <Icon name="trash" size={12} />
+                            <span>Delete</span>
                           </button>
                         </div>
                       </td>
@@ -2238,6 +2430,274 @@ export function SuperAdminView() {
               </button>
               <button className="btn btn-sm" data-variant="accent" onClick={handleSaveCustomSeats}>
                 Save Capacity
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* MODAL 4: EDIT COMPANY PROFILE */}
+      {/* ============================================================ */}
+      {isEditWorkspaceModal && workspaceToEdit && (
+        <div className="overlay" data-kind="dialog">
+          <div className="dialog" style={{ maxWidth: 540, width: "100%" }}>
+            <div className="dialog-head">
+              <Icon name="pencil" size={18} />
+              <h2>Edit Company Profile: {workspaceToEdit.name}</h2>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => {
+                  setIsEditWorkspaceModal(false);
+                  setWorkspaceToEdit(null);
+                }}
+                style={{ marginLeft: "auto" }}
+              >
+                <Icon name="close" size={16} />
+              </button>
+            </div>
+            <form onSubmit={handleSaveEditWorkspace}>
+              <div className="dialog-body">
+                <div className="grid-2">
+                  <div className="field">
+                    <label>Company Name *</label>
+                    <input
+                      type="text"
+                      className="input"
+                      value={editWsName}
+                      onChange={(e) => setEditWsName(e.target.value)}
+                      required
+                      disabled={isEditingWorkspace}
+                    />
+                  </div>
+                  <div className="field">
+                    <label>Workspace Slug *</label>
+                    <input
+                      type="text"
+                      className="input"
+                      value={editWsSlug}
+                      onChange={(e) => setEditWsSlug(e.target.value)}
+                      required
+                      disabled={isEditingWorkspace}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid-2">
+                  <div className="field">
+                    <label>Founder Email *</label>
+                    <input
+                      type="email"
+                      className="input"
+                      value={editWsEmail}
+                      onChange={(e) => setEditWsEmail(e.target.value)}
+                      disabled={isEditingWorkspace}
+                    />
+                  </div>
+                  <div className="field">
+                    <label>Founder Phone</label>
+                    <input
+                      type="text"
+                      className="input"
+                      value={editWsPhone}
+                      onChange={(e) => setEditWsPhone(e.target.value)}
+                      disabled={isEditingWorkspace}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid-2">
+                  <div className="field">
+                    <label>Plan Tier *</label>
+                    <select
+                      className="select"
+                      value={editWsPlanTier}
+                      onChange={(e) => setEditWsPlanTier(e.target.value as any)}
+                      disabled={isEditingWorkspace}
+                    >
+                      <option value="STARTER">Starter Tier</option>
+                      <option value="GROWTH">Growth Tier</option>
+                      <option value="PRO">Pro Tier</option>
+                      <option value="AGENCY">Agency Tier</option>
+                      <option value="ENTERPRISE">Enterprise Tier</option>
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>Contracted Closer Seats *</label>
+                    <input
+                      type="number"
+                      className="input"
+                      min={1}
+                      max={500}
+                      value={editWsSeats}
+                      onChange={(e) => setEditWsSeats(Number(e.target.value))}
+                      required
+                      disabled={isEditingWorkspace}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid-2">
+                  <div className="field">
+                    <label>Monthly Amount (₹) *</label>
+                    <input
+                      type="number"
+                      className="input"
+                      min={0}
+                      step={100}
+                      value={editWsMonthlyAmount}
+                      onChange={(e) => setEditWsMonthlyAmount(Number(e.target.value))}
+                      required
+                      disabled={isEditingWorkspace}
+                    />
+                  </div>
+                  <div className="field">
+                    <label>Payment Status *</label>
+                    <select
+                      className="select"
+                      value={editWsPaymentStatus}
+                      onChange={(e) => setEditWsPaymentStatus(e.target.value as any)}
+                      disabled={isEditingWorkspace}
+                    >
+                      <option value="PAID">Paid / Settled</option>
+                      <option value="PENDING">Pending Payment</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid-2">
+                  <div className="field">
+                    <label>Account Status *</label>
+                    <select
+                      className="select"
+                      value={editWsStatus}
+                      onChange={(e) => setEditWsStatus(e.target.value as any)}
+                      disabled={isEditingWorkspace}
+                    >
+                      <option value="ACTIVE">ACTIVE (Operational)</option>
+                      <option value="SUSPENDED">SUSPENDED (Locked)</option>
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>Subscription Expiry Date</label>
+                    <input
+                      type="date"
+                      className="input"
+                      value={editWsExpiry}
+                      onChange={(e) => setEditWsExpiry(e.target.value)}
+                      disabled={isEditingWorkspace}
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="dialog-foot">
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => {
+                    setIsEditWorkspaceModal(false);
+                    setWorkspaceToEdit(null);
+                  }}
+                  disabled={isEditingWorkspace}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-sm"
+                  data-variant="accent"
+                  disabled={isEditingWorkspace}
+                >
+                  {isEditingWorkspace ? "Saving Changes..." : "Save Company Profile"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* MODAL 5: DELETE WORKSPACE CONFIRMATION */}
+      {/* ============================================================ */}
+      {isDeleteModalOpen && workspaceToDelete && (
+        <div className="overlay" data-kind="dialog">
+          <div className="dialog" style={{ maxWidth: 460, width: "100%" }}>
+            <div className="dialog-head">
+              <Icon name="trash" size={18} />
+              <h2>Delete Company Profile</h2>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => {
+                  setIsDeleteModalOpen(false);
+                  setWorkspaceToDelete(null);
+                  setDeleteConfirmInput("");
+                }}
+                style={{ marginLeft: "auto" }}
+              >
+                <Icon name="close" size={16} />
+              </button>
+            </div>
+            <div className="dialog-body">
+              <p style={{ margin: 0, fontSize: "var(--fs-body)", color: "var(--text)", lineHeight: 1.5 }}>
+                Are you sure you want to permanently delete <strong>{workspaceToDelete.name}</strong> (<code style={{ fontFamily: "var(--font-mono, monospace)" }}>{workspaceToDelete.slug}</code>)?
+              </p>
+              <div
+                style={{
+                  background: "rgba(239, 68, 68, 0.08)",
+                  border: "1px solid rgba(239, 68, 68, 0.2)",
+                  borderRadius: "var(--r-sm)",
+                  padding: "10px 12px",
+                  fontSize: "var(--fs-caption)",
+                  color: "var(--danger)",
+                  lineHeight: 1.4,
+                  marginTop: 10,
+                }}
+              >
+                All closer seats, leads, SIM relays, and customer data associated with this company will be permanently purged. This action cannot be undone.
+              </div>
+              <div className="field" style={{ marginTop: 14 }}>
+                <label style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)" }}>
+                  Type <strong>{workspaceToDelete.name}</strong> or <strong>DELETE</strong> to confirm:
+                </label>
+                <input
+                  type="text"
+                  className="input"
+                  placeholder={`Type "${workspaceToDelete.name}" or "DELETE"`}
+                  value={deleteConfirmInput}
+                  onChange={(e) => setDeleteConfirmInput(e.target.value)}
+                  disabled={isDeletingWorkspace}
+                  autoFocus
+                />
+              </div>
+            </div>
+            <div className="dialog-foot">
+              <button
+                type="button"
+                className="btn btn-sm"
+                data-variant="ghost"
+                onClick={() => {
+                  setIsDeleteModalOpen(false);
+                  setWorkspaceToDelete(null);
+                  setDeleteConfirmInput("");
+                }}
+                disabled={isDeletingWorkspace}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                data-variant="danger"
+                onClick={handleDeleteWorkspace}
+                disabled={
+                  isDeletingWorkspace ||
+                  (deleteConfirmInput.trim() !== workspaceToDelete.name.trim() &&
+                    deleteConfirmInput.trim().toUpperCase() !== "DELETE")
+                }
+              >
+                {isDeletingWorkspace ? "Deleting..." : "Permanently Delete Company"}
               </button>
             </div>
           </div>

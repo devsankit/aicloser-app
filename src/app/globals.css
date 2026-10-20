@@ -5002,4 +5002,57 @@ svg {
   color: var(--text-secondary);
 }
 
+/* ==========================================================================
+   Super Admin Table Amount Editor
+   ========================================================================== */
+.table-amount-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.table-amount-prefix {
+  font-size: var(--fs-caption);
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+
+.table-amount-input {
+  width: 90px;
+  height: 28px;
+  font-size: var(--fs-caption);
+  padding: 0 6px;
+}
+
+.amount-save-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--r-sm);
+  padding: 0 6px;
+  height: 26px;
+  white-space: nowrap;
+}
+
+.amount-save-badge[data-status="saved"] {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--success);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.amount-save-badge[data-status="saving"] {
+  color: var(--text-tertiary);
+}
+
+.amount-save-btn {
+  height: 26px;
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+
 
