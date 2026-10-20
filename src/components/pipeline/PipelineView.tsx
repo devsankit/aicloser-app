@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { aicloserApi } from "@/lib/api-client";
 import { Icon } from "@/components/ui/Icon";
 import { ResizeHandle } from "@/components/ui/ResizeHandle";
 import { compactMoney, isOverdue, LIMITS, money, relativeTime, slaLabel, useApp, useScopedLeads } from "@/lib/store";
@@ -57,6 +58,22 @@ export function PipelineView() {
   const isAtQuota = !isAdmin && myActiveLeads >= myCap;
   const [isDistributing, setIsDistributing] = useState(false);
   const [poolLimit, setPoolLimit] = useState<number>(10);
+  const [activeClosers, setActiveClosers] = useState<Array<{ id: string; name: string; role?: string }>>([]);
+
+  useEffect(() => {
+    aicloserApi.team.listMembers().then((members: any) => {
+      if (Array.isArray(members) && members.length > 0) {
+        const closers = members
+          .filter((m: any) => m.status === "ACTIVE" || !m.status)
+          .map((m: any) => ({
+            id: m.id || m.userId,
+            name: m.displayName || m.user?.displayName || m.name || m.email || "Closer",
+            role: m.role || m.user?.role,
+          }));
+        setActiveClosers(closers);
+      }
+    }).catch(() => {});
+  }, []);
 
   const handlePoolLimitChange = async (limit: number) => {
     setPoolLimit(limit);
@@ -77,12 +94,12 @@ export function PipelineView() {
     return Array.from(list);
   }, [state.leads, state.user]);
 
-  const handleAssignLead = async (item: LeadPoolItem, targetCloser: string) => {
+  const handleAssignLead = async (item: LeadPoolItem, targetCloser: string, assignedAgentId?: string) => {
     if (claimingId || !targetCloser) return;
     setClaimingId(item.id);
     try {
       const cleanCloser = targetCloser.split(" (")[0];
-      const res = await claimFromPool(item.id, cleanCloser);
+      const res = await claimFromPool(item.id, cleanCloser, assignedAgentId);
       setClaimingId(null);
       if (res.success) {
         setDisappearedIds((prev) => new Set(prev).add(item.id));
@@ -335,9 +352,22 @@ export function PipelineView() {
             </>
           ) : (
             <>
+              {isAdmin && (
+                <button
+                  type="button"
+                  className="btn"
+                  data-variant="primary"
+                  onClick={handleAutoDistributeAll}
+                  disabled={isDistributing || openPoolList.length === 0}
+                  title="Auto-distribute open pool leads across active closers via round robin"
+                >
+                  <Icon name={isDistributing ? "refresh" : "zap"} size={13} className={isDistributing ? "spin" : ""} />
+                  {isDistributing ? "Distributing..." : "⚡ Auto-Distribute Round Robin"}
+                </button>
+              )}
               <button
                 className="btn"
-                onClick={() => fetchPoolLeads().catch(() => {})}
+                onClick={() => fetchPoolLeads({ maxVisibleToCloser: poolLimit }).catch(() => {})}
                 disabled={state.isPoolLoading}
               >
                 <Icon name="refresh" size={14} /> {state.isPoolLoading ? "Refreshing..." : "Refresh Pool"}
@@ -581,18 +611,26 @@ export function PipelineView() {
                           defaultValue=""
                           onChange={(e) => {
                             if (e.target.value) {
-                              handleAssignLead(item, e.target.value);
+                              const val = e.target.value;
+                              const [agentId, agentName] = val.includes("::") ? val.split("::") : ["", val];
+                              handleAssignLead(item, agentName, agentId || undefined);
                               e.target.value = "";
                             }
                           }}
                           aria-label="Assign lead to closer"
                         >
                           <option value="" disabled>Assign to Closer ▾</option>
-                          {availableClosers.map((closer) => (
-                            <option key={closer} value={closer}>
-                              {closer}
-                            </option>
-                          ))}
+                          {activeClosers.length > 0
+                            ? activeClosers.map((closer) => (
+                                <option key={closer.id} value={`${closer.id}::${closer.name}`}>
+                                  {closer.name} {closer.role ? `(${closer.role})` : ""}
+                                </option>
+                              ))
+                            : availableClosers.map((closer) => (
+                                <option key={closer} value={`::${closer}`}>
+                                  {closer}
+                                </option>
+                              ))}
                         </select>
                       ) : (
                         <button
