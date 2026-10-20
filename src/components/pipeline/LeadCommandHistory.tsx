@@ -344,7 +344,11 @@ export function LeadCommandHistory({
         });
       }
 
-      onNoteSaved?.(text);
+      try {
+        onNoteSaved?.(text);
+      } catch (cbErr) {
+        console.warn("onNoteSaved error:", cbErr);
+      }
       setNoteBody("");
       setSuccessMsg("Note saved successfully.");
       setTimeout(() => setSuccessMsg(null), 2500);
@@ -398,7 +402,11 @@ export function LeadCommandHistory({
         });
       }
 
-      onFollowUpSaved?.(iso);
+      try {
+        onFollowUpSaved?.(iso);
+      } catch (cbErr) {
+        console.warn("onFollowUpSaved error:", cbErr);
+      }
       setSuccessMsg("Callback scheduled successfully.");
       setTimeout(() => setSuccessMsg(null), 2500);
 

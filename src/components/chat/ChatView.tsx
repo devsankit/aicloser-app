@@ -70,7 +70,7 @@ function getMessageDateKey(dateString?: string): string {
 }
 
 export function ChatView() {
-  const { state, moveLead } = useApp();
+  const { state, moveLead, updateLead } = useApp();
 
   // Channel filter: all, whatsapp, instagram, website
   const [channelFilter, setChannelFilter] = useState<string>("all");
@@ -195,7 +195,6 @@ export function ChatView() {
           updatedAt: c.updatedAt,
           unreadCount: c.unreadCount || 0,
           assignedTo: c.assignedAgent?.displayName || "Unassigned",
-          slaMinutesRemaining: 15,
           messages: [],
         }));
         setConversations(mapped);
@@ -386,19 +385,115 @@ export function ChatView() {
   const [activeShares, setActiveShares] = useState<Array<{ id: string; userId: string; userName?: string; permission: string }>>([]);
 
   const [showAssignModal, setShowAssignModal] = useState(false);
-  const [assignTargetCloser, setAssignTargetCloser] = useState("Anshita");
+  const [assignTargetCloser, setAssignTargetCloser] = useState("Admin");
   const [assignHandoverNote, setAssignHandoverNote] = useState("");
   const [assignLoading, setAssignLoading] = useState(false);
   const [assignSuccess, setAssignSuccess] = useState<string | null>(null);
   const [assignError, setAssignError] = useState<string | null>(null);
+  const [teamMembers, setTeamMembers] = useState<Array<{ id: string; name: string; role?: string }>>([]);
+
+  // Dynamically load all team members, closers, managers, and admins from live APIs & workspace
+  useEffect(() => {
+    let active = true;
+
+    async function loadTeam() {
+      const found = new Map<string, { id: string; name: string; role?: string }>();
+
+      // 1. Prepopulate from current user and distinct lead owners
+      found.set("admin", { id: "admin", name: "Admin", role: "Super Admin" });
+      if (state.user?.displayName) {
+        found.set(state.user.displayName.toLowerCase(), {
+          id: state.user.userId || state.user.displayName,
+          name: state.user.displayName,
+          role: state.user.role || "User",
+        });
+      }
+      state.leads.forEach((l) => {
+        if (l.owner && l.owner !== "Unassigned" && !found.has(l.owner.toLowerCase())) {
+          found.set(l.owner.toLowerCase(), {
+            id: l.owner,
+            name: l.owner,
+            role: "Closer",
+          });
+        }
+      });
+
+      // 2. Query Central Team API
+      try {
+        const teamData = await aicloserApi.team.list();
+        const members = Array.isArray(teamData) ? teamData : (teamData?.members || teamData?.users || []);
+        members.forEach((m: any) => {
+          const name = m.displayName || m.name || m.user?.displayName || m.email;
+          if (name && !found.has(name.toLowerCase())) {
+            found.set(name.toLowerCase(), {
+              id: m.id || m.userId || name,
+              name,
+              role: m.role || "Agent",
+            });
+          }
+        });
+      } catch {}
+
+      // 3. Query sales team endpoint
+      try {
+        const res = await fetch("/api/sales/team");
+        if (res.ok) {
+          const json = await res.json();
+          const agents = json.agents || [];
+          agents.forEach((a: any) => {
+            const name = a.displayName || a.name || a.agentCode;
+            if (name && !found.has(name.toLowerCase())) {
+              found.set(name.toLowerCase(), {
+                id: a.id || a.userId || name,
+                name,
+                role: a.role || "Sales Closer",
+              });
+            }
+          });
+        }
+      } catch {}
+
+      // 4. Query sales roles users endpoint
+      try {
+        const res = await fetch("/api/sales/roles/users");
+        if (res.ok) {
+          const json = await res.json();
+          const users = json.users || json.agents || [];
+          users.forEach((u: any) => {
+            const name = u.displayName || u.name || u.email;
+            if (name && !found.has(name.toLowerCase())) {
+              found.set(name.toLowerCase(), {
+                id: u.id || name,
+                name,
+                role: u.role || "Team",
+              });
+            }
+          });
+        }
+      } catch {}
+
+      if (active && found.size > 0) {
+        setTeamMembers(Array.from(found.values()));
+      }
+    }
+
+    loadTeam();
+    return () => {
+      active = false;
+    };
+  }, [state.user, state.leads]);
 
   const availableClosers = useMemo(() => {
-    const list = ["Admin", "Anshita", "Field Closer Desk"];
-    if (state.user?.displayName && !list.includes(state.user.displayName)) {
-      list.push(state.user.displayName);
+    if (teamMembers.length > 0) {
+      return teamMembers.map((m) => m.name);
     }
-    return list;
-  }, [state.user]);
+    const set = new Set<string>(["Admin", "Anshita", "Field Closer Desk"]);
+    if (state.user?.displayName) set.add(state.user.displayName);
+    state.leads.forEach((l) => {
+      if (l.owner && l.owner !== "Unassigned") set.add(l.owner);
+    });
+    return Array.from(set);
+  }, [teamMembers, state.user, state.leads]);
 
   const loadConversationShares = useCallback(async (convId: string) => {
     try {
@@ -667,13 +762,8 @@ export function ChatView() {
                       {chat.lastMessage}
                     </p>
 
-                    {/* Badges / SLA */}
+                    {/* Badges */}
                     <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "5px" }}>
-                      {chat.slaMinutesRemaining && (
-                        <span className="chip" data-tone="warning" style={{ fontSize: "10px", padding: "1px 5px", height: "18px" }}>
-                          <Icon name="clock" size={9} /> SLA {chat.slaMinutesRemaining}m
-                        </span>
-                      )}
                       {chat.unreadCount > 0 && (
                         <span
                           style={{
@@ -1221,9 +1311,14 @@ export function ChatView() {
                     onChange={(e) => setShareTargetUser(e.target.value)}
                     style={{ flex: 1, height: "32px", fontSize: "12px" }}
                   >
-                    {availableClosers.filter((u) => u !== activeChat.assignedTo).map((u) => (
-                      <option key={u} value={u}>{u}</option>
-                    ))}
+                    {availableClosers.filter((u) => u !== activeChat.assignedTo).map((u) => {
+                      const member = teamMembers.find((m) => m.name === u);
+                      return (
+                        <option key={u} value={u}>
+                          {u} {member?.role ? `(${member.role})` : ""}
+                        </option>
+                      );
+                    })}
                   </select>
                   <select
                     className="select"
@@ -1337,9 +1432,14 @@ export function ChatView() {
                   onChange={(e) => setAssignTargetCloser(e.target.value)}
                   style={{ width: "100%", marginTop: "4px", height: "32px", fontSize: "12px" }}
                 >
-                  {availableClosers.map((u) => (
-                    <option key={u} value={u}>{u}</option>
-                  ))}
+                  {availableClosers.map((u) => {
+                    const member = teamMembers.find((m) => m.name === u);
+                    return (
+                      <option key={u} value={u}>
+                        {u} {member?.role ? `(${member.role})` : ""}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
 

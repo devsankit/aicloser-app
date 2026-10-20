@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { ResizeHandle } from "@/components/ui/ResizeHandle";
 import { LeadCommandHistory } from "./LeadCommandHistory";
@@ -32,6 +32,15 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
   const [reassignModalOpen, setReassignModalOpen] = useState(false);
   const [targetCloser, setTargetCloser] = useState("Anshita");
   const [handoverNote, setHandoverNote] = useState("");
+
+  const allOwners = useMemo(() => {
+    const set = new Set<string>(OWNERS);
+    if (state.user?.displayName) set.add(state.user.displayName);
+    state.leads.forEach((l) => {
+      if (l.owner && l.owner !== "Unassigned") set.add(l.owner);
+    });
+    return Array.from(set);
+  }, [state.user, state.leads]);
 
   useEffect(() => {
     setDraft(lead);
@@ -262,7 +271,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                     onChange={(e) => setTargetCloser(e.target.value)}
                     style={{ width: "100%", height: "28px", marginTop: "2px" }}
                   >
-                    {OWNERS.filter((o) => o !== "Unassigned" && o !== draft.owner).map((o) => (
+                    {allOwners.filter((o) => o !== "Unassigned" && o !== draft.owner).map((o) => (
                       <option key={o} value={o}>{o}</option>
                     ))}
                   </select>
@@ -376,7 +385,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                 onChange={(e) => set("owner", e.target.value)}
                 aria-label="Assignee"
               >
-                {OWNERS.map((o) => (
+                {allOwners.map((o) => (
                   <option key={o} value={o}>
                     {o}
                   </option>
