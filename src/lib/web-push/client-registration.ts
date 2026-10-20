@@ -86,8 +86,8 @@ async function showForegroundNotification(payload: MessagePayload, serviceWorker
   };
   const notificationOptions: NotificationOptions & { badge?: string; renotify?: boolean } = {
     body,
-    icon: "/gigxomi-logo.png",
-    badge: "/gigxomi-logo.png",
+    icon: "/ai-closer-logo.png",
+    badge: "/ai-closer-logo.png",
     data,
     tag: getPayloadTag(payload),
     renotify: true,
@@ -100,7 +100,7 @@ async function showForegroundNotification(payload: MessagePayload, serviceWorker
     try {
       new Notification(title, {
         body,
-        icon: "/gigxomi-logo.png",
+        icon: "/ai-closer-logo.png",
         data,
         tag: getPayloadTag(payload),
       });

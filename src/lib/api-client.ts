@@ -2199,7 +2199,7 @@ export const aicloserApi = {
       });
       return res.data;
     },
-    async createTenant(payload: { name: string; slug?: string; ownerEmail?: string; ownerPhone?: string; maxSeats?: number }) {
+    async createTenant(payload: { name: string; slug?: string; ownerEmail?: string; ownerPhone?: string; ownerPassword?: string; maxSeats?: number; expiresAt?: string; packageExpiresAt?: string; [key: string]: any }) {
       const res = await request('/super-admin/tenants', {
         method: 'POST',
         body: JSON.stringify(payload),
@@ -2217,6 +2217,20 @@ export const aicloserApi = {
       const res = await request(`/super-admin/tenants/${tenantId}/seats`, {
         method: 'PATCH',
         body: JSON.stringify({ maxSeats }),
+      });
+      return res.data;
+    },
+    async updateTenantAmount(tenantId: string, monthlyAmount: number) {
+      const res = await request(`/super-admin/tenants/${tenantId}/amount`, {
+        method: 'PATCH',
+        body: JSON.stringify({ monthlyAmount }),
+      });
+      return res.data;
+    },
+    async updateTenantPaymentStatus(tenantId: string, paymentStatus: 'PAID' | 'PENDING') {
+      const res = await request(`/super-admin/tenants/${encodeURIComponent(tenantId)}/payment-status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ paymentStatus }),
       });
       return res.data;
     },

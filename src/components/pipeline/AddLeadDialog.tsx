@@ -107,7 +107,7 @@ export function AddLeadDialog({
                 className="input"
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
-                placeholder="Anshita Rao"
+                placeholder="Priya Sharma"
                 autoFocus
               />
             </div>

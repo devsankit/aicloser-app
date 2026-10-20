@@ -51,11 +51,11 @@ const DEFAULT_CONNECTORS: Connector[] = [
     category: "Messaging",
     icon: "whatsapp",
     description: "Official Cloud API integration for instant inbound customer chats, interactive templates, and delivery webhooks.",
-    status: "connected",
+    status: "disconnected",
     latency: "--",
-    uptime: "100%",
+    uptime: "--",
     scopes: ["whatsapp_business_messaging", "whatsapp_business_management", "messages.read", "messages.write"],
-    lastSync: "Ready",
+    lastSync: "Not configured",
     events24h: 0,
     webhookUrl: "https://app.aicloser.in/api/webhooks/whatsapp",
     rateLimit: "80 req/sec (Tier 2 Approved)",
@@ -67,11 +67,11 @@ const DEFAULT_CONNECTORS: Connector[] = [
     category: "Messaging",
     icon: "message",
     description: "Sync Instagram DMs, story replies, and reel comment-to-lead captures directly into Closer multi-channel chat.",
-    status: "connected",
+    status: "disconnected",
     latency: "--",
-    uptime: "100%",
+    uptime: "--",
     scopes: ["instagram_basic", "instagram_manage_messages", "pages_show_list"],
-    lastSync: "Ready",
+    lastSync: "Not configured",
     events24h: 0,
     webhookUrl: "https://app.aicloser.in/api/webhooks/instagram",
     rateLimit: "60 req/min (Healthy)",
@@ -83,11 +83,11 @@ const DEFAULT_CONNECTORS: Connector[] = [
     category: "Telephony",
     icon: "phone",
     description: "Captures inbound SIM calls, missed calls, and audio recordings from physical Android handsets directly into CRM records.",
-    status: "connected",
+    status: "disconnected",
     latency: "--",
-    uptime: "100%",
+    uptime: "--",
     scopes: ["telephony.calls.inbound", "telephony.recordings.stream", "telephony.missed_call.alert"],
-    lastSync: "Ready",
+    lastSync: "Not configured",
     events24h: 0,
     webhookUrl: "https://app.aicloser.in/api/telephony/sim-stream",
     rateLimit: "Unlimited (Peer-to-peer sync)",
@@ -99,11 +99,11 @@ const DEFAULT_CONNECTORS: Connector[] = [
     category: "Payments",
     icon: "card",
     description: "Real-time payment capture webhooks, UPI dynamic QR confirmations, and automated Close-Won status triggers.",
-    status: "connected",
+    status: "disconnected",
     latency: "--",
-    uptime: "100%",
+    uptime: "--",
     scopes: ["payment.captured", "payment.failed", "order.paid", "refund.processed"],
-    lastSync: "Ready",
+    lastSync: "Not configured",
     events24h: 0,
     webhookUrl: "https://app.aicloser.in/api/webhooks/razorpay",
     rateLimit: "120 req/min",
@@ -115,11 +115,11 @@ const DEFAULT_CONNECTORS: Connector[] = [
     category: "Productivity",
     icon: "calendar",
     description: "Automatic audio recording backup into encrypted Drive folders and two-way Google Calendar demo booking sync.",
-    status: "connected",
+    status: "disconnected",
     latency: "--",
-    uptime: "100%",
+    uptime: "--",
     scopes: ["calendar.events", "drive.file", "userinfo.email"],
-    lastSync: "Ready",
+    lastSync: "Not configured",
     events24h: 0,
     webhookUrl: "https://app.aicloser.in/api/auth/google/callback",
     rateLimit: "1,000 req/100sec (Google Quota)",
@@ -131,7 +131,7 @@ const DEFAULT_CONNECTORS: Connector[] = [
     category: "Telephony",
     icon: "phone",
     description: "Centralized IVR routing, virtual agent numbers, and enterprise call distribution across field closers.",
-    status: "needs_auth",
+    status: "disconnected",
     latency: "--",
     uptime: "--",
     scopes: ["exotel.call_v2", "exotel.cdr.stream"],
@@ -147,42 +147,35 @@ const DEFAULT_CONNECTORS: Connector[] = [
     category: "Webhooks",
     icon: "plug",
     description: "Two-way webhook bridge to connect 5,000+ external apps, landing pages, and lead scrapers directly into Closer.",
-    status: "connected",
+    status: "disconnected",
     latency: "--",
-    uptime: "100%",
+    uptime: "--",
     scopes: ["lead.create", "lead.update", "stage.trigger", "activity.log"],
-    lastSync: "Ready",
+    lastSync: "Not configured",
     events24h: 0,
     webhookUrl: "https://app.aicloser.in/api/webhooks/relay/v1",
     rateLimit: "200 req/min (Burst 500)",
   },
   {
     id: "conn-custom",
-    name: "Custom Inbound Webhook",
-    provider: "Raw JSON Webhook Endpoint",
+    name: "Custom Inbound Webhook Endpoint",
+    provider: "Generic JSON Ingestion",
     category: "Webhooks",
-    icon: "branch",
-    description: "Custom HMAC-signed webhook endpoint for custom website forms, headless checkouts, and internal databases.",
-    status: "connected",
+    icon: "plug",
+    description: "Receive custom webhook payloads from your website forms, Typeform, Tally, or backend CRM systems.",
+    status: "disconnected",
     latency: "--",
-    uptime: "100%",
-    scopes: ["all.inbound", "custom.signature_verify"],
-    lastSync: "Ready",
+    uptime: "--",
+    scopes: ["payload.json", "auth.token", "lead.ingest"],
+    lastSync: "Not configured",
     events24h: 0,
-    webhookUrl: "https://app.aicloser.in/api/webhooks/custom-listener",
-    rateLimit: "500 req/min",
+    webhookUrl: "https://app.aicloser.in/api/webhooks/custom/inbound",
+    rateLimit: "300 req/min (Enterprise)",
   },
 ];
 
 const DEFAULT_WEBHOOK_EVENTS: WebhookEvent[] = [];
-
-const DEFAULT_MAPPINGS: FieldMapping[] = [
-  { id: "map-1", sourceConnector: "WhatsApp Cloud API", sourceKey: "messages[0].from", crmField: "customerPhone", transformation: "E.164 Normalize", isActive: true },
-  { id: "map-2", sourceConnector: "WhatsApp Cloud API", sourceKey: "contacts[0].profile.name", crmField: "customerName", transformation: "Trim Whitespace", isActive: true },
-  { id: "map-3", sourceConnector: "Razorpay Payments", sourceKey: "payload.payment.amount", crmField: "paymentAmount (INR)", transformation: "Divide by 100", isActive: true },
-  { id: "map-4", sourceConnector: "Android SIM Call Relay", sourceKey: "audio_s3_url", crmField: "recordingUrl", transformation: "Direct S3 URI", isActive: true },
-  { id: "map-5", sourceConnector: "Instagram Direct Inbox", sourceKey: "sender.id", crmField: "instagramHandle", transformation: "IG Graph ID Lookup", isActive: true },
-];
+const DEFAULT_MAPPINGS: FieldMapping[] = [];
 
 export function ChannelsView() {
   const [connectors, setConnectors] = useState<Connector[]>(DEFAULT_CONNECTORS);
@@ -203,32 +196,58 @@ export function ChannelsView() {
     let active = true;
     async function checkLiveChannels() {
       try {
-        const [waRes, igRes] = await Promise.allSettled([
-          aicloserApi.integrations.whatsapp.listChannels(),
-          aicloserApi.integrations.instagram.getStatus(),
+        const [waRes, devicesRes, igRes] = await Promise.allSettled([
+          fetch("/api/sales/whatsapp-scanner").then((r) => (r.ok ? r.json() : null)),
+          fetch("/api/sales/devices").then((r) => (r.ok ? r.json() : null)),
+          aicloserApi.integrations.instagram.getStatus().catch(() => null),
         ]);
         if (!active) return;
-        if (waRes.status === "fulfilled" && waRes.value) {
+
+        // WhatsApp Scanner / Cloud API
+        if (waRes.status === "fulfilled" && waRes.value?.status === "connected") {
           setConnectors((prev) =>
             prev.map((c) =>
               c.id === "conn-wa"
                 ? {
                     ...c,
                     status: "connected",
-                    lastSync: "Just now",
-                    description: "Official Meta Cloud API live channel connected and receiving webhooks.",
+                    uptime: "100%",
+                    lastSync: "Live connected",
+                    description: "Official WhatsApp session connected and receiving inbound messages.",
                   }
                 : c
             )
           );
         }
-        if (igRes.status === "fulfilled" && igRes.value) {
+
+        // SIM Telephony Devices
+        if (devicesRes.status === "fulfilled" && Array.isArray(devicesRes.value?.devices) && devicesRes.value.devices.length > 0) {
+          const onlineCount = devicesRes.value.devices.filter((d: any) => d.status === "ONLINE" || d.isOnline).length;
+          if (onlineCount > 0) {
+            setConnectors((prev) =>
+              prev.map((c) =>
+                c.id === "conn-sim"
+                  ? {
+                      ...c,
+                      status: "connected",
+                      uptime: "100%",
+                      lastSync: onlineCount + " SIM device(s) active",
+                    }
+                  : c
+              )
+            );
+          }
+        }
+
+        // Instagram
+        if (igRes.status === "fulfilled" && (igRes.value as any)?.connected) {
           setConnectors((prev) =>
             prev.map((c) =>
               c.id === "conn-ig"
                 ? {
                     ...c,
                     status: "connected",
+                    uptime: "100%",
                     lastSync: "Just now",
                   }
                 : c
@@ -236,7 +255,7 @@ export function ChannelsView() {
           );
         }
       } catch (err) {
-        // graceful fallback to initial state
+        // Keep authentic disconnected states
       }
     }
     checkLiveChannels();
@@ -302,7 +321,7 @@ export function ChannelsView() {
 
   // Closer permission guard (Plugins & Channels Hub is restricted to Admin by default)
   const { state } = useApp();
-  const isCloser = state.user?.role === "CLOSER";
+  const isCloser = (state.user?.role as string) === "CLOSER" || state.user?.role === "SALES_AGENT";
   const [isAllowedForCloser, setIsAllowedForCloser] = useState(false);
 
   useEffect(() => {

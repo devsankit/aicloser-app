@@ -1,1 +1,1 @@
-export { GET, POST, PATCH, DELETE } from "@/app/api/sales/whatsapp-flows/route";
+export { GET, POST, PATCH, DELETE } from "@/app/api/_quarantine/sales/whatsapp-flows/route";

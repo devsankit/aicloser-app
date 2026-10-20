@@ -272,13 +272,13 @@ Your objective:
         }
         if (rulesList.length === 0) {
           try {
-            const fb = await aicloserApi.automations.list();
+            const fb: any = await aicloserApi.automations.list();
             rulesList = Array.isArray(fb) ? fb : Array.isArray(fb?.rules) ? fb.rules : Array.isArray(fb?.data) ? fb.data : [];
           } catch {}
         }
 
         if (rulesList.length > 0) {
-          const liveRules = rulesList.map((r, idx) => ({
+          const liveRules = rulesList.map((r: any, idx: number) => ({
             id: r.id || 'wf-live-' + idx,
             name: r.name || 'Live Workflow',
             description: r.description || 'Automated trigger-action rule.',
@@ -304,13 +304,13 @@ Your objective:
         }
         if (logsList.length === 0) {
           try {
-            const fbLogs = await aicloserApi.automations.getLogs();
+            const fbLogs: any = await aicloserApi.automations.getLogs();
             logsList = Array.isArray(fbLogs) ? fbLogs : Array.isArray(fbLogs?.logs) ? fbLogs.logs : Array.isArray(fbLogs?.data) ? fbLogs.data : [];
           } catch {}
         }
 
         if (logsList.length > 0) {
-          const liveLogs = logsList.map((l, idx) => ({
+          const liveLogs = logsList.map((l: any, idx: number) => ({
             id: l.id || 'log-' + idx,
             ruleName: l.ruleName || 'Automation Rule',
             leadName: l.leadName || 'Contact',
@@ -782,7 +782,7 @@ Your objective:
                   className="btn"
                   data-variant="primary"
                   data-size="sm"
-                  onClick={() => setIsCreateOpen(true)}
+                  onClick={() => setIsNewRuleModalOpen(true)}
                 >
                   <Icon name="plus" size={13} />
                   <span>Create Automation Rule</span>

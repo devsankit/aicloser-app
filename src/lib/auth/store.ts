@@ -1185,8 +1185,8 @@ export async function createInternalUser(input: CreateInternalUserInput, options
   if (role === "SUPER_ADMIN") return { ok: false as const, error: "Super admin is locked to the owner identity and cannot be created from this panel." };
   if (!displayName || !email || !password) return { ok: false as const, error: "Display name, email, and password are required." };
   if (!email.includes("@")) return { ok: false as const, error: "Enter a valid email address." };
-  if (role === "MANAGER" && !/^\d{6}$/.test(password)) return { ok: false as const, error: "Manager PIN must be exactly 6 digits." };
-  if (role !== "MANAGER" && password.length < 8) return { ok: false as const, error: "Password must be at least 8 characters." };
+  if (password.length < 6) return { ok: false as const, error: "Password must be at least 6 characters." };
+
   if (requestedPackageId && !selectedPackage) return { ok: false as const, error: "Selected package was not found." };
   if (selectedPackage?.audience === "AGENCY") {
     role = "ADMIN";

@@ -251,6 +251,7 @@ export function LeadImportView() {
         const company = item[mappings.company] || item["company"] || item["Company"] || item["Business Account"] || item["Organization"] || "Independent Firm";
         const phone = item[mappings.phone] || item["phone"] || item["Phone"] || item["Mobile Number"] || item["WhatsApp Phone"] || item["Contact Number"] || "";
         const email = item[mappings.email] || item["email"] || item["Email"] || item["Email Address"] || "";
+        const val = Number(item[mappings.value] || item["value"] || item["Value"] || item["Amount"] || item["Budget"] || 0) || 0;
 
         let finalOwner = targetOwner;
         if (targetOwner === "Round-Robin") {

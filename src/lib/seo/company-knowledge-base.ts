@@ -9,10 +9,10 @@ export const companyKnowledgeBase = {
     "Gigxomi helps video editors manage client conversations, editors, managers, tasks, delivery, accounting, and payouts from one connected workspace.",
   businessDescription:
     "Gigxomi is a business operating system for video editors who are starting side gigs, growing an audience-led editing business, or operating a video editing agency.",
-  logoPath: "/gigxomi-logo.png",
+  logoPath: "/ai-closer-logo.png",
   iconPath: "/icon.png",
   iconSvgPath: "/icon.svg",
-  wordmarkPath: "/gigxomi-wordmark.svg",
+  wordmarkPath: "/ai-closer-logo.png",
   contactEmail: "studio@gigxomi.com",
   supportPhone: "+91 99818 07309",
   supportPhoneE164: "+919981807309",

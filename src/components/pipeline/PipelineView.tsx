@@ -49,7 +49,7 @@ export function PipelineView() {
 
   const userRole = state.user?.role || "ADMIN";
   const isAdmin = userRole === "ADMIN" || userRole === "SUPER_ADMIN" || userRole === "MANAGER";
-  const closerName = state.user?.displayName || "Calling Ankit";
+  const closerName = state.user?.displayName || "Closer";
   const myActiveLeads = state.leads.filter(
     (l) => l.stage !== "won" && l.stage !== "lost" && (l.owner === closerName || (!isAdmin && state.scope === "all"))
   ).length;
@@ -57,17 +57,19 @@ export function PipelineView() {
   const isAtQuota = !isAdmin && myActiveLeads >= myCap;
   const [isDistributing, setIsDistributing] = useState(false);
 
+  // Dynamically resolve actual closers from assigned leads and authenticated workspace team
   const availableClosers = useMemo(() => {
     const list = new Set<string>();
-    list.add("Anshita (Senior Closer)");
-    list.add("Field Closer Desk (SIM Relay)");
     state.leads.forEach((l) => {
-      if (l.owner && l.owner.trim() && l.owner !== "Admin" && l.owner !== "System") {
+      if (l.owner && l.owner.trim() && l.owner !== "Admin" && l.owner !== "System" && l.owner !== "Unassigned") {
         list.add(l.owner);
       }
     });
+    if (state.user?.displayName && state.user.displayName !== "Admin" && state.user.displayName !== "System") {
+      list.add(state.user.displayName);
+    }
     return Array.from(list);
-  }, [state.leads]);
+  }, [state.leads, state.user]);
 
   const handleAssignLead = async (item: LeadPoolItem, targetCloser: string) => {
     if (claimingId || !targetCloser) return;
@@ -99,13 +101,23 @@ export function PipelineView() {
 
   const handleAutoDistributeAll = async () => {
     if (isDistributing || openPoolList.length === 0) return;
-    const closers = ["Anshita", "Field Closer Desk"];
+    const closers: string[] = [];
     state.leads.forEach((l) => {
-      if (l.owner && !closers.includes(l.owner) && l.owner !== "Admin" && l.owner !== "System") {
+      if (l.owner && !closers.includes(l.owner) && l.owner !== "Admin" && l.owner !== "System" && l.owner !== "Unassigned") {
         closers.push(l.owner);
       }
     });
-    if (closers.length === 0) return;
+    if (state.user?.displayName && !closers.includes(state.user.displayName) && state.user.displayName !== "Admin" && state.user.displayName !== "System") {
+      closers.push(state.user.displayName);
+    }
+    if (closers.length === 0) {
+      setClaimFeedback({
+        status: "already_claimed",
+        message: "No active closers found in team. Please add or invite closers before auto-distributing.",
+      });
+      setTimeout(() => setClaimFeedback(null), 4000);
+      return;
+    }
 
     setIsDistributing(true);
     let distributedCount = 0;
@@ -225,10 +237,6 @@ export function PipelineView() {
     return map;
   }, [filtered]);
 
-  const openValue = filtered
-    .filter((l) => isOpenStage(l.stage))
-    .reduce((sum, l) => sum + l.value, 0);
-
   const active = state.leads.find((l) => l.id === selected) ?? null;
   const hasFilters = Boolean(query || source || segment);
 
@@ -275,17 +283,16 @@ export function PipelineView() {
     <div className="pipe">
       <header className="page-head pipe-head">
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap", marginBottom: "4px" }}>
+          <div className="pipe-title-row">
             <h1 className="page-title">Pipeline</h1>
-            <div className="seg" role="group" aria-label="Pipeline Views" style={{ display: "inline-flex" }}>
+            <div className="seg" role="group" aria-label="Pipeline Views">
               <button
                 data-on={viewMode === "board"}
                 onClick={() => setViewMode("board")}
-                style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
               >
                 <Icon name="kanban" size={13} />
                 <span>Kanban Board</span>
-                <span className="pill" style={{ fontSize: "10px", padding: "1px 6px" }}>{filtered.length}</span>
+                <span className="chip">{filtered.length}</span>
               </button>
               <button
                 data-on={viewMode === "pool"}
@@ -293,25 +300,10 @@ export function PipelineView() {
                   setViewMode("pool");
                   fetchPoolLeads().catch(() => {});
                 }}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  color: viewMode === "pool" ? "var(--accent)" : undefined,
-                }}
               >
                 <Icon name="zap" size={13} />
                 <span>{isAdmin ? "Unassigned Pool" : "Lead Grab Pool"}</span>
-                <span
-                  style={{
-                    fontSize: "11px",
-                    fontWeight: 600,
-                    padding: "1px 6px",
-                    borderRadius: "10px",
-                    background: "rgba(244, 97, 42, 0.15)",
-                    color: "var(--accent)",
-                  }}
-                >
+                <span className="chip" data-tone="accent">
                   {openPoolList.length || state.poolCount || 0}
                 </span>
               </button>
@@ -336,15 +328,10 @@ export function PipelineView() {
               {(openPoolList.length > 0 || state.poolCount > 0) && (
                 <button
                   className="btn"
+                  data-variant="accent"
                   onClick={() => {
                     setViewMode("pool");
                     fetchPoolLeads().catch(() => {});
-                  }}
-                  style={{
-                    borderColor: "rgba(244, 97, 42, 0.4)",
-                    color: "var(--accent)",
-                    background: "rgba(244, 97, 42, 0.08)",
-                    fontWeight: 550,
                   }}
                 >
                   <Icon name="zap" size={14} /> {isAdmin ? "Unassigned Pool" : "Open Grab Pool"} ({openPoolList.length || state.poolCount})
@@ -379,33 +366,8 @@ export function PipelineView() {
           {/* Claim feedback banner */}
           {claimFeedback && (
             <div
-              className="card"
-              style={{
-                padding: "12px 16px",
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                background:
-                  claimFeedback.status === "success"
-                    ? "rgba(16, 185, 129, 0.12)"
-                    : claimFeedback.status === "quota_limit"
-                    ? "rgba(245, 158, 11, 0.12)"
-                    : "rgba(239, 68, 68, 0.12)",
-                border:
-                  claimFeedback.status === "success"
-                    ? "1px solid rgba(16, 185, 129, 0.3)"
-                    : claimFeedback.status === "quota_limit"
-                    ? "1px solid rgba(245, 158, 11, 0.3)"
-                    : "1px solid rgba(239, 68, 68, 0.3)",
-                color:
-                  claimFeedback.status === "success"
-                    ? "#10b981"
-                    : claimFeedback.status === "quota_limit"
-                    ? "#f59e0b"
-                    : "#ef4444",
-                fontWeight: 550,
-                borderRadius: "var(--r-md)",
-              }}
+              className="card pool-feedback"
+              data-status={claimFeedback.status}
             >
               <Icon
                 name={
@@ -417,37 +379,25 @@ export function PipelineView() {
                 }
                 size={18}
               />
-              <span style={{ fontSize: "var(--fs-meta)" }}>{claimFeedback.message}</span>
+              <span>{claimFeedback.message}</span>
             </div>
           )}
 
           {/* Admin vs Closer Banner Card */}
           <div className="pool-banner-card">
-            <div style={{ flex: 1, minWidth: "260px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
-                <span
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "4px",
-                    background: "rgba(244, 97, 42, 0.15)",
-                    color: "var(--accent)",
-                    padding: "3px 8px",
-                    borderRadius: "6px",
-                    fontSize: "11px",
-                    fontWeight: 600,
-                  }}
-                >
+            <div className="pool-banner-info">
+              <div className="pool-banner-tag-row">
+                <span className="chip" data-tone="accent">
                   <Icon name={isAdmin ? "users" : "zap"} size={12} /> {isAdmin ? "Admin Distribution Pool" : "First-Come, First-Served Pool"}
                 </span>
-                <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                <span className="hint">
                   {isAdmin ? "Team Lead Routing" : "Realtime Atomic Claiming"}
                 </span>
               </div>
-              <h2 style={{ fontSize: "17px", fontWeight: 650, margin: "0 0 6px" }}>
+              <h2 className="pool-banner-title">
                 {openPoolList.length} Unassigned Leads Ready for {isAdmin ? "Distribution" : "Grabbing"}
               </h2>
-              <p style={{ fontSize: "12px", color: "var(--text-secondary)", margin: 0, lineHeight: 1.5 }}>
+              <p className="pool-banner-desc">
                 {isAdmin
                   ? "Incoming leads imported via Google Sheets, WhatsApp relays, CSV files, and Inbound Webhooks. You can assign each lead directly to a specific closer or auto-distribute them to the team via Round-Robin."
                   : "Leads imported via Google Sheets, WhatsApp relays, CSV files, and Inbound Webhooks wait here. When you click Grab Lead Now, it is atomically assigned to your CRM pipeline in the New Lead stage."}
@@ -455,24 +405,12 @@ export function PipelineView() {
             </div>
 
             {isAdmin ? (
-              <div className="pool-quota-card" style={{ minWidth: "300px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-secondary)" }}>
-                    TEAM DISTRIBUTION
-                  </span>
-                  <span
-                    className="pill"
-                    style={{
-                      fontSize: "11px",
-                      fontWeight: 600,
-                      background: "rgba(16, 185, 129, 0.15)",
-                      color: "#10b981",
-                    }}
-                  >
-                    Active Routing
-                  </span>
+              <div className="pool-quota-card">
+                <div className="pool-quota-header">
+                  <span className="pool-quota-title">TEAM DISTRIBUTION</span>
+                  <span className="chip" data-tone="success">Active Routing</span>
                 </div>
-                <p style={{ fontSize: "11.5px", color: "var(--text-secondary)", margin: "4px 0 8px", lineHeight: 1.4 }}>
+                <p className="pool-quota-desc">
                   Assign leads individually below or auto-distribute across all active closers evenly.
                 </p>
                 <button
@@ -481,7 +419,6 @@ export function PipelineView() {
                   data-variant="primary"
                   onClick={handleAutoDistributeAll}
                   disabled={isDistributing || openPoolList.length === 0}
-                  style={{ width: "100%", justifyContent: "center", gap: "6px", fontSize: "12px", fontWeight: 600 }}
                 >
                   <Icon name={isDistributing ? "refresh" : "zap"} size={13} className={isDistributing ? "spin" : ""} />
                   {isDistributing ? "Distributing leads..." : "⚡ Auto-Distribute (Round-Robin)"}
@@ -489,38 +426,24 @@ export function PipelineView() {
               </div>
             ) : (
               <div className="pool-quota-card">
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-secondary)" }}>
-                    YOUR ACTIVE CAPACITY
-                  </span>
-                  <span
-                    className="pill"
-                    style={{
-                      fontSize: "11px",
-                      fontWeight: 600,
-                      background: isAtQuota ? "rgba(239, 68, 68, 0.15)" : "rgba(16, 185, 129, 0.15)",
-                      color: isAtQuota ? "#ef4444" : "#10b981",
-                    }}
-                  >
+                <div className="pool-quota-header">
+                  <span className="pool-quota-title">YOUR ACTIVE CAPACITY</span>
+                  <span className="chip" data-tone={isAtQuota ? "danger" : "success"}>
                     {isAtQuota ? "⚠️ Quota Full" : `✅ ${Math.max(0, myCap - myActiveLeads)} grabs left`}
                   </span>
                 </div>
-                <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
-                  <span style={{ fontSize: "20px", fontWeight: 700 }}>{myActiveLeads}</span>
-                  <span style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>/ {myCap} max active leads</span>
+                <div className="pool-quota-stat">
+                  <span className="pool-quota-num">{myActiveLeads}</span>
+                  <span className="pool-quota-max">/ {myCap} max active leads</span>
                 </div>
-                {/* Progress bar */}
-                <div style={{ height: "6px", width: "100%", background: "var(--border)", borderRadius: "3px", overflow: "hidden" }}>
+                <div className="pool-progress-track">
                   <div
-                    style={{
-                      height: "100%",
-                      width: `${Math.min(100, (myActiveLeads / myCap) * 100)}%`,
-                      background: isAtQuota ? "#ef4444" : "var(--accent)",
-                      transition: "width 0.3s ease",
-                    }}
+                    className="pool-progress-fill"
+                    data-quota={isAtQuota}
+                    style={{ width: `${Math.min(100, (myActiveLeads / myCap) * 100)}%` }}
                   />
                 </div>
-                <div style={{ fontSize: "10px", color: "var(--text-tertiary)" }}>
+                <div className="pool-quota-caption">
                   Admin controlled: {closerName} (Cap: {myCap} leads)
                 </div>
               </div>
@@ -580,35 +503,31 @@ export function PipelineView() {
                   >
                     <div>
                       {/* Top Row: Source badge + Name + Arrived */}
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px", marginBottom: "8px" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <div className="pool-card-top">
+                        <div className="pool-card-lead-info">
                           <span className="stage-icon-badge" data-tone={src.tone}>
                             <Icon name={src.icon} size={15} />
                           </span>
                           <div>
-                            <h3 style={{ fontSize: "14px", fontWeight: 650, margin: 0, color: "var(--text)" }}>
+                            <h3 className="pool-card-name">
                               {item.customerName || "Customer Lead"}
                             </h3>
-                            <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                            <span className="pool-card-sub">
                               {item.segment || "SMB Lead"}
                             </span>
                           </div>
                         </div>
-                        <span
-                          className="chip"
-                          data-tone={src.tone}
-                          style={{ fontSize: "10px", padding: "2px 6px" }}
-                        >
+                        <span className="chip" data-tone={src.tone}>
                           <Icon name={src.icon} size={10} /> {src.label}
                         </span>
                       </div>
 
                       {/* Contact Info */}
-                      <div style={{ display: "flex", flexDirection: "column", gap: "4px", margin: "10px 0", fontSize: "12px", color: "var(--text-secondary)" }}>
+                      <div className="pool-card-contacts">
                         {item.customerPhone ? (
-                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                            <Icon name="phone" size={12} style={{ color: "var(--text-tertiary)" }} />
-                            <span style={{ fontFamily: "monospace", fontWeight: 550 }}>
+                          <div className="pool-card-contact-row">
+                            <Icon name="phone" size={12} />
+                            <span className="pool-card-phone">
                               {item.customerPhone}
                             </span>
                             <a
@@ -617,7 +536,7 @@ export function PipelineView() {
                               rel="noreferrer"
                               onClick={(e) => e.stopPropagation()}
                               title="Chat on WhatsApp"
-                              style={{ color: "#25D366", marginLeft: "4px", display: "inline-flex" }}
+                              className="pool-card-wa-link"
                             >
                               <Icon name="whatsapp" size={13} />
                             </a>
@@ -625,9 +544,9 @@ export function PipelineView() {
                         ) : null}
 
                         {item.customerEmail ? (
-                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                            <Icon name="mail" size={12} style={{ color: "var(--text-tertiary)" }} />
-                            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          <div className="pool-card-contact-row">
+                            <Icon name="mail" size={12} />
+                            <span className="pool-card-email">
                               {item.customerEmail}
                             </span>
                           </div>
@@ -635,65 +554,46 @@ export function PipelineView() {
                       </div>
 
                       {/* Inquiry Service Interest */}
-                      <div
-                        style={{
-                          background: "var(--bg-soft)",
-                          padding: "8px 10px",
-                          borderRadius: "var(--r-sm)",
-                          fontSize: "12px",
-                          color: "var(--text)",
-                          marginBottom: "12px",
-                          lineHeight: 1.4,
-                        }}
-                      >
-                        <div style={{ fontSize: "10px", color: "var(--text-tertiary)", textTransform: "uppercase", fontWeight: 600, marginBottom: "2px" }}>
+                      <div className="pool-card-inquiry">
+                        <div className="pool-card-inquiry-lbl">
                           Inquiry / Requirement:
                         </div>
                         {item.serviceInterest || "Direct Enquiry imported from Google Sheet / Inbound channel"}
                       </div>
                     </div>
 
-                    {/* Footer Row: Assign to Closer (Admin) vs Grab Lead (Closer) -- Deal Budget Removed */}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "10px", borderTop: "1px solid var(--border)", marginTop: "auto", gap: "10px" }}>
-                      <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                    {/* Footer Row: Assign to Closer (Admin) vs Grab Lead (Closer) */}
+                    <div className="pool-card-foot">
+                      <span className="pool-card-time">
                         {item.createdAt ? `Imported ${relativeTime(item.createdAt)}` : "Unassigned"}
                       </span>
 
                       {isAdmin ? (
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                          <select
-                            className="select"
-                            style={{ height: "30px", fontSize: "12px", padding: "0 8px", minWidth: "150px" }}
-                            disabled={isClaiming}
-                            defaultValue=""
-                            onChange={(e) => {
-                              if (e.target.value) {
-                                handleAssignLead(item, e.target.value);
-                                e.target.value = "";
-                              }
-                            }}
-                            aria-label="Assign lead to closer"
-                          >
-                            <option value="" disabled>Assign to Closer ▾</option>
-                            {availableClosers.map((closer) => (
-                              <option key={closer} value={closer}>
-                                {closer}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
+                        <select
+                          className="select pool-card-assign-select"
+                          disabled={isClaiming}
+                          defaultValue=""
+                          onChange={(e) => {
+                            if (e.target.value) {
+                              handleAssignLead(item, e.target.value);
+                              e.target.value = "";
+                            }
+                          }}
+                          aria-label="Assign lead to closer"
+                        >
+                          <option value="" disabled>Assign to Closer ▾</option>
+                          {availableClosers.map((closer) => (
+                            <option key={closer} value={closer}>
+                              {closer}
+                            </option>
+                          ))}
+                        </select>
                       ) : (
                         <button
                           className="btn"
                           data-variant="primary"
                           disabled={isClaiming || isAtQuota}
                           onClick={() => handleClaimLead(item)}
-                          style={{
-                            padding: "6px 14px",
-                            fontSize: "12px",
-                            fontWeight: 600,
-                            opacity: isAtQuota ? 0.6 : 1,
-                          }}
                           title={isAtQuota ? `Active lead cap reached (${myActiveLeads}/${myCap}). Resolve deals to grab more.` : "Click to claim lead into your pipeline"}
                         >
                           {isClaiming ? (
@@ -717,12 +617,12 @@ export function PipelineView() {
               })}
             </div>
           ) : (
-            <div className="empty" style={{ margin: "40px auto" }}>
+            <div className="empty">
               <span className="empty-icon">
-                <Icon name="check-circle" size={24} style={{ color: "#10b981" }} />
+                <Icon name="check-circle" size={24} />
               </span>
               <h3>All Open Leads Claimed</h3>
-              <p style={{ maxWidth: "420px" }}>
+              <p>
                 There are currently no unclaimed leads in the Grab Pool. New leads synced from Google Sheets, WhatsApp, or CSV imports will appear here automatically.
               </p>
               <button className="btn" data-variant="primary" onClick={() => setViewMode("board")}>
@@ -827,7 +727,6 @@ export function PipelineView() {
           <div className="board" data-fit={fit} role="list" aria-label="Lead pipeline board" ref={boardRef}>
             {STAGES.map((stage, stageIndex) => {
               const cards = byStage.get(stage.id) ?? [];
-              const total = cards.reduce((s, l) => s + l.value, 0);
               return (
                 <div
                   key={stage.id}
@@ -869,12 +768,10 @@ export function PipelineView() {
                       onClick={() => setLayout({ colWidth: state.colWidth })}
                       aria-label={`${stage.label} column options`}
                       title="Columns resize together — drag a divider"
-                      style={{ opacity: 1 }}
                     >
                       <Icon name="more" size={14} />
                     </button>
                   </header>
-                  
 
                   <div className="col-cards">
                     {cards.map((lead) => {
@@ -930,19 +827,18 @@ export function PipelineView() {
                             </span>
                             <span className="lead-owner">{lead.owner}</span>
                             <span className="lead-code">{lead.code}</span>
-                            
+
                             <span className="lead-sla" data-overdue={overdue}>
                               {overdue ? <Icon name="flame" size={11} /> : null}
                               {slaLabel(lead.followUp)}
                             </span>
                           </div>
                           {lead.owner === "Unassigned" && (
-                            <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px dashed var(--border)" }}>
+                            <div className="lead-sla-claim">
                               <button
-                                className="btn"
+                                className="btn lead-sla-btn"
                                 data-variant="accent"
                                 data-size="sm"
-                                style={{ width: "100%", height: 22, fontSize: 10, padding: "0 6px" }}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   claimLead(lead.id, closerName);

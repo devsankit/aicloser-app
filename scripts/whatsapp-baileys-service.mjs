@@ -8,7 +8,7 @@ import pino from "pino";
 const PORT = process.env.WA_SERVICE_PORT || 3015;
 const rawSessionKey = String(process.env.WA_SESSION_KEY || "default").trim();
 const sessionKey = rawSessionKey.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64) || "default";
-const SESSION_DIR = path.join(process.cwd(), ".gigxomi", "wa-sessions", sessionKey);
+const SESSION_DIR = path.join(process.cwd(), ".aicloser", "wa-sessions", sessionKey);
 const AUTH_DIR = path.join(SESSION_DIR, "auth");
 const SESSION_FILE = path.join(SESSION_DIR, "session.json");
 const SCRAPED_CACHE_FILE = path.join(SESSION_DIR, "scraped-cache.json");

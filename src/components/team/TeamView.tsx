@@ -37,245 +37,17 @@ export interface PermissionRow {
   closer: boolean;
 }
 
-const DEFAULT_MEMBERS: TeamMember[] = [
-  {
-    id: "tm-owner-ankit",
-    name: "Ankit Rathore",
-    email: "theankit.storage@gmail.com",
-    phone: "+91 70787 36123",
-    role: "ADMIN",
-    status: "active",
-    simConnected: true,
-    maxCapacity: 50,
-    assignedLeads: 24,
-    pipelineValue: 1840000,
-    dealsWon: 12,
-    inRoundRobin: false, // MANDATORY: ADMIN STRICTLY EXCLUDED FROM RR & SEAT BILLING
-    onLeave: false,
-    numberMasking: false,
-    reportingManager: "Founder & Owner",
-    joinedAt: "Active Owner",
-  },
-  {
-    id: "tm-closer-anshita",
-    name: "Anshita",
-    email: "anshitasales@gmail.com",
-    phone: "+91 76185 34225",
-    role: "CLOSER",
-    status: "active",
-    simConnected: true,
-    maxCapacity: 35,
-    assignedLeads: 551,
-    pipelineValue: 4250000,
-    dealsWon: 38,
-    inRoundRobin: true,
-    onLeave: false,
-    numberMasking: true,
-    reportingManager: "Ankit Rathore",
-    joinedAt: "Senior Closer",
-  },
-  {
-    id: "tm-field-desk",
-    name: "Field Closer Desk",
-    email: "field.telephony@closer.in",
-    phone: "+91 99933 28124",
-    role: "CLOSER",
-    status: "active",
-    simConnected: true,
-    maxCapacity: 25,
-    assignedLeads: 18,
-    pipelineValue: 920000,
-    dealsWon: 6,
-    inRoundRobin: true,
-    onLeave: false,
-    numberMasking: false,
-    reportingManager: "Ankit Rathore",
-    joinedAt: "Android SIM Relay",
-  },
-];
+const DEFAULT_MEMBERS: TeamMember[] = [];
 
-const DEFAULT_PERMISSIONS: PermissionRow[] = [
-  // 1. Leads & Pipeline Management
-  {
-    id: "lead_view_all",
-    category: "Leads & Pipeline Management",
-    label: "View all workspace leads",
-    desc: "Can view unassigned & colleague leads vs only strictly assigned records.",
-    admin: true,
-    manager: true,
-    closer: false,
-  },
-  {
-    id: "lead_move_stages",
-    category: "Leads & Pipeline Management",
-    label: "Move deal stages in Kanban",
-    desc: "Permission to progress leads across Kanban pipeline columns.",
-    admin: true,
-    manager: true,
-    closer: true,
-  },
-  {
-    id: "lead_grab_pool",
-    category: "Leads & Pipeline Management",
-    label: "Grab unassigned leads from Pool",
-    desc: "Access the live Lead Grab Pool to claim incoming leads on demand within quota.",
-    admin: true,
-    manager: true,
-    closer: true,
-  },
-  {
-    id: "lead_reassign",
-    category: "Leads & Pipeline Management",
-    label: "Bulk reassign lead ownership",
-    desc: "Reassign individual or batch leads between closers.",
-    admin: true,
-    manager: true,
-    closer: false,
-  },
-  {
-    id: "lead_import",
-    category: "Leads & Pipeline Management",
-    label: "Multi-Source Lead Import (Sheets, Excel, CSV)",
-    desc: "Import new leads into the CRM from Google Sheets, Excel, CSV, or paired device.",
-    admin: true,
-    manager: true,
-    closer: false,
-  },
-  {
-    id: "lead_delete",
-    category: "Leads & Pipeline Management",
-    label: "Delete leads & contacts",
-    desc: "Permanently delete lead records and linked contact data from CRM.",
-    admin: true,
-    manager: false,
-    closer: false,
-  },
-
-  // 2. Calls & SIM Telephony
-  {
-    id: "telephony_own_recordings",
-    category: "Calls & SIM Telephony",
-    label: "Access own SIM call recordings & logs",
-    desc: "Listen to own call recordings, view phone call history, and check callback tasks.",
-    admin: true,
-    manager: true,
-    closer: true,
-  },
-  {
-    id: "telephony_team_recordings",
-    category: "Calls & SIM Telephony",
-    label: "Listen to all team call recordings & AI transcripts",
-    desc: "Access audio playbacks and AI transcripts of all sales calls across the company.",
-    admin: true,
-    manager: true,
-    closer: false,
-  },
-
-  // 3. Conversations & Marketing
-  {
-    id: "chat_shared_threads",
-    category: "Conversations & Marketing",
-    label: "Live Multi-Channel Chat (WhatsApp / Web)",
-    desc: "Message leads in real time, use sales macros, and view conversation histories.",
-    admin: true,
-    manager: true,
-    closer: true,
-  },
-  {
-    id: "whatsapp_bulk_marketing",
-    category: "Conversations & Marketing",
-    label: "WhatsApp Bulk Marketing & Broadcast Campaigns",
-    desc: "Broadcast approved Meta Cloud templates and run bulk marketing campaigns.",
-    admin: true,
-    manager: true,
-    closer: false,
-  },
-
-  // 4. Growth & Integrations
-  {
-    id: "plugins_channels_hub",
-    category: "Growth & Integrations",
-    label: "Plugins & Channels Configuration Hub",
-    desc: "Connect WhatsApp QR, Meta Cloud API credentials, webhooks, and integrations.",
-    admin: true,
-    manager: false,
-    closer: false,
-  },
-  {
-    id: "forms_builder",
-    category: "Growth & Integrations",
-    label: "Lead Form Builder & Public Embeds",
-    desc: "Design public lead capture forms, customize questions, and copy embed codes.",
-    admin: true,
-    manager: true,
-    closer: false,
-  },
-
-  // 5. Revenue & Financial Controls
-  {
-    id: "payments_create",
-    category: "Revenue & Financial Controls",
-    label: "Generate UPI dynamic payment links",
-    desc: "Generate dynamic customer payment requests with dynamic UPI QR codes.",
-    admin: true,
-    manager: true,
-    closer: true,
-  },
-  {
-    id: "payments_approve",
-    category: "Revenue & Financial Controls",
-    label: "Verify & approve UPI payment proofs",
-    desc: "Inspect customer payment screenshot proofs, verify UTR, and trigger Closed Won.",
-    admin: true,
-    manager: true,
-    closer: false,
-  },
-
-  // 6. Administration & Governance
-  {
-    id: "round_robin_manage",
-    category: "Administration & Governance",
-    label: "Configure Round-Robin routing rules",
-    desc: "Adjust closer allocation caps, working hours, and distribution weights.",
-    admin: true,
-    manager: true,
-    closer: false,
-  },
-  {
-    id: "team_user_management",
-    category: "Administration & Governance",
-    label: "Team members & user quota governance",
-    desc: "Invite new users, set active lead caps, manage leaves, and configure permissions.",
-    admin: true,
-    manager: false,
-    closer: false,
-  },
-  {
-    id: "export_contacts",
-    category: "Administration & Governance",
-    label: "Export database to CSV / Excel",
-    desc: "Download complete client contact directory, phone numbers, and revenue history.",
-    admin: true,
-    manager: false,
-    closer: false,
-  },
-  {
-    id: "ai_automations_config",
-    category: "Administration & Governance",
-    label: "AI Bot Studio & BYOK API Vault",
-    desc: "Manage Groq, OpenAI, Claude API keys, prompt engineering, and fallback chains.",
-    admin: true,
-    manager: false,
-    closer: false,
-  },
-];
+const DEFAULT_PERMISSIONS: PermissionRow[] = [];
 
 const AUDIT_LOGS: Array<{ id: string; action: string; detail: string; user: string; time: string }> = [];
 
 export function TeamView() {
   const { state } = useApp();
   const [tab, setTab] = useState<"members" | "matrix" | "routing" | "audit">("members");
-  const [members, setMembers] = useState<TeamMember[]>(DEFAULT_MEMBERS);
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [loading, setLoading] = useState(true);
   const [permissions, setPermissions] = useState<PermissionRow[]>(DEFAULT_PERMISSIONS);
   const [routingAlgorithm, setRoutingAlgorithm] = useState<"equal" | "performance" | "capacity">("equal");
   const [routingHoursOnly, setRoutingHoursOnly] = useState(true);
@@ -290,19 +62,19 @@ export function TeamView() {
   const [inviteName, setInviteName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [invitePhone, setInvitePhone] = useState("");
+  const [invitePassword, setInvitePassword] = useState("");
+  const [showInvitePassword, setShowInvitePassword] = useState(false);
   const [inviteRole, setInviteRole] = useState<TeamRole>("CLOSER");
   const [inviteCapacity, setInviteCapacity] = useState(15);
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Load from LocalStorage
+  // Load from LocalStorage (non-member settings only, members are strictly live from API)
   useEffect(() => {
     try {
       const stored = localStorage.getItem("closer.team.v1");
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed.members && Array.isArray(parsed.members) && parsed.members.length > 0) {
-          setMembers(parsed.members);
-        }
         if (parsed.permissions) setPermissions(parsed.permissions);
         if (parsed.routingAlgorithm) setRoutingAlgorithm(parsed.routingAlgorithm);
         if (parsed.routingHoursOnly !== undefined) setRoutingHoursOnly(parsed.routingHoursOnly);
@@ -334,12 +106,93 @@ export function TeamView() {
     }
   }, []);
 
-  // Live API Fetch for Team Closers
+  // Live API Fetch for Team Members & Role Features
   useEffect(() => {
     let active = true;
-    aicloserApi.team
-      .listMembers()
-      .then((res: any) => {
+    setLoading(true);
+
+    // Fetch live permissions catalog from /api/sales/roles/features
+    fetch("/api/sales/roles/features")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data || !Array.isArray(data.features) || !active) return;
+        const matrix = data.matrix || {};
+        const rows: PermissionRow[] = data.features.map((feat: any) => ({
+          id: feat.id,
+          category: feat.category || "General",
+          label: feat.name,
+          desc: feat.description,
+          admin: true,
+          manager: Boolean(matrix.MANAGER?.[feat.id] ?? true),
+          closer: Boolean(matrix.SALES_AGENT?.[feat.id] ?? true),
+        }));
+        setPermissions((prev) => (prev.length === 0 ? rows : prev));
+      })
+      .catch(() => {});
+
+    async function loadTeam() {
+      try {
+        const res = await fetch("/api/sales/team");
+        if (res.ok) {
+          const json = await res.json();
+          const rawList = Array.isArray(json?.agents)
+            ? json.agents
+            : Array.isArray(json?.data?.agents)
+            ? json.data.agents
+            : Array.isArray(json)
+            ? json
+            : [];
+
+          if (active && rawList.length > 0) {
+            let deletedIds: string[] = [];
+            try {
+              deletedIds = JSON.parse(localStorage.getItem("closer.deleted.members") || "[]");
+            } catch {}
+            const activeRawList = rawList.filter(
+              (m: any) => !deletedIds.includes(String(m.id)) && !deletedIds.includes(String(m.userId))
+            );
+
+            const mapped: TeamMember[] = activeRawList.map((m: any) => {
+              const rawRole = String(m.role || m.workspaceRole || "").toUpperCase();
+              const role: TeamRole = rawRole.includes("ADMIN") ? "ADMIN" : rawRole.includes("MANAGER") ? "MANAGER" : "CLOSER";
+              const rawStatus = String(m.status || "").toLowerCase();
+              const status: "active" | "away" | "offline" | "on_leave" =
+                m.onLeave || rawStatus === "on_leave" ? "on_leave" : rawStatus === "active" ? "active" : "offline";
+
+              return {
+                id: m.id || m.userId || `tm-${Math.random().toString(36).slice(2, 6)}`,
+                name: m.displayName || m.user?.displayName || m.name || m.agentCode || "Sales Agent",
+                email: m.email || m.user?.email || "",
+                phone: m.phone || m.user?.phone || "",
+                role,
+                status,
+                simConnected: Boolean(m.simConnected ?? true),
+                maxCapacity: Number(m.maxActiveLeads || m.maxCapacity || 25),
+                assignedLeads: Number(m.assignedLeadsCount || m._count?.leadAssignments || m._count?.assignedLeads || 0),
+                pipelineValue: Number(m.pipelineValue || 0),
+                dealsWon: Number(m.dealsWon || 0),
+                inRoundRobin: Boolean(m.canClaimLeads ?? m.inRoundRobin ?? (role !== "ADMIN")),
+                onLeave: Boolean(m.onLeave),
+                numberMasking: Boolean(m.numberMasking),
+                reportingManager: m.reportingManager || "Founder & Owner",
+                joinedAt: m.createdAt
+                  ? new Date(m.createdAt).toLocaleDateString("en-IN", { month: "short", year: "numeric" })
+                  : "Active",
+              };
+            });
+
+            setMembers(mapped);
+            setLoading(false);
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn("Direct /api/sales/team fetch failed:", err);
+      }
+
+      // Fallback via aicloserApi if direct /api/sales/team returned no agents
+      try {
+        const res: any = await aicloserApi.team.listMembers();
         if (!active) return;
         const rawList = Array.isArray(res)
           ? res
@@ -358,93 +211,46 @@ export function TeamView() {
             (m: any) => !deletedIds.includes(String(m.id)) && !deletedIds.includes(String(m.userId))
           );
 
-          const mapped: TeamMember[] = activeRawList.map((m: any) => ({
-            id: m.id || m.userId || `tm-${Math.random().toString(36).slice(2, 6)}`,
-            name: m.displayName || m.user?.displayName || m.name || "Closer Agent",
-            email: m.email || m.user?.email || "",
-            phone: m.phone || m.user?.phone || "+91 98765 43210",
-            role: m.role === "ADMIN" || m.role === "SUPER_ADMIN" ? "ADMIN" : m.role === "MANAGER" ? "MANAGER" : "CLOSER",
-            status: m.status === "ACTIVE" || m.isActive ? "active" : "offline",
-            simConnected: true,
-            maxCapacity: m.maxActiveLeads || m.maxCapacity || 25,
-            assignedLeads: m.assignedLeadsCount || m._count?.leadAssignments || m._count?.assignedLeads || 0,
-            pipelineValue: m.pipelineValue || 0,
-            dealsWon: m.dealsWon || 0,
-            inRoundRobin: m.canClaimLeads ?? m.inRoundRobin ?? (m.role !== "ADMIN"),
-            onLeave: Boolean(m.onLeave),
-            numberMasking: Boolean(m.numberMasking),
-            reportingManager: m.reportingManager || "Ankit Rathore",
-            joinedAt: m.createdAt
-              ? new Date(m.createdAt).toLocaleDateString("en-IN", { month: "short", year: "numeric" })
-              : "Active",
-          }));
-          setMembers(mapped);
-          return;
-        }
-
-        // If API returned 0 members but user is authenticated, show current user/owner
-        if (state.user) {
-          const isAdm = state.user.role === "ADMIN" || state.user.role === "SUPER_ADMIN";
-          setMembers([
-            {
-              id: (state.user as any).userId || (state.user as any).id || "owner-1",
-              name: state.user.displayName || "Ankit Rathore",
-              email: state.user.email || "theankit.storage@gmail.com",
-              phone: state.user.phone || "+91 70787 36123",
-              role: isAdm ? "ADMIN" : "CLOSER",
-              status: "active",
+          const mapped: TeamMember[] = activeRawList.map((m: any) => {
+            const rawRole = String(m.role || "").toUpperCase();
+            const role: TeamRole = rawRole.includes("ADMIN") ? "ADMIN" : rawRole.includes("MANAGER") ? "MANAGER" : "CLOSER";
+            return {
+              id: m.id || m.userId || `tm-${Math.random().toString(36).slice(2, 6)}`,
+              name: m.displayName || m.user?.displayName || m.name || "Closer Agent",
+              email: m.email || m.user?.email || "",
+              phone: m.phone || m.user?.phone || "",
+              role,
+              status: m.status === "ACTIVE" || m.isActive ? "active" : "offline",
               simConnected: true,
-              maxCapacity: 50,
-              assignedLeads: state.leads.length,
-              pipelineValue: state.leads.reduce((s, l) => s + (l.value || 0), 0),
-              dealsWon: state.leads.filter((l) => l.stage === "won" || (l.stage as string) === "CLOSED_WON").length,
-              inRoundRobin: !isAdm,
-              onLeave: false,
-              numberMasking: false,
-              reportingManager: "Founder & Owner",
-              joinedAt: "Workspace Owner",
-            },
-          ]);
+              maxCapacity: m.maxActiveLeads || m.maxCapacity || 25,
+              assignedLeads: m.assignedLeadsCount || m._count?.leadAssignments || 0,
+              pipelineValue: m.pipelineValue || 0,
+              dealsWon: m.dealsWon || 0,
+              inRoundRobin: m.canClaimLeads ?? m.inRoundRobin ?? (role !== "ADMIN"),
+              onLeave: Boolean(m.onLeave),
+              numberMasking: Boolean(m.numberMasking),
+              reportingManager: m.reportingManager || "Founder & Owner",
+              joinedAt: m.createdAt
+                ? new Date(m.createdAt).toLocaleDateString("en-IN", { month: "short", year: "numeric" })
+                : "Active",
+            };
+          });
+          setMembers(mapped);
+        } else {
+          setMembers([]);
         }
-      })
-      .catch(async () => {
-        try {
-          const meRes: any = await aicloserApi.team.me().catch(() => null);
-          const me = meRes?.data || meRes;
-          if (active && (me?.displayName || state.user)) {
-            const userObj = me?.displayName ? me : state.user;
-            const isAdm = userObj.role === "ADMIN" || userObj.role === "SUPER_ADMIN";
-            setMembers([
-              {
-                id: (userObj as any).userId || (userObj as any).id || "me-1",
-                name: userObj.displayName || "Closer Agent",
-                email: userObj.email || "",
-                phone: userObj.phone || "",
-                role: isAdm ? "ADMIN" : userObj.role === "MANAGER" ? "MANAGER" : "CLOSER",
-                status: userObj.status === "ACTIVE" || userObj.status === "active" ? "active" : "offline",
-                simConnected: true,
-                maxCapacity: userObj.maxActiveLeads || 25,
-                assignedLeads: userObj.assignedLeadsCount || state.leads.length || 0,
-                pipelineValue: state.leads.reduce((s, l) => s + (l.value || 0), 0),
-                dealsWon: state.leads.filter((l) => l.stage === "won" || (l.stage as string) === "CLOSED_WON").length,
-                inRoundRobin: !isAdm,
-                onLeave: false,
-                numberMasking: false,
-                reportingManager: "Founder & Owner",
-                joinedAt: userObj.createdAt
-                  ? new Date(userObj.createdAt).toLocaleDateString("en-IN", { month: "short", year: "numeric" })
-                  : "Active",
-              },
-            ]);
-          }
-        } catch {
-          // Keep existing members or defaults
-        }
-      });
+      } catch {
+        if (active) setMembers([]);
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+
+    loadTeam();
     return () => {
       active = false;
     };
-  }, [state.user, state.leads]);
+  }, []);
 
   const saveToStorage = (updatedMembers = members, updatedPerms = permissions) => {
     try {
@@ -654,46 +460,115 @@ export function TeamView() {
     setTimeout(() => setSavedBanner(null), 2500);
   };
 
-  const handleAddMember = () => {
-    if (!inviteName.trim()) return setInviteError("Full name is required.");
-    if (!inviteEmail.trim() || !inviteEmail.includes("@")) return setInviteError("Valid email is required.");
-    if (!/^[6-9]\d{9}$/.test(invitePhone.replace(/\D/g, "").slice(-10))) {
+  const handleAddMember = async () => {
+    const name = inviteName.trim();
+    const email = inviteEmail.trim().toLowerCase();
+    const rawPhone = invitePhone.replace(/\D/g, "").slice(-10);
+    const password = invitePassword.trim();
+
+    if (!name) return setInviteError("Full name is required.");
+    if (!email || !email.includes("@")) return setInviteError("Valid email is required.");
+    if (!/^[6-9]\d{9}$/.test(rawPhone)) {
       return setInviteError("Valid 10-digit phone number is required.");
     }
+    if (!password || password.length < 6) {
+      return setInviteError("Password must be at least 6 characters.");
+    }
 
-    const newMember: TeamMember = {
-      id: `tm-${Date.now()}`,
-      name: inviteName.trim(),
-      email: inviteEmail.trim(),
-      phone: `+91 ${invitePhone.replace(/\D/g, "").slice(-10)}`,
+    setIsSubmitting(true);
+    setInviteError(null);
+
+    const cleanPhone = `+91 ${rawPhone}`;
+    const payload = {
+      displayName: name,
+      name,
+      email,
+      phone: cleanPhone,
       role: inviteRole,
-      status: "active",
-      simConnected: false,
-      maxCapacity: Number(inviteCapacity) || 12,
-      assignedLeads: 0,
-      pipelineValue: 0,
-      dealsWon: 0,
-      inRoundRobin: inviteRole === "CLOSER",
-      onLeave: false,
-      numberMasking: false,
-      reportingManager: "Ankit Rathore",
-      joinedAt: "Just now",
+      password,
+      maxCapacity: Number(inviteCapacity) || 15,
+      maxActiveLeads: Number(inviteCapacity) || 15,
+      reportingManager: inviteRole === "MANAGER" ? "Founder & Owner" : "Sales Manager Desk",
     };
 
-    const updated = [...members, newMember];
-    setMembers(updated);
-    saveToStorage(updated, permissions);
+    try {
+      let apiSuccess = false;
+      let createdMemberData: any = null;
 
-    // Live API invite dispatch
-    aicloserApi.team
-      .invite({ email: newMember.email, role: newMember.role })
-      .catch(() => {});
+      // 1. Dispatch to Central API invite endpoint
+      try {
+        const res: any = await aicloserApi.team.invite(payload);
+        if (res && (res.ok || res.success || res.agent || res.user || res.id)) {
+          apiSuccess = true;
+          createdMemberData = res.agent || res.user || res.data || res;
+        }
+      } catch (centralErr) {
+        console.warn("Central /team/invite failed, falling back to local /api/sales/team:", centralErr);
+      }
 
-    setIsInviteOpen(false);
-    setInviteName("");
-    setInviteEmail("");
-    setInvitePhone("");
-    setInviteError(null);
+      // 2. Dispatch to local /api/sales/team if central did not complete
+      if (!apiSuccess) {
+        try {
+          const localRes = await fetch("/api/sales/team", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const json = await localRes.json().catch(() => ({}));
+          if (localRes.ok && (json.ok || json.success)) {
+            apiSuccess = true;
+            createdMemberData = json.agent || json.user || json;
+          } else if (localRes.status === 400 || localRes.status === 409) {
+            setInviteError(json.error || json.message || "Failed to create team member. User may already exist.");
+            setIsSubmitting(false);
+            return;
+          }
+        } catch (localErr) {
+          console.warn("Local /api/sales/team POST failed:", localErr);
+        }
+      }
+
+      const newMember: TeamMember = {
+        id: createdMemberData?.id || createdMemberData?.userId || `tm-${Date.now()}`,
+        name,
+        email,
+        phone: cleanPhone,
+        role: inviteRole,
+        status: "active",
+        simConnected: false,
+        maxCapacity: Number(inviteCapacity) || 15,
+        assignedLeads: 0,
+        pipelineValue: 0,
+        dealsWon: 0,
+        inRoundRobin: inviteRole === "CLOSER",
+        onLeave: false,
+        numberMasking: false,
+        reportingManager: payload.reportingManager,
+        joinedAt: "Just now",
+      };
+
+      const updated = [...members, newMember];
+      setMembers(updated);
+      saveToStorage(updated, permissions);
+
+      setIsInviteOpen(false);
+      setInviteName("");
+      setInviteEmail("");
+      setInvitePhone("");
+      setInvitePassword("");
+      setShowInvitePassword(false);
+      setInviteRole("CLOSER");
+      setInviteCapacity(15);
+      setInviteError(null);
+
+      const roleLabel = inviteRole === "MANAGER" ? "Sales Manager" : inviteRole === "ADMIN" ? "Admin" : "Sales Closer";
+      setSavedBanner(`Team member "${name}" (${roleLabel}) created successfully! Password active.`);
+      setTimeout(() => setSavedBanner(null), 3500);
+    } catch (err: any) {
+      setInviteError(err?.message || "An unexpected error occurred while creating team member.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const filteredMembers = useMemo(() => {
@@ -895,16 +770,26 @@ export function TeamView() {
                 </tr>
               </thead>
               <tbody>
-                {filteredMembers.length === 0 ? (
+                {loading ? (
                   <tr>
-                    <td colSpan={tableViewMode === "extended" ? 10 : 8} style={{ textAlign: "center", padding: "48px 16px", color: "var(--text-tertiary)" }}>
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
-                        <Icon name="users" size={28} style={{ opacity: 0.4 }} />
-                        <div style={{ fontWeight: 600, color: "var(--text)" }}>No Team Members Found</div>
-                        <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", maxWidth: "340px" }}>
-                          Invite closers, managers, and admins to collaborate in your sales workspace.
+                    <td colSpan={tableViewMode === "extended" ? 10 : 8}>
+                      <div className="empty">
+                        <p>Loading workspace team...</p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : filteredMembers.length === 0 ? (
+                  <tr>
+                    <td colSpan={tableViewMode === "extended" ? 10 : 8}>
+                      <div className="empty">
+                        <div className="empty-icon">
+                          <Icon name="users" size={20} />
                         </div>
-                        <button className="btn" data-variant="primary" data-size="sm" style={{ marginTop: "8px" }} onClick={() => setIsInviteOpen(true)}>
+                        <h3>No team members added yet</h3>
+                        <p>
+                          Invite closers, managers, and admins to collaborate in your sales workspace.
+                        </p>
+                        <button className="btn" data-variant="primary" data-size="sm" onClick={() => setIsInviteOpen(true)}>
                           <Icon name="plus" size={13} /> Invite Member
                         </button>
                       </div>
@@ -1091,20 +976,21 @@ export function TeamView() {
                         <td style={{ whiteSpace: "nowrap" }}>
                           <select
                             className="select"
-                            value={member.reportingManager || "Ankit Rathore"}
+                            value={member.reportingManager || "Direct Admin"}
                             onChange={(e) => handleChangeReportingManager(member.id, e.target.value)}
                             aria-label={`Reporting manager for ${member.name}`}
-                            style={{
-                              height: "26px",
-                              fontSize: "var(--fs-caption)",
-                              padding: "0 6px",
-                              background: "var(--bg-hover)",
-                              borderColor: "transparent",
-                            }}
                           >
-                            <option value="Ankit Rathore">Ankit Rathore (Admin)</option>
-                            <option value="Rajesh Sharma">Rajesh Sharma (Sales Manager)</option>
-                            <option value="Direct Admin">Direct Admin</option>
+                            {members.filter((m) => m.role === "ADMIN" || m.role === "MANAGER").length > 0 ? (
+                              members
+                                .filter((m) => m.role === "ADMIN" || m.role === "MANAGER")
+                                .map((mgr) => (
+                                  <option key={mgr.id} value={mgr.name}>
+                                    {mgr.name} ({mgr.role})
+                                  </option>
+                                ))
+                            ) : (
+                              <option value="Direct Admin">Direct Admin</option>
+                            )}
                           </select>
                         </td>
                       </>
@@ -1645,62 +1531,106 @@ export function TeamView() {
 
       {/* Invite Member Modal */}
       {isInviteOpen && (
-        <div className="overlay" data-kind="dialog" onClick={() => setIsInviteOpen(false)} role="presentation">
-          <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="invite-dialog-title" onClick={(e) => e.stopPropagation()} style={{ width: "440px" }}>
+        <div className="overlay" data-kind="dialog" onClick={() => !isSubmitting && setIsInviteOpen(false)} role="presentation">
+          <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="invite-dialog-title" onClick={(e) => e.stopPropagation()}>
             <div className="dialog-head">
-              <h2 id="invite-dialog-title" style={{ fontSize: "var(--fs-title)", fontWeight: 600 }}>Invite Team Member</h2>
-              <button className="btn" data-variant="ghost" aria-label="Close dialog" onClick={() => setIsInviteOpen(false)} style={{ padding: "4px" }}>
+              <h2 id="invite-dialog-title">Invite Team Member</h2>
+              <button
+                className="btn"
+                data-variant="ghost"
+                data-size="sm"
+                aria-label="Close dialog"
+                onClick={() => !isSubmitting && setIsInviteOpen(false)}
+              >
                 <Icon name="close" size={14} />
               </button>
             </div>
-            <div className="dialog-body" style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "16px 20px" }}>
+            <div className="dialog-body">
               {inviteError && (
-                <div style={{ color: "var(--danger)", fontSize: "var(--fs-caption)", background: "var(--danger-soft)", padding: "6px 10px", borderRadius: "var(--r-sm)" }}>
+                <div
+                  className="chip"
+                  data-tone="danger"
+                  style={{ width: "100%", justifyContent: "flex-start", height: "auto", padding: "8px 10px", whiteSpace: "normal" }}
+                >
                   {inviteError}
                 </div>
               )}
               <div className="field">
-                <label htmlFor="invite-name" style={{ fontSize: "var(--fs-caption)", fontWeight: 550, color: "var(--text-secondary)" }}>Full Name</label>
+                <label htmlFor="invite-name">Full Name</label>
                 <input
                   className="input"
                   id="invite-name"
-                  placeholder="e.g. Varun Chawla"
+                  placeholder="e.g. Manager Test"
                   value={inviteName}
                   onChange={(e) => setInviteName(e.target.value)}
+                  disabled={isSubmitting}
                 />
               </div>
 
               <div className="field">
-                <label htmlFor="invite-email" style={{ fontSize: "var(--fs-caption)", fontWeight: 550, color: "var(--text-secondary)" }}>Email Address</label>
+                <label htmlFor="invite-email">Email Address</label>
                 <input
                   className="input"
                   id="invite-email"
                   type="email"
-                  placeholder="varun@company.com"
+                  placeholder="e.g. managertest@gmail.com"
                   value={inviteEmail}
                   onChange={(e) => setInviteEmail(e.target.value)}
+                  disabled={isSubmitting}
                 />
               </div>
 
               <div className="field">
-                <label htmlFor="invite-phone" style={{ fontSize: "var(--fs-caption)", fontWeight: 550, color: "var(--text-secondary)" }}>Phone (SIM Calling Number)</label>
+                <label htmlFor="invite-phone">Phone (SIM Calling Number)</label>
                 <input
                   className="input"
                   id="invite-phone"
                   placeholder="9876543210"
                   value={invitePhone}
                   onChange={(e) => setInvitePhone(e.target.value)}
+                  disabled={isSubmitting}
                 />
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+              <div className="field">
+                <label htmlFor="invite-password">Login Password</label>
+                <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+                  <input
+                    className="input"
+                    id="invite-password"
+                    type={showInvitePassword ? "text" : "password"}
+                    placeholder="e.g. Manager@123"
+                    value={invitePassword}
+                    onChange={(e) => setInvitePassword(e.target.value)}
+                    disabled={isSubmitting}
+                    style={{ paddingRight: "56px", width: "100%" }}
+                  />
+                  <button
+                    type="button"
+                    className="btn"
+                    data-variant="ghost"
+                    data-size="sm"
+                    onClick={() => setShowInvitePassword(!showInvitePassword)}
+                    style={{ position: "absolute", right: "4px", height: "24px", fontSize: "11px", padding: "0 6px" }}
+                    tabIndex={-1}
+                  >
+                    {showInvitePassword ? "Hide" : "Show"}
+                  </button>
+                </div>
+                <span className="card-sub">
+                  Initial credentials for this user (minimum 6 characters) to log in at /login.
+                </span>
+              </div>
+
+              <div className="drawer-grid">
                 <div className="field">
-                  <label htmlFor="invite-role" style={{ fontSize: "var(--fs-caption)", fontWeight: 550, color: "var(--text-secondary)" }}>Workspace Role</label>
+                  <label htmlFor="invite-role">Workspace Role</label>
                   <select
                     className="select"
                     id="invite-role"
                     value={inviteRole}
                     onChange={(e) => setInviteRole(e.target.value as TeamRole)}
+                    disabled={isSubmitting}
                   >
                     <option value="CLOSER">Sales Closer</option>
                     <option value="MANAGER">Sales Manager</option>
@@ -1709,23 +1639,34 @@ export function TeamView() {
                 </div>
 
                 <div className="field">
-                  <label htmlFor="invite-capacity" style={{ fontSize: "var(--fs-caption)", fontWeight: 550, color: "var(--text-secondary)" }}>Max Lead Capacity</label>
+                  <label htmlFor="invite-capacity">Max Lead Capacity</label>
                   <input
                     className="input"
                     id="invite-capacity"
                     type="number"
                     value={inviteCapacity}
                     onChange={(e) => setInviteCapacity(Number(e.target.value))}
+                    disabled={isSubmitting}
                   />
                 </div>
               </div>
             </div>
-            <div className="dialog-foot" style={{ display: "flex", justifyContent: "flex-end", gap: "8px", padding: "12px 20px" }}>
-              <button className="btn" data-variant="ghost" onClick={() => setIsInviteOpen(false)}>
+            <div className="dialog-foot">
+              <button
+                className="btn"
+                data-variant="ghost"
+                onClick={() => !isSubmitting && setIsInviteOpen(false)}
+                disabled={isSubmitting}
+              >
                 Cancel
               </button>
-              <button className="btn" data-variant="primary" onClick={handleAddMember}>
-                Send Workspace Invite
+              <button
+                className="btn"
+                data-variant="primary"
+                onClick={handleAddMember}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? "Creating Member..." : "Create Team Member"}
               </button>
             </div>
           </div>

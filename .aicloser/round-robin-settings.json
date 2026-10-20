@@ -1,0 +1,37 @@
+{
+  "tenant-gigxomi": {
+    "tenantId": "tenant-gigxomi",
+    "enabled": true,
+    "strategy": "ROUND_ROBIN",
+    "participatingAgentIds": [],
+    "maxActiveLeadsPerAgent": 50,
+    "lastAssignedIndex": 1,
+    "allowNonAdminModifyLeads": true,
+    "allowNonAdminDeleteLeads": false,
+    "allowNonAdminExportData": true,
+    "allowNonAdminBulkCampaigns": false,
+    "fallbackAgentId": null,
+    "updatedAt": "2026-10-06T17:13:51.622Z"
+  },
+  "tenant-agency-8deafdbb": {
+    "tenantId": "tenant-agency-8deafdbb",
+    "enabled": true,
+    "strategy": "ROUND_ROBIN",
+    "participatingGroupId": null,
+    "participatingAgentIds": [
+      "cms1gc6tk0000tqjplhlhcvys",
+      "cmuy1u0hd0000b0f4hholu1dc",
+      "cmuz5qju7000020f45valmfon",
+      "cmuz5rbyv000220f4eyqyze9o"
+    ],
+    "maxActiveLeadsPerAgent": 50,
+    "lastAssignedIndex": 2,
+    "allowNonAdminModifyLeads": true,
+    "allowNonAdminDeleteLeads": false,
+    "allowNonAdminImportData": true,
+    "allowNonAdminExportData": false,
+    "allowNonAdminBulkCampaigns": false,
+    "fallbackAgentId": null,
+    "updatedAt": "2026-10-08T06:53:39.529Z"
+  }
+}

@@ -1,0 +1,1053 @@
+{
+  "tenant-gigxomi": {
+    "tenantId": "tenant-gigxomi",
+    "status": "CONNECTED",
+    "accountType": "WHATSAPP_BUSINESS",
+    "syncMode": "FULL_INBOX_SYNC",
+    "visibilityMode": "TEAM_SHARED",
+    "connectedPhone": "+918109249911",
+    "connectedDisplayName": "~",
+    "qrCodeToken": "",
+    "qrGeneratedAt": null,
+    "connectedAt": "2026-10-06T17:15:31.589Z",
+    "lastSyncAt": "2026-10-06T17:15:31.589Z",
+    "stats": {
+      "totalScrapedContacts": 3109,
+      "totalSyncedChatThreads": 4,
+      "totalGroupContactsScraped": 72
+    },
+    "discoveredChats": [
+      {
+        "jid": "919820411290@s.whatsapp.net",
+        "name": "Vikramaditya Mehta (Apex Realty)",
+        "phone": "+919820411290",
+        "accountType": "WHATSAPP_BUSINESS",
+        "isBusinessVerified": true,
+        "businessCategory": "Real Estate & Commercial",
+        "unreadCount": 2,
+        "lastMessageAt": "2026-10-06T17:02:56.076Z",
+        "lastMessagePreview": "Hi team, we need 15 seats + WhatsApp Business API automation for our Mumbai closers. Can we get a quote?",
+        "labels": [
+          "WA Business Inquiry",
+          "Hot Deal",
+          "Catalog Lead"
+        ],
+        "messages": [
+          {
+            "id": "wab-msg-1",
+            "role": "customer",
+            "body": "Hello! Saw your WhatsApp Business catalog. We run a 15-member sales floor in Mumbai.",
+            "timestamp": "2026-10-06T16:49:56.076Z"
+          },
+          {
+            "id": "wab-msg-2",
+            "role": "sales",
+            "body": "Hi Vikramaditya! Glad to connect. Are you looking to centralize all 15 reps into one shared WhatsApp + Calling CRM?",
+            "timestamp": "2026-10-06T16:56:56.076Z"
+          },
+          {
+            "id": "wab-msg-3",
+            "role": "customer",
+            "body": "Hi team, we need 15 seats + WhatsApp Business API automation for our Mumbai closers. Can we get a quote?",
+            "timestamp": "2026-10-06T17:02:56.076Z"
+          }
+        ]
+      },
+      {
+        "jid": "919811560234@s.whatsapp.net",
+        "name": "Neha Kapoor (Aura Clinics)",
+        "phone": "+919811560234",
+        "accountType": "WHATSAPP_BUSINESS",
+        "isBusinessVerified": true,
+        "businessCategory": "Healthcare & Aesthetics",
+        "unreadCount": 1,
+        "lastMessageAt": "2026-10-06T16:32:56.076Z",
+        "lastMessagePreview": "Please share the payment link for the Annual Growth CRM plan.",
+        "labels": [
+          "WA Business Inquiry",
+          "Payment Ready"
+        ],
+        "messages": [
+          {
+            "id": "wab-msg-4",
+            "role": "customer",
+            "body": "We tested the WhatsApp lead scraper and calling flow—works great for our clinic enquiries.",
+            "timestamp": "2026-10-06T16:19:56.076Z"
+          },
+          {
+            "id": "wab-msg-5",
+            "role": "customer",
+            "body": "Please share the payment link for the Annual Growth CRM plan.",
+            "timestamp": "2026-10-06T16:32:56.076Z"
+          }
+        ]
+      },
+      {
+        "jid": "919740881122@s.whatsapp.net",
+        "name": "Saurabh Jain (FinEdge Advisory)",
+        "phone": "+919740881122",
+        "accountType": "WHATSAPP_BUSINESS",
+        "isBusinessVerified": false,
+        "businessCategory": "Financial Services",
+        "unreadCount": 0,
+        "lastMessageAt": "2026-10-06T15:14:56.076Z",
+        "lastMessagePreview": "Can we also connect our Zoho Mail and Gmail leads into the same contact list?",
+        "labels": [
+          "WA Business Inquiry",
+          "Multi-Channel"
+        ],
+        "messages": [
+          {
+            "id": "wab-msg-6",
+            "role": "customer",
+            "body": "Can we also connect our Zoho Mail and Gmail leads into the same contact list?",
+            "timestamp": "2026-10-06T15:14:56.076Z"
+          }
+        ]
+      },
+      {
+        "jid": "919900321456@s.whatsapp.net",
+        "name": "Karan Malhotra (ScaleUp Media)",
+        "phone": "+919900321456",
+        "accountType": "WHATSAPP_BUSINESS",
+        "isBusinessVerified": true,
+        "businessCategory": "Marketing Agency",
+        "unreadCount": 1,
+        "lastMessageAt": "2026-10-06T13:14:56.076Z",
+        "lastMessagePreview": "Interested in bulk importing 4,000 WhatsApp contacts from our agency numbers.",
+        "labels": [
+          "WA Business Inquiry",
+          "Agency"
+        ],
+        "messages": [
+          {
+            "id": "wab-msg-7",
+            "role": "customer",
+            "body": "Interested in bulk importing 4,000 WhatsApp contacts from our agency numbers.",
+            "timestamp": "2026-10-06T13:14:56.076Z"
+          }
+        ]
+      },
+      {
+        "jid": "919873210987@s.whatsapp.net",
+        "name": "Rohan Deshmukh",
+        "phone": "+919873210987",
+        "accountType": "WHATSAPP_PERSONAL",
+        "unreadCount": 1,
+        "lastMessageAt": "2026-10-06T16:55:56.076Z",
+        "lastMessagePreview": "Hey, spoke to you on call earlier—here is my personal WhatsApp number for the demo link.",
+        "labels": [
+          "Personal WA Lead",
+          "Demo Scheduled"
+        ],
+        "messages": [
+          {
+            "id": "wap-msg-1",
+            "role": "customer",
+            "body": "Hey, spoke to you on call earlier—here is my personal WhatsApp number for the demo link.",
+            "timestamp": "2026-10-06T16:55:56.076Z"
+          }
+        ]
+      },
+      {
+        "jid": "919654321890@s.whatsapp.net",
+        "name": "Ananya Chatterjee",
+        "phone": "+919654321890",
+        "accountType": "WHATSAPP_PERSONAL",
+        "unreadCount": 0,
+        "lastMessageAt": "2026-10-06T15:39:56.076Z",
+        "lastMessagePreview": "Thanks for sending the proposal PDF on WhatsApp. Reviewing it with my co-founder today.",
+        "labels": [
+          "Personal WA Lead",
+          "Proposal Sent"
+        ],
+        "messages": [
+          {
+            "id": "wap-msg-2",
+            "role": "customer",
+            "body": "Thanks for sending the proposal PDF on WhatsApp. Reviewing it with my co-founder today.",
+            "timestamp": "2026-10-06T15:39:56.076Z"
+          }
+        ]
+      },
+      {
+        "jid": "919123456780@s.whatsapp.net",
+        "name": "Siddharth Verma",
+        "phone": "+919123456780",
+        "accountType": "WHATSAPP_PERSONAL",
+        "unreadCount": 1,
+        "lastMessageAt": "2026-10-06T14:14:56.076Z",
+        "lastMessagePreview": "Let's finalize the onboarding tomorrow at 11 AM IST.",
+        "labels": [
+          "Personal WA Lead",
+          "Follow Up"
+        ],
+        "messages": [
+          {
+            "id": "wap-msg-3",
+            "role": "customer",
+            "body": "Let's finalize the onboarding tomorrow at 11 AM IST.",
+            "timestamp": "2026-10-06T14:14:56.076Z"
+          }
+        ]
+      }
+    ],
+    "discoveredGroups": [
+      {
+        "groupJid": "12036304918273@g.us",
+        "subject": "B2B Founders & Growth Network (India)",
+        "participantCount": 4,
+        "participants": [
+          {
+            "phone": "+919820411290",
+            "name": "Vikramaditya Mehta",
+            "isAdmin": true
+          },
+          {
+            "phone": "+919899112233",
+            "name": "Prateek Sharma (SaaS Founder)"
+          },
+          {
+            "phone": "+919845098450",
+            "name": "Divya Nair (D2C Brand Owner)"
+          },
+          {
+            "phone": "+919717223344",
+            "name": "Harshvardhan Goel (Export House)"
+          }
+        ]
+      },
+      {
+        "groupJid": "12036308827162@g.us",
+        "subject": "Inbound Webinar & Workshop Enquiries",
+        "participantCount": 3,
+        "participants": [
+          {
+            "phone": "+919910022334",
+            "name": "Meera Krishnan (EdTech Director)"
+          },
+          {
+            "phone": "+919833445566",
+            "name": "Abhishek Tiwari (Real Estate Broker)"
+          },
+          {
+            "phone": "+919765432109",
+            "name": "Zoya Merchant (Luxury Interiors)"
+          }
+        ]
+      }
+    ],
+    "pairingCode": "2L11YFNH",
+    "isLiveService": true
+  },
+  "tenant-gigxomi-sales-agent-user-sales-agent-8355d27e": {
+    "tenantId": "tenant-gigxomi-sales-agent-user-sales-agent-8355d27e",
+    "status": "CONNECTED",
+    "accountType": "WHATSAPP_BUSINESS",
+    "syncMode": "FULL_INBOX_SYNC",
+    "visibilityMode": "TEAM_SHARED",
+    "connectedPhone": "+918109249911",
+    "connectedDisplayName": "~",
+    "qrCodeToken": "",
+    "qrGeneratedAt": null,
+    "connectedAt": "2026-10-06T17:29:26.244Z",
+    "lastSyncAt": "2026-10-07T04:45:04.913Z",
+    "stats": {
+      "totalScrapedContacts": 3109,
+      "totalSyncedChatThreads": 11,
+      "totalGroupContactsScraped": 72
+    },
+    "discoveredChats": [
+      {
+        "jid": "919820411290@s.whatsapp.net",
+        "name": "Vikramaditya Mehta (Apex Realty)",
+        "phone": "+919820411290",
+        "accountType": "WHATSAPP_BUSINESS",
+        "isBusinessVerified": true,
+        "businessCategory": "Real Estate & Commercial",
+        "unreadCount": 2,
+        "lastMessageAt": "2026-10-06T17:15:48.508Z",
+        "lastMessagePreview": "Hi team, we need 15 seats + WhatsApp Business API automation for our Mumbai closers. Can we get a quote?",
+        "labels": [
+          "WA Business Inquiry",
+          "Hot Deal",
+          "Catalog Lead"
+        ],
+        "messages": [
+          {
+            "id": "wab-msg-1",
+            "role": "customer",
+            "body": "Hello! Saw your WhatsApp Business catalog. We run a 15-member sales floor in Mumbai.",
+            "timestamp": "2026-10-06T17:02:48.508Z"
+          },
+          {
+            "id": "wab-msg-2",
+            "role": "sales",
+            "body": "Hi Vikramaditya! Glad to connect. Are you looking to centralize all 15 reps into one shared WhatsApp + Calling CRM?",
+            "timestamp": "2026-10-06T17:09:48.508Z"
+          },
+          {
+            "id": "wab-msg-3",
+            "role": "customer",
+            "body": "Hi team, we need 15 seats + WhatsApp Business API automation for our Mumbai closers. Can we get a quote?",
+            "timestamp": "2026-10-06T17:15:48.508Z"
+          }
+        ]
+      },
+      {
+        "jid": "919811560234@s.whatsapp.net",
+        "name": "Neha Kapoor (Aura Clinics)",
+        "phone": "+919811560234",
+        "accountType": "WHATSAPP_BUSINESS",
+        "isBusinessVerified": true,
+        "businessCategory": "Healthcare & Aesthetics",
+        "unreadCount": 1,
+        "lastMessageAt": "2026-10-06T16:45:48.508Z",
+        "lastMessagePreview": "Please share the payment link for the Annual Growth CRM plan.",
+        "labels": [
+          "WA Business Inquiry",
+          "Payment Ready"
+        ],
+        "messages": [
+          {
+            "id": "wab-msg-4",
+            "role": "customer",
+            "body": "We tested the WhatsApp lead scraper and calling flow—works great for our clinic enquiries.",
+            "timestamp": "2026-10-06T16:32:48.508Z"
+          },
+          {
+            "id": "wab-msg-5",
+            "role": "customer",
+            "body": "Please share the payment link for the Annual Growth CRM plan.",
+            "timestamp": "2026-10-06T16:45:48.508Z"
+          }
+        ]
+      },
+      {
+        "jid": "919740881122@s.whatsapp.net",
+        "name": "Saurabh Jain (FinEdge Advisory)",
+        "phone": "+919740881122",
+        "accountType": "WHATSAPP_BUSINESS",
+        "isBusinessVerified": false,
+        "businessCategory": "Financial Services",
+        "unreadCount": 0,
+        "lastMessageAt": "2026-10-06T15:27:48.508Z",
+        "lastMessagePreview": "Can we also connect our Zoho Mail and Gmail leads into the same contact list?",
+        "labels": [
+          "WA Business Inquiry",
+          "Multi-Channel"
+        ],
+        "messages": [
+          {
+            "id": "wab-msg-6",
+            "role": "customer",
+            "body": "Can we also connect our Zoho Mail and Gmail leads into the same contact list?",
+            "timestamp": "2026-10-06T15:27:48.508Z"
+          }
+        ]
+      },
+      {
+        "jid": "919900321456@s.whatsapp.net",
+        "name": "Karan Malhotra (ScaleUp Media)",
+        "phone": "+919900321456",
+        "accountType": "WHATSAPP_BUSINESS",
+        "isBusinessVerified": true,
+        "businessCategory": "Marketing Agency",
+        "unreadCount": 1,
+        "lastMessageAt": "2026-10-06T13:27:48.508Z",
+        "lastMessagePreview": "Interested in bulk importing 4,000 WhatsApp contacts from our agency numbers.",
+        "labels": [
+          "WA Business Inquiry",
+          "Agency"
+        ],
+        "messages": [
+          {
+            "id": "wab-msg-7",
+            "role": "customer",
+            "body": "Interested in bulk importing 4,000 WhatsApp contacts from our agency numbers.",
+            "timestamp": "2026-10-06T13:27:48.508Z"
+          }
+        ]
+      },
+      {
+        "jid": "919873210987@s.whatsapp.net",
+        "name": "Rohan Deshmukh",
+        "phone": "+919873210987",
+        "accountType": "WHATSAPP_PERSONAL",
+        "unreadCount": 1,
+        "lastMessageAt": "2026-10-06T17:08:48.508Z",
+        "lastMessagePreview": "Hey, spoke to you on call earlier—here is my personal WhatsApp number for the demo link.",
+        "labels": [
+          "Personal WA Lead",
+          "Demo Scheduled"
+        ],
+        "messages": [
+          {
+            "id": "wap-msg-1",
+            "role": "customer",
+            "body": "Hey, spoke to you on call earlier—here is my personal WhatsApp number for the demo link.",
+            "timestamp": "2026-10-06T17:08:48.508Z"
+          }
+        ]
+      },
+      {
+        "jid": "919654321890@s.whatsapp.net",
+        "name": "Ananya Chatterjee",
+        "phone": "+919654321890",
+        "accountType": "WHATSAPP_PERSONAL",
+        "unreadCount": 0,
+        "lastMessageAt": "2026-10-06T15:52:48.508Z",
+        "lastMessagePreview": "Thanks for sending the proposal PDF on WhatsApp. Reviewing it with my co-founder today.",
+        "labels": [
+          "Personal WA Lead",
+          "Proposal Sent"
+        ],
+        "messages": [
+          {
+            "id": "wap-msg-2",
+            "role": "customer",
+            "body": "Thanks for sending the proposal PDF on WhatsApp. Reviewing it with my co-founder today.",
+            "timestamp": "2026-10-06T15:52:48.508Z"
+          }
+        ]
+      },
+      {
+        "jid": "919123456780@s.whatsapp.net",
+        "name": "Siddharth Verma",
+        "phone": "+919123456780",
+        "accountType": "WHATSAPP_PERSONAL",
+        "unreadCount": 1,
+        "lastMessageAt": "2026-10-06T14:27:48.508Z",
+        "lastMessagePreview": "Let's finalize the onboarding tomorrow at 11 AM IST.",
+        "labels": [
+          "Personal WA Lead",
+          "Follow Up"
+        ],
+        "messages": [
+          {
+            "id": "wap-msg-3",
+            "role": "customer",
+            "body": "Let's finalize the onboarding tomorrow at 11 AM IST.",
+            "timestamp": "2026-10-06T14:27:48.508Z"
+          }
+        ]
+      }
+    ],
+    "discoveredGroups": [
+      {
+        "groupJid": "12036304918273@g.us",
+        "subject": "B2B Founders & Growth Network (India)",
+        "participantCount": 4,
+        "participants": [
+          {
+            "phone": "+919820411290",
+            "name": "Vikramaditya Mehta",
+            "isAdmin": true
+          },
+          {
+            "phone": "+919899112233",
+            "name": "Prateek Sharma (SaaS Founder)"
+          },
+          {
+            "phone": "+919845098450",
+            "name": "Divya Nair (D2C Brand Owner)"
+          },
+          {
+            "phone": "+919717223344",
+            "name": "Harshvardhan Goel (Export House)"
+          }
+        ]
+      },
+      {
+        "groupJid": "12036308827162@g.us",
+        "subject": "Inbound Webinar & Workshop Enquiries",
+        "participantCount": 3,
+        "participants": [
+          {
+            "phone": "+919910022334",
+            "name": "Meera Krishnan (EdTech Director)"
+          },
+          {
+            "phone": "+919833445566",
+            "name": "Abhishek Tiwari (Real Estate Broker)"
+          },
+          {
+            "phone": "+919765432109",
+            "name": "Zoya Merchant (Luxury Interiors)"
+          }
+        ]
+      }
+    ],
+    "isLiveService": true
+  },
+  "tenant-acme-agency-6478aca1": {
+    "tenantId": "tenant-acme-agency-6478aca1",
+    "status": "CONNECTED",
+    "accountType": "WHATSAPP_BUSINESS",
+    "syncMode": "FULL_INBOX_SYNC",
+    "visibilityMode": "TEAM_SHARED",
+    "connectedPhone": "+918109249911",
+    "connectedDisplayName": "~",
+    "qrCodeToken": "AICLOSER-WA-BIZ-FULL_INBOX_SYNC-MUXLLXVZ",
+    "qrGeneratedAt": "2026-10-07T04:19:20.405Z",
+    "connectedAt": "2026-10-07T05:13:43.953Z",
+    "lastSyncAt": null,
+    "stats": {
+      "totalScrapedContacts": 3109,
+      "totalSyncedChatThreads": 0,
+      "totalGroupContactsScraped": 72
+    },
+    "discoveredChats": [
+      {
+        "jid": "919820411290@s.whatsapp.net",
+        "name": "Vikramaditya Mehta (Apex Realty)",
+        "phone": "+919820411290",
+        "accountType": "WHATSAPP_BUSINESS",
+        "isBusinessVerified": true,
+        "businessCategory": "Real Estate & Commercial",
+        "unreadCount": 2,
+        "lastMessageAt": "2026-10-07T03:18:16.498Z",
+        "lastMessagePreview": "Hi team, we need 15 seats + WhatsApp Business API automation for our Mumbai closers. Can we get a quote?",
+        "labels": [
+          "WA Business Inquiry",
+          "Hot Deal",
+          "Catalog Lead"
+        ],
+        "messages": [
+          {
+            "id": "wab-msg-1",
+            "role": "customer",
+            "body": "Hello! Saw your WhatsApp Business catalog. We run a 15-member sales floor in Mumbai.",
+            "timestamp": "2026-10-07T03:05:16.498Z"
+          },
+          {
+            "id": "wab-msg-2",
+            "role": "sales",
+            "body": "Hi Vikramaditya! Glad to connect. Are you looking to centralize all 15 reps into one shared WhatsApp + Calling CRM?",
+            "timestamp": "2026-10-07T03:12:16.498Z"
+          },
+          {
+            "id": "wab-msg-3",
+            "role": "customer",
+            "body": "Hi team, we need 15 seats + WhatsApp Business API automation for our Mumbai closers. Can we get a quote?",
+            "timestamp": "2026-10-07T03:18:16.498Z"
+          }
+        ]
+      },
+      {
+        "jid": "919811560234@s.whatsapp.net",
+        "name": "Neha Kapoor (Aura Clinics)",
+        "phone": "+919811560234",
+        "accountType": "WHATSAPP_BUSINESS",
+        "isBusinessVerified": true,
+        "businessCategory": "Healthcare & Aesthetics",
+        "unreadCount": 1,
+        "lastMessageAt": "2026-10-07T02:48:16.498Z",
+        "lastMessagePreview": "Please share the payment link for the Annual Growth CRM plan.",
+        "labels": [
+          "WA Business Inquiry",
+          "Payment Ready"
+        ],
+        "messages": [
+          {
+            "id": "wab-msg-4",
+            "role": "customer",
+            "body": "We tested the WhatsApp lead scraper and calling flow—works great for our clinic enquiries.",
+            "timestamp": "2026-10-07T02:35:16.498Z"
+          },
+          {
+            "id": "wab-msg-5",
+            "role": "customer",
+            "body": "Please share the payment link for the Annual Growth CRM plan.",
+            "timestamp": "2026-10-07T02:48:16.498Z"
+          }
+        ]
+      },
+      {
+        "jid": "919740881122@s.whatsapp.net",
+        "name": "Saurabh Jain (FinEdge Advisory)",
+        "phone": "+919740881122",
+        "accountType": "WHATSAPP_BUSINESS",
+        "isBusinessVerified": false,
+        "businessCategory": "Financial Services",
+        "unreadCount": 0,
+        "lastMessageAt": "2026-10-07T01:30:16.498Z",
+        "lastMessagePreview": "Can we also connect our Zoho Mail and Gmail leads into the same contact list?",
+        "labels": [
+          "WA Business Inquiry",
+          "Multi-Channel"
+        ],
+        "messages": [
+          {
+            "id": "wab-msg-6",
+            "role": "customer",
+            "body": "Can we also connect our Zoho Mail and Gmail leads into the same contact list?",
+            "timestamp": "2026-10-07T01:30:16.498Z"
+          }
+        ]
+      },
+      {
+        "jid": "919900321456@s.whatsapp.net",
+        "name": "Karan Malhotra (ScaleUp Media)",
+        "phone": "+919900321456",
+        "accountType": "WHATSAPP_BUSINESS",
+        "isBusinessVerified": true,
+        "businessCategory": "Marketing Agency",
+        "unreadCount": 1,
+        "lastMessageAt": "2026-10-06T23:30:16.498Z",
+        "lastMessagePreview": "Interested in bulk importing 4,000 WhatsApp contacts from our agency numbers.",
+        "labels": [
+          "WA Business Inquiry",
+          "Agency"
+        ],
+        "messages": [
+          {
+            "id": "wab-msg-7",
+            "role": "customer",
+            "body": "Interested in bulk importing 4,000 WhatsApp contacts from our agency numbers.",
+            "timestamp": "2026-10-06T23:30:16.498Z"
+          }
+        ]
+      },
+      {
+        "jid": "919873210987@s.whatsapp.net",
+        "name": "Rohan Deshmukh",
+        "phone": "+919873210987",
+        "accountType": "WHATSAPP_PERSONAL",
+        "unreadCount": 1,
+        "lastMessageAt": "2026-10-07T03:11:16.498Z",
+        "lastMessagePreview": "Hey, spoke to you on call earlier—here is my personal WhatsApp number for the demo link.",
+        "labels": [
+          "Personal WA Lead",
+          "Demo Scheduled"
+        ],
+        "messages": [
+          {
+            "id": "wap-msg-1",
+            "role": "customer",
+            "body": "Hey, spoke to you on call earlier—here is my personal WhatsApp number for the demo link.",
+            "timestamp": "2026-10-07T03:11:16.498Z"
+          }
+        ]
+      },
+      {
+        "jid": "919654321890@s.whatsapp.net",
+        "name": "Ananya Chatterjee",
+        "phone": "+919654321890",
+        "accountType": "WHATSAPP_PERSONAL",
+        "unreadCount": 0,
+        "lastMessageAt": "2026-10-07T01:55:16.498Z",
+        "lastMessagePreview": "Thanks for sending the proposal PDF on WhatsApp. Reviewing it with my co-founder today.",
+        "labels": [
+          "Personal WA Lead",
+          "Proposal Sent"
+        ],
+        "messages": [
+          {
+            "id": "wap-msg-2",
+            "role": "customer",
+            "body": "Thanks for sending the proposal PDF on WhatsApp. Reviewing it with my co-founder today.",
+            "timestamp": "2026-10-07T01:55:16.498Z"
+          }
+        ]
+      },
+      {
+        "jid": "919123456780@s.whatsapp.net",
+        "name": "Siddharth Verma",
+        "phone": "+919123456780",
+        "accountType": "WHATSAPP_PERSONAL",
+        "unreadCount": 1,
+        "lastMessageAt": "2026-10-07T00:30:16.498Z",
+        "lastMessagePreview": "Let's finalize the onboarding tomorrow at 11 AM IST.",
+        "labels": [
+          "Personal WA Lead",
+          "Follow Up"
+        ],
+        "messages": [
+          {
+            "id": "wap-msg-3",
+            "role": "customer",
+            "body": "Let's finalize the onboarding tomorrow at 11 AM IST.",
+            "timestamp": "2026-10-07T00:30:16.498Z"
+          }
+        ]
+      }
+    ],
+    "discoveredGroups": [
+      {
+        "groupJid": "12036304918273@g.us",
+        "subject": "B2B Founders & Growth Network (India)",
+        "participantCount": 4,
+        "participants": [
+          {
+            "phone": "+919820411290",
+            "name": "Vikramaditya Mehta",
+            "isAdmin": true
+          },
+          {
+            "phone": "+919899112233",
+            "name": "Prateek Sharma (SaaS Founder)"
+          },
+          {
+            "phone": "+919845098450",
+            "name": "Divya Nair (D2C Brand Owner)"
+          },
+          {
+            "phone": "+919717223344",
+            "name": "Harshvardhan Goel (Export House)"
+          }
+        ]
+      },
+      {
+        "groupJid": "12036308827162@g.us",
+        "subject": "Inbound Webinar & Workshop Enquiries",
+        "participantCount": 3,
+        "participants": [
+          {
+            "phone": "+919910022334",
+            "name": "Meera Krishnan (EdTech Director)"
+          },
+          {
+            "phone": "+919833445566",
+            "name": "Abhishek Tiwari (Real Estate Broker)"
+          },
+          {
+            "phone": "+919765432109",
+            "name": "Zoya Merchant (Luxury Interiors)"
+          }
+        ]
+      }
+    ],
+    "qrCodeDataUrl": "data:image/png;base64,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",
+    "isLiveService": true
+  },
+  "tenant-agency-8deafdbb": {
+    "tenantId": "tenant-agency-8deafdbb",
+    "status": "CONNECTED",
+    "accountType": "WHATSAPP_BUSINESS",
+    "syncMode": "FULL_INBOX_SYNC",
+    "visibilityMode": "TEAM_SHARED",
+    "connectedPhone": "+918109249911",
+    "connectedDisplayName": "~",
+    "qrCodeToken": "",
+    "qrGeneratedAt": null,
+    "connectedAt": "2026-10-07T05:10:12.658Z",
+    "lastSyncAt": null,
+    "stats": {
+      "totalScrapedContacts": 3109,
+      "totalSyncedChatThreads": 0,
+      "totalGroupContactsScraped": 72
+    },
+    "discoveredChats": [
+      {
+        "jid": "919820411290@s.whatsapp.net",
+        "name": "Vikramaditya Mehta (Apex Realty)",
+        "phone": "+919820411290",
+        "accountType": "WHATSAPP_BUSINESS",
+        "isBusinessVerified": true,
+        "businessCategory": "Real Estate & Commercial",
+        "unreadCount": 2,
+        "lastMessageAt": "2026-10-07T04:52:45.633Z",
+        "lastMessagePreview": "Hi team, we need 15 seats + WhatsApp Business API automation for our Mumbai closers. Can we get a quote?",
+        "labels": [
+          "WA Business Inquiry",
+          "Hot Deal",
+          "Catalog Lead"
+        ],
+        "messages": [
+          {
+            "id": "wab-msg-1",
+            "role": "customer",
+            "body": "Hello! Saw your WhatsApp Business catalog. We run a 15-member sales floor in Mumbai.",
+            "timestamp": "2026-10-07T04:39:45.633Z"
+          },
+          {
+            "id": "wab-msg-2",
+            "role": "sales",
+            "body": "Hi Vikramaditya! Glad to connect. Are you looking to centralize all 15 reps into one shared WhatsApp + Calling CRM?",
+            "timestamp": "2026-10-07T04:46:45.633Z"
+          },
+          {
+            "id": "wab-msg-3",
+            "role": "customer",
+            "body": "Hi team, we need 15 seats + WhatsApp Business API automation for our Mumbai closers. Can we get a quote?",
+            "timestamp": "2026-10-07T04:52:45.633Z"
+          }
+        ]
+      },
+      {
+        "jid": "919811560234@s.whatsapp.net",
+        "name": "Neha Kapoor (Aura Clinics)",
+        "phone": "+919811560234",
+        "accountType": "WHATSAPP_BUSINESS",
+        "isBusinessVerified": true,
+        "businessCategory": "Healthcare & Aesthetics",
+        "unreadCount": 1,
+        "lastMessageAt": "2026-10-07T04:22:45.633Z",
+        "lastMessagePreview": "Please share the payment link for the Annual Growth CRM plan.",
+        "labels": [
+          "WA Business Inquiry",
+          "Payment Ready"
+        ],
+        "messages": [
+          {
+            "id": "wab-msg-4",
+            "role": "customer",
+            "body": "We tested the WhatsApp lead scraper and calling flow—works great for our clinic enquiries.",
+            "timestamp": "2026-10-07T04:09:45.633Z"
+          },
+          {
+            "id": "wab-msg-5",
+            "role": "customer",
+            "body": "Please share the payment link for the Annual Growth CRM plan.",
+            "timestamp": "2026-10-07T04:22:45.633Z"
+          }
+        ]
+      },
+      {
+        "jid": "919740881122@s.whatsapp.net",
+        "name": "Saurabh Jain (FinEdge Advisory)",
+        "phone": "+919740881122",
+        "accountType": "WHATSAPP_BUSINESS",
+        "isBusinessVerified": false,
+        "businessCategory": "Financial Services",
+        "unreadCount": 0,
+        "lastMessageAt": "2026-10-07T03:04:45.633Z",
+        "lastMessagePreview": "Can we also connect our Zoho Mail and Gmail leads into the same contact list?",
+        "labels": [
+          "WA Business Inquiry",
+          "Multi-Channel"
+        ],
+        "messages": [
+          {
+            "id": "wab-msg-6",
+            "role": "customer",
+            "body": "Can we also connect our Zoho Mail and Gmail leads into the same contact list?",
+            "timestamp": "2026-10-07T03:04:45.633Z"
+          }
+        ]
+      },
+      {
+        "jid": "919900321456@s.whatsapp.net",
+        "name": "Karan Malhotra (ScaleUp Media)",
+        "phone": "+919900321456",
+        "accountType": "WHATSAPP_BUSINESS",
+        "isBusinessVerified": true,
+        "businessCategory": "Marketing Agency",
+        "unreadCount": 1,
+        "lastMessageAt": "2026-10-07T01:04:45.633Z",
+        "lastMessagePreview": "Interested in bulk importing 4,000 WhatsApp contacts from our agency numbers.",
+        "labels": [
+          "WA Business Inquiry",
+          "Agency"
+        ],
+        "messages": [
+          {
+            "id": "wab-msg-7",
+            "role": "customer",
+            "body": "Interested in bulk importing 4,000 WhatsApp contacts from our agency numbers.",
+            "timestamp": "2026-10-07T01:04:45.633Z"
+          }
+        ]
+      },
+      {
+        "jid": "919873210987@s.whatsapp.net",
+        "name": "Rohan Deshmukh",
+        "phone": "+919873210987",
+        "accountType": "WHATSAPP_PERSONAL",
+        "unreadCount": 1,
+        "lastMessageAt": "2026-10-07T04:45:45.633Z",
+        "lastMessagePreview": "Hey, spoke to you on call earlier—here is my personal WhatsApp number for the demo link.",
+        "labels": [
+          "Personal WA Lead",
+          "Demo Scheduled"
+        ],
+        "messages": [
+          {
+            "id": "wap-msg-1",
+            "role": "customer",
+            "body": "Hey, spoke to you on call earlier—here is my personal WhatsApp number for the demo link.",
+            "timestamp": "2026-10-07T04:45:45.633Z"
+          }
+        ]
+      },
+      {
+        "jid": "919654321890@s.whatsapp.net",
+        "name": "Ananya Chatterjee",
+        "phone": "+919654321890",
+        "accountType": "WHATSAPP_PERSONAL",
+        "unreadCount": 0,
+        "lastMessageAt": "2026-10-07T03:29:45.633Z",
+        "lastMessagePreview": "Thanks for sending the proposal PDF on WhatsApp. Reviewing it with my co-founder today.",
+        "labels": [
+          "Personal WA Lead",
+          "Proposal Sent"
+        ],
+        "messages": [
+          {
+            "id": "wap-msg-2",
+            "role": "customer",
+            "body": "Thanks for sending the proposal PDF on WhatsApp. Reviewing it with my co-founder today.",
+            "timestamp": "2026-10-07T03:29:45.633Z"
+          }
+        ]
+      },
+      {
+        "jid": "919123456780@s.whatsapp.net",
+        "name": "Siddharth Verma",
+        "phone": "+919123456780",
+        "accountType": "WHATSAPP_PERSONAL",
+        "unreadCount": 1,
+        "lastMessageAt": "2026-10-07T02:04:45.633Z",
+        "lastMessagePreview": "Let's finalize the onboarding tomorrow at 11 AM IST.",
+        "labels": [
+          "Personal WA Lead",
+          "Follow Up"
+        ],
+        "messages": [
+          {
+            "id": "wap-msg-3",
+            "role": "customer",
+            "body": "Let's finalize the onboarding tomorrow at 11 AM IST.",
+            "timestamp": "2026-10-07T02:04:45.633Z"
+          }
+        ]
+      }
+    ],
+    "discoveredGroups": [
+      {
+        "groupJid": "12036304918273@g.us",
+        "subject": "B2B Founders & Growth Network (India)",
+        "participantCount": 4,
+        "participants": [
+          {
+            "phone": "+919820411290",
+            "name": "Vikramaditya Mehta",
+            "isAdmin": true
+          },
+          {
+            "phone": "+919899112233",
+            "name": "Prateek Sharma (SaaS Founder)"
+          },
+          {
+            "phone": "+919845098450",
+            "name": "Divya Nair (D2C Brand Owner)"
+          },
+          {
+            "phone": "+919717223344",
+            "name": "Harshvardhan Goel (Export House)"
+          }
+        ]
+      },
+      {
+        "groupJid": "12036308827162@g.us",
+        "subject": "Inbound Webinar & Workshop Enquiries",
+        "participantCount": 3,
+        "participants": [
+          {
+            "phone": "+919910022334",
+            "name": "Meera Krishnan (EdTech Director)"
+          },
+          {
+            "phone": "+919833445566",
+            "name": "Abhishek Tiwari (Real Estate Broker)"
+          },
+          {
+            "phone": "+919765432109",
+            "name": "Zoya Merchant (Luxury Interiors)"
+          }
+        ]
+      }
+    ],
+    "isLiveService": true
+  },
+  "tenant-gigxomi-sales-agent-user-sales-agent-4e2590d9": {
+    "storeVersion": 2,
+    "tenantId": "tenant-gigxomi-sales-agent-user-sales-agent-4e2590d9",
+    "status": "QR_READY",
+    "accountType": "WHATSAPP_PERSONAL",
+    "syncMode": "FULL_INBOX_SYNC",
+    "visibilityMode": "PRIVATE",
+    "connectedPhone": "",
+    "connectedDisplayName": "",
+    "qrCodeToken": "AICLOSER-WA-PER-FULL_INBOX_SYNC-MV10M2AX",
+    "qrGeneratedAt": "2026-10-09T13:42:39.269Z",
+    "connectedAt": null,
+    "lastSyncAt": null,
+    "stats": {
+      "totalScrapedContacts": 0,
+      "totalSyncedChatThreads": 0,
+      "totalGroupContactsScraped": 0
+    },
+    "discoveredChats": [],
+    "discoveredGroups": [],
+    "isLiveService": true,
+    "qrCodeDataUrl": "data:image/png;base64,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"
+  },
+  "tenant-gigxomi-sales-agent-user-sales-agent-d182e0c9": {
+    "storeVersion": 2,
+    "tenantId": "tenant-gigxomi-sales-agent-user-sales-agent-d182e0c9",
+    "status": "DISCONNECTED",
+    "accountType": "WHATSAPP_BUSINESS",
+    "syncMode": "FULL_INBOX_SYNC",
+    "visibilityMode": "PRIVATE",
+    "connectedPhone": "",
+    "connectedDisplayName": "",
+    "qrCodeToken": "",
+    "qrGeneratedAt": null,
+    "connectedAt": null,
+    "lastSyncAt": null,
+    "stats": {
+      "totalScrapedContacts": 0,
+      "totalSyncedChatThreads": 0,
+      "totalGroupContactsScraped": 0
+    },
+    "discoveredChats": [],
+    "discoveredGroups": [],
+    "isLiveService": true
+  },
+  "tenant-ai-closer-996ec2f6": {
+    "storeVersion": 2,
+    "tenantId": "tenant-ai-closer-996ec2f6",
+    "status": "DISCONNECTED",
+    "accountType": "WHATSAPP_BUSINESS",
+    "syncMode": "FULL_INBOX_SYNC",
+    "visibilityMode": "TEAM_SHARED",
+    "connectedPhone": "",
+    "connectedDisplayName": "",
+    "qrCodeToken": "",
+    "qrGeneratedAt": null,
+    "connectedAt": null,
+    "lastSyncAt": null,
+    "stats": {
+      "totalScrapedContacts": 0,
+      "totalSyncedChatThreads": 0,
+      "totalGroupContactsScraped": 0
+    },
+    "discoveredChats": [],
+    "discoveredGroups": [],
+    "isLiveService": true
+  },
+  "tenant-the-storage-test-1d01dda2": {
+    "storeVersion": 2,
+    "tenantId": "tenant-the-storage-test-1d01dda2",
+    "status": "CONNECTED",
+    "accountType": "WHATSAPP_BUSINESS",
+    "syncMode": "FULL_INBOX_SYNC",
+    "visibilityMode": "TEAM_SHARED",
+    "connectedPhone": "",
+    "connectedDisplayName": "",
+    "qrCodeToken": "",
+    "qrGeneratedAt": null,
+    "connectedAt": "2026-10-15T19:41:10.821Z",
+    "lastSyncAt": "2026-10-15T20:28:34.732Z",
+    "stats": {
+      "totalScrapedContacts": 0,
+      "totalSyncedChatThreads": 0,
+      "totalGroupContactsScraped": 0
+    },
+    "discoveredChats": [],
+    "discoveredGroups": [],
+    "isLiveService": true
+  }
+}

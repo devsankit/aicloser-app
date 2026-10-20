@@ -70,7 +70,7 @@ function getMessageDateKey(dateString?: string): string {
 }
 
 export function ChatView() {
-  const { state, moveLead, updateLead } = useApp();
+  const { state, moveLead, updateLead, reassignLead } = useApp();
 
   // Channel filter: all, whatsapp, instagram, website
   const [channelFilter, setChannelFilter] = useState<string>("all");
@@ -145,6 +145,13 @@ export function ChatView() {
         ? activeChat.customerName
         : `Unknown caller • ${cleanPhone || "Direct"}`,
       company: activeChat.company || "Phone enquiry",
+      phone: activeChat.phone || "",
+      email: "",
+      owner: activeChat.assignedTo || "Unassigned",
+      priority: "medium" as const,
+      followUp: null,
+      tags: ["chat-inbound"],
+      updatedAt: new Date().toISOString(),
       code: "CLO-" + (activeChat.id ? activeChat.id.slice(-4).toUpperCase() : "LIVE"),
       stage: chatStage,
       value: 0,
@@ -161,7 +168,7 @@ export function ChatView() {
     }
     let active = true;
     aicloserApi.payments
-      .list({ search: activeLeadProfile.phone, limit: 5 })
+      .list({ search: activeLeadProfile.phone, limit: 5 } as any)
       .then((res: any) => {
         if (!active) return;
         const payments = res?.payments || [];
@@ -1300,10 +1307,10 @@ export function ChatView() {
 
           {/* Unified Lead Command History, Notes, Callbacks & Call Recordings */}
           <LeadCommandHistory
-            leadId={activeLead?.id || activeChat.leadId || ""}
-            conversationId={activeChat.id}
+            leadId={activeLead?.id || activeChat?.leadId || ""}
+            conversationId={activeChat?.id}
             customerName={activeLeadProfile.name}
-            customerPhone={activeChat.phone}
+            customerPhone={activeChat?.phone}
             currentFollowUpAt={activeLead?.followUp}
             initialNotes={activeLead?.notes}
             activeTab={activeHistoryTab}

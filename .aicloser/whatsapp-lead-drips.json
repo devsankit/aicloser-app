@@ -1,0 +1,52 @@
+{
+  "conv-tr3m9n0p": {
+    "conversationId": "conv-tr3m9n0p",
+    "customerPhone": "+919900321456",
+    "customerName": "Karan Malhotra (ScaleUp Media)",
+    "audienceCategory": "GENERAL_LEAD",
+    "currentStage": 0,
+    "paused": false,
+    "completed": false,
+    "history": []
+  },
+  "conv-s8opk6n1": {
+    "conversationId": "conv-s8opk6n1",
+    "customerPhone": "+919740881122",
+    "customerName": "Saurabh Jain (FinEdge Advisory)",
+    "audienceCategory": "GENERAL_LEAD",
+    "currentStage": 0,
+    "paused": false,
+    "completed": false,
+    "history": []
+  },
+  "conv-cnxdn1bg": {
+    "conversationId": "conv-cnxdn1bg",
+    "customerPhone": "+911800227575",
+    "customerName": "WhatsApp Customer",
+    "audienceCategory": "GENERAL_LEAD",
+    "currentStage": 0,
+    "paused": false,
+    "completed": false,
+    "history": []
+  },
+  "conv-afuv98t2": {
+    "conversationId": "conv-afuv98t2",
+    "customerPhone": "+916267605079",
+    "customerName": "Ai closer",
+    "audienceCategory": "SOLO_EDITOR_TO_AGENCY",
+    "currentStage": 0,
+    "paused": false,
+    "completed": false,
+    "history": []
+  },
+  "conv-0n0qdgzg": {
+    "conversationId": "conv-0n0qdgzg",
+    "customerPhone": "+918303311366",
+    "customerName": "+93488737693778",
+    "audienceCategory": "SOLO_EDITOR_TO_AGENCY",
+    "currentStage": 0,
+    "paused": false,
+    "completed": false,
+    "history": []
+  }
+}

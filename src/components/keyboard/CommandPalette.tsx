@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon, type IconName } from "@/components/ui/Icon";
-import { NAV } from "@/lib/data";
+import { NAV } from "@/lib/nav";
 import { Keys } from "./Kbd";
 import { CURRENT_USER, useApp } from "@/lib/store";
 

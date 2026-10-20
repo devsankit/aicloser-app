@@ -3270,9 +3270,9 @@ function ChatWorkspaceInner({
       const deepLinkUrl = `${window.location.pathname}?conversationId=${encodeURIComponent(conversation.id)}`;
       const notificationOptions: NotificationOptions & { badge?: string; renotify?: boolean } = {
         body: summarizeIncomingMessage(message, audience),
-        icon: new URL("/gigxomi-logo.png", window.location.origin).toString(),
-        badge: new URL("/gigxomi-logo.png", window.location.origin).toString(),
-        tag: `gigxomi-chat-${conversation.id}`,
+        icon: new URL("/ai-closer-logo.png", window.location.origin).toString(),
+        badge: new URL("/ai-closer-logo.png", window.location.origin).toString(),
+        tag: `aicloser-chat-${conversation.id}`,
         renotify: true,
         requireInteraction: true,
         data: {

@@ -1,0 +1,902 @@
+{
+  "profiles": [
+    {
+      "id": "tenant-gigxomi",
+      "tenantId": "tenant-gigxomi",
+      "slug": "gigxomi-studio",
+      "publicName": "Gigxomi Studio",
+      "ownerName": "Gigxomi Admin",
+      "whatsappNumber": "+919993328124",
+      "contactEmail": "studio@gigxomi.com",
+      "logoUrl": null,
+      "coverUrl": null,
+      "tagline": "Retainer-first editing partner for creator growth and recurring content systems.",
+      "description": "Gigxomi Studio runs high-trust creator operations with routed editors, manager-led quality control, and repeat content systems across YouTube, short-form, and design support.",
+      "niche": "Creator growth and recurring YouTube editing",
+      "categories": [
+        "Creator growth",
+        "YouTube operations",
+        "Short-form systems"
+      ],
+      "specialties": [
+        "Long-form editing",
+        "Short-form repurposing",
+        "Thumbnail systems",
+        "Retention-driven YouTube edits"
+      ],
+      "ctaLabel": "Message Gigxomi Studio",
+      "status": "Active",
+      "hiringStatus": "Actively hiring",
+      "office": {
+        "city": "Indore",
+        "state": "Madhya Pradesh",
+        "country": "India",
+        "hasOffice": true,
+        "officeVerified": true,
+        "isAddressPublic": true,
+        "publicOfficeAddress": "Orbit Plaza, Vijay Nagar, Indore, Madhya Pradesh",
+        "officeHours": "Mon-Sat · 10:00 AM - 7:30 PM"
+      },
+      "signals": {
+        "responseSlaMinutes": 18,
+        "completionRate": 80,
+        "reviewRating": 4.9,
+        "repeatClientPercent": 74,
+        "disputePenalty": 5,
+        "inactivityPenalty": 2,
+        "nonResponsivePenalty": 4
+      },
+      "stats": {
+        "completedOrders": 182,
+        "averageRating": 4.9,
+        "reviewCount": 2,
+        "repeatClientPercent": 74,
+        "responseSlaMinutes": 18,
+        "activeEditors": 2,
+        "openOpportunities": 6
+      },
+      "reputation": {
+        "score": 85,
+        "band": "Trusted",
+        "reasons": [
+          {
+            "label": "Response SLA",
+            "value": "18 min avg",
+            "tone": "positive"
+          },
+          {
+            "label": "Repeat clients",
+            "value": "74%",
+            "tone": "positive"
+          },
+          {
+            "label": "Review health",
+            "value": "4.9/5",
+            "tone": "positive"
+          }
+        ],
+        "lastCalculatedAt": "2026-10-08T14:08:34.798Z"
+      },
+      "reviews": [
+        {
+          "id": "tenant-gigxomi-review-1",
+          "rating": 5,
+          "authorLabel": "Finance creator · Indore",
+          "projectType": "Monthly YouTube retainer",
+          "comment": "The agency built a reliable weekly editing lane and response time stayed sharp even during launch weeks.",
+          "createdAt": "2026-01-18T09:00:00.000Z",
+          "verified": true
+        },
+        {
+          "id": "tenant-gigxomi-review-2",
+          "rating": 4.8,
+          "authorLabel": "Coach brand · Mumbai",
+          "projectType": "Webinar repurposing",
+          "comment": "Delivery stayed organized, revisions were light, and the manager layer made communication very easy.",
+          "createdAt": "2025-12-12T09:00:00.000Z",
+          "verified": true
+        }
+      ],
+      "showcaseEditors": [
+        {
+          "editorId": "editor-testingfreelancer",
+          "displayName": "Testing Freelancer",
+          "publicAlias": "GX-201",
+          "specialties": [
+            "Long-form YouTube",
+            "Short-form repurposing",
+            "Subtitles"
+          ],
+          "highlight": "Active core editor with 88/100 karma and gold leader tier performance.",
+          "karmaScore": 88,
+          "leaderTier": "Gold",
+          "membershipStatus": "Active"
+        },
+        {
+          "editorId": "editor-nagouri",
+          "displayName": "Nagouri Mahendra",
+          "publicAlias": "GX-118",
+          "specialties": [
+            "Short-form reels",
+            "Gym creative",
+            "UGC ads"
+          ],
+          "highlight": "Active specialist with 79/100 karma and silver leader tier performance.",
+          "karmaScore": 79,
+          "leaderTier": "Silver",
+          "membershipStatus": "Active"
+        },
+        {
+          "editorId": "editor-jayanta",
+          "displayName": "Jayanta Kundu",
+          "publicAlias": "GX-442",
+          "specialties": [
+            "Podcast editing",
+            "Talking-head YouTube",
+            "Audio polish"
+          ],
+          "highlight": "Shortlisted for podcast editing with 91/100 operational trust.",
+          "karmaScore": 91,
+          "leaderTier": "Gold",
+          "membershipStatus": "Invited"
+        },
+        {
+          "editorId": "editor-umagfx",
+          "displayName": "Umesh Nagori",
+          "publicAlias": "GX-064",
+          "specialties": [
+            "Graphic design",
+            "Poster systems",
+            "Thumbnail packs"
+          ],
+          "highlight": "Shortlisted for graphic design with 86/100 operational trust.",
+          "karmaScore": 86,
+          "leaderTier": "Silver",
+          "membershipStatus": "Requested"
+        }
+      ],
+      "serviceOffers": [
+        {
+          "id": "tenant-gigxomi-offer-1",
+          "title": "Thumbnail systems designer for finance and creator channels",
+          "priceLabel": "INR 9k-14k / month",
+          "summary": "Graphic design · 48-hour batch delivery"
+        }
+      ],
+      "createdAt": "2026-10-08T14:08:34.799Z",
+      "updatedAt": "2026-10-08T14:08:34.799Z",
+      "isPublished": true,
+      "completionPercent": 100,
+      "isSetupComplete": true,
+      "publishStage": "PUBLISHED"
+    },
+    {
+      "id": "tenant-editors-hub",
+      "tenantId": "tenant-editors-hub",
+      "slug": "editors-hub",
+      "publicName": "Editors Hub",
+      "ownerName": "Ankit Rathore",
+      "whatsappNumber": "+9191626760507",
+      "contactEmail": "hello@editorshub.agency",
+      "logoUrl": null,
+      "coverUrl": null,
+      "tagline": "Coach, podcast, and webinar workflows built for repeat publishing teams.",
+      "description": "Editors Hub helps coach-led brands and podcast operators keep content moving with recurring production lanes, overflow editing capacity, and retention-focused long-form systems.",
+      "niche": "Coach funnels, podcasts, and monthly retainers",
+      "categories": [
+        "Coach funnels",
+        "Podcast production",
+        "Retainer editing"
+      ],
+      "specialties": [
+        "Podcast editing",
+        "Long-form YouTube",
+        "Webinar repurposing",
+        "Coach content batching"
+      ],
+      "ctaLabel": "Talk to Editors Hub",
+      "status": "Active",
+      "hiringStatus": "Selective hiring",
+      "office": {
+        "city": "Ahmedabad",
+        "state": "Gujarat",
+        "country": "India",
+        "hasOffice": true,
+        "officeVerified": true,
+        "isAddressPublic": true,
+        "publicOfficeAddress": "Satellite Business Hub, Ahmedabad, Gujarat",
+        "officeHours": "Mon-Fri · 10:30 AM - 6:30 PM"
+      },
+      "signals": {
+        "responseSlaMinutes": 28,
+        "completionRate": 80,
+        "reviewRating": 4.7,
+        "repeatClientPercent": 68,
+        "disputePenalty": 8,
+        "inactivityPenalty": 4,
+        "nonResponsivePenalty": 6
+      },
+      "stats": {
+        "completedOrders": 94,
+        "averageRating": 4.7,
+        "reviewCount": 2,
+        "repeatClientPercent": 68,
+        "responseSlaMinutes": 28,
+        "activeEditors": 1,
+        "openOpportunities": 4
+      },
+      "reputation": {
+        "score": 80,
+        "band": "Stable",
+        "reasons": [
+          {
+            "label": "Response SLA",
+            "value": "28 min avg",
+            "tone": "positive"
+          },
+          {
+            "label": "Repeat clients",
+            "value": "68%",
+            "tone": "positive"
+          },
+          {
+            "label": "Review health",
+            "value": "4.7/5",
+            "tone": "positive"
+          }
+        ],
+        "lastCalculatedAt": "2026-10-08T14:08:34.799Z"
+      },
+      "reviews": [
+        {
+          "id": "tenant-editors-hub-review-1",
+          "rating": 4.7,
+          "authorLabel": "Podcast network · Bengaluru",
+          "projectType": "Weekly podcast clips",
+          "comment": "Reliable batch processing and strong polish on subtitles, hooks, and recurring deadlines.",
+          "createdAt": "2026-02-09T09:00:00.000Z",
+          "verified": true
+        },
+        {
+          "id": "tenant-editors-hub-review-2",
+          "rating": 4.6,
+          "authorLabel": "Coach business · Delhi",
+          "projectType": "Coach retainer",
+          "comment": "Good communication rhythm and flexible overflow support when we needed more clip volume.",
+          "createdAt": "2025-11-28T09:00:00.000Z",
+          "verified": true
+        }
+      ],
+      "showcaseEditors": [
+        {
+          "editorId": "editor-testingfreelancer",
+          "displayName": "Testing Freelancer",
+          "publicAlias": "GX-201",
+          "specialties": [
+            "Long-form YouTube",
+            "Short-form repurposing",
+            "Subtitles"
+          ],
+          "highlight": "Shortlisted for long-form youtube with 88/100 operational trust.",
+          "karmaScore": 88,
+          "leaderTier": "Gold",
+          "membershipStatus": "Requested"
+        },
+        {
+          "editorId": "editor-umagfx",
+          "displayName": "Umesh Nagori",
+          "publicAlias": "GX-064",
+          "specialties": [
+            "Graphic design",
+            "Poster systems",
+            "Thumbnail packs"
+          ],
+          "highlight": "Active specialist with 86/100 karma and silver leader tier performance.",
+          "karmaScore": 86,
+          "leaderTier": "Silver",
+          "membershipStatus": "Active"
+        },
+        {
+          "editorId": "editor-jayanta",
+          "displayName": "Jayanta Kundu",
+          "publicAlias": "GX-442",
+          "specialties": [
+            "Podcast editing",
+            "Talking-head YouTube",
+            "Audio polish"
+          ],
+          "highlight": "Shortlisted for podcast editing with 91/100 operational trust.",
+          "karmaScore": 91,
+          "leaderTier": "Gold",
+          "membershipStatus": "Requested"
+        }
+      ],
+      "serviceOffers": [
+        {
+          "id": "tenant-editors-hub-offer-1",
+          "title": "Coach funnel editor for 12 weekly YouTube clips",
+          "priceLabel": "INR 18k-24k / month",
+          "summary": "Long-form YouTube · Two uploads per week"
+        }
+      ],
+      "createdAt": "2026-10-08T14:08:34.799Z",
+      "updatedAt": "2026-10-08T14:08:34.799Z",
+      "isPublished": true,
+      "completionPercent": 100,
+      "isSetupComplete": true,
+      "publishStage": "PUBLISHED"
+    },
+    {
+      "id": "tenant-ppw",
+      "tenantId": "tenant-ppw",
+      "slug": "ppw-creative",
+      "publicName": "PPW Creative",
+      "ownerName": "PPW No",
+      "whatsappNumber": "+919988776655",
+      "contactEmail": "bookings@ppwcreative.in",
+      "logoUrl": null,
+      "coverUrl": null,
+      "tagline": "Wedding storytelling studio for same-week teasers and cinematic highlight edits.",
+      "description": "PPW Creative focuses on wedding and event storytelling with teaser reels, albums, and highlight edits for seasonal event demand.",
+      "niche": "Wedding films, teaser reels, and event storytelling",
+      "categories": [
+        "Wedding films",
+        "Event storytelling"
+      ],
+      "specialties": [
+        "Wedding teasers",
+        "Highlight reels",
+        "Album edits"
+      ],
+      "ctaLabel": "Request wedding edit",
+      "status": "Active",
+      "hiringStatus": "Actively hiring",
+      "office": {
+        "city": "Lucknow",
+        "state": "Uttar Pradesh",
+        "country": "India",
+        "hasOffice": false,
+        "officeVerified": false,
+        "isAddressPublic": false,
+        "publicOfficeAddress": "",
+        "officeHours": "By appointment"
+      },
+      "signals": {
+        "responseSlaMinutes": 96,
+        "completionRate": 80,
+        "reviewRating": 4.4,
+        "repeatClientPercent": 41,
+        "disputePenalty": 14,
+        "inactivityPenalty": 12,
+        "nonResponsivePenalty": 11
+      },
+      "stats": {
+        "completedOrders": 21,
+        "averageRating": 4.4,
+        "reviewCount": 1,
+        "repeatClientPercent": 41,
+        "responseSlaMinutes": 96,
+        "activeEditors": 3,
+        "openOpportunities": 3
+      },
+      "reputation": {
+        "score": 62,
+        "band": "At Risk",
+        "reasons": [
+          {
+            "label": "Completion rate",
+            "value": "80%",
+            "tone": "neutral"
+          },
+          {
+            "label": "Repeat clients",
+            "value": "41%",
+            "tone": "neutral"
+          },
+          {
+            "label": "Review health",
+            "value": "4.4/5",
+            "tone": "neutral"
+          }
+        ],
+        "lastCalculatedAt": "2026-10-08T14:08:34.799Z"
+      },
+      "reviews": [
+        {
+          "id": "tenant-ppw-review-1",
+          "rating": 4.4,
+          "authorLabel": "Wedding planner · Lucknow",
+          "projectType": "Teaser package",
+          "comment": "The creative quality is promising, but the agency still needs tighter activation and reply discipline.",
+          "createdAt": "2026-01-05T09:00:00.000Z",
+          "verified": true
+        }
+      ],
+      "showcaseEditors": [
+        {
+          "editorId": "editor-testingfreelancer",
+          "displayName": "Testing Freelancer",
+          "publicAlias": "GX-201",
+          "specialties": [
+            "Long-form YouTube",
+            "Short-form repurposing",
+            "Subtitles"
+          ],
+          "highlight": "Shortlisted for long-form youtube with 88/100 operational trust.",
+          "karmaScore": 88,
+          "leaderTier": "Gold",
+          "membershipStatus": "Requested"
+        }
+      ],
+      "serviceOffers": [
+        {
+          "id": "tenant-ppw-offer-1",
+          "title": "Wedding teaser editor for cinematic same-week delivery",
+          "priceLabel": "INR 6k-8.5k / project",
+          "summary": "Wedding editing · Delivery in 3 days"
+        }
+      ],
+      "createdAt": "2026-10-08T14:08:34.799Z",
+      "updatedAt": "2026-10-08T14:08:34.799Z",
+      "isPublished": false,
+      "completionPercent": 100,
+      "isSetupComplete": true,
+      "publishStage": "READY"
+    },
+    {
+      "id": "tenant-omni-flow",
+      "tenantId": "tenant-omni-flow",
+      "slug": "omni-flow-studio",
+      "publicName": "OmniFlow Studio",
+      "ownerName": "Omini Operations",
+      "whatsappNumber": "+919372555220",
+      "contactEmail": "growth@omniflow.studio",
+      "logoUrl": null,
+      "coverUrl": null,
+      "tagline": "High-volume D2C creative ops with fast hooks, UGC repurposing, and ad-edit systems.",
+      "description": "OmniFlow Studio runs fast-turnaround D2C ad production with repeat brand lanes, hook testing, and strict manager-led QA for performance creatives.",
+      "niche": "Short-form ad systems and D2C creative operations",
+      "categories": [
+        "D2C creative ops",
+        "UGC systems",
+        "Performance ads"
+      ],
+      "specialties": [
+        "Ad creative",
+        "UGC repurposing",
+        "Conversion edits",
+        "Retention hooks"
+      ],
+      "ctaLabel": "Explore OmniFlow",
+      "status": "Active",
+      "hiringStatus": "Invite only",
+      "office": {
+        "city": "Bengaluru",
+        "state": "Karnataka",
+        "country": "India",
+        "hasOffice": true,
+        "officeVerified": true,
+        "isAddressPublic": true,
+        "publicOfficeAddress": "Embassy Tech Village, Bengaluru, Karnataka",
+        "officeHours": "Mon-Sat · 11:00 AM - 8:00 PM"
+      },
+      "signals": {
+        "responseSlaMinutes": 22,
+        "completionRate": 81,
+        "reviewRating": 4.8,
+        "repeatClientPercent": 71,
+        "disputePenalty": 11,
+        "inactivityPenalty": 3,
+        "nonResponsivePenalty": 5
+      },
+      "stats": {
+        "completedOrders": 137,
+        "averageRating": 4.8,
+        "reviewCount": 2,
+        "repeatClientPercent": 71,
+        "responseSlaMinutes": 22,
+        "activeEditors": 1,
+        "openOpportunities": 2
+      },
+      "reputation": {
+        "score": 81,
+        "band": "Stable",
+        "reasons": [
+          {
+            "label": "Response SLA",
+            "value": "22 min avg",
+            "tone": "positive"
+          },
+          {
+            "label": "Repeat clients",
+            "value": "71%",
+            "tone": "positive"
+          },
+          {
+            "label": "Review health",
+            "value": "4.8/5",
+            "tone": "positive"
+          }
+        ],
+        "lastCalculatedAt": "2026-10-08T14:08:34.799Z"
+      },
+      "reviews": [
+        {
+          "id": "tenant-omni-flow-review-1",
+          "rating": 4.9,
+          "authorLabel": "Skincare brand · Bengaluru",
+          "projectType": "Monthly ad sprint",
+          "comment": "The agency moves fast, keeps the ad lane organized, and understands conversion-first creative feedback.",
+          "createdAt": "2026-02-16T09:00:00.000Z",
+          "verified": true
+        },
+        {
+          "id": "tenant-omni-flow-review-2",
+          "rating": 4.7,
+          "authorLabel": "D2C founder · Mumbai",
+          "projectType": "UGC repurposing retainer",
+          "comment": "Very strong production speed and systems thinking, though timelines stay tight when volume spikes.",
+          "createdAt": "2025-12-21T09:00:00.000Z",
+          "verified": true
+        }
+      ],
+      "showcaseEditors": [
+        {
+          "editorId": "editor-nagouri",
+          "displayName": "Nagouri Mahendra",
+          "publicAlias": "GX-118",
+          "specialties": [
+            "Short-form reels",
+            "Gym creative",
+            "UGC ads"
+          ],
+          "highlight": "Active core editor with 79/100 karma and silver leader tier performance.",
+          "karmaScore": 79,
+          "leaderTier": "Silver",
+          "membershipStatus": "Active"
+        },
+        {
+          "editorId": "editor-testingfreelancer",
+          "displayName": "Testing Freelancer",
+          "publicAlias": "GX-201",
+          "specialties": [
+            "Long-form YouTube",
+            "Short-form repurposing",
+            "Subtitles"
+          ],
+          "highlight": "Shortlisted for long-form youtube with 88/100 operational trust.",
+          "karmaScore": 88,
+          "leaderTier": "Gold",
+          "membershipStatus": "Requested"
+        }
+      ],
+      "serviceOffers": [
+        {
+          "id": "tenant-omni-flow-offer-1",
+          "title": "D2C ad editor for skincare hooks and offer creatives",
+          "priceLabel": "INR 12k-16k / month",
+          "summary": "Short-form ads · Daily ad lane"
+        }
+      ],
+      "createdAt": "2026-10-08T14:08:34.799Z",
+      "updatedAt": "2026-10-08T14:08:34.799Z",
+      "isPublished": true,
+      "completionPercent": 100,
+      "isSetupComplete": true,
+      "publishStage": "PUBLISHED"
+    },
+    {
+      "id": "tenant-ai-closer-qa-e2e-20261008-fcd04d22",
+      "tenantId": "tenant-ai-closer-qa-e2e-20261008-fcd04d22",
+      "slug": "qa-e2e-admin-20261008",
+      "publicName": "QA E2E Admin 20261008",
+      "ownerName": "QA E2E Admin 20261008",
+      "whatsappNumber": "+919800001501",
+      "contactEmail": "qa.e2e.20261008@aicloser.in",
+      "logoUrl": null,
+      "coverUrl": null,
+      "tagline": "",
+      "description": "",
+      "niche": "",
+      "categories": [],
+      "specialties": [],
+      "ctaLabel": "Talk to agency",
+      "status": "Active",
+      "hiringStatus": "Actively hiring",
+      "office": {
+        "city": "",
+        "state": "",
+        "country": "India",
+        "hasOffice": false,
+        "officeVerified": false,
+        "isAddressPublic": false,
+        "publicOfficeAddress": "",
+        "officeHours": ""
+      },
+      "signals": {
+        "responseSlaMinutes": 60,
+        "completionRate": 76,
+        "reviewRating": 4.2,
+        "repeatClientPercent": 28,
+        "disputePenalty": 10,
+        "inactivityPenalty": 8,
+        "nonResponsivePenalty": 9
+      },
+      "stats": {
+        "completedOrders": 0,
+        "averageRating": 0,
+        "reviewCount": 0,
+        "repeatClientPercent": 28,
+        "responseSlaMinutes": 60,
+        "activeEditors": 0,
+        "openOpportunities": 0
+      },
+      "reputation": {
+        "score": 65,
+        "band": "At Risk",
+        "reasons": [
+          {
+            "label": "Response SLA",
+            "value": "60 min avg",
+            "tone": "neutral"
+          },
+          {
+            "label": "Completion rate",
+            "value": "76%",
+            "tone": "watch"
+          },
+          {
+            "label": "Repeat clients",
+            "value": "28%",
+            "tone": "watch"
+          }
+        ],
+        "lastCalculatedAt": "2026-10-08T14:08:34.801Z"
+      },
+      "reviews": [],
+      "showcaseEditors": [],
+      "serviceOffers": [],
+      "createdAt": "2026-10-08T14:08:34.801Z",
+      "updatedAt": "2026-10-08T14:08:34.801Z",
+      "isPublished": false,
+      "completionPercent": 44,
+      "isSetupComplete": false,
+      "publishStage": "DRAFT"
+    },
+    {
+      "id": "tenant-ai-closer-upi-qa-workspace-9e6e75a2",
+      "tenantId": "tenant-ai-closer-upi-qa-workspace-9e6e75a2",
+      "slug": "upi-qa-admin",
+      "publicName": "UPI QA Admin",
+      "ownerName": "UPI QA Admin",
+      "whatsappNumber": "+917000000001",
+      "contactEmail": "qa.upi.20261009.01@aicloser.test",
+      "logoUrl": null,
+      "coverUrl": null,
+      "tagline": "",
+      "description": "",
+      "niche": "",
+      "categories": [],
+      "specialties": [],
+      "ctaLabel": "Talk to agency",
+      "status": "Active",
+      "hiringStatus": "Actively hiring",
+      "office": {
+        "city": "",
+        "state": "",
+        "country": "India",
+        "hasOffice": false,
+        "officeVerified": false,
+        "isAddressPublic": false,
+        "publicOfficeAddress": "",
+        "officeHours": ""
+      },
+      "signals": {
+        "responseSlaMinutes": 60,
+        "completionRate": 76,
+        "reviewRating": 4.2,
+        "repeatClientPercent": 28,
+        "disputePenalty": 10,
+        "inactivityPenalty": 8,
+        "nonResponsivePenalty": 9
+      },
+      "stats": {
+        "completedOrders": 0,
+        "averageRating": 0,
+        "reviewCount": 0,
+        "repeatClientPercent": 28,
+        "responseSlaMinutes": 60,
+        "activeEditors": 0,
+        "openOpportunities": 0
+      },
+      "reputation": {
+        "score": 65,
+        "band": "At Risk",
+        "reasons": [
+          {
+            "label": "Response SLA",
+            "value": "60 min avg",
+            "tone": "neutral"
+          },
+          {
+            "label": "Completion rate",
+            "value": "76%",
+            "tone": "watch"
+          },
+          {
+            "label": "Repeat clients",
+            "value": "28%",
+            "tone": "watch"
+          }
+        ],
+        "lastCalculatedAt": "2026-10-09T09:18:10.792Z"
+      },
+      "reviews": [],
+      "showcaseEditors": [],
+      "serviceOffers": [],
+      "createdAt": "2026-10-09T09:18:10.792Z",
+      "updatedAt": "2026-10-09T09:18:10.792Z",
+      "isPublished": false,
+      "completionPercent": 44,
+      "isSetupComplete": false,
+      "publishStage": "DRAFT"
+    },
+    {
+      "id": "tenant-ai-closer-payments-role-qa-bd9ad571",
+      "tenantId": "tenant-ai-closer-payments-role-qa-bd9ad571",
+      "slug": "role-qa-admin",
+      "publicName": "Role QA Admin",
+      "ownerName": "Role QA Admin",
+      "whatsappNumber": "+917000000011",
+      "contactEmail": "role.qa.1791538337724@aicloser.test",
+      "logoUrl": null,
+      "coverUrl": null,
+      "tagline": "",
+      "description": "",
+      "niche": "",
+      "categories": [],
+      "specialties": [],
+      "ctaLabel": "Talk to agency",
+      "status": "Active",
+      "hiringStatus": "Actively hiring",
+      "office": {
+        "city": "",
+        "state": "",
+        "country": "India",
+        "hasOffice": false,
+        "officeVerified": false,
+        "isAddressPublic": false,
+        "publicOfficeAddress": "",
+        "officeHours": ""
+      },
+      "signals": {
+        "responseSlaMinutes": 60,
+        "completionRate": 76,
+        "reviewRating": 4.2,
+        "repeatClientPercent": 28,
+        "disputePenalty": 10,
+        "inactivityPenalty": 8,
+        "nonResponsivePenalty": 9
+      },
+      "stats": {
+        "completedOrders": 0,
+        "averageRating": 0,
+        "reviewCount": 0,
+        "repeatClientPercent": 28,
+        "responseSlaMinutes": 60,
+        "activeEditors": 0,
+        "openOpportunities": 0
+      },
+      "reputation": {
+        "score": 65,
+        "band": "At Risk",
+        "reasons": [
+          {
+            "label": "Response SLA",
+            "value": "60 min avg",
+            "tone": "neutral"
+          },
+          {
+            "label": "Completion rate",
+            "value": "76%",
+            "tone": "watch"
+          },
+          {
+            "label": "Repeat clients",
+            "value": "28%",
+            "tone": "watch"
+          }
+        ],
+        "lastCalculatedAt": "2026-10-09T09:32:27.208Z"
+      },
+      "reviews": [],
+      "showcaseEditors": [],
+      "serviceOffers": [],
+      "createdAt": "2026-10-09T09:32:27.207Z",
+      "updatedAt": "2026-10-09T09:32:27.208Z",
+      "isPublished": false,
+      "completionPercent": 44,
+      "isSetupComplete": false,
+      "publishStage": "DRAFT"
+    },
+    {
+      "id": "tenant-ai-closer-payments-role-qa-2-b10e80d1",
+      "tenantId": "tenant-ai-closer-payments-role-qa-2-b10e80d1",
+      "slug": "role-qa-admin-2",
+      "publicName": "Role QA Admin 2",
+      "ownerName": "Role QA Admin 2",
+      "whatsappNumber": "+917000000012",
+      "contactEmail": "role.qa.admin.20261009@aicloser.test",
+      "logoUrl": null,
+      "coverUrl": null,
+      "tagline": "",
+      "description": "",
+      "niche": "",
+      "categories": [],
+      "specialties": [],
+      "ctaLabel": "Talk to agency",
+      "status": "Active",
+      "hiringStatus": "Actively hiring",
+      "office": {
+        "city": "",
+        "state": "",
+        "country": "India",
+        "hasOffice": false,
+        "officeVerified": false,
+        "isAddressPublic": false,
+        "publicOfficeAddress": "",
+        "officeHours": ""
+      },
+      "signals": {
+        "responseSlaMinutes": 60,
+        "completionRate": 76,
+        "reviewRating": 4.2,
+        "repeatClientPercent": 28,
+        "disputePenalty": 10,
+        "inactivityPenalty": 8,
+        "nonResponsivePenalty": 9
+      },
+      "stats": {
+        "completedOrders": 0,
+        "averageRating": 0,
+        "reviewCount": 0,
+        "repeatClientPercent": 28,
+        "responseSlaMinutes": 60,
+        "activeEditors": 0,
+        "openOpportunities": 0
+      },
+      "reputation": {
+        "score": 65,
+        "band": "At Risk",
+        "reasons": [
+          {
+            "label": "Response SLA",
+            "value": "60 min avg",
+            "tone": "neutral"
+          },
+          {
+            "label": "Completion rate",
+            "value": "76%",
+            "tone": "watch"
+          },
+          {
+            "label": "Repeat clients",
+            "value": "28%",
+            "tone": "watch"
+          }
+        ],
+        "lastCalculatedAt": "2026-10-09T09:32:41.566Z"
+      },
+      "reviews": [],
+      "showcaseEditors": [],
+      "serviceOffers": [],
+      "createdAt": "2026-10-09T09:32:41.565Z",
+      "updatedAt": "2026-10-09T09:32:41.566Z",
+      "isPublished": false,
+      "completionPercent": 44,
+      "isSetupComplete": false,
+      "publishStage": "DRAFT"
+    }
+  ],
+  "updatedAt": "2026-10-09T09:32:41.566Z"
+}

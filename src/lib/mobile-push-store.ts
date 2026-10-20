@@ -9,9 +9,9 @@ import path from "node:path";
 
 import { prisma } from "@/lib/prisma";
 
-const STORE_DIRECTORY = path.join(process.cwd(), ".gigxomi");
+const STORE_DIRECTORY = path.join(process.cwd(), ".aicloser");
 const STORE_PATH = path.join(STORE_DIRECTORY, "mobile-push-tokens.json");
-const FIREBASE_APP_NAME = "gigxomi-mobile-push";
+const FIREBASE_APP_NAME = "aicloser-mobile-push";
 
 export type MobilePushPlatform = "android" | "ios" | "web";
 export type MobilePushProvider = "fcm";
@@ -696,8 +696,8 @@ export async function sendMobilePushNotifications(records: MobilePushTokenRecord
           notification: {
             title: message.title,
             body: message.body,
-            icon: "/gigxomi-logo.png",
-            badge: "/gigxomi-logo.png",
+            icon: "/ai-closer-logo.png",
+            badge: "/ai-closer-logo.png",
             tag: recordData.conversationId ? `gigxomi-chat-${recordData.conversationId}` : "gigxomi-notification",
             renotify: true,
             requireInteraction: true,

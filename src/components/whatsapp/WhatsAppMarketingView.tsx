@@ -305,7 +305,7 @@ export function WhatsAppMarketingView() {
   };
 
   // Check closer permission guard (Bulk marketing hidden from closer unless enabled by admin)
-  const isCloser = state.user?.role === "CLOSER";
+  const isCloser = (state.user?.role as string) === "CLOSER" || state.user?.role === "SALES_AGENT";
   const [isAllowedForCloser, setIsAllowedForCloser] = useState(false);
 
   useEffect(() => {

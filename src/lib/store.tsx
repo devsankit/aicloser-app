@@ -10,7 +10,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { SEED_LEADS, SEED_POOL_LEADS } from "./data";
 import type { Density, FontScale, Lead, LeadPoolItem, NavSpacing, Priority, Segment, StageId, Theme } from "./types";
 import { normalizeSource } from "./types";
 import { aicloserApi, type UserSession } from "./api-client";
@@ -719,10 +718,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
             segment: (currentItem?.segment as Segment) || "SMB",
             stage: "new",
             priority: (currentItem?.priority as Priority) || "medium",
-            owner: closerName,
+            owner: finalCloser,
             followUp: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
             tags: ["grabbed-pool", currentItem?.source || "google-sheets"],
-            notes: `⚡ Grabbed from open lead pool by ${closerName}.`,
+            notes: `⚡ Grabbed from open lead pool by ${finalCloser}.`,
             updatedAt: new Date().toISOString(),
           };
 

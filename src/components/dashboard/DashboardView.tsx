@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
-import { compactMoney, money, relativeTime, useApp, useScopedLeads } from "@/lib/store";
+import { compactMoney, relativeTime, useApp, useScopedLeads } from "@/lib/store";
 import { STAGES, stageMeta, sourceMeta, isOpenStage, isWonStage, isLostStage } from "@/lib/types";
 import { aicloserApi, type DashboardSummaryResponse } from "@/lib/api-client";
 
@@ -138,42 +138,29 @@ export function DashboardView() {
       </header>
 
       {/* SIM Calling Floor Status Bar */}
-      <div
-        className="card"
-        style={{
-          padding: "12px 18px",
-          marginBottom: "16px",
-          display: "flex",
-          flexWrap: "wrap",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "12px",
-          background: "var(--bg-surface)",
-          border: "1px solid var(--border)",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <span className="stage-icon-badge" data-tone="accent" style={{ width: 32, height: 32, flex: "0 0 32px" }}>
+      <div className="card telephony-floor-banner">
+        <div className="telephony-floor-main">
+          <span className="stage-icon-badge" data-tone="accent">
             <Icon name="smartphone" size={17} />
           </span>
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <strong style={{ fontSize: "13.5px", fontWeight: 650, color: "var(--text)" }}>AI Closer SIM Calling Engine</strong>
-              <span className="chip" data-tone="success" style={{ height: "20px", fontSize: "11px", fontWeight: 600 }}>
-                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--success)", display: "inline-block" }} /> Active Floor
+          <div className="telephony-floor-info">
+            <div className="telephony-floor-title-row">
+              <strong className="telephony-floor-title">AI Closer SIM Calling Engine</strong>
+              <span className="chip" data-tone="success">
+                <span className="dot" /> Active Floor
               </span>
             </div>
-            <span style={{ fontSize: "11.5px", color: "var(--text-secondary)" }}>
+            <span className="telephony-floor-sub">
               Auto-recording & cloud audio vault running on connected closer SIM devices
             </span>
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "var(--text-secondary)" }}>
-            <span style={{ fontWeight: 600, color: "var(--text)" }}>SIM Telephony Relay:</span> Ready for Android Companion APK
+        <div className="telephony-floor-actions">
+          <div className="telephony-floor-status">
+            <strong>SIM Telephony Relay:</strong> Ready for Android Companion APK
           </div>
-          <Link href="/calls" className="btn" style={{ padding: "4px 10px", fontSize: "12px", height: "28px" }}>
+          <Link href="/calls" className="btn" data-size="sm">
             <Icon name="headphones" size={13} /> Call Recording Vault
           </Link>
         </div>
@@ -279,12 +266,12 @@ export function DashboardView() {
           </div>
           <div className="card-body">
             {activity.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "36px 16px", color: "var(--text-tertiary)" }}>
-                <Icon name="clock" size={24} style={{ opacity: 0.4, marginBottom: 6 }} />
-                <div style={{ fontWeight: 600, color: "var(--text)" }}>No Lead Activity Yet</div>
-                <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: 2 }}>
-                  Create or import leads to see touchpoints and stage progression here.
-                </div>
+              <div className="empty">
+                <span className="empty-icon">
+                  <Icon name="clock" size={20} />
+                </span>
+                <h3>No Lead Activity Yet</h3>
+                <p>Create or import leads to see touchpoints and stage progression here.</p>
               </div>
             ) : (
               <ul className="activity">
@@ -301,8 +288,8 @@ export function DashboardView() {
                           <strong>{lead.name}</strong>
                           <span className="activity-company">{lead.company}</span>
                         </div>
-                        <span className="activity-sub" style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", marginTop: "2px" }}>
-                          <span className="chip" data-tone={src.tone} style={{ height: "18px", fontSize: "10.5px", padding: "0 6px", fontWeight: 600 }}>
+                        <span className="activity-sub">
+                          <span className="chip" data-tone={src.tone}>
                             <Icon name={src.icon} size={10} /> {src.label}
                           </span>
                           <span className="activity-stage-tag" data-tone={meta.tone}>{meta.label}</span>
@@ -331,12 +318,12 @@ export function DashboardView() {
           </div>
           <div className="card-body">
             {owners.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "36px 16px", color: "var(--text-tertiary)" }}>
-                <Icon name="users" size={24} style={{ opacity: 0.4, marginBottom: 6 }} />
-                <div style={{ fontWeight: 600, color: "var(--text)" }}>No Assigned Closers Yet</div>
-                <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: 2 }}>
-                  Assign deal ownership to track individual closer call volume and pipeline value.
-                </div>
+              <div className="empty">
+                <span className="empty-icon">
+                  <Icon name="users" size={20} />
+                </span>
+                <h3>No Assigned Closers Yet</h3>
+                <p>Assign deal ownership to track individual closer call volume and pipeline value.</p>
               </div>
             ) : (
               <ul className="owners">
@@ -345,9 +332,9 @@ export function DashboardView() {
                     <span className={`mini-avatar ${o.owner === "Unassigned" ? "is-empty" : ""}`}>
                       {o.owner === "Unassigned" ? "?" : o.owner.slice(0, 1)}
                     </span>
-                    <div style={{ display: "flex", flexDirection: "column", minWidth: 100 }}>
+                    <div className="owner-info">
                       <span className="owner-name">{o.owner}</span>
-                      <small style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                      <small className="owner-sub">
                         {o.count} active deal{o.count === 1 ? "" : "s"}
                       </small>
                     </div>

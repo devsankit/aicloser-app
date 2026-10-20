@@ -7,7 +7,7 @@ import { Icon } from "@/components/ui/Icon";
 import { ResizeHandle } from "@/components/ui/ResizeHandle";
 import { KeyboardProvider } from "@/components/keyboard/KeyboardProvider";
 import { Kbd } from "@/components/keyboard/Kbd";
-import { NAV } from "@/lib/data";
+import { NAV } from "@/lib/nav";
 import { CURRENT_USER, LIMITS, useApp, type Scope } from "@/lib/store";
 import { WorkspaceLoginDialog } from "@/components/auth/WorkspaceLoginDialog";
 import { aicloserApi } from "@/lib/api-client";
@@ -155,7 +155,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
     const checkWorkspaceStatus = async () => {
       try {
-        const plan = await aicloserApi.workspace.getPlan();
+        const plan: any = await aicloserApi.workspace.getPlan();
         if (plan) {
           const isSuspended =
             plan.isSuspended === true ||
@@ -634,7 +634,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <span className="sidebar-user-meta">
                   {state.user?.role === "ADMIN"
                     ? "Admin · Workspace"
-                    : state.user?.role === "CLOSER"
+                    : (state.user?.role as string) === "CLOSER" || state.user?.role === "SALES_AGENT"
                     ? "Sales Closer · Workspace"
                     : state.user?.role === "MANAGER"
                     ? "Manager · Workspace"

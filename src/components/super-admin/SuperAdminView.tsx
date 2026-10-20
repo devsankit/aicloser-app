@@ -223,7 +223,7 @@ export function SuperAdminView() {
       }
 
       // Telemetry
-      const telem = await aicloserApi.superAdmin.getTelemetry().catch(() => null);
+      const telem: any = await aicloserApi.superAdmin.getTelemetry().catch(() => null);
       if (telem?.devices && Array.isArray(telem.devices)) {
         setDevices(telem.devices);
       }
@@ -538,7 +538,7 @@ export function SuperAdminView() {
         packageExpiresAt: expiresAtIso,
       };
 
-      const res = await aicloserApi.superAdmin.createTenant(payload);
+      const res: any = await aicloserApi.superAdmin.createTenant(payload);
       if (res?.id && newWsMonthlyAmount) {
         await aicloserApi.superAdmin.updateTenantAmount(res.id, Number(newWsMonthlyAmount) || 9999).catch(() => null);
       }
