@@ -19,7 +19,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     return NextResponse.json({ ok: false, error: "Conversation not found" }, { status: 404 });
   }
 
-  const leadStatusId = String(body.leadStatusId ?? "").trim();
+  const leadStatusId = String(body.leadStatusId ?? body.stage ?? body.status ?? "").trim();
   if (!leadStatusId) {
     return NextResponse.json({ ok: false, error: "Choose a lead stage." }, { status: 400 });
   }
@@ -58,17 +58,23 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
           "new-leads": "NEW",
           "new leads": "NEW",
           "contacted": "CONTACTED",
+          "in_progress": "CONTACTED",
+          "in-progress": "CONTACTED",
           "qualified": "INTERESTED",
           "interested": "INTERESTED",
           "interested / qualified": "INTERESTED",
           "training-booked": "WEBINAR_INVITED",
           "training booked": "WEBINAR_INVITED",
           "webinar-invited": "WEBINAR_INVITED",
+          "demo": "WEBINAR_INVITED",
           "follow-up": "FOLLOW_UP",
+          "follow_up": "FOLLOW_UP",
           "follow-up needed": "FOLLOW_UP",
+          "negotiation": "FOLLOW_UP",
           "closed": "CLOSED_WON",
           "closed-won": "CLOSED_WON",
           "closed won": "CLOSED_WON",
+          "won": "CLOSED_WON",
           "paid": "CLOSED_WON",
           "deal-closed": "CLOSED_WON",
           "lost": "CLOSED_LOST",

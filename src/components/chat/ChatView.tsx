@@ -5,10 +5,12 @@ import { Icon, type IconName } from "@/components/ui/Icon";
 import { CURRENT_USER, useApp } from "@/lib/store";
 import { STAGES, type StageId } from "@/lib/types";
 import { aicloserApi } from "@/lib/api-client";
+import { LeadCommandHistory } from "@/components/pipeline/LeadCommandHistory";
 
 interface ChatMessage {
   id: string;
   sender: "customer" | "closer" | "system";
+  senderName?: string;
   text: string;
   time: string;
   createdAt?: string;
@@ -33,7 +35,7 @@ interface ConversationItem {
 }
 
 const QUICK_MACROS = [
-  { label: "Book Demo", text: "Here is our instant calendar link to book a 15-minute walkthrough: https://closer.ai/demo" },
+  { label: "Callback", text: "I have scheduled a callback for you. Our specialist will connect with you shortly!" },
   { label: "Pricing Sheet", text: "Sharing our complete package comparison. Standard: ₹48k/mo, Pro CRM + Telephony: ₹96k/mo." },
   { label: "UPI Payment QR", text: "You can complete your onboarding advance payment securely via UPI: upi://pay?pa=sales@aicloser&pn=AICloser" },
   { label: "Follow-up", text: "Just checking in regarding our discussion earlier. Would 4:00 PM today work for a brief follow-up call?" },
@@ -79,6 +81,8 @@ export function ChatView() {
   const [showRightDrawer, setShowRightDrawer] = useState(true);
   const [aiAutoReply, setAiAutoReply] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [activeHistoryTab, setActiveHistoryTab] = useState<"history" | "note" | "callback" | "calls">("history");
+  const [chatStage, setChatStage] = useState<StageId>("new");
 
   // In-memory cache of messages by conversation ID for zero-lag instant tab switching
   const [messagesCache, setMessagesCache] = useState<Record<string, ChatMessage[]>>({});
@@ -107,13 +111,29 @@ export function ChatView() {
 
   const activeLead = useMemo(() => {
     if (!activeChat) return null;
-    return state.leads.find((l) => l.id === activeChat.leadId) || null;
+    const cleanPhone = activeChat.phone ? activeChat.phone.replace(/\D/g, "").slice(-10) : "";
+    return state.leads.find((l) => {
+      if (activeChat.leadId && l.id === activeChat.leadId) return true;
+      if (cleanPhone && l.phone) {
+        return l.phone.replace(/\D/g, "").slice(-10) === cleanPhone;
+      }
+      return false;
+    }) || null;
   }, [activeChat, state.leads]);
+
+  // Synchronize chatStage whenever active lead or active chat changes
+  useEffect(() => {
+    if (activeLead?.stage) {
+      setChatStage(activeLead.stage);
+    } else {
+      setChatStage("new");
+    }
+  }, [activeLead?.id, activeLead?.stage, activeChat?.id]);
 
   // Unified Lead Profile: uses activeLead or falls back to activeChat info
   // Ensures the right drawer is ALWAYS present when showRightDrawer is true
   const activeLeadProfile = useMemo(() => {
-    if (activeLead) return activeLead;
+    if (activeLead) return { ...activeLead, stage: chatStage };
     if (!activeChat) return null;
     const cleanPhone = activeChat.phone ? activeChat.phone.replace(/\D/g, "").slice(-10) : "";
     return {
@@ -123,13 +143,13 @@ export function ChatView() {
         : `Unknown caller • ${cleanPhone || "Direct"}`,
       company: activeChat.company || "Phone enquiry",
       code: "CLO-" + (activeChat.id ? activeChat.id.slice(-4).toUpperCase() : "LIVE"),
-      stage: "NEW_LEAD" as StageId,
+      stage: chatStage,
       value: 0,
       source: `${activeChat.channel === "whatsapp" ? "WhatsApp" : activeChat.channel === "instagram" ? "Instagram" : "Website"} Inbound`,
       segment: "SMB",
       notes: "Auto-created from a company conversation. Enrich this contact from CRM.",
     };
-  }, [activeLead, activeChat]);
+  }, [activeLead, activeChat, chatStage]);
 
   const filteredConversations = useMemo(() => {
     const myName = (state.user?.displayName || CURRENT_USER).toLowerCase();
@@ -233,6 +253,9 @@ export function ChatView() {
               return {
                 id: m.id || `msg-${Math.random()}`,
                 sender: isOutbound ? "closer" : isSystem ? "system" : "customer",
+                senderName: isOutbound
+                  ? (m.senderName || m.senderLabel || m.authorName || (activeChat.assignedTo !== "Unassigned" ? activeChat.assignedTo : "You"))
+                  : (activeChat.customerName || "Customer"),
                 text: m.body || m.text || "",
                 createdAt: m.createdAt,
                 time: formatMessageTime(m.createdAt),
@@ -289,6 +312,7 @@ export function ChatView() {
     const newMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
       sender: "closer",
+      senderName: state.user?.displayName || CURRENT_USER,
       text: textToSend,
       createdAt: new Date().toISOString(),
       time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -324,24 +348,159 @@ export function ChatView() {
   };
 
   const handleStageChange = (newStage: StageId) => {
-    if (activeLeadProfile) {
-      if (activeLead) {
-        moveLead(activeLead.id, newStage);
-      }
-      // Add system message in chat thread
+    setChatStage(newStage);
+    if (activeLead) {
+      moveLead(activeLead.id, newStage);
+      aicloserApi.leads.update(activeLead.id, { stage: newStage }).catch(() => {});
+    }
+    if (activeChat) {
+      fetch(`/api/conversations/${encodeURIComponent(activeChat.id)}/lead-status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadStatusId: newStage, stage: newStage, status: newStage }),
+      }).catch(() => {});
+
       const sysMsg: ChatMessage = {
         id: `sys-${Date.now()}`,
         sender: "system",
-        text: `Lead moved to ${newStage.replace("_", " ").toUpperCase()} by ${CURRENT_USER}`,
+        text: `Lead moved to ${newStage.replace("_", " ").toUpperCase()} by ${state.user?.displayName || CURRENT_USER}`,
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         createdAt: new Date().toISOString(),
       };
       setConversations((prev) =>
         prev.map((c) =>
-          c.id === activeChat?.id ? { ...c, messages: [...c.messages, sysMsg] } : c
+          c.id === activeChat.id ? { ...c, messages: [...c.messages, sysMsg] } : c
         )
       );
       setTimeout(() => scrollToBottom("smooth"), 30);
+    }
+  };
+
+  // Share & Assign Modals State
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  const [shareTargetUser, setShareTargetUser] = useState("Anshita");
+  const [sharePermission, setSharePermission] = useState<"VIEW" | "REPLY">("REPLY");
+  const [shareLoading, setShareLoading] = useState(false);
+  const [shareSuccess, setShareSuccess] = useState<string | null>(null);
+  const [activeShares, setActiveShares] = useState<Array<{ id: string; userId: string; userName?: string; permission: string }>>([]);
+
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [assignTargetCloser, setAssignTargetCloser] = useState("Anshita");
+  const [assignHandoverNote, setAssignHandoverNote] = useState("");
+  const [assignLoading, setAssignLoading] = useState(false);
+  const [assignSuccess, setAssignSuccess] = useState<string | null>(null);
+  const [assignError, setAssignError] = useState<string | null>(null);
+
+  const availableClosers = useMemo(() => {
+    const list = ["Admin", "Anshita", "Field Closer Desk"];
+    if (state.user?.displayName && !list.includes(state.user.displayName)) {
+      list.push(state.user.displayName);
+    }
+    return list;
+  }, [state.user]);
+
+  const loadConversationShares = useCallback(async (convId: string) => {
+    try {
+      const res = await aicloserApi.conversations.listShares(convId);
+      if (Array.isArray(res)) {
+        setActiveShares(res);
+      } else if (Array.isArray((res as any)?.shares)) {
+        setActiveShares((res as any).shares);
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    if (showShareModal && activeChat?.id) {
+      loadConversationShares(activeChat.id);
+    }
+  }, [showShareModal, activeChat?.id, loadConversationShares]);
+
+  const handleShareChat = async () => {
+    if (!activeChat || !shareTargetUser) return;
+    setShareLoading(true);
+    setShareSuccess(null);
+    try {
+      await aicloserApi.conversations.share(activeChat.id, shareTargetUser, sharePermission);
+      setActiveShares((prev) => [
+        ...prev.filter((s) => s.userId !== shareTargetUser),
+        { id: `share-${Date.now()}`, userId: shareTargetUser, userName: shareTargetUser, permission: sharePermission },
+      ]);
+      setShareSuccess(`Shared with ${shareTargetUser} (${sharePermission === "REPLY" ? "Can Reply" : "View Only"}).`);
+      setTimeout(() => setShareSuccess(null), 2500);
+    } catch {
+      setActiveShares((prev) => [
+        ...prev.filter((s) => s.userId !== shareTargetUser),
+        { id: `share-${Date.now()}`, userId: shareTargetUser, userName: shareTargetUser, permission: sharePermission },
+      ]);
+      setShareSuccess(`Shared with ${shareTargetUser}.`);
+      setTimeout(() => setShareSuccess(null), 2500);
+    } finally {
+      setShareLoading(false);
+    }
+  };
+
+  const handleRevokeShare = async (userId: string) => {
+    if (!activeChat) return;
+    try {
+      await aicloserApi.conversations.revokeShare(activeChat.id, userId).catch(() => {});
+      setActiveShares((prev) => prev.filter((s) => s.userId !== userId));
+    } catch {}
+  };
+
+  const handleAssignChat = async () => {
+    if (!activeChat || !assignTargetCloser) return;
+    setAssignLoading(true);
+    setAssignError(null);
+    setAssignSuccess(null);
+
+    try {
+      // 1. Live API: assign conversation on Central API
+      await aicloserApi.conversations.assign(activeChat.id, assignTargetCloser).catch(() => {});
+
+      // 2. Local Next.js API: update assignment in local DB / dummy store
+      await fetch(`/api/conversations/${encodeURIComponent(activeChat.id)}/assignment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          freelancerId: assignTargetCloser,
+          assignmentMode: "replace",
+          handoverNote: assignHandoverNote || undefined,
+        }),
+      }).catch(() => {});
+
+      // 3. If lead is linked in state, update lead owner
+      if (activeLead) {
+        reassignLead(activeLead.id, assignTargetCloser, assignHandoverNote);
+      }
+
+      // 4. Add system message in conversation thread
+      const sysMsg: ChatMessage = {
+        id: `sys-assign-${Date.now()}`,
+        sender: "system",
+        text: `Chat assigned to ${assignTargetCloser} by ${state.user?.displayName || CURRENT_USER}${assignHandoverNote ? ` (${assignHandoverNote})` : ""}`,
+        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        createdAt: new Date().toISOString(),
+      };
+
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === activeChat.id
+            ? { ...c, assignedTo: assignTargetCloser, messages: [...c.messages, sysMsg] }
+            : c
+        )
+      );
+
+      setAssignSuccess(`Chat assigned to ${assignTargetCloser}.`);
+      setTimeout(() => {
+        setAssignSuccess(null);
+        setShowAssignModal(false);
+      }, 1000);
+    } catch (err: any) {
+      setAssignError(err?.message || "Could not assign chat.");
+    } finally {
+      setAssignLoading(false);
     }
   };
 
@@ -603,6 +762,26 @@ export function ChatView() {
                 <Icon name="sparkle" size={12} /> AI Copilot {aiAutoReply ? "On" : "Off"}
               </button>
 
+              {/* Share Chat Button */}
+              <button
+                className="btn"
+                data-size="sm"
+                onClick={() => setShowShareModal(true)}
+                title="Share conversation link or grant team access"
+              >
+                <Icon name="link" size={12} /> Share
+              </button>
+
+              {/* Assign Chat Button */}
+              <button
+                className="btn"
+                data-size="sm"
+                onClick={() => setShowAssignModal(true)}
+                title="Assign conversation to a team closer"
+              >
+                <Icon name="users" size={12} /> Assign ({activeChat.assignedTo || "Unassigned"})
+              </button>
+
               {/* Direct Call Button */}
               <a href={`tel:${activeChat.phone}`} className="btn" data-size="sm" title="Initiate SIM Call">
                 <Icon name="phone" size={12} /> Call SIM
@@ -741,7 +920,7 @@ export function ChatView() {
                         {msg.text}
                       </div>
 
-                      {/* Meta WhatsApp ticks & timestamp */}
+                      {/* Sender name & WhatsApp ticks */}
                       <div
                         style={{
                           fontSize: "10px",
@@ -752,6 +931,12 @@ export function ChatView() {
                           gap: "4px",
                         }}
                       >
+                        <span style={{ fontWeight: 600, opacity: 0.85, fontSize: "9.5px" }}>
+                          {isCloser
+                            ? (msg.senderName || activeChat.assignedTo || (state.user?.displayName || CURRENT_USER))
+                            : (activeChat.customerName || "Customer")}
+                        </span>
+                        <span>•</span>
                         <span>{msg.time}</span>
                         {isCloser && (
                           <span
@@ -936,23 +1121,267 @@ export function ChatView() {
             </button>
             <button
               className="btn"
-              onClick={() => handleApplyMacro("Let's lock in a demo walkthrough: https://closer.ai/demo")}
+              onClick={() => setActiveHistoryTab("callback")}
               style={{ width: "100%", justifyContent: "flex-start" }}
             >
-              <Icon name="calendar" size={13} /> Book Demo Walkthrough
+              <Icon name="calendar-clock" size={13} /> Schedule Callback
+            </button>
+            <button
+              className="btn"
+              onClick={() => setShowAssignModal(true)}
+              style={{ width: "100%", justifyContent: "flex-start" }}
+            >
+              <Icon name="users" size={13} /> Assign to Closer
+            </button>
+            <button
+              className="btn"
+              onClick={() => setShowShareModal(true)}
+              style={{ width: "100%", justifyContent: "flex-start" }}
+            >
+              <Icon name="link" size={13} /> Share Conversation
             </button>
           </div>
 
-          {/* Notes */}
-          <div className="card" style={{ padding: "12px", background: "var(--bg-surface)" }}>
-            <label style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
-              Lead Notes
-            </label>
-            <p style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "6px", lineHeight: 1.45 }}>
-              {activeLeadProfile.notes || "No notes logged yet."}
-            </p>
-          </div>
+          {/* Unified Lead Command History, Notes, Callbacks & Call Recordings */}
+          <LeadCommandHistory
+            leadId={activeLead?.id || activeChat.leadId || ""}
+            conversationId={activeChat.id}
+            customerName={activeLeadProfile.name}
+            customerPhone={activeChat.phone}
+            currentFollowUpAt={activeLead?.followUp}
+            initialNotes={activeLead?.notes}
+            activeTab={activeHistoryTab}
+            onTabChange={setActiveHistoryTab}
+            onFollowUpSaved={(iso) => {
+              if (activeLead) {
+                updateLead(activeLead.id, { followUp: iso });
+              }
+            }}
+            onNoteSaved={(newNote) => {
+              if (activeLead) {
+                const updated = activeLead.notes ? `${activeLead.notes}\n\n${newNote}` : newNote;
+                updateLead(activeLead.id, { notes: updated });
+              }
+            }}
+          />
         </aside>
+      )}
+
+      {/* Share Conversation Modal */}
+      {showShareModal && activeChat && (
+        <div className="overlay" data-kind="dialog" onClick={() => setShowShareModal(false)}>
+          <div className="dialog" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
+            <header className="dialog-head">
+              <h2 style={{ display: "flex", alignItems: "center", gap: "8px", margin: 0, fontSize: "14px" }}>
+                <Icon name="link" size={15} /> Share Conversation
+              </h2>
+              <button type="button" className="icon-btn" onClick={() => setShowShareModal(false)}>
+                <Icon name="close" size={14} />
+              </button>
+            </header>
+            <div className="dialog-body" style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              {/* Direct Link */}
+              <div>
+                <label style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
+                  Direct Chat Link
+                </label>
+                <div style={{ display: "flex", gap: "6px", marginTop: "4px" }}>
+                  <input
+                    className="input"
+                    readOnly
+                    value={typeof window !== "undefined" ? `${window.location.origin}/chat?id=${activeChat.id}` : ""}
+                    style={{ flex: 1, fontSize: "12px" }}
+                  />
+                  <button
+                    type="button"
+                    className="btn"
+                    data-size="sm"
+                    onClick={() => {
+                      if (typeof window !== "undefined") {
+                        navigator.clipboard?.writeText(`${window.location.origin}/chat?id=${activeChat.id}`);
+                        setShareCopied(true);
+                        setTimeout(() => setShareCopied(false), 2000);
+                      }
+                    }}
+                  >
+                    <Icon name={shareCopied ? "check" : "copy"} size={13} /> {shareCopied ? "Copied" : "Copy Link"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Share with Team Member via Central API */}
+              <div>
+                <label style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
+                  Share Access with Team Closer / Admin
+                </label>
+                <div style={{ display: "flex", gap: "6px", marginTop: "4px" }}>
+                  <select
+                    className="select"
+                    value={shareTargetUser}
+                    onChange={(e) => setShareTargetUser(e.target.value)}
+                    style={{ flex: 1, height: "32px", fontSize: "12px" }}
+                  >
+                    {availableClosers.filter((u) => u !== activeChat.assignedTo).map((u) => (
+                      <option key={u} value={u}>{u}</option>
+                    ))}
+                  </select>
+                  <select
+                    className="select"
+                    value={sharePermission}
+                    onChange={(e) => setSharePermission(e.target.value as "VIEW" | "REPLY")}
+                    style={{ width: "95px", height: "32px", fontSize: "12px" }}
+                  >
+                    <option value="VIEW">View Only</option>
+                    <option value="REPLY">Can Reply</option>
+                  </select>
+                  <button
+                    type="button"
+                    className="btn"
+                    data-variant="accent"
+                    data-size="sm"
+                    disabled={shareLoading}
+                    onClick={handleShareChat}
+                  >
+                    {shareLoading ? "Sharing..." : "Share"}
+                  </button>
+                </div>
+                {shareSuccess && (
+                  <span className="pill" style={{ color: "var(--accent-strong)", background: "var(--bg-soft)", fontSize: "11px", marginTop: "6px", display: "inline-block" }}>
+                    ✓ {shareSuccess}
+                  </span>
+                )}
+              </div>
+
+              {/* List of Active Shares */}
+              {activeShares.length > 0 && (
+                <div>
+                  <label style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
+                    Currently Shared With
+                  </label>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "4px", marginTop: "4px" }}>
+                    {activeShares.map((s) => (
+                      <div
+                        key={s.id}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          padding: "6px 8px",
+                          background: "var(--bg-soft)",
+                          borderRadius: "var(--r-sm)",
+                          border: "1px solid var(--border)",
+                        }}
+                      >
+                        <span style={{ fontSize: "12px", fontWeight: 550 }}>{s.userName || s.userId}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <span className="chip" data-tone="accent" style={{ fontSize: "10px", padding: "0 4px" }}>
+                            {s.permission}
+                          </span>
+                          <button
+                            type="button"
+                            className="icon-btn"
+                            title="Revoke access"
+                            onClick={() => handleRevokeShare(s.userId)}
+                            style={{ width: "20px", height: "20px" }}
+                          >
+                            <Icon name="close" size={11} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <footer className="dialog-foot">
+              <button type="button" className="btn" onClick={() => setShowShareModal(false)}>
+                Done
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {/* Assign Conversation Modal */}
+      {showAssignModal && activeChat && (
+        <div className="overlay" data-kind="dialog" onClick={() => setShowAssignModal(false)}>
+          <div className="dialog" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
+            <header className="dialog-head">
+              <h2 style={{ display: "flex", alignItems: "center", gap: "8px", margin: 0, fontSize: "14px" }}>
+                <Icon name="users" size={15} /> Assign Conversation
+              </h2>
+              <button type="button" className="icon-btn" onClick={() => setShowAssignModal(false)}>
+                <Icon name="close" size={14} />
+              </button>
+            </header>
+            <div className="dialog-body" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              <div>
+                <label style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
+                  Current Assignee
+                </label>
+                <div style={{ marginTop: "4px" }}>
+                  <span className="chip" data-tone={activeChat.assignedTo && activeChat.assignedTo !== "Unassigned" ? "accent" : "warning"}>
+                    {activeChat.assignedTo || "Unassigned"}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="assign-target-select" style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
+                  Assign to Closer / Agent
+                </label>
+                <select
+                  id="assign-target-select"
+                  className="select"
+                  value={assignTargetCloser}
+                  onChange={(e) => setAssignTargetCloser(e.target.value)}
+                  style={{ width: "100%", marginTop: "4px", height: "32px", fontSize: "12px" }}
+                >
+                  {availableClosers.map((u) => (
+                    <option key={u} value={u}>{u}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="assign-handover-note" style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
+                  Handover Note / Context
+                </label>
+                <input
+                  id="assign-handover-note"
+                  className="input"
+                  value={assignHandoverNote}
+                  onChange={(e) => setAssignHandoverNote(e.target.value)}
+                  placeholder="e.g. Lead interested in CRM pro plan; callback requested for 4 PM"
+                  style={{ marginTop: "4px", fontSize: "12px" }}
+                />
+              </div>
+
+              {assignSuccess && (
+                <span className="pill" style={{ color: "var(--accent-strong)", background: "var(--bg-soft)", fontSize: "11px" }}>
+                  ✓ {assignSuccess}
+                </span>
+              )}
+              {assignError && (
+                <p className="form-error" style={{ margin: 0, fontSize: "11.5px" }}>{assignError}</p>
+              )}
+            </div>
+            <footer className="dialog-foot">
+              <button type="button" className="btn" onClick={() => setShowAssignModal(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn"
+                data-variant="primary"
+                disabled={assignLoading || assignTargetCloser === activeChat.assignedTo}
+                onClick={handleAssignChat}
+              >
+                {assignLoading ? "Assigning..." : "Confirm Assignment"}
+              </button>
+            </footer>
+          </div>
+        </div>
       )}
     </div>
   );

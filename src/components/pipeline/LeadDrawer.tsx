@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { ResizeHandle } from "@/components/ui/ResizeHandle";
+import { LeadCommandHistory } from "./LeadCommandHistory";
 import { LIMITS, maskPhone, money, relativeTime, slaLabel, useApp } from "@/lib/store";
 import {
   OWNERS,
@@ -498,16 +499,23 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
             </div>
           </div>
 
-          <div className="field">
-            <label htmlFor="d-notes">Notes</label>
-            <textarea
-              id="d-notes"
-              className="textarea"
-              value={draft.notes}
-              onChange={(e) => set("notes", e.target.value)}
-              placeholder="Call notes, next step, objections…"
-            />
-          </div>
+          {/* Unified Command History, Notes & Callbacks */}
+          <LeadCommandHistory
+            leadId={lead.id}
+            customerName={draft.name}
+            customerPhone={draft.phone}
+            currentFollowUpAt={draft.followUp}
+            initialNotes={draft.notes}
+            onFollowUpSaved={(iso) => {
+              set("followUp", iso);
+              updateLead(lead.id, { followUp: iso });
+            }}
+            onNoteSaved={(newNote) => {
+              const updated = draft.notes ? `${draft.notes}\n\n${newNote}` : newNote;
+              set("notes", updated);
+              updateLead(lead.id, { notes: updated });
+            }}
+          />
 
           <p className="hint">
             Last updated {relativeTime(lead.updatedAt)} · press <span className="kbd">Esc</span> to

@@ -24,14 +24,14 @@ import {
 } from "@/lib/mobile/push-service";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
-  const authorization = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER"]);
+  const authorization = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"]);
   if (!authorization.ok) {
     return authorization.response;
   }
 
   const { id } = await context.params;
   const body = await request.json();
-  const assignedBy = authorization.session.role === "MANAGER" ? "manager" : "admin";
+  const assignedBy = authorization.session.role === "MANAGER" ? "manager" : authorization.session.role === "SALES_AGENT" ? "sales_agent" : "admin";
   const currentConversationView = await getConversationViewForSession(authorization.session, id);
   if (!currentConversationView) {
     return NextResponse.json({ ok: false, error: "Conversation not found" }, { status: 404 });
