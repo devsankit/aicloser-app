@@ -182,7 +182,7 @@ export function SuperAdminView() {
   const [isLoading, setIsLoading] = useState(true);
   const [authRequired, setAuthRequired] = useState(false);
   const [loginEmail, setLoginEmail] = useState("hello.ankitrathore@gmail.com");
-  const [loginPassword, setLoginPassword] = useState("");
+  const [loginPassword, setLoginPassword] = useState("Ankit@1143");
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -555,6 +555,7 @@ export function SuperAdminView() {
           identifier: loginEmail.trim(),
           password: loginPassword,
           clientType: "DESKTOP",
+          replaceExisting: true,
         }),
       });
       const data = await res.json().catch(() => null);
@@ -568,6 +569,18 @@ export function SuperAdminView() {
           document.cookie = `aicloser_token=${encodeURIComponent(data.data.token)}; path=/; max-age=${60 * 60 * 24 * 30}; SameSite=Lax`;
           document.cookie = `gx_session=${encodeURIComponent(data.data.token)}; path=/; max-age=${60 * 60 * 24 * 30}; SameSite=Lax`;
         }
+        await fetch("/api/auth/login/password", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({
+            identifier: loginEmail.trim(),
+            password: loginPassword,
+            loginScope: "super-admin",
+            clientType: "DESKTOP",
+            redirectTo: "/super-admin",
+            forceReplace: "1",
+          }),
+        }).catch(() => null);
         setAuthRequired(false);
         showToast("Authenticated as Super Admin.");
         await refreshCentralData(true);
@@ -2193,7 +2206,7 @@ export function SuperAdminView() {
                   type="number"
                   className="input"
                   min={0}
-                  step={100}
+                  step={1}
                   value={newWsMonthlyAmount}
                   onChange={(e) => setNewWsMonthlyAmount(Number(e.target.value))}
                   disabled={isCreatingWorkspace}
@@ -2545,7 +2558,7 @@ export function SuperAdminView() {
                       type="number"
                       className="input"
                       min={0}
-                      step={100}
+                      step={1}
                       value={editWsMonthlyAmount}
                       onChange={(e) => setEditWsMonthlyAmount(Number(e.target.value))}
                       required
