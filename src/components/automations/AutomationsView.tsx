@@ -262,21 +262,15 @@ Your objective:
     async function loadAutomations() {
       try {
         const [rulesRes, logsRes] = await Promise.allSettled([
-          fetch('/api/sales/automations').then(r => r.ok ? r.json() : null),
-          fetch('/api/sales/automations/logs').then(r => r.ok ? r.json() : null),
+          aicloserApi.automations.list(),
+          aicloserApi.automations.getLogs(),
         ]);
         if (!active) return;
 
         let rulesList = [];
         if (rulesRes.status === 'fulfilled' && rulesRes.value) {
-          const v = rulesRes.value;
-          rulesList = Array.isArray(v.rules) ? v.rules : Array.isArray(v) ? v : [];
-        }
-        if (rulesList.length === 0) {
-          try {
-            const fb: any = await aicloserApi.automations.list();
-            rulesList = Array.isArray(fb) ? fb : Array.isArray(fb?.rules) ? fb.rules : Array.isArray(fb?.data) ? fb.data : [];
-          } catch {}
+          const v = rulesRes.value as any;
+          rulesList = Array.isArray(v) ? v : Array.isArray(v?.rules) ? v.rules : Array.isArray(v?.data) ? v.data : [];
         }
 
         if (rulesList.length > 0) {
@@ -301,14 +295,8 @@ Your objective:
 
         let logsList = [];
         if (logsRes.status === 'fulfilled' && logsRes.value) {
-          const v = logsRes.value;
-          logsList = Array.isArray(v.logs) ? v.logs : Array.isArray(v) ? v : [];
-        }
-        if (logsList.length === 0) {
-          try {
-            const fbLogs: any = await aicloserApi.automations.getLogs();
-            logsList = Array.isArray(fbLogs) ? fbLogs : Array.isArray(fbLogs?.logs) ? fbLogs.logs : Array.isArray(fbLogs?.data) ? fbLogs.data : [];
-          } catch {}
+          const v = logsRes.value as any;
+          logsList = Array.isArray(v) ? v : Array.isArray(v?.logs) ? v.logs : Array.isArray(v?.data) ? v.data : [];
         }
 
         if (logsList.length > 0) {
