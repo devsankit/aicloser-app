@@ -650,11 +650,14 @@ export function WhatsAppMarketingView() {
                   <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginBottom: "6px" }}>CTA Buttons:</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
                     {t.buttons.length > 0 ? (
-                      t.buttons.map((b) => (
-                        <span key={b} className="chip" style={{ fontSize: "11px", background: "var(--bg-hover)" }}>
-                          {b}
-                        </span>
-                      ))
+                      t.buttons.map((b: any, bIdx: number) => {
+                        const btnText = typeof b === "string" ? b : b?.text || b?.url || b?.phone_number || `Action #${bIdx + 1}`;
+                        return (
+                          <span key={bIdx} className="chip" style={{ fontSize: "11px", background: "var(--bg-hover)" }}>
+                            {btnText}
+                          </span>
+                        );
+                      })
                     ) : (
                       <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Standard Quick Reply</span>
                     )}
