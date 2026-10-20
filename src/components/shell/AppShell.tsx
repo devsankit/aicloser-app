@@ -657,38 +657,6 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           <GlobalSearch />
 
-          <button
-            className="btn"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "7px",
-              fontSize: "12px",
-              padding: "4px 10px",
-              borderRadius: "6px",
-              height: "28px",
-              background: state.apiConnected ? "rgba(34, 197, 94, 0.12)" : "rgba(255, 255, 255, 0.05)",
-              border: `1px solid ${state.apiConnected ? "rgba(34, 197, 94, 0.3)" : "var(--border)"}`,
-              color: state.apiConnected ? "#22c55e" : "var(--fg-muted)",
-              cursor: "pointer",
-            }}
-            onClick={() => setLoginModalOpen(true)}
-            title={state.apiConnected ? `Connected to live API (${state.user?.displayName || "Cloud"}) · Click to manage` : "Local Demo mode · Click to sign in & load real data"}
-          >
-            <span
-              style={{
-                width: "6px",
-                height: "6px",
-                borderRadius: "50%",
-                backgroundColor: state.apiConnected ? "#22c55e" : "#eab308",
-                display: "inline-block",
-              }}
-            />
-            <span className="hide-sm">
-              {state.isLoadingApi ? "Syncing..." : state.apiConnected ? "Live Cloud" : "Local Demo"}
-            </span>
-          </button>
-
           <label className="scope">
             <Icon name="target" size={15} />
             <span>Viewing</span>
