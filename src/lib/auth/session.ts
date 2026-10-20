@@ -254,11 +254,7 @@ export async function getSessionContext(): Promise<SessionContext> {
     // The refactor workspace can authenticate against the central API without
     // having a direct frontend DATABASE_URL. Keep the legacy billing refresh
     // optional until those fields are served by the new workspace API.
-    const persistedBilling = process.env.DATABASE_URL?.trim()
-      ? await prisma.appAuthUser
-          .findUnique({ where: { id: effectiveUser.userId }, select: { packageExpiresAt: true } })
-          .catch(() => undefined)
-      : undefined;
+    const persistedBilling = undefined;
     const packageExpiresAt =
       persistedBilling === undefined
         ? effectiveUser.packageExpiresAt ?? null
