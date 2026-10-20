@@ -1850,6 +1850,10 @@ export const aicloserApi = {
       const res = await request<any>(`/team/${encodeURIComponent(id)}`, { method: 'DELETE' });
       return res.data;
     },
+    async auditLogs() {
+      const res = await request<any>('/team/audit-logs');
+      return res.data;
+    },
     async deleteMember(id: string) {
       return this.delete(id);
     },

@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 import { CURRENT_USER, maskPhone, useApp } from "@/lib/store";
@@ -37,14 +37,23 @@ export interface PermissionRow {
   closer: boolean;
 }
 
-const DEFAULT_MEMBERS: TeamMember[] = [];
-
-const DEFAULT_PERMISSIONS: PermissionRow[] = [];
-
-const AUDIT_LOGS: Array<{ id: string; action: string; detail: string; user: string; time: string }> = [];
+const DEFAULT_PERMISSIONS: PermissionRow[] = [
+  { id: "leads_view", category: "Leads & Contacts", label: "View Leads & Contacts", desc: "Access the CRM contacts hub and lead directory", admin: true, manager: true, closer: true },
+  { id: "leads_claim", category: "Leads & Contacts", label: "Claim from Lead Grab Pool", desc: "Pick unassigned leads from the live pool", admin: true, manager: true, closer: true },
+  { id: "leads_export", category: "Leads & Contacts", label: "Export Leads to Excel/CSV", desc: "Download full contact database", admin: true, manager: true, closer: false },
+  { id: "telephony_calling", category: "Telephony & SIM", label: "Make SIM-Based Outbound Calls", desc: "Use closer desk SIM relays to call leads", admin: true, manager: true, closer: true },
+  { id: "call_recordings_listen", category: "Telephony & SIM", label: "Listen to Call Recordings", desc: "Access full call audio vault and AI transcripts", admin: true, manager: true, closer: false },
+  { id: "whatsapp_chat", category: "Omnichannel Chat", label: "Two-Way WhatsApp & Instagram Chat", desc: "Send direct replies to client messages", admin: true, manager: true, closer: true },
+  { id: "whatsapp_bulk_marketing", category: "Omnichannel Chat", label: "Broadcast Bulk Marketing Campaigns", desc: "Send marketing templates to lead lists", admin: true, manager: true, closer: false },
+  { id: "payment_links_create", category: "Payments & Revenue", label: "Generate UPI QR Payment Links", desc: "Create dynamic payment requests", admin: true, manager: true, closer: true },
+  { id: "payment_settlement", category: "Payments & Revenue", label: "Settle & Confirm Payments", desc: "Mark payments as settled or manual approval", admin: true, manager: true, closer: false },
+  { id: "team_management", category: "Workspace Governance", label: "Invite & Manage Team Members", desc: "Assign seats, edit roles and passwords", admin: true, manager: false, closer: false },
+];
 
 export function TeamView() {
-  const { state } = useApp();
+  const { state, setScope } = useApp();
+  const router = useRouter();
+
   const [tab, setTab] = useState<"members" | "matrix" | "routing" | "audit">("members");
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,6 +67,10 @@ export function TeamView() {
   const [isInviteOpen, setIsInviteOpen] = useState(false);
   const [savedBanner, setSavedBanner] = useState<string | null>(null);
 
+  // Live Audit Logs State
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [isAuditLoading, setIsAuditLoading] = useState(false);
+
   // Invite Form State
   const [inviteName, setInviteName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
@@ -69,13 +82,50 @@ export function TeamView() {
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Load from LocalStorage (non-member settings only, members are strictly live from API)
+  // Edit Member Modal State
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editRole, setEditRole] = useState<TeamRole>("CLOSER");
+  const [editCapacity, setEditCapacity] = useState(25);
+  const [editPassword, setEditPassword] = useState("");
+  const [showEditPassword, setShowEditPassword] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [isEditSubmitting, setIsEditSubmitting] = useState(false);
+
+  // Manager Navigation Visibility State
+  const [managerMenuVisibility, setManagerMenuVisibility] = useState<Record<string, boolean>>({
+    "/dashboard": true,
+    "/pipeline": true,
+    "/contacts": true,
+    "/chat": true,
+    "/calls": true,
+    "/whatsapp": true,
+    "/payments": true,
+    "/lead-import": true,
+    "/automations": false,
+    "/settings": false,
+  });
+  const [managerUserControl, setManagerUserControl] = useState(true);
+  const [managerPaymentApproval, setManagerPaymentApproval] = useState(true);
+  const [managerLeadRoutingAccess, setManagerLeadRoutingAccess] = useState(false);
+
+  // Closer / Field Agent Optional Feature Unlocks State
+  const [closerMenuVisibility, setCloserMenuVisibility] = useState<Record<string, boolean>>({
+    "/whatsapp": false,
+    "/channels": false,
+    "/forms": false,
+    "/lead-import": false,
+  });
+
+  // Load from LocalStorage for UI preferences only (routing & custom navigation pills)
   useEffect(() => {
     try {
       const stored = localStorage.getItem("closer.team.v1");
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed.permissions) setPermissions(parsed.permissions);
         if (parsed.routingAlgorithm) setRoutingAlgorithm(parsed.routingAlgorithm);
         if (parsed.routingHoursOnly !== undefined) setRoutingHoursOnly(parsed.routingHoursOnly);
         if (parsed.unclaimedTimeout) setUnclaimedTimeout(parsed.unclaimedTimeout);
@@ -106,232 +156,189 @@ export function TeamView() {
     }
   }, []);
 
-  // Live API Fetch for Team Members & Role Features
+  // Live API Fetch for Team Members
+  const loadTeam = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res: any = await aicloserApi.team.listMembers();
+      const rawList = Array.isArray(res)
+        ? res
+        : Array.isArray(res?.members)
+        ? res.members
+        : Array.isArray(res?.data?.members)
+        ? res.data.members
+        : Array.isArray(res?.agents)
+        ? res.agents
+        : Array.isArray(res?.data?.agents)
+        ? res.data.agents
+        : [];
+
+      if (rawList.length > 0) {
+        const mapped: TeamMember[] = rawList.map((m: any) => {
+          const rawRole = String(m.role || m.workspaceRole || "").toUpperCase();
+          const role: TeamRole = rawRole.includes("ADMIN")
+            ? "ADMIN"
+            : rawRole.includes("MANAGER")
+            ? "MANAGER"
+            : "CLOSER";
+          const rawStatus = String(m.status || "").toLowerCase();
+          const status: "active" | "away" | "offline" | "on_leave" =
+            m.onLeave || rawStatus === "on_leave"
+              ? "on_leave"
+              : rawStatus === "active"
+              ? "active"
+              : rawStatus === "away"
+              ? "away"
+              : "offline";
+
+          return {
+            id: String(m.id || m.userId || `tm-${Math.random().toString(36).slice(2, 6)}`),
+            name: m.displayName || m.user?.displayName || m.name || m.agentCode || "Sales Agent",
+            email: m.email || m.user?.email || "",
+            phone: m.phone || m.user?.phone || "",
+            role,
+            status,
+            simConnected: Boolean(m.simConnected ?? true),
+            maxCapacity: Number(m.maxActiveLeads || m.maxCapacity || 25),
+            assignedLeads: Number(m.assignedLeadsCount || m._count?.leadAssignments || m._count?.assignedLeads || 0),
+            pipelineValue: Number(m.pipelineValue || 0),
+            dealsWon: Number(m.dealsWon || 0),
+            inRoundRobin: Boolean(m.canClaimLeads ?? m.inRoundRobin ?? (role !== "ADMIN")),
+            onLeave: Boolean(m.onLeave || rawStatus === "on_leave"),
+            numberMasking: Boolean(m.numberMasking),
+            reportingManager:
+              m.reportingManager ||
+              m.manager?.displayName ||
+              (role === "MANAGER" ? "Founder & Owner" : "Direct Admin"),
+            joinedAt: m.createdAt
+              ? new Date(m.createdAt).toLocaleDateString("en-IN", { month: "short", year: "numeric" })
+              : "Active",
+          };
+        });
+        setMembers(mapped);
+      } else {
+        setMembers([]);
+      }
+    } catch (err) {
+      console.warn("Failed to load team from API:", err);
+      setMembers([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Live Audit Logs Fetch
+  const loadAuditLogs = useCallback(async () => {
+    setIsAuditLoading(true);
+    try {
+      const data: any = await aicloserApi.team.auditLogs();
+      const list = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.logs)
+        ? data.logs
+        : Array.isArray(data?.auditLogs)
+        ? data.auditLogs
+        : Array.isArray(data?.data)
+        ? data.data
+        : [];
+      setAuditLogs(list);
+    } catch (err) {
+      console.warn("Failed to fetch audit logs from API:", err);
+      setAuditLogs([]);
+    } finally {
+      setIsAuditLoading(false);
+    }
+  }, []);
+
+  // Fetch Permissions Matrix Catalog
   useEffect(() => {
     let active = true;
-    setLoading(true);
-
-    // Fetch live permissions catalog from /api/sales/roles/features
-    fetch("/api/sales/roles/features")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (!data || !Array.isArray(data.features) || !active) return;
-        const matrix = data.matrix || {};
-        const rows: PermissionRow[] = data.features.map((feat: any) => ({
-          id: feat.id,
-          category: feat.category || "General",
-          label: feat.name,
-          desc: feat.description,
-          admin: true,
-          manager: Boolean(matrix.MANAGER?.[feat.id] ?? true),
-          closer: Boolean(matrix.SALES_AGENT?.[feat.id] ?? true),
-        }));
-        setPermissions((prev) => (prev.length === 0 ? rows : prev));
+    aicloserApi.team
+      .permissionsMatrix()
+      .then((data: any) => {
+        if (!active || !data) return;
+        if (Array.isArray(data.catalog) && data.catalog.length > 0) {
+          const roleDefs = data.roleDefaults || {};
+          const rows: PermissionRow[] = data.catalog.map((cat: any) => ({
+            id: cat.key,
+            category: cat.category || "General",
+            label: cat.label,
+            desc: cat.description || "",
+            admin: true,
+            manager: Boolean(roleDefs.MANAGER?.[cat.key] ?? true),
+            closer: Boolean(roleDefs.SALES_AGENT?.[cat.key] ?? roleDefs.CLOSER?.[cat.key] ?? true),
+          }));
+          setPermissions(rows);
+        }
       })
       .catch(() => {});
-
-    async function loadTeam() {
-      try {
-        const res = await fetch("/api/sales/team");
-        if (res.ok) {
-          const json = await res.json();
-          const rawList = Array.isArray(json?.agents)
-            ? json.agents
-            : Array.isArray(json?.data?.agents)
-            ? json.data.agents
-            : Array.isArray(json)
-            ? json
-            : [];
-
-          if (active && rawList.length > 0) {
-            let deletedIds: string[] = [];
-            try {
-              deletedIds = JSON.parse(localStorage.getItem("closer.deleted.members") || "[]");
-            } catch {}
-            const activeRawList = rawList.filter(
-              (m: any) => !deletedIds.includes(String(m.id)) && !deletedIds.includes(String(m.userId))
-            );
-
-            const mapped: TeamMember[] = activeRawList.map((m: any) => {
-              const rawRole = String(m.role || m.workspaceRole || "").toUpperCase();
-              const role: TeamRole = rawRole.includes("ADMIN") ? "ADMIN" : rawRole.includes("MANAGER") ? "MANAGER" : "CLOSER";
-              const rawStatus = String(m.status || "").toLowerCase();
-              const status: "active" | "away" | "offline" | "on_leave" =
-                m.onLeave || rawStatus === "on_leave" ? "on_leave" : rawStatus === "active" ? "active" : "offline";
-
-              return {
-                id: m.id || m.userId || `tm-${Math.random().toString(36).slice(2, 6)}`,
-                name: m.displayName || m.user?.displayName || m.name || m.agentCode || "Sales Agent",
-                email: m.email || m.user?.email || "",
-                phone: m.phone || m.user?.phone || "",
-                role,
-                status,
-                simConnected: Boolean(m.simConnected ?? true),
-                maxCapacity: Number(m.maxActiveLeads || m.maxCapacity || 25),
-                assignedLeads: Number(m.assignedLeadsCount || m._count?.leadAssignments || m._count?.assignedLeads || 0),
-                pipelineValue: Number(m.pipelineValue || 0),
-                dealsWon: Number(m.dealsWon || 0),
-                inRoundRobin: Boolean(m.canClaimLeads ?? m.inRoundRobin ?? (role !== "ADMIN")),
-                onLeave: Boolean(m.onLeave),
-                numberMasking: Boolean(m.numberMasking),
-                reportingManager: m.reportingManager || "Founder & Owner",
-                joinedAt: m.createdAt
-                  ? new Date(m.createdAt).toLocaleDateString("en-IN", { month: "short", year: "numeric" })
-                  : "Active",
-              };
-            });
-
-            setMembers(mapped);
-            setLoading(false);
-            return;
-          }
-        }
-      } catch (err) {
-        console.warn("Direct /api/sales/team fetch failed:", err);
-      }
-
-      // Fallback via aicloserApi if direct /api/sales/team returned no agents
-      try {
-        const res: any = await aicloserApi.team.listMembers();
-        if (!active) return;
-        const rawList = Array.isArray(res)
-          ? res
-          : Array.isArray(res?.members)
-          ? res.members
-          : Array.isArray(res?.data?.members)
-          ? res.data.members
-          : [];
-
-        if (rawList.length > 0) {
-          let deletedIds: string[] = [];
-          try {
-            deletedIds = JSON.parse(localStorage.getItem("closer.deleted.members") || "[]");
-          } catch {}
-          const activeRawList = rawList.filter(
-            (m: any) => !deletedIds.includes(String(m.id)) && !deletedIds.includes(String(m.userId))
-          );
-
-          const mapped: TeamMember[] = activeRawList.map((m: any) => {
-            const rawRole = String(m.role || "").toUpperCase();
-            const role: TeamRole = rawRole.includes("ADMIN") ? "ADMIN" : rawRole.includes("MANAGER") ? "MANAGER" : "CLOSER";
-            return {
-              id: m.id || m.userId || `tm-${Math.random().toString(36).slice(2, 6)}`,
-              name: m.displayName || m.user?.displayName || m.name || "Closer Agent",
-              email: m.email || m.user?.email || "",
-              phone: m.phone || m.user?.phone || "",
-              role,
-              status: m.status === "ACTIVE" || m.isActive ? "active" : "offline",
-              simConnected: true,
-              maxCapacity: m.maxActiveLeads || m.maxCapacity || 25,
-              assignedLeads: m.assignedLeadsCount || m._count?.leadAssignments || 0,
-              pipelineValue: m.pipelineValue || 0,
-              dealsWon: m.dealsWon || 0,
-              inRoundRobin: m.canClaimLeads ?? m.inRoundRobin ?? (role !== "ADMIN"),
-              onLeave: Boolean(m.onLeave),
-              numberMasking: Boolean(m.numberMasking),
-              reportingManager: m.reportingManager || "Founder & Owner",
-              joinedAt: m.createdAt
-                ? new Date(m.createdAt).toLocaleDateString("en-IN", { month: "short", year: "numeric" })
-                : "Active",
-            };
-          });
-          setMembers(mapped);
-        } else {
-          setMembers([]);
-        }
-      } catch {
-        if (active) setMembers([]);
-      } finally {
-        if (active) setLoading(false);
-      }
-    }
 
     loadTeam();
     return () => {
       active = false;
     };
-  }, []);
+  }, [loadTeam]);
 
-  const saveToStorage = (updatedMembers = members, updatedPerms = permissions) => {
+  // Load audit logs when audit tab activated
+  useEffect(() => {
+    if (tab === "audit") {
+      loadAuditLogs();
+    }
+  }, [tab, loadAuditLogs]);
+
+  // ---------------- Handlers wired to Live API ----------------
+
+  const handleToggleLeave = async (memberId: string) => {
+    const target = members.find((m) => m.id === memberId);
+    if (!target) return;
+    const nextLeave = !target.onLeave;
+    const nextStatus = nextLeave ? "on_leave" : "active";
+
+    setMembers((prev) =>
+      prev.map((m) =>
+        m.id === memberId ? { ...m, onLeave: nextLeave, status: nextStatus as any } : m
+      )
+    );
+
     try {
-      localStorage.setItem(
-        "closer.team.v1",
-        JSON.stringify({
-          members: updatedMembers,
-          permissions: updatedPerms,
-          routingAlgorithm,
-          routingHoursOnly,
-          unclaimedTimeout,
-        })
-      );
-      setSavedBanner("Changes saved to workspace!");
-      setTimeout(() => setSavedBanner(null), 2500);
-    } catch {
-      }
-  };
-
-  const router = useRouter();
-  const { setScope } = useApp();
-
-  // Manager Navigation Visibility State
-  const [managerMenuVisibility, setManagerMenuVisibility] = useState<Record<string, boolean>>({
-    "/dashboard": true,
-    "/pipeline": true,
-    "/contacts": true,
-    "/chat": true,
-    "/calls": true,
-    "/whatsapp": true,
-    "/payments": true,
-    "/lead-import": true,
-    "/automations": false,
-    "/settings": false,
-  });
-  const [managerUserControl, setManagerUserControl] = useState(true);
-  const [managerPaymentApproval, setManagerPaymentApproval] = useState(true);
-  const [managerLeadRoutingAccess, setManagerLeadRoutingAccess] = useState(false);
-
-  // Closer / Field Agent Optional Feature Unlocks State (Disabled by default)
-  const [closerMenuVisibility, setCloserMenuVisibility] = useState<Record<string, boolean>>({
-    "/whatsapp": false,
-    "/channels": false,
-    "/forms": false,
-    "/lead-import": false,
-  });
-
-  const handleToggleLeave = (memberId: string) => {
-    const updated = members.map((m) => {
-      if (m.id !== memberId) return m;
-      const nextLeave = !m.onLeave;
-      return {
-        ...m,
-        onLeave: nextLeave,
-        status: nextLeave ? ("on_leave" as const) : ("active" as const),
-      };
-    });
-    setMembers(updated);
-    saveToStorage(updated, permissions);
-    setSavedBanner("Closer leave status & round-robin availability updated");
+      await aicloserApi.team.updateStatus(memberId, nextLeave ? "ON_LEAVE" : "ACTIVE");
+      setSavedBanner("Closer leave status & round-robin availability updated");
+    } catch (err: any) {
+      console.warn("Failed to toggle leave status:", err);
+    }
     setTimeout(() => setSavedBanner(null), 2500);
   };
 
   const handleToggleMasking = (memberId: string) => {
-    const updated = members.map((m) =>
-      m.id === memberId ? { ...m, numberMasking: !m.numberMasking } : m
+    setMembers((prev) =>
+      prev.map((m) => (m.id === memberId ? { ...m, numberMasking: !m.numberMasking } : m))
     );
-    setMembers(updated);
-    saveToStorage(updated, permissions);
-    const target = updated.find((m) => m.id === memberId);
-    setSavedBanner(`Phone number masking ${target?.numberMasking ? "enabled (+91 98765 •••••)" : "disabled"} for ${target?.name}`);
+    const target = members.find((m) => m.id === memberId);
+    setSavedBanner(
+      `Phone number masking ${target?.numberMasking ? "disabled" : "enabled (+91 98765 •••••)"} for ${target?.name}`
+    );
     setTimeout(() => setSavedBanner(null), 2500);
   };
 
-  const handleChangeReportingManager = (memberId: string, reportingManager: string) => {
-    const updated = members.map((m) =>
-      m.id === memberId ? { ...m, reportingManager } : m
+  const handleChangeReportingManager = async (memberId: string, managerIdOrName: string) => {
+    const target = members.find((m) => m.id === memberId);
+    if (!target) return;
+    const managerObj = members.find((m) => m.id === managerIdOrName);
+    const managerProfileId = managerObj ? managerObj.id : null;
+    const managerDisplayName = managerObj ? managerObj.name : "Direct Admin";
+
+    setMembers((prev) =>
+      prev.map((m) =>
+        m.id === memberId ? { ...m, reportingManager: managerDisplayName } : m
+      )
     );
-    setMembers(updated);
-    saveToStorage(updated, permissions);
-    setSavedBanner("Reporting hierarchy updated");
+
+    try {
+      await aicloserApi.team.assignManager(memberId, managerProfileId);
+      setSavedBanner(`Reporting manager updated for ${target.name}.`);
+    } catch (err: any) {
+      console.warn("Failed to assign manager:", err);
+    }
     setTimeout(() => setSavedBanner(null), 2500);
   };
 
@@ -342,82 +349,96 @@ export function TeamView() {
     router.push("/dashboard");
   };
 
-  const handleToggleRoundRobin = (memberId: string) => {
-    const updated = members.map((m) =>
-      m.id === memberId ? { ...m, inRoundRobin: !m.inRoundRobin } : m
-    );
-    setMembers(updated);
-    saveToStorage(updated, permissions);
-  };
+  const handleToggleRoundRobin = async (memberId: string) => {
+    const target = members.find((m) => m.id === memberId);
+    if (!target) return;
+    const nextVal = !target.inRoundRobin;
 
-  const handleUpdateCapacity = (memberId: string, maxCapacity: number) => {
-    const updated = members.map((m) =>
-      m.id === memberId ? { ...m, maxCapacity } : m
+    setMembers((prev) =>
+      prev.map((m) => (m.id === memberId ? { ...m, inRoundRobin: nextVal } : m))
     );
-    setMembers(updated);
-    saveToStorage(updated, permissions);
-    const target = updated.find((m) => m.id === memberId);
-    setSavedBanner(`Active lead quota updated to ${maxCapacity} leads for ${target?.name}`);
+
+    try {
+      await aicloserApi.team.update(memberId, { canClaimLeads: nextVal });
+      setSavedBanner(`Round-robin queue ${nextVal ? "enabled" : "disabled"} for ${target.name}`);
+    } catch (err: any) {
+      console.warn("Failed to update round-robin:", err);
+    }
     setTimeout(() => setSavedBanner(null), 2500);
-
-    aicloserApi.team.update(memberId, { maxActiveLeads: maxCapacity }).catch(() => {});
   };
 
-  const handleChangeRole = (memberId: string, newRole: TeamRole) => {
-    const updated = members.map((m) =>
-      m.id === memberId ? { ...m, role: newRole } : m
+  const handleUpdateCapacity = async (memberId: string, maxCapacity: number) => {
+    const target = members.find((m) => m.id === memberId);
+    if (!target) return;
+
+    setMembers((prev) =>
+      prev.map((m) => (m.id === memberId ? { ...m, maxCapacity } : m))
     );
-    setMembers(updated);
-    saveToStorage(updated, permissions);
+
+    try {
+      await aicloserApi.team.update(memberId, { maxActiveLeads: maxCapacity, maxCapacity });
+      setSavedBanner(`Active lead quota updated to ${maxCapacity} leads for ${target.name}`);
+    } catch (err: any) {
+      console.warn("Failed to update capacity:", err);
+    }
+    setTimeout(() => setSavedBanner(null), 2500);
   };
 
-  const handleChangeStatus = (memberId: string, status: "active" | "away" | "offline" | "on_leave") => {
-    const updated = members.map((m) => {
-      if (m.id !== memberId) return m;
-      const onLeave = status === "on_leave";
-      return { ...m, status, onLeave };
-    });
-    setMembers(updated);
-    saveToStorage(updated, permissions);
+  const handleChangeRole = async (memberId: string, newRole: TeamRole) => {
+    const target = members.find((m) => m.id === memberId);
+    if (!target) return;
+
+    setMembers((prev) =>
+      prev.map((m) => (m.id === memberId ? { ...m, role: newRole } : m))
+    );
+
+    try {
+      await aicloserApi.team.update(memberId, { role: newRole });
+      setSavedBanner(`Role updated to ${newRole} for ${target.name}`);
+    } catch (err: any) {
+      console.warn("Failed to update role:", err);
+    }
+    setTimeout(() => setSavedBanner(null), 2500);
+  };
+
+  const handleChangeStatus = async (
+    memberId: string,
+    status: "active" | "away" | "offline" | "on_leave"
+  ) => {
+    const onLeave = status === "on_leave";
+    setMembers((prev) =>
+      prev.map((m) => (m.id === memberId ? { ...m, status, onLeave } : m))
+    );
+
+    try {
+      const apiStatus = onLeave ? "ON_LEAVE" : status === "active" ? "ACTIVE" : status === "away" ? "ACTIVE" : "INACTIVE";
+      await aicloserApi.team.updateStatus(memberId, apiStatus as any);
+      setSavedBanner("Member availability status updated");
+    } catch (err: any) {
+      console.warn("Failed to update status:", err);
+    }
+    setTimeout(() => setSavedBanner(null), 2500);
   };
 
   const handleDeleteMember = async (memberId: string) => {
     const target = members.find((m) => m.id === memberId);
     if (!target) return;
     if (target.role === "ADMIN") {
-      alert("Workspace owner/admin account cannot be removed.");
+      setSavedBanner("Workspace owner/admin account cannot be removed.");
+      setTimeout(() => setSavedBanner(null), 3000);
       return;
     }
     if (!confirm(`Are you sure you want to permanently delete team member "${target.name}"?`)) return;
 
-    // Optimistic UI update
-    const updated = members.filter((m) => m.id !== memberId);
-    setMembers(updated);
-    saveToStorage(updated, permissions);
-
-    // Persist deleted ID in blacklist so it never re-appears on reload
     try {
-      const deletedIds = JSON.parse(localStorage.getItem("closer.deleted.members") || "[]");
-      if (!deletedIds.includes(String(memberId))) {
-        deletedIds.push(String(memberId));
-        localStorage.setItem("closer.deleted.members", JSON.stringify(deletedIds));
-      }
-    } catch {}
-
-    setSavedBanner(`Deleted "${target.name}" permanently from workspace.`);
-    setTimeout(() => setSavedBanner(null), 3500);
-
-    // Call backend API to permanently delete from PostgreSQL
-    try {
-      await aicloserApi.team.delete(memberId);
-    } catch (err) {
-      console.warn("Team delete API fallback to super-admin delete:", err);
-      try {
-        const tenantId = (state.user as any)?.tenantId || "tenant-the-storage-test-1d01dda2";
-        await aicloserApi.superAdmin.deleteTenantUser(tenantId, memberId);
-      } catch (err2) {
-        console.error("Failed to delete user on backend:", err2);
-      }
+      await aicloserApi.team.deleteMember(memberId);
+      setSavedBanner(`Deleted "${target.name}" permanently from workspace.`);
+      setTimeout(() => setSavedBanner(null), 3500);
+      await loadTeam();
+    } catch (err: any) {
+      const msg = err?.message || "Failed to delete team member from workspace.";
+      setSavedBanner(`Error: ${msg}`);
+      setTimeout(() => setSavedBanner(null), 4000);
     }
   };
 
@@ -441,8 +462,30 @@ export function TeamView() {
     }
   };
 
-  const handleSaveMatrix = () => {
-    saveToStorage(members, permissions);
+  const handleSaveMatrix = async () => {
+    const managerPermissions: Record<string, boolean> = {};
+    const closerPermissions: Record<string, boolean> = {};
+
+    permissions.forEach((p) => {
+      managerPermissions[p.id] = p.manager;
+      closerPermissions[p.id] = p.closer;
+    });
+
+    const matrixPayload = {
+      roles: {
+        MANAGER: managerPermissions,
+        SALES_AGENT: closerPermissions,
+      },
+    };
+
+    try {
+      await aicloserApi.team.savePermissionsMatrix(matrixPayload as any);
+      setSavedBanner("Role capabilities & matrix permissions saved to live API!");
+    } catch (err: any) {
+      console.warn("Failed to save permissions matrix to API:", err);
+      setSavedBanner("Permissions matrix saved locally");
+    }
+
     try {
       localStorage.setItem("closer.manager.nav.v1", JSON.stringify(managerMenuVisibility));
       localStorage.setItem("closer.closer.nav.v1", JSON.stringify(closerMenuVisibility));
@@ -456,8 +499,8 @@ export function TeamView() {
       );
       window.dispatchEvent(new Event("aicloser:permissions_updated"));
     } catch {}
-    setSavedBanner("Role capabilities, matrix permissions & navigation controls saved!");
-    setTimeout(() => setSavedBanner(null), 2500);
+
+    setTimeout(() => setSavedBanner(null), 3000);
   };
 
   const handleAddMember = async () => {
@@ -488,69 +531,11 @@ export function TeamView() {
       password,
       maxCapacity: Number(inviteCapacity) || 15,
       maxActiveLeads: Number(inviteCapacity) || 15,
-      reportingManager: inviteRole === "MANAGER" ? "Founder & Owner" : "Sales Manager Desk",
+      reportingManager: inviteRole === "MANAGER" ? "Founder & Owner" : "Direct Admin",
     };
 
     try {
-      let apiSuccess = false;
-      let createdMemberData: any = null;
-
-      // 1. Dispatch to Central API invite endpoint
-      try {
-        const res: any = await aicloserApi.team.invite(payload);
-        if (res && (res.ok || res.success || res.agent || res.user || res.id)) {
-          apiSuccess = true;
-          createdMemberData = res.agent || res.user || res.data || res;
-        }
-      } catch (centralErr) {
-        console.warn("Central /team/invite failed, falling back to local /api/sales/team:", centralErr);
-      }
-
-      // 2. Dispatch to local /api/sales/team if central did not complete
-      if (!apiSuccess) {
-        try {
-          const localRes = await fetch("/api/sales/team", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
-          const json = await localRes.json().catch(() => ({}));
-          if (localRes.ok && (json.ok || json.success)) {
-            apiSuccess = true;
-            createdMemberData = json.agent || json.user || json;
-          } else if (localRes.status === 400 || localRes.status === 409) {
-            setInviteError(json.error || json.message || "Failed to create team member. User may already exist.");
-            setIsSubmitting(false);
-            return;
-          }
-        } catch (localErr) {
-          console.warn("Local /api/sales/team POST failed:", localErr);
-        }
-      }
-
-      const newMember: TeamMember = {
-        id: createdMemberData?.id || createdMemberData?.userId || `tm-${Date.now()}`,
-        name,
-        email,
-        phone: cleanPhone,
-        role: inviteRole,
-        status: "active",
-        simConnected: false,
-        maxCapacity: Number(inviteCapacity) || 15,
-        assignedLeads: 0,
-        pipelineValue: 0,
-        dealsWon: 0,
-        inRoundRobin: inviteRole === "CLOSER",
-        onLeave: false,
-        numberMasking: false,
-        reportingManager: payload.reportingManager,
-        joinedAt: "Just now",
-      };
-
-      const updated = [...members, newMember];
-      setMembers(updated);
-      saveToStorage(updated, permissions);
-
+      await aicloserApi.team.invite(payload);
       setIsInviteOpen(false);
       setInviteName("");
       setInviteEmail("");
@@ -562,12 +547,77 @@ export function TeamView() {
       setInviteError(null);
 
       const roleLabel = inviteRole === "MANAGER" ? "Sales Manager" : inviteRole === "ADMIN" ? "Admin" : "Sales Closer";
-      setSavedBanner(`Team member "${name}" (${roleLabel}) created successfully! Password active.`);
+      setSavedBanner(`Team member "${name}" (${roleLabel}) invited successfully!`);
       setTimeout(() => setSavedBanner(null), 3500);
+      await loadTeam();
     } catch (err: any) {
-      setInviteError(err?.message || "An unexpected error occurred while creating team member.");
+      setInviteError(err?.message || "Failed to create team member.");
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Edit Member Modal Handlers
+  const handleOpenEditModal = (member: TeamMember) => {
+    setEditingMember(member);
+    setEditName(member.name);
+    setEditEmail(member.email);
+    setEditPhone(member.phone);
+    setEditRole(member.role);
+    setEditCapacity(member.maxCapacity);
+    setEditPassword("");
+    setShowEditPassword(false);
+    setEditError(null);
+    setIsEditOpen(true);
+  };
+
+  const handleSaveEditMember = async () => {
+    if (!editingMember) return;
+    const name = editName.trim();
+    const email = editEmail.trim().toLowerCase();
+    const rawPhone = editPhone.replace(/\D/g, "").slice(-10);
+
+    if (!name) return setEditError("Full name is required.");
+    if (!email || !email.includes("@")) return setEditError("Valid email is required.");
+    if (!/^[6-9]\d{9}$/.test(rawPhone) && editPhone.trim()) {
+      return setEditError("Phone number must be a valid 10-digit mobile number.");
+    }
+    if (editPassword && editPassword.trim().length < 6) {
+      return setEditError("New password must be at least 6 characters.");
+    }
+
+    setIsEditSubmitting(true);
+    setEditError(null);
+
+    const cleanPhone = editPhone.trim().startsWith("+")
+      ? editPhone.trim()
+      : rawPhone
+      ? `+91 ${rawPhone}`
+      : "";
+
+    const payload: Record<string, unknown> = {
+      displayName: name,
+      email,
+      phone: cleanPhone,
+      role: editRole === "CLOSER" ? "SALES_AGENT" : editRole,
+      maxActiveLeads: Number(editCapacity) || 15,
+    };
+
+    if (editPassword.trim()) {
+      payload.password = editPassword.trim();
+    }
+
+    try {
+      await aicloserApi.team.update(editingMember.id, payload);
+      setSavedBanner(`Updated profile for "${name}" successfully.`);
+      setTimeout(() => setSavedBanner(null), 3000);
+      setIsEditOpen(false);
+      setEditingMember(null);
+      await loadTeam();
+    } catch (err: any) {
+      setEditError(err?.message || "Failed to update member profile.");
+    } finally {
+      setIsEditSubmitting(false);
     }
   };
 
@@ -585,7 +635,6 @@ export function TeamView() {
   }, [members, search, roleFilter]);
 
   const activeClosersCount = members.filter((m) => m.role === "CLOSER" && m.status === "active").length;
-  const totalPipelineSum = members.reduce((acc, m) => acc + m.pipelineValue, 0);
 
   return (
     <div className="team-container" style={{ padding: "20px 24px", maxWidth: "1280px", margin: "0 auto" }}>
@@ -628,7 +677,7 @@ export function TeamView() {
             {members.length} <span style={{ fontSize: "var(--fs-body)", fontWeight: 400, color: "var(--text-tertiary)" }}>/ 10 seats</span>
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--success)", marginTop: "4px", display: "flex", alignItems: "center", gap: "4px" }}>
-            <span className="dot" style={{ background: "var(--success)" }} /> {10 - members.length} seats available
+            <span className="dot" style={{ background: "var(--success)" }} /> {Math.max(0, 10 - members.length)} seats available
           </div>
         </div>
 
@@ -648,63 +697,61 @@ export function TeamView() {
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", fontWeight: 550, textTransform: "uppercase", letterSpacing: "0.04em" }}>
             Round-Robin
           </div>
-          <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px", color: "var(--accent)" }}>
-            {routingAlgorithm === "equal" ? "Sequential" : routingAlgorithm === "performance" ? "Performance" : "Capacity"}
+          <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px" }}>
+            {members.filter((m) => m.inRoundRobin).length} <span style={{ fontSize: "var(--fs-body)", fontWeight: 400, color: "var(--text-tertiary)" }}>in rotation</span>
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
-            {members.filter((m) => m.inRoundRobin).length} closers in active queue
+            Equal lead intake algorithm
           </div>
         </div>
 
         <div className="card" style={{ padding: "14px 16px" }}>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", fontWeight: 550, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-            Team Pipeline
+            On Leave
           </div>
           <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px" }}>
-            ₹{totalPipelineSum.toLocaleString("en-IN")}
+            {members.filter((m) => m.onLeave).length} <span style={{ fontSize: "var(--fs-body)", fontWeight: 400, color: "var(--text-tertiary)" }}>paused</span>
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
-            Across {members.reduce((acc, m) => acc + m.assignedLeads, 0)} assigned active leads
+            Auto-suspended from routing
           </div>
         </div>
       </div>
 
-      {/* Segmented Tab Controls */}
-      <div style={{ display: "flex", gap: "8px", borderBottom: "1px solid var(--border)", paddingBottom: "12px", marginBottom: "16px" }}>
-        <div className="seg" role="tablist" aria-label="Team sections">
-          <button
-            role="tab"
-            aria-selected={tab === "members"}
-            data-on={tab === "members"}
-            onClick={() => setTab("members")}
-          >
-            <Icon name="users" size={13} /> Members ({members.length})
-          </button>
-          <button
-            role="tab"
-            aria-selected={tab === "matrix"}
-            data-on={tab === "matrix"}
-            onClick={() => setTab("matrix")}
-          >
-            <Icon name="shield" size={13} /> Role &amp; Permissions Matrix
-          </button>
-          <button
-            role="tab"
-            aria-selected={tab === "routing"}
-            data-on={tab === "routing"}
-            onClick={() => setTab("routing")}
-          >
-            <Icon name="branch" size={13} /> Round-Robin Distribution
-          </button>
-          <button
-            role="tab"
-            aria-selected={tab === "audit"}
-            data-on={tab === "audit"}
-            onClick={() => setTab("audit")}
-          >
-            <Icon name="clock" size={13} /> Audit Trail
-          </button>
-        </div>
+      {/* Navigation Tabs */}
+      <div className="seg" style={{ marginBottom: "16px" }}>
+        <button
+          role="tab"
+          aria-selected={tab === "members"}
+          data-on={tab === "members"}
+          onClick={() => setTab("members")}
+        >
+          Team Members ({members.length})
+        </button>
+        <button
+          role="tab"
+          aria-selected={tab === "matrix"}
+          data-on={tab === "matrix"}
+          onClick={() => setTab("matrix")}
+        >
+          Role Permissions Matrix
+        </button>
+        <button
+          role="tab"
+          aria-selected={tab === "routing"}
+          data-on={tab === "routing"}
+          onClick={() => setTab("routing")}
+        >
+          Routing & Capacity Rules
+        </button>
+        <button
+          role="tab"
+          aria-selected={tab === "audit"}
+          data-on={tab === "audit"}
+          onClick={() => setTab("audit")}
+        >
+          Security Audit Trail
+        </button>
       </div>
 
       {/* Tab 1: Members Table */}
@@ -732,7 +779,7 @@ export function TeamView() {
               <button
                 data-on={tableViewMode === "standard"}
                 onClick={() => setTableViewMode("standard")}
-                title="Standard Clean View (8 Columns - matching original design)"
+                title="Standard Clean View"
               >
                 Standard
               </button>
@@ -766,7 +813,7 @@ export function TeamView() {
                     </>
                   )}
                   <th style={{ width: "105px" }}>Round-Robin</th>
-                  <th style={{ width: "60px", textAlign: "center" }}>Actions</th>
+                  <th style={{ width: "80px", textAlign: "center" }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -785,7 +832,7 @@ export function TeamView() {
                         <div className="empty-icon">
                           <Icon name="users" size={20} />
                         </div>
-                        <h3>No team members added yet</h3>
+                        <h3>No team members found</h3>
                         <p>
                           Invite closers, managers, and admins to collaborate in your sales workspace.
                         </p>
@@ -797,264 +844,265 @@ export function TeamView() {
                   </tr>
                 ) : (
                   filteredMembers.map((member) => (
-                  <tr key={member.id} style={{ opacity: member.onLeave ? 0.75 : 1 }}>
-                    <td style={{ minWidth: "200px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                        <div
-                          style={{
-                            width: "32px",
-                            height: "32px",
-                            borderRadius: "50%",
-                            background:
-                              member.role === "ADMIN"
-                                ? "var(--accent)"
-                                : member.role === "MANAGER"
-                                ? "var(--accent-strong)"
-                                : "var(--solid-muted)",
-                            color: "#fff",
-                            display: "grid",
-                            placeItems: "center",
-                            fontSize: "12px",
-                            fontWeight: 650,
-                            flexShrink: 0,
-                          }}
-                        >
-                          {member.name.split(" ").map((n) => n[0]).join("")}
-                        </div>
-                        <div>
-                          <div style={{ fontWeight: 550, color: "var(--text)", display: "flex", alignItems: "center", gap: "6px" }}>
-                            {member.name}
-                            {member.role === "ADMIN" && (
-                              <span className="chip" data-tone="accent" style={{ fontSize: "10px", padding: "1px 5px" }}>ADMIN</span>
-                            )}
-                          </div>
-                          <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", lineHeight: 1.25 }}>
-                            {member.email}
-                          </div>
-                          <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", lineHeight: 1.25 }}>
-                            • {member.numberMasking ? maskPhone(member.phone, true) : member.phone}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td style={{ whiteSpace: "nowrap" }}>
-                      <select
-                        className="select"
-                        value={member.role}
-                        onChange={(e) => handleChangeRole(member.id, e.target.value as TeamRole)}
-                        aria-label={`Role for ${member.name}`}
-                        style={{
-                          height: "28px",
-                          fontSize: "12px",
-                          padding: "0 8px",
-                          fontWeight: 550,
-                          borderColor: "transparent",
-                          background: "var(--bg-hover)",
-                          minWidth: "96px",
-                          borderRadius: "var(--r-sm)",
-                        }}
-                      >
-                        <option value="ADMIN">Admin</option>
-                        <option value="MANAGER">Manager</option>
-                        <option value="CLOSER">Closer</option>
-                      </select>
-                    </td>
-                    <td style={{ whiteSpace: "nowrap" }}>
-                      {member.simConnected ? (
-                        <span className="chip" data-tone="success" style={{ fontSize: "11px" }}>
-                          <Icon name="phone" size={11} /> Connected
-                        </span>
-                      ) : (
-                        <span className="chip" style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
-                          No SIM
-                        </span>
-                      )}
-                    </td>
-                    <td style={{ whiteSpace: "nowrap" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                        <span style={{ fontWeight: 550 }}>{member.assignedLeads}</span>
-                        <span style={{ color: "var(--text-tertiary)", fontSize: "var(--fs-caption)" }}>/</span>
-                        {member.role === "ADMIN" ? (
-                          <span style={{ color: "var(--text-tertiary)", fontSize: "var(--fs-caption)" }}>∞ (Admin)</span>
-                        ) : (
-                          <select
-                            className="select"
-                            value={member.maxCapacity}
-                            onChange={(e) => handleUpdateCapacity(member.id, Number(e.target.value))}
-                            style={{ height: "24px", fontSize: "11px", padding: "0 4px", width: "76px" }}
-                            title="Admin control: Maximum active leads allowed simultaneously for this closer"
-                          >
-                            <option value={5}>5 max</option>
-                            <option value={10}>10 max</option>
-                            <option value={15}>15 max</option>
-                            <option value={20}>20 max</option>
-                            <option value={25}>25 max</option>
-                            <option value={35}>35 max</option>
-                            <option value={50}>50 max</option>
-                            <option value={100}>100 max</option>
-                          </select>
-                        )}
-                      </div>
-                    </td>
-                    <td style={{ whiteSpace: "nowrap" }}>
-                      <span style={{ fontWeight: 550 }}>
-                        {member.pipelineValue > 0 ? `₹${member.pipelineValue.toLocaleString("en-IN")}` : "—"}
-                      </span>
-                      {member.dealsWon > 0 && (
-                        <span style={{ color: "var(--success)", fontSize: "11px", marginLeft: "6px" }}>
-                          ({member.dealsWon} won)
-                        </span>
-                      )}
-                    </td>
-                    <td style={{ whiteSpace: "nowrap", minWidth: "155px" }}>
-                      {member.onLeave ? (
-                        <button
-                          className="chip"
-                          data-tone="warning"
-                          onClick={() => handleToggleLeave(member.id)}
-                          title="Click to resume active duty"
-                          style={{ cursor: "pointer", fontSize: "11px", fontWeight: 600, border: "none" }}
-                        >
-                          🌴 On Leave
-                        </button>
-                      ) : (
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                          <select
-                            className="select"
-                            value={member.status}
-                            onChange={(e) => handleChangeStatus(member.id, e.target.value as any)}
-                            aria-label={`Availability for ${member.name}`}
+                    <tr key={member.id} style={{ opacity: member.onLeave ? 0.75 : 1 }}>
+                      <td style={{ minWidth: "200px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                          <div
                             style={{
-                              height: "26px",
-                              fontSize: "11px",
-                              padding: "0 4px",
-                              minWidth: "85px",
-                              borderColor: "transparent",
-                              background: "transparent",
-                              color:
-                                member.status === "active"
-                                  ? "var(--success)"
-                                  : member.status === "away"
-                                    ? "var(--warning)"
-                                    : "var(--text-tertiary)",
-                              fontWeight: 550,
+                              width: "32px",
+                              height: "32px",
+                              borderRadius: "50%",
+                              background:
+                                member.role === "ADMIN"
+                                  ? "var(--accent)"
+                                  : member.role === "MANAGER"
+                                  ? "var(--accent-strong)"
+                                  : "var(--solid-muted)",
+                              color: "#fff",
+                              display: "grid",
+                              placeItems: "center",
+                              fontSize: "12px",
+                              fontWeight: 650,
+                              flexShrink: 0,
                             }}
                           >
-                            <option value="active">● Active</option>
-                            <option value="away">● Away</option>
-                            <option value="offline">● Offline</option>
-                          </select>
-                          {member.role === "CLOSER" && (
-                            <button
-                              className="btn"
-                              data-size="sm"
-                              data-variant="ghost"
-                              onClick={() => handleToggleLeave(member.id)}
-                              title="Mark closer as on leave (temporarily suspends round robin)"
-                              style={{ height: "22px", fontSize: "10px", padding: "0 5px", color: "var(--text-tertiary)" }}
+                            {member.name.split(" ").map((n) => n[0]).join("")}
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 550, color: "var(--text)", display: "flex", alignItems: "center", gap: "6px" }}>
+                              {member.name}
+                              {member.role === "ADMIN" && (
+                                <span className="chip" data-tone="accent" style={{ fontSize: "10px", padding: "1px 5px" }}>ADMIN</span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", lineHeight: 1.25 }}>
+                              {member.email}
+                            </div>
+                            <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", lineHeight: 1.25 }}>
+                              • {member.numberMasking ? maskPhone(member.phone, true) : member.phone}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        <select
+                          className="select"
+                          value={member.role}
+                          onChange={(e) => handleChangeRole(member.id, e.target.value as TeamRole)}
+                          aria-label={`Role for ${member.name}`}
+                          style={{
+                            height: "28px",
+                            fontSize: "12px",
+                            padding: "0 8px",
+                            fontWeight: 550,
+                            borderColor: "transparent",
+                            background: "var(--bg-hover)",
+                            minWidth: "96px",
+                            borderRadius: "var(--r-sm)",
+                          }}
+                        >
+                          <option value="ADMIN">Admin</option>
+                          <option value="MANAGER">Manager</option>
+                          <option value="CLOSER">Closer</option>
+                        </select>
+                      </td>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        {member.simConnected ? (
+                          <span className="chip" data-tone="success" style={{ fontSize: "11px" }}>
+                            <Icon name="phone" size={11} /> Connected
+                          </span>
+                        ) : (
+                          <span className="chip" style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                            No SIM
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <span style={{ fontWeight: 550 }}>{member.assignedLeads}</span>
+                          <span style={{ color: "var(--text-tertiary)", fontSize: "var(--fs-caption)" }}>/</span>
+                          {member.role === "ADMIN" ? (
+                            <span style={{ color: "var(--text-tertiary)", fontSize: "var(--fs-caption)" }}>∞ (Admin)</span>
+                          ) : (
+                            <select
+                              className="select"
+                              value={member.maxCapacity}
+                              onChange={(e) => handleUpdateCapacity(member.id, Number(e.target.value))}
+                              style={{ height: "24px", fontSize: "11px", padding: "0 4px", width: "76px" }}
+                              title="Active lead capacity quota"
                             >
-                              🌴 Leave
+                              <option value={5}>5 max</option>
+                              <option value={10}>10 max</option>
+                              <option value={15}>15 max</option>
+                              <option value={20}>20 max</option>
+                              <option value={25}>25 max</option>
+                              <option value={35}>35 max</option>
+                              <option value={50}>50 max</option>
+                              <option value={100}>100 max</option>
+                            </select>
+                          )}
+                        </div>
+                      </td>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        <span style={{ fontWeight: 550 }}>
+                          {member.pipelineValue > 0 ? `₹${member.pipelineValue.toLocaleString("en-IN")}` : "—"}
+                        </span>
+                        {member.dealsWon > 0 && (
+                          <span style={{ color: "var(--success)", fontSize: "11px", marginLeft: "6px" }}>
+                            ({member.dealsWon} won)
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ whiteSpace: "nowrap", minWidth: "155px" }}>
+                        {member.onLeave ? (
+                          <button
+                            className="chip"
+                            data-tone="warning"
+                            onClick={() => handleToggleLeave(member.id)}
+                            title="Click to resume active duty"
+                            style={{ cursor: "pointer", fontSize: "11px", fontWeight: 600, border: "none" }}
+                          >
+                            🌴 On Leave
+                          </button>
+                        ) : (
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            <select
+                              className="select"
+                              value={member.status}
+                              onChange={(e) => handleChangeStatus(member.id, e.target.value as any)}
+                              aria-label={`Availability for ${member.name}`}
+                              style={{
+                                height: "26px",
+                                fontSize: "11px",
+                                padding: "0 4px",
+                                minWidth: "85px",
+                                borderColor: "transparent",
+                                background: "transparent",
+                                color:
+                                  member.status === "active"
+                                    ? "var(--success)"
+                                    : member.status === "away"
+                                    ? "var(--warning)"
+                                    : "var(--text-tertiary)",
+                                fontWeight: 550,
+                              }}
+                            >
+                              <option value="active">● Active</option>
+                              <option value="away">● Away</option>
+                              <option value="offline">● Offline</option>
+                            </select>
+                            {member.role === "CLOSER" && (
+                              <button
+                                className="btn"
+                                data-size="sm"
+                                data-variant="ghost"
+                                onClick={() => handleToggleLeave(member.id)}
+                                title="Mark closer as on leave"
+                                style={{ height: "22px", fontSize: "10px", padding: "0 5px", color: "var(--text-tertiary)" }}
+                              >
+                                🌴 Leave
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      {tableViewMode === "extended" && (
+                        <>
+                          <td style={{ whiteSpace: "nowrap" }}>
+                            <button
+                              className="chip"
+                              data-tone={member.numberMasking ? "accent" : "default"}
+                              onClick={() => handleToggleMasking(member.id)}
+                              title={member.numberMasking ? "Phone numbers masked (+91 98765 •••••)" : "Phone numbers visible in raw format"}
+                              style={{ cursor: "pointer", fontSize: "11px", fontWeight: 550, border: "none" }}
+                            >
+                              <Icon name={member.numberMasking ? "shield" : "eye"} size={11} />
+                              {member.numberMasking ? "Masked" : "Visible"}
+                            </button>
+                          </td>
+                          <td style={{ whiteSpace: "nowrap" }}>
+                            <select
+                              className="select"
+                              value={
+                                members.find((mgr) => mgr.name === member.reportingManager)?.id ||
+                                member.reportingManager ||
+                                "Direct Admin"
+                              }
+                              onChange={(e) => handleChangeReportingManager(member.id, e.target.value)}
+                              aria-label={`Reporting manager for ${member.name}`}
+                            >
+                              <option value="Direct Admin">Direct Admin (No Manager)</option>
+                              {members
+                                .filter((m) => (m.role === "ADMIN" || m.role === "MANAGER") && m.id !== member.id)
+                                .map((mgr) => (
+                                  <option key={mgr.id} value={mgr.id}>
+                                    {mgr.name} ({mgr.role})
+                                  </option>
+                                ))}
+                            </select>
+                          </td>
+                        </>
+                      )}
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        {member.role === "ADMIN" ? (
+                          <span style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)" }}>
+                            Excluded
+                          </span>
+                        ) : member.onLeave ? (
+                          <span className="chip" data-tone="warning" style={{ fontSize: "11px" }}>
+                            🌴 On Leave
+                          </span>
+                        ) : (
+                          <button
+                            className="chip"
+                            onClick={() => handleToggleRoundRobin(member.id)}
+                            style={{
+                              cursor: "pointer",
+                              fontSize: "11px",
+                              fontWeight: 600,
+                              border: "none",
+                              background: member.inRoundRobin ? "var(--accent)" : "transparent",
+                              color: member.inRoundRobin ? "#fff" : "var(--text-secondary)",
+                              padding: "3px 10px",
+                              borderRadius: "var(--r-sm)",
+                            }}
+                          >
+                            {member.inRoundRobin ? "In Queue" : "Excluded"}
+                          </button>
+                        )}
+                      </td>
+                      <td style={{ textAlign: "center", width: "80px", whiteSpace: "nowrap" }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "4px" }}>
+                          <button
+                            type="button"
+                            className="btn"
+                            data-variant="ghost"
+                            data-size="sm"
+                            onClick={() => handleOpenEditModal(member)}
+                            title={`Edit ${member.name}`}
+                            aria-label={`Edit ${member.name}`}
+                          >
+                            <Icon name="pencil" size={13} />
+                          </button>
+                          {member.role !== "ADMIN" && (
+                            <button
+                              type="button"
+                              className="btn"
+                              data-variant="ghost"
+                              data-size="sm"
+                              onClick={() => handleDeleteMember(member.id)}
+                              title={`Permanently delete ${member.name}`}
+                              aria-label={`Delete ${member.name}`}
+                              style={{ color: "var(--danger)" }}
+                            >
+                              <Icon name="trash" size={13} />
                             </button>
                           )}
                         </div>
-                      )}
-                    </td>
-                    {tableViewMode === "extended" && (
-                      <>
-                        <td style={{ whiteSpace: "nowrap" }}>
-                          <button
-                            className="chip"
-                            data-tone={member.numberMasking ? "info" : "default"}
-                            onClick={() => handleToggleMasking(member.id)}
-                            title={member.numberMasking ? "Phone numbers masked from this user (+91 98765 •••••)" : "Phone numbers visible in raw format"}
-                            style={{ cursor: "pointer", fontSize: "11px", fontWeight: 550, border: "none" }}
-                          >
-                            <Icon name={member.numberMasking ? "shield" : "eye"} size={11} />
-                            {member.numberMasking ? "Masked" : "Visible"}
-                          </button>
-                        </td>
-                        <td style={{ whiteSpace: "nowrap" }}>
-                          <select
-                            className="select"
-                            value={member.reportingManager || "Direct Admin"}
-                            onChange={(e) => handleChangeReportingManager(member.id, e.target.value)}
-                            aria-label={`Reporting manager for ${member.name}`}
-                          >
-                            {members.filter((m) => m.role === "ADMIN" || m.role === "MANAGER").length > 0 ? (
-                              members
-                                .filter((m) => m.role === "ADMIN" || m.role === "MANAGER")
-                                .map((mgr) => (
-                                  <option key={mgr.id} value={mgr.name}>
-                                    {mgr.name} ({mgr.role})
-                                  </option>
-                                ))
-                            ) : (
-                              <option value="Direct Admin">Direct Admin</option>
-                            )}
-                          </select>
-                        </td>
-                      </>
-                    )}
-                    <td style={{ whiteSpace: "nowrap" }}>
-                      {member.role === "ADMIN" ? (
-                        <span style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)" }}>
-                          Excluded
-                        </span>
-                      ) : member.onLeave ? (
-                        <span className="chip" data-tone="warning" style={{ fontSize: "11px" }}>
-                          🌴 On Leave
-                        </span>
-                      ) : (
-                        <button
-                          className="chip"
-                          onClick={() => handleToggleRoundRobin(member.id)}
-                          style={{
-                            cursor: "pointer",
-                            fontSize: "11px",
-                            fontWeight: 600,
-                            border: "none",
-                            background: member.inRoundRobin ? "var(--accent)" : "transparent",
-                            color: member.inRoundRobin ? "#fff" : "var(--text-secondary)",
-                            padding: "3px 10px",
-                            borderRadius: "var(--r-sm)",
-                          }}
-                        >
-                          {member.inRoundRobin ? "In Queue" : "Excluded"}
-                        </button>
-                      )}
-                    </td>
-                    <td style={{ textAlign: "center", width: "60px", whiteSpace: "nowrap" }}>
-                      {member.role !== "ADMIN" && (
-                        <button
-                          className="btn"
-                          data-variant="ghost"
-                          onClick={() => handleDeleteMember(member.id)}
-                          title={`Permanently delete ${member.name}`}
-                          style={{
-                            padding: "4px",
-                            height: "28px",
-                            width: "28px",
-                            display: "inline-grid",
-                            placeItems: "center",
-                            color: "var(--text-tertiary)",
-                            borderRadius: "var(--r-sm)",
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.color = "var(--danger, #ef4444)";
-                            e.currentTarget.style.background = "rgba(239, 68, 68, 0.1)";
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.color = "var(--text-tertiary)";
-                            e.currentTarget.style.background = "transparent";
-                          }}
-                        >
-                          <Icon name="trash" size={14} />
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -1085,7 +1133,7 @@ export function TeamView() {
                     <span className="chip" data-tone="accent">ADMIN</span>
                   </th>
                   <th style={{ width: "18%", textAlign: "center" }}>
-                    <span className="chip" data-tone="info">MANAGER</span>
+                    <span className="chip" data-tone="accent">MANAGER</span>
                   </th>
                   <th style={{ width: "18%", textAlign: "center" }}>
                     <span className="chip" data-tone="success">CLOSER</span>
@@ -1098,8 +1146,20 @@ export function TeamView() {
                   return (
                     <Fragment key={p.id}>
                       {showCat ? (
-                        <tr style={{ background: "var(--bg-hover, rgba(255,255,255,0.03))" }}>
-                          <td colSpan={4} style={{ padding: "8px 16px", fontWeight: 700, fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--accent)" }}>
+                        <tr>
+                          <td
+                            colSpan={4}
+                            style={{
+                              background: "var(--bg-soft)",
+                              padding: "8px 16px",
+                              fontSize: "var(--fs-caption)",
+                              fontWeight: 650,
+                              textTransform: "uppercase",
+                              letterSpacing: "0.05em",
+                              color: "var(--text-tertiary)",
+                              borderTop: idx > 0 ? "1px solid var(--border)" : "none",
+                            }}
+                          >
                             {p.category}
                           </td>
                         </tr>
@@ -1107,19 +1167,28 @@ export function TeamView() {
                       <tr>
                         <td>
                           <div style={{ fontWeight: 550, color: "var(--text)" }}>{p.label}</div>
-                          <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)" }}>{p.desc}</div>
+                          {p.desc ? (
+                            <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "1px" }}>
+                              {p.desc}
+                            </div>
+                          ) : null}
                         </td>
                         <td style={{ textAlign: "center" }}>
-                          <span style={{ color: "var(--success)" }}>
-                            <Icon name="check" size={15} />
-                          </span>
+                          <input
+                            type="checkbox"
+                            checked={p.admin}
+                            disabled
+                            aria-label={`${p.label} for Admin`}
+                            style={{ cursor: "not-allowed", accentColor: "var(--accent)" }}
+                          />
                         </td>
                         <td style={{ textAlign: "center" }}>
                           <input
                             type="checkbox"
                             checked={p.manager}
                             onChange={() => handleTogglePermission(p.id, "manager")}
-                            style={{ cursor: "pointer", width: "16px", height: "16px", accentColor: "var(--accent)" }}
+                            aria-label={`${p.label} for Manager`}
+                            style={{ cursor: "pointer", accentColor: "var(--accent)" }}
                           />
                         </td>
                         <td style={{ textAlign: "center" }}>
@@ -1127,7 +1196,8 @@ export function TeamView() {
                             type="checkbox"
                             checked={p.closer}
                             onChange={() => handleTogglePermission(p.id, "closer")}
-                            style={{ cursor: "pointer", width: "16px", height: "16px", accentColor: "var(--accent)" }}
+                            aria-label={`${p.label} for Closer`}
+                            style={{ cursor: "pointer", accentColor: "var(--accent)" }}
                           />
                         </td>
                       </tr>
@@ -1137,352 +1207,106 @@ export function TeamView() {
               </tbody>
             </table>
           </div>
-
-          {/* Manager Navigation Menu Visibility & Admin Governance */}
-          <div style={{ padding: "20px", borderTop: "1px solid var(--border)", background: "var(--bg-soft)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px", flexWrap: "wrap", gap: "10px" }}>
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <span className="chip" data-tone="accent" style={{ fontWeight: 650 }}>ADMIN GOVERNANCE</span>
-                  <h3 style={{ fontSize: "var(--fs-body)", fontWeight: 600, margin: 0 }}>Manager Portal Navigation &amp; Operational Controls</h3>
-                </div>
-                <p style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
-                  Admin has absolute authority over what modules Managers see in the sidebar, which actions they can execute, and whether they can approve UPI payments.
-                </p>
-              </div>
-              <button className="btn" data-variant="accent" data-size="sm" onClick={handleSaveMatrix}>
-                <Icon name="check" size={13} /> Apply Manager Matrix
-              </button>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "16px", marginBottom: "8px" }}>
-              {/* Menu items card */}
-              <div className="card" style={{ padding: "16px", background: "var(--bg-surface)" }}>
-                <div style={{ fontWeight: 600, fontSize: "var(--fs-caption)", textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text-tertiary)", marginBottom: "10px" }}>
-                  Sidebar Menu Visibility For Managers
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                  {[
-                    { path: "/dashboard", label: "Dashboard", desc: "Team pipeline metrics & revenue charts" },
-                    { path: "/pipeline", label: "Pipeline Kanban", desc: "Drag-and-drop lead stage board" },
-                    { path: "/contacts", label: "Contacts & 360 CRM", desc: "Customer directory & activity history" },
-                    { path: "/chat", label: "Inbound Multi-Channel Chat", desc: "WhatsApp & Instagram shared inbox" },
-                    { path: "/calls", label: "SIM Telephony & Calls", desc: "Android SIM call logs & recordings" },
-                    { path: "/whatsapp", label: "WhatsApp QR & Cloud API", desc: "Device pairing & cloud inbox" },
-                    { path: "/payments", label: "UPI & Razorpay Invoicing", desc: "Dynamic QR generation & receipts" },
-                    { path: "/lead-import", label: "Multi-Source Lead Import", desc: "CSV, Excel, Sheets & QR extraction" },
-                    { path: "/automations", label: "AI Automations & Lead Routing", desc: "Round-robin distribution & AI models" },
-                    { path: "/settings", label: "Settings & API Vault", desc: "Workspace configuration & credentials" },
-                  ].map((item) => (
-                    <label key={item.path} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 8px", borderRadius: "6px", background: "var(--bg-hover)", cursor: "pointer" }}>
-                      <div>
-                        <div style={{ fontSize: "var(--fs-body)", fontWeight: 550 }}>{item.label}</div>
-                        <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>{item.desc}</div>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={managerMenuVisibility[item.path] ?? false}
-                        onChange={(e) => setManagerMenuVisibility((prev) => ({ ...prev, [item.path]: e.target.checked }))}
-                        style={{ width: "16px", height: "16px", accentColor: "var(--accent)", cursor: "pointer" }}
-                      />
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              {/* Operational governance card */}
-              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                <div className="card" style={{ padding: "16px", background: "var(--bg-surface)" }}>
-                  <div style={{ fontWeight: 600, fontSize: "var(--fs-caption)", textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text-tertiary)", marginBottom: "10px" }}>
-                    Manager Operational Permissions
-                  </div>
-
-                  <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                    <label style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "8px", borderRadius: "6px", background: "var(--bg-hover)", cursor: "pointer" }}>
-                      <input
-                        type="checkbox"
-                        checked={managerUserControl}
-                        onChange={(e) => setManagerUserControl(e.target.checked)}
-                        style={{ marginTop: "3px", width: "16px", height: "16px", accentColor: "var(--accent)" }}
-                      />
-                      <div>
-                        <div style={{ fontWeight: 550, fontSize: "var(--fs-body)" }}>Closer User Management</div>
-                        <div style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
-                          Can invite new closers, mark users on leave, toggle phone masking, and reassign reporting hierarchy under their team.
-                        </div>
-                      </div>
-                    </label>
-
-                    <label style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "8px", borderRadius: "6px", background: "var(--bg-hover)", cursor: "pointer" }}>
-                      <input
-                        type="checkbox"
-                        checked={managerPaymentApproval}
-                        onChange={(e) => setManagerPaymentApproval(e.target.checked)}
-                        style={{ marginTop: "3px", width: "16px", height: "16px", accentColor: "var(--accent)" }}
-                      />
-                      <div>
-                        <div style={{ fontWeight: 550, fontSize: "var(--fs-body)", color: "var(--accent)" }}>UPI Payment Verification &amp; Approval</div>
-                        <div style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
-                          Can inspect customer UPI screenshot proofs, verify UTR transaction IDs, and approve deals into Closed Won status.
-                        </div>
-                      </div>
-                    </label>
-
-                    <label style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "8px", borderRadius: "6px", background: "var(--bg-hover)", cursor: "pointer" }}>
-                      <input
-                        type="checkbox"
-                        checked={managerLeadRoutingAccess}
-                        onChange={(e) => setManagerLeadRoutingAccess(e.target.checked)}
-                        style={{ marginTop: "3px", width: "16px", height: "16px", accentColor: "var(--accent)" }}
-                      />
-                      <div>
-                        <div style={{ fontWeight: 550, fontSize: "var(--fs-body)" }}>Lead Distribution &amp; Routing Config</div>
-                        <div style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
-                          Can adjust round-robin allocation parameters, SLA lead grab timers, and source distribution rules.
-                        </div>
-                      </div>
-                    </label>
-                  </div>
-                </div>
-
-                <div className="card" style={{ padding: "14px", border: "1px dashed var(--accent)", background: "rgba(59,130,246,0.05)" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 600, fontSize: "12px", color: "var(--accent)" }}>
-                    <Icon name="shield" size={13} /> Mandatory Security Isolation
-                  </div>
-                  <div style={{ fontSize: "11px", color: "var(--text-secondary)", marginTop: "4px", lineHeight: 1.45 }}>
-                    Company Admin credentials, master API keys, and workspace billing remain 100% hidden and unalterable by Managers regardless of any role delegation.
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Closer / Field Agent Navigation Menu Visibility & Admin Governance */}
-            <div style={{ marginTop: "24px", paddingTop: "20px", borderTop: "1px dashed var(--border)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px", flexWrap: "wrap", gap: "10px" }}>
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <span className="chip" data-tone="success" style={{ fontWeight: 650 }}>USER ACCESS</span>
-                    <h3 style={{ fontSize: "var(--fs-body)", fontWeight: 600, margin: 0 }}>Closer / Field User Workspace Access &amp; Feature Unlocks</h3>
-                  </div>
-                  <p style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
-                    By default, Closers receive leads, check their own call recordings, chat with leads, and generate UPI payment links. Advanced growth modules (Bulk Marketing, Plugins, Lead Forms, Import) are locked by default and must be explicitly enabled by Admin.
-                  </p>
-                </div>
-                <button className="btn" data-variant="accent" data-size="sm" onClick={handleSaveMatrix}>
-                  <Icon name="check" size={13} /> Save User Permissions
-                </button>
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "16px" }}>
-                {/* Closer Menu Unlocks */}
-                <div className="card" style={{ padding: "16px", background: "var(--bg-surface)" }}>
-                  <div style={{ fontWeight: 600, fontSize: "var(--fs-caption)", textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text-tertiary)", marginBottom: "10px" }}>
-                    Optional Sidebar Modules For Closers (Default: Disabled)
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                    {[
-                      {
-                        path: "/whatsapp",
-                        label: "WhatsApp Bulk Marketing & Campaigns",
-                        desc: "Broadcast Meta Cloud templates and blast campaigns (Disabled for closer by default)",
-                        permId: "whatsapp_bulk_marketing",
-                      },
-                      {
-                        path: "/channels",
-                        label: "Plugins & Channels Configuration",
-                        desc: "Connect WhatsApp QR, Meta Cloud API, webhooks & relays (No use to regular closers)",
-                        permId: "plugins_channels_hub",
-                      },
-                      {
-                        path: "/forms",
-                        label: "Lead Form Builder",
-                        desc: "Design and publish public website lead capture forms",
-                        permId: "forms_builder",
-                      },
-                      {
-                        path: "/lead-import",
-                        label: "Multi-Source Lead Import",
-                        desc: "Import raw leads from CSV, Excel, Google Sheets, or paired device",
-                        permId: "lead_import",
-                      },
-                    ].map((item) => (
-                      <label key={item.path} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderRadius: "6px", background: "var(--bg-hover)", cursor: "pointer" }}>
-                        <div>
-                          <div style={{ fontSize: "var(--fs-body)", fontWeight: 550 }}>{item.label}</div>
-                          <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>{item.desc}</div>
-                        </div>
-                        <input
-                          type="checkbox"
-                          checked={closerMenuVisibility[item.path] ?? false}
-                          onChange={(e) => {
-                            const val = e.target.checked;
-                            setCloserMenuVisibility((prev) => ({ ...prev, [item.path]: val }));
-                            setPermissions((prev) =>
-                              prev.map((p) => (p.id === item.permId ? { ...p, closer: val } : p))
-                            );
-                          }}
-                          style={{ width: "16px", height: "16px", accentColor: "var(--success)", cursor: "pointer" }}
-                        />
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Closer Core Privileges summary */}
-                <div className="card" style={{ padding: "16px", background: "var(--bg-surface)", display: "flex", flexDirection: "column", gap: "10px" }}>
-                  <div style={{ fontWeight: 600, fontSize: "var(--fs-caption)", textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text-tertiary)" }}>
-                    Default Active Capabilities For Closers
-                  </div>
-
-                  <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "12px", color: "var(--text-secondary)" }}>
-                    <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
-                      <span style={{ color: "var(--success)", marginTop: "1px" }}><Icon name="check" size={13} /></span>
-                      <div><strong style={{ color: "var(--text)" }}>Pipeline &amp; Lead Grab:</strong> Closer gets assigned leads and can claim unassigned leads from the live pool within their max capacity.</div>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
-                      <span style={{ color: "var(--success)", marginTop: "1px" }}><Icon name="check" size={13} /></span>
-                      <div><strong style={{ color: "var(--text)" }}>SIM Call Recordings &amp; Telephony:</strong> Closer can check their own call recordings, inspect audio playback, and view call duration logs.</div>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
-                      <span style={{ color: "var(--success)", marginTop: "1px" }}><Icon name="check" size={13} /></span>
-                      <div><strong style={{ color: "var(--text)" }}>Live Multi-Channel Chat:</strong> Closer can reply to customer WhatsApp and web messages in their assigned conversations.</div>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
-                      <span style={{ color: "var(--success)", marginTop: "1px" }}><Icon name="check" size={13} /></span>
-                      <div><strong style={{ color: "var(--text)" }}>UPI Dynamic Invoicing:</strong> Closer can generate dynamic customer UPI payment QR codes and payment links.</div>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
-                      <span style={{ color: "var(--accent)", marginTop: "1px" }}><Icon name="shield" size={13} /></span>
-                      <div><strong style={{ color: "var(--text)" }}>Data Masking &amp; Isolation:</strong> Customer numbers can be masked, and closers cannot delete records or export full database.</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
         </section>
       )}
 
-      {/* Tab 3: Round-Robin Distribution */}
+      {/* Tab 3: Routing & Capacity Rules */}
       {tab === "routing" && (
-        <section className="card" style={{ padding: "20px" }}>
-          <div style={{ marginBottom: "20px" }}>
-            <h2 style={{ fontSize: "var(--fs-body)", fontWeight: 600 }}>Automated Lead Distribution Rules</h2>
-            <p style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "2px" }}>
-              Control how new inbound leads from Website forms, Meta Ads, and WhatsApp are assigned to active closers.
-            </p>
-          </div>
+        <section className="card" style={{ padding: "20px 24px" }}>
+          <h2 style={{ fontSize: "var(--fs-body)", fontWeight: 600, marginBottom: "4px" }}>
+            Automated Lead Routing Engine
+          </h2>
+          <p style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginBottom: "20px" }}>
+            Configure how new incoming WhatsApp chats, lead forms, and Google Sheets imports are distributed among closers.
+          </p>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
-            {/* Algorithm Selector */}
-            <div className="card" style={{ padding: "16px", background: "var(--bg-soft)" }}>
-              <div style={{ fontWeight: 550, fontSize: "var(--fs-meta)", marginBottom: "8px" }}>Distribution Algorithm</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "10px" }}>
-                <div
-                  className="card"
-                  onClick={() => { setRoutingAlgorithm("equal"); saveToStorage(); }}
-                  style={{
-                    padding: "12px",
-                    cursor: "pointer",
-                    border: routingAlgorithm === "equal" ? "1px solid var(--accent)" : "1px solid var(--border)",
-                    background: routingAlgorithm === "equal" ? "var(--bg-selected)" : "var(--bg-surface)",
-                  }}
-                >
-                  <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: "6px" }}>
-                    <Icon name="check" size={13} /> Sequential Equal Weight
-                  </div>
-                  <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", marginTop: "4px" }}>
-                    Cycles sequentially through active closers so everyone gets equal opportunity.
-                  </div>
-                </div>
-
-                <div
-                  className="card"
-                  onClick={() => { setRoutingAlgorithm("performance"); saveToStorage(); }}
-                  style={{
-                    padding: "12px",
-                    cursor: "pointer",
-                    border: routingAlgorithm === "performance" ? "1px solid var(--accent)" : "1px solid var(--border)",
-                    background: routingAlgorithm === "performance" ? "var(--bg-selected)" : "var(--bg-surface)",
-                  }}
-                >
-                  <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: "6px" }}>
-                    <Icon name="sparkle" size={13} /> Performance-Weighted
-                  </div>
-                  <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", marginTop: "4px" }}>
-                    Routes 60% of high-intent leads to closers with the highest 30-day conversion rate.
-                  </div>
-                </div>
-
-                <div
-                  className="card"
-                  onClick={() => { setRoutingAlgorithm("capacity"); saveToStorage(); }}
-                  style={{
-                    padding: "12px",
-                    cursor: "pointer",
-                    border: routingAlgorithm === "capacity" ? "1px solid var(--accent)" : "1px solid var(--border)",
-                    background: routingAlgorithm === "capacity" ? "var(--bg-selected)" : "var(--bg-surface)",
-                  }}
-                >
-                  <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: "6px" }}>
-                    <Icon name="layers" size={13} /> Capacity-Capped
-                  </div>
-                  <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", marginTop: "4px" }}>
-                    Skips closers who have reached their maximum active lead limit until they close or reject.
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Business Hours Gate */}
-            <div className="card" style={{ padding: "16px", background: "var(--bg-soft)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <div style={{ fontWeight: 550, fontSize: "var(--fs-meta)" }}>Business Hours Routing Gate</div>
-                <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "2px" }}>
-                  Only assign leads during operating hours (09:00 AM – 08:00 PM IST). After-hours leads hold in Unassigned queue.
-                </div>
-              </div>
-              <input
-                type="checkbox"
-                checked={routingHoursOnly}
-                onChange={(e) => { setRoutingHoursOnly(e.target.checked); saveToStorage(); }}
-                style={{ width: "18px", height: "18px", accentColor: "var(--accent)", cursor: "pointer" }}
-              />
-            </div>
-
-            {/* SLA Timer */}
-            <div className="card" style={{ padding: "16px", background: "var(--bg-soft)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <div style={{ fontWeight: 550, fontSize: "var(--fs-meta)" }}>Unassigned / Unclaimed SLA Timeout</div>
-                <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "2px" }}>
-                  If an assigned closer does not reach out within this window, the lead reverts to the team claim pool.
-                </div>
-              </div>
+          <div style={{ display: "grid", gap: "16px", maxWidth: "680px" }}>
+            <div className="field">
+              <label>Distribution Algorithm</label>
               <select
                 className="select"
-                value={unclaimedTimeout}
-                onChange={(e) => { setUnclaimedTimeout(Number(e.target.value)); saveToStorage(); }}
-                aria-label="Unclaimed lead SLA timeout"
-                style={{ width: "130px" }}
+                value={routingAlgorithm}
+                onChange={(e) => setRoutingAlgorithm(e.target.value as any)}
               >
-                <option value={5}>5 minutes</option>
-                <option value={15}>15 minutes</option>
-                <option value={30}>30 minutes</option>
-                <option value={60}>1 hour</option>
+                <option value="equal">Round-Robin (Strict Equal Distribution)</option>
+                <option value="capacity">Capacity-Based (Routes to closers with lowest active load)</option>
+                <option value="performance">Performance-Weighted (Favours closers with highest conversion rate)</option>
               </select>
+            </div>
+
+            <div className="field">
+              <label>Unclaimed Lead Timeout (Minutes before escalating to Grab Pool)</label>
+              <input
+                className="input"
+                type="number"
+                min={1}
+                max={120}
+                value={unclaimedTimeout}
+                onChange={(e) => setUnclaimedTimeout(Number(e.target.value))}
+              />
+              <span className="card-sub">
+                If the assigned closer does not initiate a WhatsApp chat or SIM call within this window, the lead returns to Open Pool.
+              </span>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "8px" }}>
+              <input
+                type="checkbox"
+                id="routing-hours"
+                checked={routingHoursOnly}
+                onChange={(e) => setRoutingHoursOnly(e.target.checked)}
+                style={{ accentColor: "var(--accent)", width: "16px", height: "16px" }}
+              />
+              <label htmlFor="routing-hours" style={{ fontSize: "var(--fs-meta)", cursor: "pointer" }}>
+                Route leads during business hours only (9:00 AM – 8:00 PM IST)
+              </label>
+            </div>
+
+            <div style={{ marginTop: "16px" }}>
+              <button
+                className="btn"
+                data-variant="primary"
+                onClick={() => {
+                  try {
+                    localStorage.setItem(
+                      "closer.team.v1",
+                      JSON.stringify({
+                        routingAlgorithm,
+                        routingHoursOnly,
+                        unclaimedTimeout,
+                      })
+                    );
+                  } catch {}
+                  setSavedBanner("Routing engine parameters saved!");
+                  setTimeout(() => setSavedBanner(null), 2500);
+                }}
+              >
+                <Icon name="check" size={13} /> Save Routing Rules
+              </button>
             </div>
           </div>
         </section>
       )}
 
-      {/* Tab 4: Audit Trail */}
+      {/* Tab 4: Security Audit Trail */}
       {tab === "audit" && (
         <section className="card" style={{ padding: "0", overflow: "hidden" }}>
-          <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)" }}>
-            <h2 style={{ fontSize: "var(--fs-body)", fontWeight: 600 }}>Security & Role Audit Trail</h2>
-            <p style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "2px" }}>
-              Immutable record of role promotions, capacity updates, and permission changes.
-            </p>
+          <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <h2 style={{ fontSize: "var(--fs-body)", fontWeight: 600 }}>Security & Role Audit Trail</h2>
+              <p style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "2px" }}>
+                Immutable record of role promotions, capacity updates, and permission changes.
+              </p>
+            </div>
+            <button
+              className="btn"
+              data-variant="ghost"
+              data-size="sm"
+              onClick={loadAuditLogs}
+              disabled={isAuditLoading}
+            >
+              <Icon name="refresh" size={13} /> {isAuditLoading ? "Refreshing..." : "Refresh Logs"}
+            </button>
           </div>
           <div className="table-wrap">
             <table className="table" style={{ width: "100%", textAlign: "left" }}>
@@ -1491,37 +1315,68 @@ export function TeamView() {
                   <th style={{ width: "180px" }}>Event Action</th>
                   <th>Details</th>
                   <th style={{ width: "180px" }}>Triggered By</th>
-                  <th style={{ width: "140px", textAlign: "right" }}>Timestamp</th>
+                  <th style={{ width: "160px", textAlign: "right" }}>Timestamp</th>
                 </tr>
               </thead>
               <tbody>
-                {AUDIT_LOGS.length === 0 ? (
+                {isAuditLoading ? (
                   <tr>
-                    <td colSpan={4} style={{ textAlign: "center", padding: "48px 16px", color: "var(--text-tertiary)" }}>
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
-                        <Icon name="history" size={28} style={{ opacity: 0.4 }} />
-                        <div style={{ fontWeight: 600, color: "var(--text)" }}>No Security Audit Events Yet</div>
-                        <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", maxWidth: "340px" }}>
-                          Role changes, permissions adjustments, and user invitations will be logged here.
+                    <td colSpan={4} style={{ textAlign: "center", padding: "32px 16px" }}>
+                      <p style={{ color: "var(--text-secondary)" }}>Loading audit events from live API...</p>
+                    </td>
+                  </tr>
+                ) : auditLogs.length === 0 ? (
+                  <tr>
+                    <td colSpan={4}>
+                      <div className="empty">
+                        <div className="empty-icon">
+                          <Icon name="clock" size={20} />
                         </div>
+                        <h3>No Security Audit Events Yet</h3>
+                        <p>
+                          Role changes, permissions adjustments, and user invitations will be logged here.
+                        </p>
                       </div>
                     </td>
                   </tr>
                 ) : (
-                  AUDIT_LOGS.map((log) => (
-                    <tr key={log.id}>
-                      <td>
-                        <span className="chip" data-tone="accent" style={{ fontSize: "11px" }}>
-                          {log.action}
-                        </span>
-                      </td>
-                      <td style={{ color: "var(--text)", fontWeight: 500 }}>{log.detail}</td>
-                      <td style={{ color: "var(--text-secondary)", fontSize: "var(--fs-caption)" }}>{log.user}</td>
-                      <td style={{ textAlign: "right", color: "var(--text-tertiary)", fontSize: "var(--fs-caption)" }}>
-                        {log.time}
-                      </td>
-                    </tr>
-                  ))
+                  auditLogs.map((log: any, idx: number) => {
+                    const actionLabel = log.action || log.type || log.event || "SECURITY_EVENT";
+                    const detailText =
+                      log.detail ||
+                      log.details ||
+                      log.description ||
+                      log.message ||
+                      (log.metadata ? JSON.stringify(log.metadata) : "Configuration change");
+                    const actorName =
+                      log.user?.displayName ||
+                      log.user?.name ||
+                      log.actor ||
+                      log.user ||
+                      log.triggeredBy ||
+                      "System Admin";
+                    const timeStr = log.createdAt || log.time || log.timestamp
+                      ? new Date(log.createdAt || log.time || log.timestamp).toLocaleString("en-IN", {
+                          dateStyle: "short",
+                          timeStyle: "short",
+                        })
+                      : "Recent";
+
+                    return (
+                      <tr key={log.id || `audit-${idx}`}>
+                        <td>
+                          <span className="chip" data-tone="accent" style={{ fontSize: "11px" }}>
+                            {actionLabel}
+                          </span>
+                        </td>
+                        <td style={{ color: "var(--text)", fontWeight: 500 }}>{detailText}</td>
+                        <td style={{ color: "var(--text-secondary)", fontSize: "var(--fs-caption)" }}>{actorName}</td>
+                        <td style={{ textAlign: "right", color: "var(--text-tertiary)", fontSize: "var(--fs-caption)" }}>
+                          {timeStr}
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -1529,13 +1384,188 @@ export function TeamView() {
         </section>
       )}
 
+      {/* Edit Member Modal */}
+      {isEditOpen && editingMember && (
+        <div
+          className="overlay dialog-backdrop"
+          data-kind="dialog"
+          onClick={() => !isEditSubmitting && setIsEditOpen(false)}
+          role="presentation"
+        >
+          <div
+            className="dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-dialog-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="dialog-head card-head">
+              <h2 id="edit-dialog-title" className="card-title">Edit Team Member</h2>
+              <button
+                type="button"
+                className="btn"
+                data-variant="ghost"
+                data-size="sm"
+                aria-label="Close dialog"
+                onClick={() => !isEditSubmitting && setIsEditOpen(false)}
+              >
+                <Icon name="close" size={14} />
+              </button>
+            </div>
+            <div className="dialog-body card-body">
+              {editError && (
+                <div
+                  className="chip"
+                  data-tone="danger"
+                  style={{ width: "100%", justifyContent: "flex-start", height: "auto", padding: "8px 10px", whiteSpace: "normal" }}
+                >
+                  {editError}
+                </div>
+              )}
+
+              <div className="field">
+                <label htmlFor="edit-name">Full Name *</label>
+                <input
+                  id="edit-name"
+                  className="input"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  placeholder="e.g. Rahul Sharma"
+                  disabled={isEditSubmitting}
+                  required
+                />
+              </div>
+
+              <div className="field">
+                <label htmlFor="edit-email">Email Address *</label>
+                <input
+                  id="edit-email"
+                  type="email"
+                  className="input"
+                  value={editEmail}
+                  onChange={(e) => setEditEmail(e.target.value)}
+                  placeholder="e.g. rahul@company.com"
+                  disabled={isEditSubmitting}
+                  required
+                />
+              </div>
+
+              <div className="field">
+                <label htmlFor="edit-phone">Mobile Phone (WhatsApp & SIM Telephony) *</label>
+                <input
+                  id="edit-phone"
+                  className="input"
+                  value={editPhone}
+                  onChange={(e) => setEditPhone(e.target.value)}
+                  placeholder="10-digit mobile number"
+                  disabled={isEditSubmitting}
+                  required
+                />
+              </div>
+
+              <div className="field">
+                <label htmlFor="edit-role">Workspace Role</label>
+                <select
+                  id="edit-role"
+                  className="select"
+                  value={editRole}
+                  onChange={(e) => setEditRole(e.target.value as TeamRole)}
+                  disabled={isEditSubmitting}
+                >
+                  <option value="CLOSER">Sales Closer (Field Telecaller)</option>
+                  <option value="MANAGER">Sales Manager (Lead Routing & Approvals)</option>
+                  <option value="ADMIN">Workspace Admin (Full System Control)</option>
+                </select>
+              </div>
+
+              <div className="field">
+                <label htmlFor="edit-capacity">Active Lead Capacity (Max Active Leads)</label>
+                <input
+                  id="edit-capacity"
+                  type="number"
+                  min={1}
+                  max={200}
+                  className="input"
+                  value={editCapacity}
+                  onChange={(e) => setEditCapacity(Number(e.target.value))}
+                  disabled={isEditSubmitting}
+                />
+              </div>
+
+              <div className="field">
+                <label htmlFor="edit-password">Reset Password (Optional, minimum 6 characters)</label>
+                <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+                  <input
+                    id="edit-password"
+                    type={showEditPassword ? "text" : "password"}
+                    className="input"
+                    value={editPassword}
+                    onChange={(e) => setEditPassword(e.target.value)}
+                    placeholder="Leave blank to keep existing password"
+                    minLength={6}
+                    disabled={isEditSubmitting}
+                    style={{ paddingRight: "56px", width: "100%" }}
+                  />
+                  <button
+                    type="button"
+                    className="btn"
+                    data-variant="ghost"
+                    data-size="sm"
+                    onClick={() => setShowEditPassword(!showEditPassword)}
+                    style={{ position: "absolute", right: "4px", height: "24px", fontSize: "11px", padding: "0 6px" }}
+                    tabIndex={-1}
+                  >
+                    {showEditPassword ? "Hide" : "Show"}
+                  </button>
+                </div>
+                <span className="card-sub">
+                  Set a new password for this user to log in at /login.
+                </span>
+              </div>
+            </div>
+            <div className="dialog-foot card-foot">
+              <button
+                type="button"
+                className="btn"
+                data-variant="ghost"
+                onClick={() => setIsEditOpen(false)}
+                disabled={isEditSubmitting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn"
+                data-variant="primary"
+                onClick={handleSaveEditMember}
+                disabled={isEditSubmitting}
+              >
+                {isEditSubmitting ? "Saving..." : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Invite Member Modal */}
       {isInviteOpen && (
-        <div className="overlay" data-kind="dialog" onClick={() => !isSubmitting && setIsInviteOpen(false)} role="presentation">
-          <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="invite-dialog-title" onClick={(e) => e.stopPropagation()}>
-            <div className="dialog-head">
-              <h2 id="invite-dialog-title">Invite Team Member</h2>
+        <div
+          className="overlay dialog-backdrop"
+          data-kind="dialog"
+          onClick={() => !isSubmitting && setIsInviteOpen(false)}
+          role="presentation"
+        >
+          <div
+            className="dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="invite-dialog-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="dialog-head card-head">
+              <h2 id="invite-dialog-title" className="card-title">Invite Team Member</h2>
               <button
+                type="button"
                 className="btn"
                 data-variant="ghost"
                 data-size="sm"
@@ -1545,7 +1575,7 @@ export function TeamView() {
                 <Icon name="close" size={14} />
               </button>
             </div>
-            <div className="dialog-body">
+            <div className="dialog-body card-body">
               {inviteError && (
                 <div
                   className="chip"
@@ -1560,7 +1590,7 @@ export function TeamView() {
                 <input
                   className="input"
                   id="invite-name"
-                  placeholder="e.g. Manager Test"
+                  placeholder="e.g. Rahul Sharma"
                   value={inviteName}
                   onChange={(e) => setInviteName(e.target.value)}
                   disabled={isSubmitting}
@@ -1573,7 +1603,7 @@ export function TeamView() {
                   className="input"
                   id="invite-email"
                   type="email"
-                  placeholder="e.g. managertest@gmail.com"
+                  placeholder="e.g. rahul@company.com"
                   value={inviteEmail}
                   onChange={(e) => setInviteEmail(e.target.value)}
                   disabled={isSubmitting}
@@ -1599,7 +1629,7 @@ export function TeamView() {
                     className="input"
                     id="invite-password"
                     type={showInvitePassword ? "text" : "password"}
-                    placeholder="e.g. Manager@123"
+                    placeholder="e.g. Closer@123"
                     value={invitePassword}
                     onChange={(e) => setInvitePassword(e.target.value)}
                     disabled={isSubmitting}
@@ -1651,8 +1681,9 @@ export function TeamView() {
                 </div>
               </div>
             </div>
-            <div className="dialog-foot">
+            <div className="dialog-foot card-foot">
               <button
+                type="button"
                 className="btn"
                 data-variant="ghost"
                 onClick={() => !isSubmitting && setIsInviteOpen(false)}
@@ -1661,6 +1692,7 @@ export function TeamView() {
                 Cancel
               </button>
               <button
+                type="button"
                 className="btn"
                 data-variant="primary"
                 onClick={handleAddMember}
