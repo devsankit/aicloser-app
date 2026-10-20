@@ -143,17 +143,7 @@ export function AddLeadDialog({
                 placeholder="name@company.in"
               />
             </div>
-            <div className="field">
-              <label htmlFor="a-value">Deal value (₹)</label>
-              <input
-                id="a-value"
-                className="input"
-                inputMode="numeric"
-                value={form.value}
-                onChange={(e) => setForm({ ...form, value: e.target.value })}
-                placeholder="75000"
-              />
-            </div>
+
             <div className="field">
               <label htmlFor="a-stage">Stage</label>
               <select

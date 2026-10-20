@@ -321,10 +321,7 @@ export function PipelineView() {
             {viewMode === "board" ? (
               <>
                 {filtered.length} leads ·{" "}
-                <span title={`Exact open pipeline value: ${money(openValue)}`}>
-                  {compactMoney(openValue)}
-                </span>{" "}
-                open · drag a card or select it and press ⇧ ← →
+                drag a card or select it and press ⇧ ← →
               </>
             ) : (
               <>
@@ -784,9 +781,7 @@ export function PipelineView() {
               <button data-on={sort === "recent"} onClick={() => setSort("recent")} aria-pressed={sort === "recent"}>
                 <Icon name="clock" size={12} /> Recent
               </button>
-              <button data-on={sort === "value"} onClick={() => setSort("value")} aria-pressed={sort === "value"}>
-                <Icon name="graph" size={12} /> Value
-              </button>
+
               <button data-on={sort === "priority"} onClick={() => setSort("priority")} aria-pressed={sort === "priority"}>
                 <Icon name="priority-high" size={12} /> Priority
               </button>
@@ -879,7 +874,7 @@ export function PipelineView() {
                       <Icon name="more" size={14} />
                     </button>
                   </header>
-                  <p className="col-value" title={`Exact stage total: ${money(total)}`}>{total ? compactMoney(total) : "—"}</p>
+                  
 
                   <div className="col-cards">
                     {cards.map((lead) => {
@@ -935,7 +930,7 @@ export function PipelineView() {
                             </span>
                             <span className="lead-owner">{lead.owner}</span>
                             <span className="lead-code">{lead.code}</span>
-                            <span className="lead-value" title={`Exact deal value: ${money(lead.value)}`}>{compactMoney(lead.value)}</span>
+                            
                             <span className="lead-sla" data-overdue={overdue}>
                               {overdue ? <Icon name="flame" size={11} /> : null}
                               {slaLabel(lead.followUp)}

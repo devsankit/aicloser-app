@@ -393,21 +393,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
               </select>
             </div>
 
-            <div className="field-row">
-              <span className="field-label">
-                <Icon name="graph" size={14} /> Estimate
-              </span>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <input
-                  className="input"
-                  inputMode="numeric"
-                  value={draft.value}
-                  onChange={(e) => set("value", Number(e.target.value.replace(/\D/g, "")) || 0)}
-                  aria-label="Deal value"
-                />
-                <span className="hint">{money(draft.value)}</span>
-              </div>
-            </div>
+
 
             <div className="field-row">
               <span className="field-label">

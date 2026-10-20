@@ -37,137 +37,12 @@ export interface SimDevice {
   lastHeartbeat: string;
 }
 
-const DEFAULT_CALLS: CallRecord[] = [
-  {
-    id: "call-101",
-    leadCode: "CLO-101",
-    customerName: "Aakash Mehta",
-    company: "Apex Logistics",
-    phone: "+91 98200 12345",
-    closerName: "Anshita",
-    simSlot: "Jio 5G (SIM 1)",
-    direction: "outbound",
-    durationSeconds: 252,
-    timestamp: "10 mins ago",
-    disposition: "Product Demo & Pricing Agreed",
-    sentiment: "positive",
-    aiSummary: "Client verified requirement for 4 closer seats with Android SIM relay. Budget of ₹96k/mo approved. Payment token requested.",
-    transcript: [
-      { speaker: "Anshita (Closer)", text: "Hello Mr. Mehta, calling regarding your AI Closer demo request.", time: "00:05" },
-      { speaker: "Aakash Mehta", text: "Yes Anshita, we have 4 field closers making 300 daily calls. Can this record all SIM calls automatically?", time: "00:18" },
-      { speaker: "Anshita (Closer)", text: "Absolutely! The companion app syncs all audio in the background directly to your admin workspace.", time: "00:32" },
-    ],
-    audioUrl: "https://actions.google.com/sounds/v1/ambiences/office_chatter.ogg",
-    callbackPending: false,
-  },
-  {
-    id: "call-102",
-    leadCode: "CLO-103",
-    customerName: "Priya Nair",
-    company: "Loom & Co",
-    phone: "+91 98455 12098",
-    closerName: "Anshita",
-    simSlot: "Jio 5G (SIM 1)",
-    direction: "inbound",
-    durationSeconds: 165,
-    timestamp: "45 mins ago",
-    disposition: "UPI Advance Confirmation",
-    sentiment: "positive",
-    aiSummary: "Customer called to confirm UPI transaction UTR number. Transferred payment proof screenshot via WhatsApp.",
-    transcript: [
-      { speaker: "Priya Nair", text: "Hi, I just transferred ₹48,000 advance via UPI. Can you verify receipt?", time: "00:04" },
-      { speaker: "Anshita (Closer)", text: "Yes Priya, I see the payment proof in our payments tab. Approving it now!", time: "00:15" },
-    ],
-    audioUrl: "https://actions.google.com/sounds/v1/ambiences/office_chatter.ogg",
-    callbackPending: false,
-  },
-  {
-    id: "call-103",
-    leadCode: "CLO-106",
-    customerName: "Rahul Deshmukh",
-    company: "Skyline Motors",
-    phone: "+91 98922 14570",
-    closerName: "Field Closer Desk",
-    simSlot: "Airtel 5G (SIM 1)",
-    direction: "inbound",
-    durationSeconds: 320,
-    timestamp: "2 hours ago",
-    disposition: "Multi-Showroom Inquiry",
-    sentiment: "neutral",
-    aiSummary: "IndiaMART lead queried multi-showroom telephony routing and DPDP Act compliance.",
-    transcript: [
-      { speaker: "Rahul Deshmukh", text: "Do you support separate SIM allocations for our Pune and Mumbai branches?", time: "00:08" },
-      { speaker: "Field Closer Desk", text: "Yes sir, each branch manager has independent reporting and closer isolation.", time: "00:22" },
-    ],
-    audioUrl: "https://actions.google.com/sounds/v1/ambiences/office_chatter.ogg",
-    callbackPending: false,
-  },
-  {
-    id: "call-104",
-    leadCode: "CLO-104",
-    customerName: "Devansh Kapoor",
-    company: "Vertex Labs",
-    phone: "+91 97112 67734",
-    closerName: "Field Closer Desk",
-    simSlot: "Airtel 5G (SIM 1)",
-    direction: "missed",
-    durationSeconds: 0,
-    timestamp: "3 hours ago",
-    disposition: "Unanswered Inbound Call",
-    sentiment: "neutral",
-    aiSummary: "Missed call from verified Enterprise lead. Pending callback SLA: 15 minutes.",
-    transcript: [],
-    callbackPending: true,
-  },
-];
-const DEFAULT_DEVICES: SimDevice[] = [
-  {
-    id: "cmv6i693w0112u2jpo1zab8an",
-    closer: "Anshita",
-    phoneModel: "Xiaomi Redmi Note 12 5G",
-    simCarrier: "Jio 5G (SIM 1)",
-    simNumber: "+91 76185 34225",
-    battery: 92,
-    recordingService: "active",
-    lastHeartbeat: "Just now",
-  },
-  {
-    id: "cmvc1q5oz000124jpf0f9glfc",
-    closer: "Anshita",
-    phoneModel: "Samsung Galaxy M34 5G",
-    simCarrier: "Airtel 5G (SIM 2)",
-    simNumber: "+91 99933 28124",
-    battery: 88,
-    recordingService: "active",
-    lastHeartbeat: "1 min ago",
-  },
-  {
-    id: "dev-sim-03-vivo",
-    closer: "Ankit Rathore",
-    phoneModel: "Vivo Y200e 5G",
-    simCarrier: "Jio 5G (SIM 1)",
-    simNumber: "+91 70787 36123",
-    battery: 95,
-    recordingService: "active",
-    lastHeartbeat: "2 mins ago",
-  },
-  {
-    id: "dev-sim-04-poco",
-    closer: "Field Closer Desk",
-    phoneModel: "POCO M6 Pro 5G",
-    simCarrier: "Airtel 5G (SIM 1)",
-    simNumber: "+91 98765 43210",
-    battery: 79,
-    recordingService: "active",
-    lastHeartbeat: "3 mins ago",
-  },
-];
-
 export function CallsView() {
   const { state } = useApp();
   const [tab, setTab] = useState<"all" | "missed" | "devices">("all");
-  const [calls, setCalls] = useState<CallRecord[]>(DEFAULT_CALLS);
-  const [devices, setDevices] = useState<SimDevice[]>(DEFAULT_DEVICES);
+  const [calls, setCalls] = useState<CallRecord[]>([]);
+  const [devices, setDevices] = useState<SimDevice[]>([]);
+  const [totals, setTotals] = useState<any>(null);
   const [search, setSearch] = useState("");
   const [directionFilter, setDirectionFilter] = useState<string>("ALL");
   const [callerScope, setCallerScope] = useState<"all" | "mine">("all");
@@ -177,39 +52,90 @@ export function CallsView() {
 
   useEffect(() => {
     let active = true;
-    aicloserApi.calls
-      .list({ limit: 50 })
+
+    // 1. Fetch live calls and summary totals
+    fetch("/api/sales/call-reports?limit=100")
+      .then((r) => r.json())
       .then((res) => {
-        if (!active || !res?.calls?.length) return;
-        const mapped: CallRecord[] = res.calls.map((c: any) => ({
-          id: c.id,
-          leadCode: c.assignment?.id ? `CLO-${c.assignment.id.slice(-4).toUpperCase()}` : "CLO-LIVE",
-          customerName: c.assignment?.customerName || "Customer",
-          company: c.assignment?.stage || "Direct Line",
-          phone: c.phoneNumber || c.assignment?.customerPhone || "",
-          closerName: c.agent?.user?.displayName || "Closer Agent",
-          simSlot: "Jio SIM 1",
-          direction:
-            c.direction === "INBOUND"
-              ? "inbound"
-              : c.durationSeconds === 0
-              ? "missed"
-              : "outbound",
-          durationSeconds: c.durationSeconds || 0,
-          timestamp: new Date(c.startedAt).toLocaleTimeString("en-IN", {
-            hour: "2-digit",
-            minute: "2-digit",
-          }) + " today",
-          disposition: c.outcome || c.status || "Completed",
-          sentiment: "positive",
-          aiSummary: c.note || "Live SIM Telemetry call logged.",
-          transcript: [],
-          audioUrl: c.recordingUrl,
-          callbackPending: c.durationSeconds === 0,
-        }));
-        setCalls(mapped);
+        if (!active) return;
+        if (res.totals) setTotals(res.totals);
+        const sourceCalls = res.calls || [];
+        if (sourceCalls.length > 0) {
+          const mapped: CallRecord[] = sourceCalls.map((c: any) => {
+            const rawPhone = c.phoneNumber || c.assignment?.customerPhone || "";
+            const displayName = c.assignment?.customerName || rawPhone || "Direct Caller";
+            return {
+              id: c.id,
+              leadCode: c.assignment?.id ? `CLO-${c.assignment.id.slice(-4).toUpperCase()}` : "CLO-LIVE",
+              customerName: displayName,
+              company: c.assignment?.stage ? `${c.assignment.stage}` : "Direct Telephony Call",
+              phone: rawPhone,
+              closerName: c.agent?.user?.displayName || "Assigned Closer",
+              simSlot: c.device?.deviceName || c.device?.model || "SIM Relay Desk",
+              direction:
+                String(c.direction).toUpperCase() === "INBOUND"
+                  ? "inbound"
+                  : c.durationSeconds === 0 || String(c.status).toUpperCase() === "MISSED"
+                  ? "missed"
+                  : "outbound",
+              durationSeconds: Number(c.durationSeconds ?? c.durationSec ?? 0),
+              timestamp: c.startedAt
+                ? new Date(c.startedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })
+                : "Today",
+              disposition: c.outcome || c.status || "Completed",
+              sentiment: "neutral",
+              aiSummary: c.note || (c.durationSeconds > 0 ? "Direct call recording logged." : "Unanswered missed call."),
+              transcript: [],
+              audioUrl: c.recordingUrl || (c.recordingStatus === "UPLOADED" ? `/api/sales/mobile/calls/${c.id}/recording` : undefined),
+              callbackPending: String(c.status).toUpperCase() === "MISSED" || c.durationSeconds === 0,
+            };
+          });
+          setCalls(mapped);
+        } else {
+          aicloserApi.calls.list({ limit: 100 }).then((cRes: any) => {
+            if (!active || !cRes?.calls?.length) return;
+            const mapped: CallRecord[] = cRes.calls.map((c: any) => ({
+              id: c.id,
+              leadCode: c.assignment?.id ? `CLO-${c.assignment.id.slice(-4).toUpperCase()}` : "CLO-LIVE",
+              customerName: c.assignment?.customerName || c.phoneNumber || "Direct Caller",
+              company: c.assignment?.stage || "Direct Line",
+              phone: c.phoneNumber || c.assignment?.customerPhone || "",
+              closerName: c.agent?.user?.displayName || "Closer Agent",
+              simSlot: c.device?.deviceName || "SIM Relay",
+              direction:
+                c.direction === "INBOUND"
+                  ? "inbound"
+                  : c.durationSeconds === 0
+                  ? "missed"
+                  : "outbound",
+              durationSeconds: c.durationSeconds || 0,
+              timestamp: new Date(c.startedAt).toLocaleTimeString("en-IN", {
+                hour: "2-digit",
+                minute: "2-digit",
+              }),
+              disposition: c.outcome || c.status || "Completed",
+              sentiment: "neutral",
+              aiSummary: c.note || "Direct call record.",
+              transcript: [],
+              audioUrl: c.recordingUrl,
+              callbackPending: c.durationSeconds === 0,
+            }));
+            setCalls(mapped);
+          }).catch(() => {});
+        }
       })
       .catch(() => {});
+
+    // 2. Fetch live connected SIM devices
+    fetch("/api/sales/devices")
+      .then((r) => r.json())
+      .then((res) => {
+        if (active && Array.isArray(res.devices)) {
+          setDevices(res.devices);
+        }
+      })
+      .catch(() => {});
+
     return () => {
       active = false;
     };
@@ -368,13 +294,13 @@ export function CallsView() {
       >
         <div className="card" style={{ padding: "14px 16px" }}>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", fontWeight: 550, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-            Total Calls Today
+            Total Calls Logged
           </div>
           <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px" }}>
-            {calls.length} <span style={{ fontSize: "var(--fs-body)", fontWeight: 400, color: "var(--text-tertiary)" }}>logged</span>
+            {totals?.totalCalls ?? calls.length} <span style={{ fontSize: "var(--fs-body)", fontWeight: 400, color: "var(--text-tertiary)" }}>recorded</span>
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
-            {calls.filter((c) => c.direction === "outbound").length} Outbound • {calls.filter((c) => c.direction === "inbound").length} Inbound
+            {totals?.outboundCalls ?? calls.filter((c) => c.direction === "outbound").length} Outbound • {totals?.inboundCalls ?? calls.filter((c) => c.direction === "inbound").length} Inbound
           </div>
         </div>
 
@@ -382,11 +308,11 @@ export function CallsView() {
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", fontWeight: 550, textTransform: "uppercase", letterSpacing: "0.04em" }}>
             Missed Call Queue
           </div>
-          <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px", color: missedCalls.length > 0 ? "var(--warning)" : "var(--success)" }}>
-            {missedCalls.length} <span style={{ fontSize: "var(--fs-body)", fontWeight: 400, color: "var(--text-tertiary)" }}>pending</span>
+          <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px", color: (totals?.missedCalls ?? missedCalls.length) > 0 ? "var(--warning)" : "var(--success)" }}>
+            {totals?.missedCalls ?? missedCalls.length} <span style={{ fontSize: "var(--fs-body)", fontWeight: 400, color: "var(--text-tertiary)" }}>pending</span>
           </div>
-          <div style={{ fontSize: "var(--fs-caption)", color: "var(--warning)", marginTop: "4px", display: "flex", alignItems: "center", gap: "4px" }}>
-            <span className="dot" style={{ background: "var(--warning)" }} /> SLA: 15m callback window
+          <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", marginTop: "4px", display: "flex", alignItems: "center", gap: "4px" }}>
+            <span className="dot" style={{ background: (totals?.missedCalls ?? missedCalls.length) > 0 ? "var(--warning)" : "var(--success)" }} /> Unanswered calls requiring callback
           </div>
         </div>
 
@@ -395,10 +321,10 @@ export function CallsView() {
             Total Talk Time
           </div>
           <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px" }}>
-            {Math.floor(totalDurationSum / 60)}m {totalDurationSum % 60}s
+            {Math.floor((totals?.talkTimeSeconds ?? totalDurationSum) / 60)}m {(totals?.talkTimeSeconds ?? totalDurationSum) % 60}s
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
-            Avg duration: ~5m 12s per call
+            {calls.length > 0 ? `Avg duration: ~${Math.round((totals?.talkTimeSeconds ?? totalDurationSum) / calls.length)}s per call` : "Live SIM call sync"}
           </div>
         </div>
 
@@ -406,11 +332,11 @@ export function CallsView() {
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", fontWeight: 550, textTransform: "uppercase", letterSpacing: "0.04em" }}>
             SIM Telephony Engine
           </div>
-          <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px", color: "var(--success)" }}>
+          <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px", color: devices.length > 0 ? "var(--success)" : "var(--text-tertiary)" }}>
             {devices.filter((d) => d.recordingService === "active").length} / {devices.length} Active
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
-            Direct Android audio background sync
+            {devices.length > 0 ? "Direct Android audio background sync" : "No devices connected"}
           </div>
         </div>
       </div>
@@ -523,13 +449,7 @@ export function CallsView() {
                       <td>
                         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                           <span style={{ fontWeight: 600, fontSize: "var(--fs-caption)" }}>{c.disposition}</span>
-                          <span
-                            className="chip"
-                            data-tone={c.sentiment === "positive" ? "success" : "neutral"}
-                            style={{ fontSize: "10px", padding: "1px 5px" }}
-                          >
-                            {c.sentiment === "positive" ? "Bullish" : "Neutral"}
-                          </span>
+                          
                         </div>
                         <p style={{ fontSize: "11px", color: "var(--text-tertiary)", margin: "3px 0 0 0", maxWidth: "340px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                           {c.aiSummary}

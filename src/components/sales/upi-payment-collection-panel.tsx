@@ -102,6 +102,22 @@ export function UpiPaymentCollectionPanel({ sessionRole, tenantId, embedded = fa
     document.head.appendChild(style);
     return () => style.remove();
   }, []);
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const p = new URLSearchParams(window.location.search);
+      const n = p.get("customerName") || p.get("name");
+      const ph = p.get("customerPhone") || p.get("phone");
+      const em = p.get("customerEmail") || p.get("email");
+      if (n || ph || em) {
+        setForm((prev) => ({
+          ...prev,
+          customerName: n || prev.customerName,
+          customerPhone: ph || prev.customerPhone,
+          customerEmail: em || prev.customerEmail,
+        }));
+      }
+    }
+  }, []);
   useEffect(() => { void load(); }, [tenantId, isAdmin]);
   useEffect(() => {
     const amount = Number(total || 0).toFixed(2);

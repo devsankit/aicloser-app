@@ -82,6 +82,9 @@ export function ChatView() {
   const [aiAutoReply, setAiAutoReply] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [activeHistoryTab, setActiveHistoryTab] = useState<"history" | "note" | "callback" | "calls">("history");
+  const [leadPayment, setLeadPayment] = useState<any>(null);
+
+
   const [chatStage, setChatStage] = useState<StageId>("new");
 
   // In-memory cache of messages by conversation ID for zero-lag instant tab switching
@@ -150,6 +153,33 @@ export function ChatView() {
       notes: "Auto-created from a company conversation. Enrich this contact from CRM.",
     };
   }, [activeLead, activeChat, chatStage]);
+
+  useEffect(() => {
+    if (!activeLeadProfile?.phone) {
+      setLeadPayment(null);
+      return;
+    }
+    let active = true;
+    aicloserApi.payments
+      .list({ search: activeLeadProfile.phone, limit: 5 })
+      .then((res: any) => {
+        if (!active) return;
+        const payments = res?.payments || [];
+        const matching =
+          payments.find(
+            (p: any) =>
+              p.customerPhone === activeLeadProfile.phone ||
+              (activeLeadProfile.name && p.customerName?.toLowerCase() === activeLeadProfile.name.toLowerCase())
+          ) || payments[0] || null;
+        setLeadPayment(matching);
+      })
+      .catch(() => {
+        if (active) setLeadPayment(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [activeLeadProfile?.phone, activeLeadProfile?.name]);
 
   const filteredConversations = useMemo(() => {
     const myName = (state.user?.displayName || CURRENT_USER).toLowerCase();
@@ -1186,17 +1216,41 @@ export function ChatView() {
             </select>
           </div>
 
-          {/* Deal Value */}
+          {/* Payment & Collection Status */}
           <div className="card" style={{ padding: "12px", background: "var(--bg-surface)" }}>
-            <label style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
-              Deal Value
-            </label>
-            <div style={{ fontSize: "var(--fs-metric)", fontWeight: 700, marginTop: "4px" }}>
-              ₹{activeLeadProfile.value.toLocaleString("en-IN")}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <label style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
+                Payment Status
+              </label>
+              {leadPayment ? (
+                <span
+                  className="chip"
+                  data-tone={leadPayment.status === "PAID" ? "success" : leadPayment.status === "CUSTOMER_CONFIRMED" ? "accent" : "warning"}
+                  style={{ fontSize: "10px", padding: "1px 6px" }}
+                >
+                  {leadPayment.status === "PAID" ? "Paid" : leadPayment.status === "CUSTOMER_CONFIRMED" ? "Proof Submitted" : "Pending"}
+                </span>
+              ) : (
+                <span className="chip" data-tone="neutral" style={{ fontSize: "10px", padding: "1px 6px" }}>
+                  Unbilled
+                </span>
+              )}
             </div>
-            <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: "2px" }}>
-              Source: {activeLeadProfile.source} • {activeLeadProfile.segment}
-            </div>
+
+            {leadPayment ? (
+              <div style={{ marginTop: "6px" }}>
+                <div style={{ fontSize: "var(--fs-metric)", fontWeight: 700 }}>
+                  ₹{Number(leadPayment.totalAmount || leadPayment.baseAmount || 0).toLocaleString("en-IN")}
+                </div>
+                <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: "2px" }}>
+                  {leadPayment.productName ? `${leadPayment.productName} • ` : ""}Token: {leadPayment.publicToken?.slice(0, 8)}...
+                </div>
+              </div>
+            ) : (
+              <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "6px" }}>
+                No active payment link generated for this contact.
+              </div>
+            )}
           </div>
 
           {/* Quick Actions */}
@@ -1204,10 +1258,22 @@ export function ChatView() {
             <button
               className="btn"
               data-variant="accent"
-              onClick={() => handleApplyMacro(`Here is your custom payment link for ₹${activeLeadProfile.value.toLocaleString("en-IN")}: https://closer.ai/pay/${activeLeadProfile.code}`)}
+              onClick={() => {
+                if (leadPayment?.publicToken) {
+                  const payUrl = `${window.location.origin}/pay/${leadPayment.publicToken}`;
+                  handleApplyMacro(`Here is your custom payment link for ₹${Number(leadPayment.totalAmount || leadPayment.baseAmount || 0).toLocaleString("en-IN")}: ${payUrl}`);
+                } else {
+                  const qs = new URLSearchParams({
+                    customerName: activeLeadProfile.name || "",
+                    customerPhone: activeLeadProfile.phone || "",
+                    customerEmail: activeLeadProfile.email || "",
+                  }).toString();
+                  window.location.href = `/payment-links?${qs}`;
+                }
+              }}
               style={{ width: "100%", justifyContent: "flex-start" }}
             >
-              <Icon name="card" size={13} /> Send UPI Payment Link
+              <Icon name="card" size={13} /> {leadPayment?.publicToken ? "Insert Payment Link in Chat" : "Create UPI Payment Link"}
             </button>
             <button
               className="btn"

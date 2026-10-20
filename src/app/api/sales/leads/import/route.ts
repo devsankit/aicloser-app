@@ -81,7 +81,7 @@ async function readRows(file: File) {
   return parseDelimited(text, lowerName.endsWith(".tsv") ? "\t" : ",");
 }
 
-function googleSheetExportUrl(value: string) {
+function googleSheetExportUrl(value: string, tabName?: string) {
   let url: URL;
   try {
     url = new URL(value);
@@ -96,20 +96,44 @@ function googleSheetExportUrl(value: string) {
   const published = Boolean(match[1]);
   const spreadsheetId = match[2];
   const gid = url.searchParams.get("gid") || url.hash.match(/(?:^#|[?&])gid=(\d+)/)?.[1] || "0";
+  const sheetParam = tabName ? `&sheet=${encodeURIComponent(tabName)}` : "";
   return published
     ? `https://docs.google.com/spreadsheets/d/e/${spreadsheetId}/pub?output=csv&gid=${encodeURIComponent(gid)}`
-    : `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&gid=${encodeURIComponent(gid)}`;
+    : `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&gid=${encodeURIComponent(gid)}${sheetParam}`;
 }
 
-async function readGoogleSheetRows(value: string) {
-  const response = await fetch(googleSheetExportUrl(value), {
+async function readGoogleSheetRows(value: string, tabName?: string) {
+  const primaryUrl = googleSheetExportUrl(value, tabName);
+  let response = await fetch(primaryUrl, {
     cache: "no-store",
-    headers: { Accept: "text/csv" },
+    headers: { Accept: "text/csv,text/plain", "User-Agent": "Mozilla/5.0" },
     redirect: "follow",
     signal: AbortSignal.timeout(15_000),
-  });
-  if (!response.ok) {
-    throw new Error("Google Sheets could not export this sheet. Share it as ‘Anyone with the link’ and try again.");
+  }).catch(() => null);
+
+  if (!response || !response.ok) {
+    try {
+      const match = value.match(/\/spreadsheets\/d\/(e\/)?([a-zA-Z0-9_-]+)/);
+      if (match) {
+        const id = match[2];
+        const altUrl = `https://docs.google.com/spreadsheets/d/${id}/export?format=csv${tabName ? `&sheet=${encodeURIComponent(tabName)}` : ""}`;
+        const altRes = await fetch(altUrl, {
+          cache: "no-store",
+          headers: { Accept: "text/csv,text/plain", "User-Agent": "Mozilla/5.0" },
+          redirect: "follow",
+          signal: AbortSignal.timeout(15_000),
+        }).catch(() => null);
+        if (altRes && altRes.ok) {
+          response = altRes;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (!response || !response.ok) {
+    throw new Error("Unable to read Google Sheet. Please ensure the sheet is shared as ‘Anyone with the link’ (Viewer) or published to web.");
   }
   const declaredLength = Number(response.headers.get("content-length") ?? 0);
   if (declaredLength > MAX_IMPORT_BYTES) throw new Error("Google Sheet export must be 5 MB or smaller.");
@@ -117,7 +141,7 @@ async function readGoogleSheetRows(value: string) {
   if (buffer.byteLength > MAX_IMPORT_BYTES) throw new Error("Google Sheet export must be 5 MB or smaller.");
   const text = new TextDecoder().decode(buffer);
   if (/<!doctype html|<html/i.test(text.slice(0, 500))) {
-    throw new Error("Google returned a sign-in page. Share the sheet as ‘Anyone with the link’ and try again.");
+    throw new Error("Google returned a sign-in page. Please share the sheet as ‘Anyone with the link’ (Viewer) or use File > Share > Publish to web.");
   }
   return parseDelimited(text, ",");
 }
@@ -161,6 +185,54 @@ function parseImportPayload(row: ImportRow, index: number, sourceTag: string) {
     notes: pick(row, ["notes", "note"]),
     tags: pick(row, ["tags", "tag"]),
   };
+}
+
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const action = url.searchParams.get("action") || (url.searchParams.has("googleSheetUrl") ? "preview_google_sheet" : "");
+
+  if (action === "preview_google_sheet") {
+    const googleSheetUrl = String(url.searchParams.get("googleSheetUrl") ?? "").trim();
+    const sheetTab = String(url.searchParams.get("sheetTab") ?? "").trim();
+    if (!googleSheetUrl) {
+      return NextResponse.json({ ok: false, error: "Paste a valid Google Sheets URL." }, { status: 400 });
+    }
+    try {
+      const rawRows = await readGoogleSheetRows(googleSheetUrl, sheetTab);
+      if (!rawRows || rawRows.length < 2) {
+        return NextResponse.json({ ok: false, error: "The Google Sheet contains no data rows. Please ensure it has a header row and at least one contact row." }, { status: 400 });
+      }
+      const headers = (rawRows[0] || []).map((h) => String(h || "").trim()).filter(Boolean);
+      if (!headers.length) {
+        return NextResponse.json({ ok: false, error: "No valid column headers were found in row 1 of the sheet." }, { status: 400 });
+      }
+      const dataRows = rawRows.slice(1).filter((r) => r.some((cell) => String(cell || "").trim()));
+      const sampleRecords = dataRows.slice(0, 50).map((row) => {
+        const record: Record<string, string> = {};
+        headers.forEach((header, idx) => {
+          record[header] = String(row[idx] ?? "").trim();
+        });
+        return record;
+      });
+
+      return NextResponse.json({
+        ok: true,
+        headers,
+        rows: sampleRecords,
+        totalRows: dataRows.length,
+      });
+    } catch (err) {
+      return NextResponse.json({
+        ok: false,
+        error: err instanceof Error ? err.message : "Unable to load Google Sheet.",
+      }, { status: 400 });
+    }
+  }
+
+  const authorization = await requireSessionRole(["SUPER_ADMIN", "ADMIN", "MANAGER", "SALES_AGENT"]);
+  if (!authorization.ok) return authorization.response;
+
+  return NextResponse.json({ ok: true, status: "ready" });
 }
 
 export async function POST(request: Request) {
