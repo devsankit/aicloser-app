@@ -44,9 +44,10 @@ export function WhatsAppMarketingView() {
   const [isLoadingChannels, setIsLoadingChannels] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
-  const [manualWabaId, setManualWabaId] = useState("");
+  const [manualWabaId, setManualWabaId] = useState("100910602174128");
   const [manualPhoneId, setManualPhoneId] = useState("");
   const [manualDisplayPhone, setManualDisplayPhone] = useState("");
+  const [manualAccessToken, setManualAccessToken] = useState("");
   const [campaigns, setCampaigns] = useState<WhatsAppCampaign[]>(DEFAULT_CAMPAIGNS);
   const [templates, setTemplates] = useState<WhatsAppTemplate[]>(DEFAULT_TEMPLATES);
   const [isNewCampOpen, setIsNewCampOpen] = useState(false);
@@ -101,7 +102,76 @@ export function WhatsAppMarketingView() {
   const META_ONBOARD_URL =
     "https://business.facebook.com/messaging/whatsapp/onboard/?app_id=1385995129001581&config_id=899249879744989&extras=%7B%22sessionInfoVersion%22%3A%223%22%2C%22version%22%3A%22v4%22%7D";
 
+  // Load Meta Facebook JavaScript SDK for Embedded Signup
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if ((window as any).FB) return;
+
+    (window as any).fbAsyncInit = function () {
+      try {
+        (window as any).FB.init({
+          appId: "1385995129001581",
+          autoLogAppEvents: true,
+          xfbml: true,
+          version: "v22.0",
+        });
+      } catch (e) {
+        console.warn("FB.init error", e);
+      }
+    };
+
+    if (!document.getElementById("facebook-jssdk")) {
+      const js = document.createElement("script");
+      js.id = "facebook-jssdk";
+      js.src = "https://connect.facebook.net/en_US/sdk.js";
+      js.async = true;
+      js.defer = true;
+      js.crossOrigin = "anonymous";
+      document.body.appendChild(js);
+    }
+  }, []);
+
   const handleLaunchMetaOnboarding = () => {
+    setIsConnecting(true);
+    const fb = (window as any).FB;
+    if (fb && typeof fb.login === "function") {
+      try {
+        fb.login(
+          async (response: any) => {
+            if (response?.authResponse?.code) {
+              try {
+                await aicloserApi.integrations.whatsapp.completeEmbeddedSignup({
+                  code: response.authResponse.code,
+                  wabaId: "100910602174128",
+                  phoneNumberId: "pending_phone_resolution",
+                  verifiedName: "AI Closer Business",
+                });
+                await refreshChannels();
+                setSuccessBanner("✓ WhatsApp Business Account connected successfully via Meta!");
+              } catch (err) {
+                console.error("Meta embedded signup callback error", err);
+              }
+            }
+            setIsConnecting(false);
+          },
+          {
+            config_id: "899249879744989",
+            response_type: "code",
+            override_default_response_type: true,
+            extras: {
+              setup: {},
+              sessionInfoVersion: "3",
+              version: "v4",
+            },
+          }
+        );
+        return;
+      } catch (e) {
+        console.warn("FB.login failed, falling back to popup", e);
+      }
+    }
+
+    // Direct popup fallback
     const popup = window.open(META_ONBOARD_URL, "MetaWhatsAppOnboard", "width=850,height=750,left=250,top=100");
     if (!popup || popup.closed) {
       window.location.href = META_ONBOARD_URL;
@@ -118,7 +188,7 @@ export function WhatsAppMarketingView() {
           const data = payload.data || {};
           await aicloserApi.integrations.whatsapp.completeEmbeddedSignup({
             code: data.code || payload.code || "meta_embedded_oauth_code",
-            wabaId: data.waba_id || data.wabaId || "899249879744989",
+            wabaId: data.waba_id || data.wabaId || "100910602174128",
             phoneNumberId: data.phone_number_id || data.phoneNumberId || "",
             displayPhoneNumber: data.display_phone_number || data.displayPhoneNumber,
             verifiedName: data.verified_name || data.verifiedName,
@@ -143,16 +213,17 @@ export function WhatsAppMarketingView() {
     setIsConnecting(true);
     try {
       await aicloserApi.integrations.whatsapp.completeEmbeddedSignup({
-        code: "manual_verified_waba",
+        code: manualAccessToken.trim() ? undefined : "manual_verified_waba",
+        accessToken: manualAccessToken.trim() || undefined,
         wabaId: manualWabaId.trim(),
         phoneNumberId: manualPhoneId.trim(),
         displayPhoneNumber: manualDisplayPhone.trim() || undefined,
         verifiedName: "AI Closer Channel",
       });
       setIsManualModalOpen(false);
-      setManualWabaId("");
       setManualPhoneId("");
       setManualDisplayPhone("");
+      setManualAccessToken("");
       await refreshChannels();
       setSuccessBanner("✓ WhatsApp Business channel connected successfully!");
     } catch {
@@ -875,6 +946,66 @@ export function WhatsAppMarketingView() {
                 >
                   Or enter WABA &amp; Phone ID manually
                 </button>
+
+                <div style={{ marginTop: "24px", paddingTop: "20px", borderTop: "1px solid var(--border)", width: "100%", maxWidth: "620px", textAlign: "left" }}>
+                  <h4 style={{ fontSize: "12px", fontWeight: 650, color: "var(--text-secondary)", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                    Meta Developer Webhook &amp; App Credentials
+                  </h4>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "12px", background: "var(--bg-soft)", padding: "12px 14px", borderRadius: "var(--r-md)", border: "1px solid var(--border)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ color: "var(--text-tertiary)" }}>Callback URL:</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <code style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--text)" }}>https://app.aicloser.in/api/whatsapp-marketing/webhook</code>
+                        <button
+                          type="button"
+                          className="btn"
+                          data-size="sm"
+                          data-variant="ghost"
+                          style={{ padding: "2px 6px", height: "22px", fontSize: "11px" }}
+                          onClick={() => {
+                            if (typeof navigator !== "undefined" && navigator.clipboard) {
+                              navigator.clipboard.writeText("https://app.aicloser.in/api/whatsapp-marketing/webhook");
+                            }
+                            setSuccessBanner("Callback URL copied to clipboard!");
+                            setTimeout(() => setSuccessBanner(null), 3000);
+                          }}
+                        >
+                          Copy
+                        </button>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ color: "var(--text-tertiary)" }}>Verify Token:</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <code style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--text)" }}>aicloser_webhook_secret_2026</code>
+                        <button
+                          type="button"
+                          className="btn"
+                          data-size="sm"
+                          data-variant="ghost"
+                          style={{ padding: "2px 6px", height: "22px", fontSize: "11px" }}
+                          onClick={() => {
+                            if (typeof navigator !== "undefined" && navigator.clipboard) {
+                              navigator.clipboard.writeText("aicloser_webhook_secret_2026");
+                            }
+                            setSuccessBanner("Verify token copied to clipboard!");
+                            setTimeout(() => setSuccessBanner(null), 3000);
+                          }}
+                        >
+                          Copy
+                        </button>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ color: "var(--text-tertiary)" }}>App ID / Config ID:</span>
+                      <span style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--text-secondary)" }}>1385995129001581 / 899249879744989</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ color: "var(--text-tertiary)" }}>Business ID:</span>
+                      <span style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--text-secondary)" }}>100910602174128</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -921,6 +1052,19 @@ export function WhatsAppMarketingView() {
                       placeholder="e.g. +91 97974 06306"
                       value={manualDisplayPhone}
                       onChange={(e) => setManualDisplayPhone(e.target.value)}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="access-token" style={{ fontSize: "var(--fs-caption)", fontWeight: 600, color: "var(--text-secondary)" }}>
+                      Permanent System User Access Token <span style={{ color: "var(--text-tertiary)", fontWeight: 400 }}>(Optional)</span>
+                    </label>
+                    <input
+                      className="input"
+                      type="password"
+                      id="access-token"
+                      placeholder="EAAB... (Leave blank for automatic exchange)"
+                      value={manualAccessToken}
+                      onChange={(e) => setManualAccessToken(e.target.value)}
                     />
                   </div>
                 </div>

@@ -1681,7 +1681,8 @@ export const aicloserApi = {
         return res.data;
       },
       async completeEmbeddedSignup(payload: {
-        code: string;
+        code?: string;
+        accessToken?: string;
         wabaId: string;
         phoneNumberId: string;
         displayPhoneNumber?: string;
