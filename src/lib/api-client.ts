@@ -1283,10 +1283,47 @@ export const aicloserApi = {
       };
     },
 
-    async createUpiLink(payload: { leadId?: string; amount: number; customerName: string; customerPhone: string; customerEmail?: string; productName?: string; customerNote?: string }) {
+    async createUpiLink(payload: { leadId?: string; amount: number; customerName: string; customerPhone?: string; customerEmail?: string; productName?: string; customerNote?: string; purpose?: string; notes?: string; upiId?: string; currency?: string }) {
+      const body = {
+        ...payload,
+        productName: payload.productName || payload.purpose || 'CRM License / Consultation',
+        customerNote: payload.customerNote || payload.notes,
+        notes: payload.notes || payload.customerNote,
+      };
       const res = await request('/payments', {
         method: 'POST',
+        body: JSON.stringify(body),
+      });
+      return res.data;
+    },
+
+    async updatePayment(id: string, payload: { amount?: number; notes?: string; customerNote?: string; productName?: string; description?: string; customerName?: string; customerPhone?: string; customerEmail?: string }) {
+      const res = await request(`/payments/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
         body: JSON.stringify(payload),
+      });
+      return res.data;
+    },
+
+    async cancel(id: string, reason?: string) {
+      const res = await request(`/payments/${encodeURIComponent(id)}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      });
+      return res.data;
+    },
+
+    async getPublic(tokenOrId: string) {
+      const res = await fetch(`${getCentralApiBaseUrl()}/payments/public/${encodeURIComponent(tokenOrId)}`, {
+        headers: { Accept: 'application/json' },
+      });
+      return res.json();
+    },
+
+    async settle(id: string, payload?: { utrNumber?: string; utrReference?: string; method?: string; notes?: string; note?: string }) {
+      const res = await request(`/payments/${encodeURIComponent(id)}/settle`, {
+        method: 'POST',
+        body: JSON.stringify(payload || {}),
       });
       return res.data;
     },
@@ -1435,6 +1472,19 @@ export const aicloserApi = {
     async getSubmissions(id: string) {
       const res = await request<any[]>(`/forms/${encodeURIComponent(id)}/submissions`);
       return res.data;
+    },
+    async upsert(slug: string, formData: Record<string, unknown>) {
+      const res = await request(`/forms/${encodeURIComponent(slug)}`, {
+        method: 'PUT',
+        body: JSON.stringify(formData),
+      });
+      return res.data;
+    },
+    async getPublic(slug: string) {
+      const res = await fetch(`${getCentralApiBaseUrl()}/forms/public/${encodeURIComponent(slug)}`, {
+        headers: { Accept: 'application/json' },
+      });
+      return res.json();
     },
     async submit(slug: string, payload: Record<string, unknown>) {
       const res = await fetch(`${getCentralApiBaseUrl()}/forms/submit/${encodeURIComponent(slug)}`, {
@@ -1978,10 +2028,28 @@ export const aicloserApi = {
       });
       return res.data;
     },
-    async testProvider(payload: { providerId: string; apiKey?: string; model?: string; prompt?: string }) {
+    async testProvider(payload: { providerId?: string; provider?: string; apiKey?: string; model?: string; prompt?: string }) {
+      const provider = payload.provider || payload.providerId || 'OPENAI';
       const res = await request<any>('/ai/test-provider', {
         method: 'POST',
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          provider,
+          providerId: provider,
+          apiKey: payload.apiKey,
+          model: payload.model,
+          prompt: payload.prompt || 'Verify AI Closer CRM connectivity and consultative response speed.',
+        }),
+      });
+      return res.data;
+    },
+    async getSystemPrompt() {
+      const res = await request<{ systemPrompt: string; data?: { systemPrompt: string } }>('/ai/system-prompt');
+      return res.data;
+    },
+    async saveSystemPrompt(promptText: string) {
+      const res = await request<{ success: boolean; systemPrompt: string; data?: any }>('/ai/system-prompt', {
+        method: 'PUT',
+        body: JSON.stringify({ systemPrompt: promptText, prompt: promptText }),
       });
       return res.data;
     },
@@ -2150,7 +2218,11 @@ export const aicloserApi = {
       return res.data;
     },
     async dispatchCampaign(id: string) {
-      const res = await request(`/marketing/campaigns/${id}/dispatch`, { method: 'POST' });
+      const res = await request(`/marketing/campaigns/${encodeURIComponent(id)}/dispatch`, { method: 'POST' });
+      return res.data;
+    },
+    async getCampaignAnalytics(id: string) {
+      const res = await request<any>(`/marketing/campaigns/${encodeURIComponent(id)}/analytics`);
       return res.data;
     },
     async pauseCampaign(id: string) {

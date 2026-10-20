@@ -10,7 +10,6 @@ import { Prisma } from "@prisma/client";
 import type { AppRole, SessionUser } from "@/lib/auth/types";
 import { prisma } from "@/lib/prisma";
 
-export const DEFAULT_TENANT_ID = "tenant-gigxomi";
 export type PricingOperation = "ADD" | "SUBTRACT" | "MULTIPLY" | "DIVIDE";
 export const DEFAULT_DURATION_MULTIPLIERS = { DAY: 0.5, MONTH: 1, YEAR: 12, quantityOperation: "MULTIPLY", durationOperation: "MULTIPLY" } as const;
 const LINK_EXPIRY_KEY = "__upiLinkValidity";

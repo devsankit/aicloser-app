@@ -51,6 +51,8 @@ export function WhatsAppMarketingView() {
   const [templates, setTemplates] = useState<WhatsAppTemplate[]>(DEFAULT_TEMPLATES);
   const [isNewCampOpen, setIsNewCampOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [selectedAnalytics, setSelectedAnalytics] = useState<any | null>(null);
+  const [isDispatching, setIsDispatching] = useState<Record<string, boolean>>({});
 
   // Audience calculations based on live leads
   const negotiationCount = useMemo(() => leads.filter((l) => l.stage === "negotiation").length, [leads]);
@@ -179,9 +181,9 @@ export function WhatsAppMarketingView() {
 
     async function loadLiveData() {
       try {
-        const [templatesRes, flowsRes] = await Promise.allSettled([
+        const [templatesRes, campaignsRes] = await Promise.allSettled([
           aicloserApi.marketing.getTemplates(),
-          aicloserApi.marketing.whatsappFlows.list(),
+          aicloserApi.marketing.getCampaigns(),
         ]);
 
         if (!active) return;
@@ -201,22 +203,21 @@ export function WhatsAppMarketingView() {
           setTemplates(liveTemplates);
         }
 
-        if (flowsRes.status === "fulfilled" && flowsRes.value?.flows && Array.isArray(flowsRes.value.flows)) {
-          const liveCampaigns: WhatsAppCampaign[] = flowsRes.value.flows.map((f: any, idx: number) => ({
-            id: f.id || `flow-${idx}`,
-            name: f.name || "Automated WhatsApp Flow",
-            templateName: f.templateName || "flow_broadcast",
-            audienceName: f.audienceName || "All CRM Leads",
-            targetCount: f.targetCount || 100,
-            deliveredCount: f.deliveredCount || 98,
-            readCount: f.readCount || 82,
-            replyCount: f.replyCount || 12,
-            status: f.status === "active" ? "running" : "completed",
-            sentAt: f.createdAt ? new Date(f.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Recent",
+        if (campaignsRes.status === "fulfilled") {
+          const rawList = Array.isArray(campaignsRes.value) ? campaignsRes.value : (campaignsRes.value as any)?.data || (campaignsRes.value as any)?.campaigns || [];
+          const liveCampaigns: WhatsAppCampaign[] = rawList.map((c: any, idx: number) => ({
+            id: c.id || `camp-${idx}`,
+            name: c.name || "WhatsApp Campaign",
+            templateName: c.template?.name || c.templateName || "Approved Template",
+            audienceName: c.audienceName || (c.totalRecipients ? `${c.totalRecipients} recipients` : "CRM Leads"),
+            targetCount: c.totalRecipients || c.targetCount || 0,
+            deliveredCount: c.deliveredCount || 0,
+            readCount: c.readCount || 0,
+            replyCount: c.repliedCount || c.replyCount || 0,
+            status: String(c.status || "").toLowerCase() === "completed" ? "completed" : "running",
+            sentAt: c.dispatchedAt ? new Date(c.dispatchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : (c.createdAt ? new Date(c.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Recent"),
           }));
-          if (liveCampaigns.length > 0) {
-            setCampaigns((prev) => [...liveCampaigns, ...prev]);
-          }
+          setCampaigns(liveCampaigns);
         }
       } catch (err) {
         // Fallback to defaults gracefully
@@ -228,6 +229,56 @@ export function WhatsAppMarketingView() {
       active = false;
     };
   }, [state.isLiveCloud]);
+
+  const handleDispatchCampaign = async (campaignId: string) => {
+    setIsDispatching((prev) => ({ ...prev, [campaignId]: true }));
+    try {
+      await aicloserApi.marketing.dispatchCampaign(campaignId);
+      setSuccessBanner("✓ Campaign dispatched successfully via Meta WhatsApp Cloud API!");
+
+      // Retrieve real analytics from GET /api/v1/marketing/campaigns/:id/analytics
+      const analyticsRes = await aicloserApi.marketing.getCampaignAnalytics(campaignId);
+      if (analyticsRes) {
+        setSelectedAnalytics(analyticsRes);
+      }
+
+      // Refresh campaigns list
+      const updatedCamps = await aicloserApi.marketing.getCampaigns().catch(() => null);
+      if (Array.isArray(updatedCamps)) {
+        setCampaigns(
+          updatedCamps.map((c: any, idx: number) => ({
+            id: c.id || `camp-${idx}`,
+            name: c.name || "WhatsApp Campaign",
+            templateName: c.template?.name || c.templateName || "Approved Template",
+            audienceName: c.audienceName || (c.totalRecipients ? `${c.totalRecipients} recipients` : "CRM Leads"),
+            targetCount: c.totalRecipients || c.targetCount || 0,
+            deliveredCount: c.deliveredCount || 0,
+            readCount: c.readCount || 0,
+            replyCount: c.repliedCount || c.replyCount || 0,
+            status: String(c.status || "").toLowerCase() === "completed" ? "completed" : "running",
+            sentAt: c.dispatchedAt ? new Date(c.dispatchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Recent",
+          }))
+        );
+      }
+    } catch (err: any) {
+      setSuccessBanner(err?.message || "Failed to dispatch campaign.");
+    } finally {
+      setIsDispatching((prev) => ({ ...prev, [campaignId]: false }));
+      setTimeout(() => setSuccessBanner(null), 4500);
+    }
+  };
+
+  const handleViewAnalytics = async (campaignId: string) => {
+    try {
+      const analyticsRes = await aicloserApi.marketing.getCampaignAnalytics(campaignId);
+      if (analyticsRes) {
+        setSelectedAnalytics(analyticsRes);
+      }
+    } catch (err: any) {
+      setSuccessBanner(err?.message || "Could not retrieve campaign analytics.");
+      setTimeout(() => setSuccessBanner(null), 3000);
+    }
+  };
 
   const handleSyncMeta = async () => {
     setIsSyncing(true);
@@ -455,14 +506,14 @@ export function WhatsAppMarketingView() {
             <table className="table" style={{ width: "100%", textAlign: "left" }}>
               <thead>
                 <tr>
-                  <th style={{ width: "260px" }}>Campaign Name</th>
+                  <th style={{ width: "240px" }}>Campaign Name</th>
                   <th>Template</th>
                   <th>Target Segment</th>
                   <th>Delivered</th>
                   <th>Read Rate</th>
                   <th>Replies</th>
                   <th>Status</th>
-                  <th style={{ textAlign: "right" }}>Sent Time</th>
+                  <th style={{ textAlign: "right" }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -520,8 +571,28 @@ export function WhatsAppMarketingView() {
                             {c.status.toUpperCase()}
                           </span>
                         </td>
-                        <td style={{ textAlign: "right", color: "var(--text-tertiary)", fontSize: "var(--fs-caption)" }}>
-                          {c.sentAt}
+                        <td style={{ textAlign: "right" }}>
+                          <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end" }}>
+                            <button
+                              className="btn"
+                              data-size="sm"
+                              data-variant="primary"
+                              onClick={() => handleDispatchCampaign(c.id)}
+                              disabled={isDispatching[c.id]}
+                              title="Dispatch broadcast campaign via Meta Cloud API"
+                            >
+                              <Icon name="whatsapp" size={12} /> {isDispatching[c.id] ? "Dispatching..." : "Dispatch Campaign"}
+                            </button>
+                            <button
+                              className="btn"
+                              data-size="sm"
+                              data-variant="ghost"
+                              onClick={() => handleViewAnalytics(c.id)}
+                              title="View Real-Time Delivery & Reply Analytics"
+                            >
+                              <Icon name="sparkle" size={12} /> Analytics
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -900,6 +971,62 @@ export function WhatsAppMarketingView() {
               </button>
               <button className="btn" data-variant="primary" onClick={handleLaunchCampaign}>
                 Send WhatsApp Broadcast
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Analytics Modal */}
+      {selectedAnalytics && (
+        <div className="overlay" data-kind="dialog" onClick={() => setSelectedAnalytics(null)} role="presentation">
+          <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="analytics-dialog-title" onClick={(e) => e.stopPropagation()} style={{ width: "540px", maxWidth: "95vw" }}>
+            <div className="dialog-head">
+              <div>
+                <h2 id="analytics-dialog-title" className="card-title">Live Delivery &amp; Reply Analytics</h2>
+                <p className="card-sub">{selectedAnalytics.name} • Status: <span className="chip" data-tone={selectedAnalytics.status === "COMPLETED" ? "success" : "accent"}>{selectedAnalytics.status}</span></p>
+              </div>
+              <button className="btn" data-variant="ghost" aria-label="Close dialog" onClick={() => setSelectedAnalytics(null)} style={{ padding: "4px" }}>
+                <Icon name="close" size={14} />
+              </button>
+            </div>
+            <div className="dialog-body" style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              <div className="stat-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                <div className="stat card">
+                  <div className="stat-label">Messages Sent</div>
+                  <div className="stat-value">{selectedAnalytics.counts?.sent ?? selectedAnalytics.sentCount ?? 0}</div>
+                  <div className="stat-foot">{selectedAnalytics.percentages?.sent ?? selectedAnalytics.rates?.sentRate ?? 100}% of target</div>
+                </div>
+                <div className="stat card">
+                  <div className="stat-label">Delivered</div>
+                  <div className="stat-value" style={{ color: "var(--success)" }}>{selectedAnalytics.counts?.delivered ?? selectedAnalytics.deliveredCount ?? 0}</div>
+                  <div className="stat-foot">{selectedAnalytics.percentages?.delivered ?? selectedAnalytics.rates?.deliveryRate ?? 0}% delivery rate</div>
+                </div>
+                <div className="stat card">
+                  <div className="stat-label">Read (Double Blue Ticks)</div>
+                  <div className="stat-value" style={{ color: "var(--accent)" }}>{selectedAnalytics.counts?.read ?? selectedAnalytics.readCount ?? 0}</div>
+                  <div className="stat-foot">{selectedAnalytics.percentages?.read ?? selectedAnalytics.rates?.readRate ?? 0}% read rate</div>
+                </div>
+                <div className="stat card">
+                  <div className="stat-label">Replies Received</div>
+                  <div className="stat-value" style={{ color: "var(--success)" }}>{selectedAnalytics.counts?.replied ?? selectedAnalytics.repliedCount ?? 0}</div>
+                  <div className="stat-foot">{selectedAnalytics.percentages?.replied ?? selectedAnalytics.rates?.replyRate ?? 0}% engagement rate</div>
+                </div>
+              </div>
+
+              {Boolean(selectedAnalytics.counts?.failed || selectedAnalytics.failedCount) && (
+                <div className="card" style={{ padding: "10px 14px", background: "var(--danger-soft)", color: "var(--danger)", fontSize: "12px", display: "flex", alignItems: "center", gap: "8px" }}>
+                  <Icon name="close" size={14} /> {selectedAnalytics.counts?.failed ?? selectedAnalytics.failedCount} messages failed to deliver (invalid phone numbers or Meta rate limits).
+                </div>
+              )}
+
+              <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                Dispatched: {selectedAnalytics.dispatchedAt ? new Date(selectedAnalytics.dispatchedAt).toLocaleString() : "Recently"} • Total Target Audience: {selectedAnalytics.totalRecipients || 0} leads
+              </div>
+            </div>
+            <div className="dialog-foot">
+              <button className="btn" data-variant="ghost" onClick={() => setSelectedAnalytics(null)}>
+                Close
               </button>
             </div>
           </div>

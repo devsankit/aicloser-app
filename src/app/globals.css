@@ -4875,3 +4875,82 @@ svg {
   text-align: center;
   z-index: 100;
 }
+
+/* ============================================================ */
+/* PUBLIC PAYMENT GATEWAY DESIGN TOKENS                         */
+/* ============================================================ */
+
+.pay-gateway-wrap {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  background: var(--bg);
+}
+
+.pay-gateway-container {
+  width: 100%;
+  max-width: 840px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 760px) {
+  .pay-gateway-container {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pay-qr-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 24px;
+}
+
+.pay-qr-frame {
+  width: 220px;
+  height: 220px;
+  background: #ffffff;
+  border-radius: var(--r-md);
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 16px 0;
+  box-shadow: var(--shadow-md);
+}
+
+.pay-qr-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.pay-amount-display {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: -0.02em;
+  margin: 4px 0;
+}
+
+.pay-details-card {
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+}
+
+.pay-app-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  margin-top: 16px;
+}
+
