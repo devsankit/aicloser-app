@@ -5139,7 +5139,7 @@ svg {
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.15s ease;
-  z-index: 5;
+  z-index: 20;
 }
 
 .chat-bubble-wrap[data-sender="closer"] .chat-bubble-actions {
@@ -5150,9 +5150,17 @@ svg {
   left: 8px;
 }
 
-.chat-bubble-wrap:hover .chat-bubble-actions {
+.chat-bubble-wrap:hover .chat-bubble-actions,
+.chat-bubble-wrap:focus-within .chat-bubble-actions {
   opacity: 1;
   pointer-events: auto;
+}
+
+@media (hover: none) {
+  .chat-bubble-actions {
+    opacity: 0.9;
+    pointer-events: auto;
+  }
 }
 
 .chat-action-btn {
