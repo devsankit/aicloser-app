@@ -69,6 +69,35 @@ function getMessageDateKey(dateString?: string): string {
   }
 }
 
+/**
+ * Linkification helper: Parses text and converts URLs into clickable, copyable anchor tags.
+ * Preserves normal text spans so full selection & copy works seamlessly.
+ */
+function renderMessageContent(text: string, isCloser: boolean) {
+  if (!text) return null;
+  const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+  const parts = text.split(urlRegex);
+
+  return parts.map((part, i) => {
+    if (part.match(/^(https?:\/\/|www\.)/i)) {
+      const href = part.toLowerCase().startsWith("www.") ? `https://${part}` : part;
+      return (
+        <a
+          key={i}
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="chat-bubble-link"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {part}
+        </a>
+      );
+    }
+    return <span key={i}>{part}</span>;
+  });
+}
+
 export function ChatView() {
   const { state, moveLead, updateLead, reassignLead } = useApp();
 
@@ -84,6 +113,66 @@ export function ChatView() {
   const [activeHistoryTab, setActiveHistoryTab] = useState<"history" | "note" | "callback" | "calls">("history");
   const [leadPayment, setLeadPayment] = useState<any>(null);
 
+  // Copyability & clipboard feedback states
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [copiedContact, setCopiedContact] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const showToast = useCallback((msg: string) => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    setToastMessage(msg);
+    toastTimeoutRef.current = setTimeout(() => {
+      setToastMessage(null);
+    }, 2000);
+  }, []);
+
+  const handleCopyMessage = useCallback(async (msgId: string, text: string) => {
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else if (typeof document !== "undefined") {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.opacity = "0";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textArea);
+      }
+      setCopiedMessageId(msgId);
+      showToast("Message copied to clipboard");
+      setTimeout(() => setCopiedMessageId(null), 2000);
+    } catch (err) {
+      console.error("Failed to copy message", err);
+    }
+  }, [showToast]);
+
+  const handleCopyContact = useCallback(async (key: string, value: string, label: string) => {
+    if (!value) return;
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+      } else if (typeof document !== "undefined") {
+        const textArea = document.createElement("textarea");
+        textArea.value = value;
+        textArea.style.position = "fixed";
+        textArea.style.opacity = "0";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textArea);
+      }
+      setCopiedContact(key);
+      showToast(`${label} copied to clipboard`);
+      setTimeout(() => setCopiedContact(null), 2000);
+    } catch (err) {
+      console.error("Failed to copy contact info", err);
+    }
+  }, [showToast]);
 
   const [chatStage, setChatStage] = useState<StageId>("new");
 
@@ -820,6 +909,7 @@ export function ChatView() {
             minHeight: 0,
             height: "100%",
             overflow: "hidden",
+            position: "relative",
           }}
         >
           {/* Thread Header */}
@@ -901,12 +991,17 @@ export function ChatView() {
             </div>
           </header>
 
+          {toastMessage && (
+            <div className="chat-toast-banner" role="status" aria-live="polite">
+              <Icon name="check" size={13} /> {toastMessage}
+            </div>
+          )}
+
           {/* Message Area - Scrollable thread with auto-scroll */}
           <div
             ref={messageContainerRef}
             role="log"
             aria-label="Conversation"
-            tabIndex={0}
             style={{
               flex: "1 1 auto",
               minHeight: 0,
@@ -996,29 +1091,22 @@ export function ChatView() {
                       </div>
                     )}
 
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: isCloser ? "flex-end" : "flex-start",
-                      }}
-                    >
-                      <div
-                        style={{
-                          maxWidth: "70%",
-                          padding: "9px 13px",
-                          borderRadius: "10px",
-                          background: isCloser ? "var(--accent-strong)" : "var(--bg-panel)",
-                          color: isCloser ? "#ffffff" : "var(--text)",
-                          border: isCloser ? "1px solid var(--accent-border)" : "1px solid var(--border)",
-                          boxShadow: "var(--shadow-sm)",
-                          fontSize: "var(--fs-body)",
-                          lineHeight: 1.45,
-                          whiteSpace: "pre-wrap",
-                          wordBreak: "break-word",
-                        }}
-                      >
-                        {msg.text}
+                    <div className="chat-bubble-wrap" data-sender={isCloser ? "closer" : "customer"}>
+                      <div className="chat-bubble-actions">
+                        <button
+                          type="button"
+                          className="chat-action-btn"
+                          title="Copy message text"
+                          data-state={copiedMessageId === msg.id ? "copied" : "idle"}
+                          onClick={() => handleCopyMessage(msg.id, msg.text)}
+                          aria-label="Copy message text"
+                        >
+                          <Icon name={copiedMessageId === msg.id ? "check" : "copy"} size={12} />
+                        </button>
+                      </div>
+
+                      <div className="chat-bubble" data-sender={isCloser ? "closer" : "customer"}>
+                        {renderMessageContent(msg.text, isCloser)}
                       </div>
 
                       {/* Sender name & WhatsApp ticks */}
@@ -1175,6 +1263,48 @@ export function ChatView() {
             <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)" }}>
               {activeLeadProfile.company}
             </div>
+
+            {/* Quick Contact Info with 1-click Copy */}
+            {(activeLeadProfile.phone || activeLeadProfile.email) && (
+              <div style={{ marginTop: "10px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                {activeLeadProfile.phone && (
+                  <div className="drawer-contact-row">
+                    <div className="drawer-contact-label">
+                      <Icon name="phone" size={12} />
+                      <span>{activeLeadProfile.phone}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="drawer-copy-btn"
+                      data-state={copiedContact === "phone" ? "copied" : "idle"}
+                      onClick={() => handleCopyContact("phone", activeLeadProfile.phone, "Phone number")}
+                      title="Copy phone number"
+                    >
+                      <Icon name={copiedContact === "phone" ? "check" : "copy"} size={11} />
+                      {copiedContact === "phone" ? "Copied" : "Copy"}
+                    </button>
+                  </div>
+                )}
+                {activeLeadProfile.email && (
+                  <div className="drawer-contact-row">
+                    <div className="drawer-contact-label">
+                      <Icon name="mail" size={12} />
+                      <span>{activeLeadProfile.email}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="drawer-copy-btn"
+                      data-state={copiedContact === "email" ? "copied" : "idle"}
+                      onClick={() => handleCopyContact("email", activeLeadProfile.email, "Email")}
+                      title="Copy email address"
+                    >
+                      <Icon name={copiedContact === "email" ? "check" : "copy"} size={11} />
+                      {copiedContact === "email" ? "Copied" : "Copy"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Stage Selector */}
@@ -1226,6 +1356,27 @@ export function ChatView() {
                 <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: "2px" }}>
                   {leadPayment.productName ? `${leadPayment.productName} • ` : ""}Token: {leadPayment.publicToken?.slice(0, 8)}...
                 </div>
+                {leadPayment.publicToken && (
+                  <div className="drawer-contact-row" style={{ marginTop: "8px" }}>
+                    <div className="drawer-contact-label">
+                      <Icon name="link" size={12} />
+                      <span style={{ fontSize: "11px" }}>/pay/{leadPayment.publicToken.slice(0, 8)}...</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="drawer-copy-btn"
+                      data-state={copiedContact === "payment-link" ? "copied" : "idle"}
+                      onClick={() => {
+                        const payUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/pay/${leadPayment.publicToken}`;
+                        handleCopyContact("payment-link", payUrl, "Payment link");
+                      }}
+                      title="Copy payment link"
+                    >
+                      <Icon name={copiedContact === "payment-link" ? "check" : "copy"} size={11} />
+                      {copiedContact === "payment-link" ? "Copied" : "Copy Link"}
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "6px" }}>
