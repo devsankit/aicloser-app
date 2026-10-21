@@ -44,7 +44,7 @@ export function WhatsAppMarketingView() {
   const [isLoadingChannels, setIsLoadingChannels] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
-  const [manualWabaId, setManualWabaId] = useState("100910602174128");
+  const [manualWabaId, setManualWabaId] = useState("");
   const [manualPhoneId, setManualPhoneId] = useState("");
   const [manualDisplayPhone, setManualDisplayPhone] = useState("");
   const [manualAccessToken, setManualAccessToken] = useState("");
@@ -142,7 +142,7 @@ export function WhatsAppMarketingView() {
               try {
                 await aicloserApi.integrations.whatsapp.completeEmbeddedSignup({
                   code: response.authResponse.code,
-                  wabaId: "100910602174128",
+                  wabaId: response.authResponse?.waba_id || response.authResponse?.wabaId || "",
                   phoneNumberId: "pending_phone_resolution",
                   verifiedName: "AI Closer Business",
                 });
@@ -188,7 +188,7 @@ export function WhatsAppMarketingView() {
           const data = payload.data || {};
           await aicloserApi.integrations.whatsapp.completeEmbeddedSignup({
             code: data.code || payload.code || "meta_embedded_oauth_code",
-            wabaId: data.waba_id || data.wabaId || "100910602174128",
+            wabaId: data.waba_id || data.wabaId || "",
             phoneNumberId: data.phone_number_id || data.phoneNumberId || "",
             displayPhoneNumber: data.display_phone_number || data.displayPhoneNumber,
             verifiedName: data.verified_name || data.verifiedName,
@@ -902,74 +902,6 @@ export function WhatsAppMarketingView() {
                   </div>
                 ))}
               </div>
-
-              {/* Meta Developer Webhook & App Credentials reference card */}
-              <div className="card" style={{ padding: "18px 20px" }}>
-                <h4 style={{ fontSize: "12px", fontWeight: 650, color: "var(--text-secondary)", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                  Meta Developer Webhook &amp; App Credentials
-                </h4>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", fontSize: "12px" }}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                    <span style={{ color: "var(--text-tertiary)", fontSize: "11px" }}>Callback URL:</span>
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                      <code style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--text)", background: "var(--bg-soft)", padding: "4px 8px", borderRadius: "var(--r-sm)" }}>
-                        https://app.aicloser.in/api/whatsapp-marketing/webhook
-                      </code>
-                      <button
-                        type="button"
-                        className="btn"
-                        data-size="sm"
-                        data-variant="ghost"
-                        style={{ padding: "2px 6px", height: "24px", fontSize: "11px" }}
-                        onClick={() => {
-                          if (typeof navigator !== "undefined" && navigator.clipboard) {
-                            navigator.clipboard.writeText("https://app.aicloser.in/api/whatsapp-marketing/webhook");
-                          }
-                          setSuccessBanner("Callback URL copied to clipboard!");
-                          setTimeout(() => setSuccessBanner(null), 3000);
-                        }}
-                      >
-                        Copy
-                      </button>
-                    </div>
-                  </div>
-
-                  <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                    <span style={{ color: "var(--text-tertiary)", fontSize: "11px" }}>Verify Token:</span>
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                      <code style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--text)", background: "var(--bg-soft)", padding: "4px 8px", borderRadius: "var(--r-sm)" }}>
-                        aicloser_webhook_secret_2026
-                      </code>
-                      <button
-                        type="button"
-                        className="btn"
-                        data-size="sm"
-                        data-variant="ghost"
-                        style={{ padding: "2px 6px", height: "24px", fontSize: "11px" }}
-                        onClick={() => {
-                          if (typeof navigator !== "undefined" && navigator.clipboard) {
-                            navigator.clipboard.writeText("aicloser_webhook_secret_2026");
-                          }
-                          setSuccessBanner("Verify token copied to clipboard!");
-                          setTimeout(() => setSuccessBanner(null), 3000);
-                        }}
-                      >
-                        Copy
-                      </button>
-                    </div>
-                  </div>
-
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <span style={{ color: "var(--text-tertiary)" }}>App ID / Config ID:</span>
-                    <span style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--text-secondary)" }}>1385995129001581 / 899249879744989</span>
-                  </div>
-
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <span style={{ color: "var(--text-tertiary)" }}>Business ID:</span>
-                    <span style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--text-secondary)" }}>100910602174128</span>
-                  </div>
-                </div>
-              </div>
             </div>
           ) : (
             <div className="card" style={{ padding: "36px 32px", maxWidth: "800px", margin: "0 auto", textAlign: "center" }}>
@@ -1019,66 +951,6 @@ export function WhatsAppMarketingView() {
                 >
                   Or enter WABA &amp; Phone ID manually
                 </button>
-
-                <div style={{ marginTop: "24px", paddingTop: "20px", borderTop: "1px solid var(--border)", width: "100%", maxWidth: "620px", textAlign: "left" }}>
-                  <h4 style={{ fontSize: "12px", fontWeight: 650, color: "var(--text-secondary)", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                    Meta Developer Webhook &amp; App Credentials
-                  </h4>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "12px", background: "var(--bg-soft)", padding: "12px 14px", borderRadius: "var(--r-md)", border: "1px solid var(--border)" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ color: "var(--text-tertiary)" }}>Callback URL:</span>
-                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                        <code style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--text)" }}>https://app.aicloser.in/api/whatsapp-marketing/webhook</code>
-                        <button
-                          type="button"
-                          className="btn"
-                          data-size="sm"
-                          data-variant="ghost"
-                          style={{ padding: "2px 6px", height: "22px", fontSize: "11px" }}
-                          onClick={() => {
-                            if (typeof navigator !== "undefined" && navigator.clipboard) {
-                              navigator.clipboard.writeText("https://app.aicloser.in/api/whatsapp-marketing/webhook");
-                            }
-                            setSuccessBanner("Callback URL copied to clipboard!");
-                            setTimeout(() => setSuccessBanner(null), 3000);
-                          }}
-                        >
-                          Copy
-                        </button>
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ color: "var(--text-tertiary)" }}>Verify Token:</span>
-                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                        <code style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--text)" }}>aicloser_webhook_secret_2026</code>
-                        <button
-                          type="button"
-                          className="btn"
-                          data-size="sm"
-                          data-variant="ghost"
-                          style={{ padding: "2px 6px", height: "22px", fontSize: "11px" }}
-                          onClick={() => {
-                            if (typeof navigator !== "undefined" && navigator.clipboard) {
-                              navigator.clipboard.writeText("aicloser_webhook_secret_2026");
-                            }
-                            setSuccessBanner("Verify token copied to clipboard!");
-                            setTimeout(() => setSuccessBanner(null), 3000);
-                          }}
-                        >
-                          Copy
-                        </button>
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ color: "var(--text-tertiary)" }}>App ID / Config ID:</span>
-                      <span style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--text-secondary)" }}>1385995129001581 / 899249879744989</span>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ color: "var(--text-tertiary)" }}>Business ID:</span>
-                      <span style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--text-secondary)" }}>100910602174128</span>
-                    </div>
-                  </div>
-                </div>
               </div>
             </div>
           )}

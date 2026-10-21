@@ -254,7 +254,7 @@ export function ChatView() {
       value: 0,
       source: `${activeChat.channel === "whatsapp" ? "WhatsApp" : activeChat.channel === "instagram" ? "Instagram" : "Website"} Inbound`,
       segment: "SMB",
-      notes: "Auto-created from a company conversation. Enrich this contact from CRM.",
+      notes: activeChat.notes || "",
     };
   }, [activeLead, activeChat, chatStage]);
 
@@ -1364,9 +1364,13 @@ export function ChatView() {
                 <div style={{ fontSize: "var(--fs-metric)", fontWeight: 700 }}>
                   ₹{Number(leadPayment.totalAmount || leadPayment.baseAmount || 0).toLocaleString("en-IN")}
                 </div>
-                <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: "2px" }}>
-                  {leadPayment.productName ? `${leadPayment.productName} • ` : ""}Token: {leadPayment.publicToken?.slice(0, 8)}...
-                </div>
+                {leadPayment.productName &&
+                !leadPayment.productName.toLowerCase().includes("auto-created") &&
+                !leadPayment.productName.toLowerCase().includes("enrich this contact") && (
+                  <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: "2px" }}>
+                    {leadPayment.productName}
+                  </div>
+                )}
                 {leadPayment.publicToken && (
                   <div className="drawer-contact-row" style={{ marginTop: "8px" }}>
                     <div className="drawer-contact-label">

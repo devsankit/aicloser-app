@@ -516,7 +516,9 @@ export function PaymentsView() {
                           <span style={{ fontWeight: 700, fontSize: "var(--fs-body)", color: isSettledState ? "var(--success)" : "var(--text)" }}>
                             ₹{tx.amount.toLocaleString("en-IN")}
                           </span>
-                          {tx.productName && (
+                          {tx.productName &&
+                          !tx.productName.toLowerCase().includes("auto-created") &&
+                          !tx.productName.toLowerCase().includes("enrich this contact") && (
                             <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
                               {tx.productName}
                             </div>

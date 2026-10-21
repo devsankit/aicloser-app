@@ -413,30 +413,7 @@ export function LeadImportView() {
           </div>
         </div>
 
-        <div
-          className="card"
-          onClick={() => router.push("/pipeline")}
-          style={{
-            padding: "14px 16px",
-            borderColor: "rgba(244, 97, 42, 0.4)",
-            background: "rgba(244, 97, 42, 0.05)",
-            cursor: "pointer",
-            transition: "transform 0.15s ease",
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ fontSize: "var(--fs-caption)", color: "var(--accent)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: "4px" }}>
-              <Icon name="zap" size={12} /> Lead Grab Pool
-            </div>
-            <Icon name="external" size={12} style={{ color: "var(--accent)" }} />
-          </div>
-          <div style={{ fontSize: "var(--fs-metric)", fontWeight: 700, marginTop: "4px", color: "var(--accent)" }}>
-            {state.poolCount || 573} <span style={{ fontSize: "var(--fs-body)", fontWeight: 500, color: "var(--text-secondary)" }}>waiting</span>
-          </div>
-          <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
-            First-come, first-served claim pool · View in Pipeline →
-          </div>
-        </div>
+        
       </div>
 
       {/* Tabs */}
