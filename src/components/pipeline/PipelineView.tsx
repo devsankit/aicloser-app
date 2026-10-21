@@ -31,6 +31,14 @@ export function PipelineView() {
   const scoped = useScopedLeads();
   const [viewMode, setViewMode] = useState<"board" | "pool">("board");
   const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const sp = new URLSearchParams(window.location.search);
+      const urlQ = sp.get("search") || sp.get("q");
+      if (urlQ) setQuery(urlQ);
+    }
+  }, []);
   const [source, setSource] = useState<Source | "">("");
   const [segment, setSegment] = useState<Segment | "">("");
   const [sort, setSort] = useState<SortKey>("recent");
@@ -203,6 +211,7 @@ export function PipelineView() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const qDigits = q.replace(/\D/g, "");
     const rows = scoped.filter((l) => {
       if (source) {
         const leadSrc = normalizeSource(l.source);
@@ -210,11 +219,15 @@ export function PipelineView() {
       }
       if (segment && l.segment !== segment) return false;
       if (!q) return true;
+      const leadPhoneDigits = (l.phone || "").replace(/\D/g, "");
+      const phoneMatches =
+        l.phone.includes(q) ||
+        (qDigits.length >= 4 && leadPhoneDigits.includes(qDigits));
       return (
         l.name.toLowerCase().includes(q) ||
         l.company.toLowerCase().includes(q) ||
         l.code.toLowerCase().includes(q) ||
-        l.phone.includes(q) ||
+        phoneMatches ||
         l.email.toLowerCase().includes(q) ||
         l.tags.some((t) => t.toLowerCase().includes(q))
       );

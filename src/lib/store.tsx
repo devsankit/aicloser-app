@@ -456,7 +456,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const me = await aicloserApi.auth.me().catch(() => null);
       if (me?.user) {
         const [{ leads: apiLeads }, poolItems] = await Promise.all([
-          aicloserApi.leads.list({ limit: 100 }).catch(() => ({ leads: [] })),
+          aicloserApi.leads.list({ limit: 1000 }).catch(() => ({ leads: [] })),
           aicloserApi.leads.getPool().catch(() => []),
         ]);
         const poolList = Array.isArray(poolItems) ? poolItems : [];

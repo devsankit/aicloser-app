@@ -57,6 +57,8 @@ export interface Lead {
   source: Source;
   segment: Segment;
   stage: StageId;
+  rawStage?: string;
+  assignedAgentId?: string;
   priority: Priority;
   owner: string;
   /** Next follow-up date, ISO — the SLA column. */

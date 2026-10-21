@@ -922,6 +922,18 @@ svg {
   color: var(--text-tertiary);
 }
 
+.search-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 8px 4px;
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
+}
+
 /* ---------- page ---------- */
 .page {
   flex: 1 1 auto;

@@ -3,14 +3,15 @@ import type { Lead as UiLead, Priority, Segment, Source, StageId } from "./types
 
 export function normalizeStageId(stage?: string | null): StageId {
   const s = (stage || "").toLowerCase().replace(/[\s-]+/g, "_");
-  if (s.includes("new")) return "new";
+  if (s.includes("new") || s === "assigned") return "new";
   if (s.includes("contact")) return "contacted";
   if (s.includes("progress")) return "in_progress";
-  if (s.includes("demo")) return "demo";
+  if (s.includes("interest") || s.includes("qualif")) return "contacted";
+  if (s.includes("demo") || s.includes("webinar")) return "demo";
   if (s.includes("follow")) return "follow_up";
-  if (s.includes("negot")) return "negotiation";
-  if (s.includes("won") || s.includes("closed_won")) return "won";
-  if (s.includes("lost") || s.includes("closed_lost")) return "lost";
+  if (s.includes("negot") || s.includes("quote")) return "negotiation";
+  if (s.includes("won") || s.includes("closed_won") || s === "paid") return "won";
+  if (s.includes("lost") || s.includes("closed_lost") || s.includes("not_reach") || s.includes("recycled")) return "lost";
   return "new";
 }
 
@@ -70,6 +71,7 @@ export function backendLeadToUiLead(b: BackendLead): UiLead {
     (b.customerName ? `${b.customerName}'s Venture` : "Inquiry");
 
   const code = (b as any).leadCode || `CLO-${b.id ? b.id.slice(-4).toUpperCase() : "101"}`;
+  const assignedAgentId = (b as any).assignedAgentId || b.assignedAgent?.id || (b as any).assignedAgent?.userId;
 
   return {
     id: b.id,
@@ -82,6 +84,8 @@ export function backendLeadToUiLead(b: BackendLead): UiLead {
     source: normalizeSource(b.source),
     segment: normalizeSegment(b.segment),
     stage: normalizeStageId(b.stage),
+    rawStage: b.stage,
+    assignedAgentId,
     priority: normalizePriority(b.priority),
     owner: (b as any).assignedAgent?.user?.displayName || b.assignedAgent?.displayName || "Unassigned",
     followUp: b.followUpAt || new Date(Date.now() + 86400000).toISOString(),

@@ -35,12 +35,15 @@ function useOutsideClose(onClose: () => void) {
 }
 
 function GlobalSearch() {
-  const { state } = useApp();
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [apiLeads, setApiLeads] = useState<any[]>([]);
+  const [apiConvs, setApiConvs] = useState<any[]>([]);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const boxRef = useOutsideClose(() => setOpen(false));
+  const searchTimer = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     const focus = () => {
@@ -59,19 +62,51 @@ function GlobalSearch() {
   }, []);
 
   const q = query.trim().toLowerCase();
+
+  // Local navigation pages
   const pages = NAV.flatMap((g) => g.items)
     .filter((i) => q && i.label.toLowerCase().includes(q))
     .slice(0, 4);
-  const leads = q
-    ? state.leads
-        .filter(
-          (l) =>
-            l.name.toLowerCase().includes(q) ||
-            l.company.toLowerCase().includes(q) ||
-            l.phone.includes(q),
-        )
-        .slice(0, 5)
-    : [];
+
+  // Live asynchronous Server Database Search across Leads & Conversations
+  useEffect(() => {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+
+    if (!q || q.length < 2) {
+      setApiLeads([]);
+      setApiConvs([]);
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+    searchTimer.current = setTimeout(async () => {
+      try {
+        const [leadsRes, convsRes] = await Promise.all([
+          aicloserApi.leads.list({ search: q, limit: 6 }).catch(() => ({ leads: [] })),
+          aicloserApi.conversations.list({ search: q, limit: 6 }).catch(() => ({ conversations: [] })),
+        ]);
+
+        const rawLeads = Array.isArray(leadsRes?.leads) ? leadsRes.leads : [];
+        const rawConvs = Array.isArray(convsRes?.conversations)
+          ? convsRes.conversations
+          : Array.isArray((convsRes as any)?.data)
+          ? (convsRes as any).data
+          : [];
+
+        setApiLeads(rawLeads);
+        setApiConvs(rawConvs);
+      } catch {
+        // fail gracefully
+      } finally {
+        setIsSearching(false);
+      }
+    }, 280);
+
+    return () => {
+      if (searchTimer.current) clearTimeout(searchTimer.current);
+    };
+  }, [q]);
 
   const go = (href: string) => {
     setOpen(false);
@@ -91,7 +126,7 @@ function GlobalSearch() {
             setOpen(true);
           }}
           onFocus={() => setOpen(true)}
-          placeholder="Search"
+          placeholder="Search leads, chats, pages…"
           aria-label="Search leads and pages"
           suppressHydrationWarning
         />
@@ -99,25 +134,85 @@ function GlobalSearch() {
       </div>
       {open && q ? (
         <div className="search-pop">
-          {pages.map((p) => (
-            <button key={p.href} className="search-row" onClick={() => go(p.href)}>
-              <Icon name={p.icon} size={14} />
-              <span>{p.label}</span>
-              <span className="search-row-meta">Page</span>
-            </button>
-          ))}
-          {leads.map((l) => (
-            <button key={l.id} className="search-row" onClick={() => go("/contacts")}>
-              <Icon name="users" size={14} />
-              <span>
-                {l.name} <span className="search-row-meta">{l.company}</span>
-              </span>
-              <span className="search-row-meta">{l.code}</span>
-            </button>
-          ))}
-          {!pages.length && !leads.length ? (
-            <p className="search-empty">No matches for “{query}”.</p>
-          ) : null}
+          {pages.length > 0 && (
+            <>
+              <div className="search-section">
+                <span>Pages</span>
+              </div>
+              {pages.map((p) => (
+                <button key={p.href} className="search-row" onClick={() => go(p.href)}>
+                  <Icon name={p.icon} size={14} />
+                  <span>{p.label}</span>
+                  <span className="search-row-meta">Page</span>
+                </button>
+              ))}
+            </>
+          )}
+
+          {apiLeads.length > 0 && (
+            <>
+              <div className="search-section">
+                <span>Leads & Deals</span>
+                <span className="chip" data-size="sm">{apiLeads.length}</span>
+              </div>
+              {apiLeads.map((l: any) => {
+                const leadName = l.customerName || l.name || "Customer";
+                const phone = l.customerPhone || l.phone || "";
+                const stage = l.stage || "NEW";
+                return (
+                  <button
+                    key={l.id}
+                    className="search-row"
+                    onClick={() => go(`/pipeline?search=${encodeURIComponent(phone || leadName)}`)}
+                  >
+                    <Icon name="users" size={14} />
+                    <span>
+                      {leadName} {phone ? <span className="search-row-meta">{phone}</span> : null}
+                    </span>
+                    <span className="chip" data-size="sm" data-tone={stage === "CLOSED_WON" ? "success" : stage === "CLOSED_LOST" ? "danger" : "accent"}>
+                      {stage}
+                    </span>
+                  </button>
+                );
+              })}
+            </>
+          )}
+
+          {apiConvs.length > 0 && (
+            <>
+              <div className="search-section">
+                <span>Conversations</span>
+                <span className="chip" data-size="sm">{apiConvs.length}</span>
+              </div>
+              {apiConvs.map((c: any) => {
+                const cName = c.customerName || "Customer";
+                const cPhone = c.customerPhone || "";
+                return (
+                  <button
+                    key={c.id}
+                    className="search-row"
+                    onClick={() => go(`/chat?id=${encodeURIComponent(c.id)}`)}
+                  >
+                    <Icon name="message-square" size={14} />
+                    <span>
+                      {cName} {cPhone ? <span className="search-row-meta">{cPhone}</span> : null}
+                    </span>
+                    <span className="chip" data-size="sm" data-tone="info">
+                      {c.serviceSlug || "WhatsApp"}
+                    </span>
+                  </button>
+                );
+              })}
+            </>
+          )}
+
+          {isSearching && (
+            <p className="search-empty">Searching live database…</p>
+          )}
+
+          {!isSearching && !pages.length && !apiLeads.length && !apiConvs.length && (
+            <p className="search-empty">No matches found for “{query}”.</p>
+          )}
         </div>
       ) : null}
     </div>

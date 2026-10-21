@@ -106,6 +106,14 @@ export function ChatView() {
   const [scopeFilter, setScopeFilter] = useState<"all" | "mine" | "unassigned">("all");
   const [search, setSearch] = useState("");
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const sp = new URLSearchParams(window.location.search);
+      const urlId = sp.get("id") || sp.get("chatId");
+      if (urlId) setSelectedChatId(urlId);
+    }
+  }, []);
   const [inputText, setInputText] = useState("");
   const [showRightDrawer, setShowRightDrawer] = useState(true);
   const [aiAutoReply, setAiAutoReply] = useState(true);
@@ -288,12 +296,15 @@ export function ChatView() {
           ? c.assignedTo.toLowerCase() === myName || c.assignedTo === CURRENT_USER
           : c.assignedTo === "Unassigned";
       const q = search.trim().toLowerCase();
+      const qDigits = q.replace(/\D/g, "");
+      const phoneDigits = (c.phone || "").replace(/\D/g, "");
+      const phoneMatches = c.phone.includes(q) || (qDigits.length >= 4 && phoneDigits.includes(qDigits));
       const matchSearch =
         !q ||
         c.customerName.toLowerCase().includes(q) ||
         c.company.toLowerCase().includes(q) ||
         c.lastMessage.toLowerCase().includes(q) ||
-        c.phone.includes(q);
+        phoneMatches;
       return matchChannel && matchScope && matchSearch;
     });
   }, [conversations, channelFilter, scopeFilter, search, state.user]);
@@ -302,7 +313,7 @@ export function ChatView() {
   useEffect(() => {
     let active = true;
     aicloserApi.conversations
-      .list({ limit: 50 })
+      .list({ limit: 200 })
       .then((res) => {
         if (!active || !res?.conversations?.length) return;
         const mapped: ConversationItem[] = res.conversations.map((c: any) => ({
