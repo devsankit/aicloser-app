@@ -510,6 +510,12 @@ svg {
   color: var(--text);
 }
 
+.icon-btn[data-size="sm"] {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-sm);
+}
+
 .sidebar-scroll {
   flex: 1 1 auto;
   min-height: 0;
@@ -1462,6 +1468,19 @@ svg {
 .dialog-head h2 {
   font-size: var(--fs-body);
   font-weight: 600;
+  flex: 1;
+}
+
+.dialog-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-sm);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--accent);
 }
 
 .dialog-body {

@@ -10,12 +10,14 @@ import {
   isOpenStage,
   normalizeSource,
   PRIORITY_ICON,
+  PRIORITY_LABEL,
   SEGMENTS,
   SOURCES,
   STAGES,
   sourceMeta,
   type Lead,
   type LeadPoolItem,
+  type Priority,
   type Segment,
   type Source,
   type StageId,
@@ -28,7 +30,7 @@ type SortKey = "recent" | "value" | "priority";
 const PRIORITY_ORDER = { urgent: 0, high: 1, medium: 2, low: 3 } as const;
 
 export function PipelineView() {
-  const { state, moveLead, setLayout, claimLead, claimFromPool, fetchPoolLeads, autoDistributePool } = useApp();
+  const { state, moveLead, updateLead, setLayout, claimLead, claimFromPool, fetchPoolLeads, autoDistributePool } = useApp();
   const scoped = useScopedLeads();
   const [viewMode, setViewMode] = useState<"board" | "pool">("board");
   const [query, setQuery] = useState("");
@@ -243,6 +245,11 @@ export function PipelineView() {
         return b.value - a.value || a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
       }
       if (sort === "priority") {
+        const aOverdue = isOverdue(a.followUp) && a.stage !== "won" && a.stage !== "lost" ? 1 : 0;
+        const bOverdue = isOverdue(b.followUp) && b.stage !== "won" && b.stage !== "lost" ? 1 : 0;
+        if (aOverdue !== bOverdue) {
+          return bOverdue - aOverdue;
+        }
         return (
           PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority] ||
           b.value - a.value ||
@@ -875,12 +882,31 @@ export function PipelineView() {
                               <Icon name={src.icon} size={15} />
                             </span>
                             <h3 className="lead-name">{lead.name}</h3>
-                            <Icon
-                              name={PRIORITY_ICON[lead.priority] as never}
-                              size={13}
-                              className="prio"
-                              data-priority={lead.priority}
-                            />
+                            <button
+                              type="button"
+                              className="icon-btn"
+                              data-size="sm"
+                              title={`Priority: ${PRIORITY_LABEL[lead.priority]} · Click to change`}
+                              aria-label={`Change priority from ${PRIORITY_LABEL[lead.priority]}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const cycle: Record<Priority, Priority> = {
+                                  low: "medium",
+                                  medium: "high",
+                                  high: "urgent",
+                                  urgent: "low",
+                                };
+                                const nextPrio = cycle[lead.priority] || "medium";
+                                updateLead(lead.id, { priority: nextPrio });
+                              }}
+                            >
+                              <Icon
+                                name={PRIORITY_ICON[lead.priority] as never}
+                                size={13}
+                                className="prio"
+                                data-priority={lead.priority}
+                              />
+                            </button>
                           </div>
                           <p className="lead-company">
                             <Icon name="building" size={12} /> {lead.company}

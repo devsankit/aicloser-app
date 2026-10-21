@@ -109,6 +109,8 @@ export function uiLeadToBackendPayload(u: Partial<UiLead>): Partial<BackendLead>
   if (u.segment !== undefined) payload.segment = u.segment;
   if (u.followUp !== undefined) payload.followUpAt = u.followUp;
   if (u.tags !== undefined) payload.tags = u.tags;
+  if (u.assignedAgentId !== undefined) payload.assignedAgentId = u.assignedAgentId;
+  if (u.company !== undefined) payload.serviceInterest = u.company;
   if (u.notes !== undefined || u.company !== undefined) {
     payload.notes = u.notes;
     payload.customFields = {

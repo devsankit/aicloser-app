@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { LeadDrawer } from "@/components/pipeline/LeadDrawer";
+import { AddLeadDialog } from "@/components/pipeline/AddLeadDialog";
 import { compactMoney, relativeTime, useApp, useScopedLeads } from "@/lib/store";
 import {
   PRIORITY_ICON,
@@ -121,6 +122,7 @@ export function ContactsView() {
   const [cursor, setCursor] = useState(0);
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<string | null>(null);
+  const [showAddLead, setShowAddLead] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [showColPicker, setShowColPicker] = useState(false);
   const colPickerRef = useRef<HTMLDivElement | null>(null);
@@ -413,6 +415,9 @@ export function ContactsView() {
           </select>
           <button className="btn" onClick={handleExportCsv}>
             <Icon name="download" size={14} /> Export
+          </button>
+          <button className="btn" data-variant="primary" onClick={() => setShowAddLead(true)}>
+            <Icon name="plus" size={14} /> Add lead
           </button>
         </div>
       </header>
@@ -1066,6 +1071,9 @@ export function ContactsView() {
 
       {/* Full Lead Details Drawer */}
       {active ? <LeadDrawer lead={active} onClose={() => setSelected(null)} /> : null}
+
+      {/* Add Lead Dialog */}
+      {showAddLead ? <AddLeadDialog defaultStage="new" onClose={() => setShowAddLead(false)} /> : null}
     </div>
   );
 }

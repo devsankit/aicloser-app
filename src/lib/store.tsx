@@ -63,7 +63,7 @@ interface AppApi {
   setGlobalAiBotEnabled: (enabled: boolean) => void;
   moveLead: (id: string, stage: StageId) => void;
   updateLead: (id: string, patch: Partial<Lead>) => void;
-  addLead: (lead: Omit<Lead, "id" | "updatedAt" | "code">) => void;
+  addLead: (lead: Omit<Lead, "id" | "updatedAt" | "code">) => Promise<Lead>;
   deleteLead: (id: string) => void;
   claimLead: (id: string, closerName?: string) => void;
   claimFromPool: (
@@ -597,34 +597,43 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [state.apiConnected]);
 
-  const addLead = useCallback((input: Omit<Lead, "id" | "updatedAt" | "code">) => {
+  const addLead = useCallback(async (input: Omit<Lead, "id" | "updatedAt" | "code">): Promise<Lead> => {
     const tempId = `ld-${Date.now().toString(36)}`;
+    let optimisticLead: Lead;
     setState((prev) => {
       const highest = prev.leads.reduce((max, l) => {
         const n = Number(l.code?.replace(/\D/g, "")) || 0;
         return Math.max(max, n);
       }, 100);
-      const lead: Lead = {
+      optimisticLead = {
         ...input,
         id: tempId,
         code: `CLO-${highest + 1}`,
         updatedAt: new Date().toISOString(),
       };
-      return { ...prev, leads: [lead, ...prev.leads] };
+      return { ...prev, leads: [optimisticLead, ...prev.leads] };
     });
 
     if (state.apiConnected) {
-      aicloserApi.leads.create(uiLeadToBackendPayload(input))
-        .then((created) => {
-          if (created?.id) {
-            setState((prev) => ({
-              ...prev,
-              leads: prev.leads.map((l) => (l.id === tempId ? backendLeadToUiLead(created) : l)),
-            }));
-          }
-        })
-        .catch(() => {});
+      try {
+        const created = await aicloserApi.leads.create(uiLeadToBackendPayload(input));
+        if (created?.id) {
+          const finalLead = backendLeadToUiLead(created);
+          setState((prev) => ({
+            ...prev,
+            leads: prev.leads.map((l) => (l.id === tempId ? finalLead : l)),
+          }));
+          return finalLead;
+        }
+      } catch (err) {
+        setState((prev) => ({
+          ...prev,
+          leads: prev.leads.filter((l) => l.id !== tempId),
+        }));
+        throw err;
+      }
     }
+    return optimisticLead!;
   }, [state.apiConnected]);
 
   const deleteLead = useCallback((id: string) => {
