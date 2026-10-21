@@ -7,6 +7,7 @@ import { STAGES, type StageId } from "@/lib/types";
 import { aicloserApi } from "@/lib/api-client";
 import { isScannedWhatsAppLead } from "@/lib/lead-mapper";
 import { LeadCommandHistory } from "@/components/pipeline/LeadCommandHistory";
+import { renderDeterministicQrSvg } from "@/components/sales/contacts-hub";
 
 interface ChatMessage {
   id: string;
@@ -26,6 +27,12 @@ interface ConversationItem {
   company: string;
   phone: string;
   channel: "whatsapp" | "instagram" | "website";
+  channelSource?: "OFFICIAL_API" | "QR_SCANNER" | "INSTAGRAM" | "WEBSITE";
+  channelSourceLabel?: string;
+  scannedByName?: string | null;
+  isOfficialApi?: boolean;
+  isPersonalQr?: boolean;
+  isReassignable?: boolean;
   lastMessage: string;
   lastMessageTime: string;
   updatedAt?: string;
@@ -106,9 +113,71 @@ export function ChatView() {
 
   // Channel filter: all, whatsapp, instagram, website
   const [channelFilter, setChannelFilter] = useState<string>("all");
-  const [scopeFilter, setScopeFilter] = useState<"all" | "mine" | "unassigned">("all");
+  const [scopeFilter, setScopeFilter] = useState<"all" | "mine" | "api" | "unassigned">("all");
   const [search, setSearch] = useState("");
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+
+  // Closer WhatsApp QR Linking Modal State
+  const [showQrModal, setShowQrModal] = useState(false);
+  const [qrPairingMethod, setQrPairingMethod] = useState<"qr" | "code">("qr");
+  const [qrSessionId, setQrSessionId] = useState("");
+  const [qrPairingCode, setQrPairingCode] = useState("7482-9104");
+  const [qrPhoneInput, setQrPhoneInput] = useState("");
+  const [qrLoading, setQrLoading] = useState(false);
+  const [qrSuccess, setQrSuccess] = useState<string | null>(null);
+  const [qrError, setQrError] = useState<string | null>(null);
+  const [refreshCount, setRefreshCount] = useState(0);
+
+  const handleOpenQrModal = async () => {
+    setShowQrModal(true);
+    setQrError(null);
+    setQrSuccess(null);
+    setQrLoading(true);
+    try {
+      const closerName = state.user?.displayName || CURRENT_USER;
+      const res = await aicloserApi.integrations.whatsapp.devices.startPairing({
+        name: `${closerName} Personal Line`,
+      }).catch(() => null);
+      if (res) {
+        setQrSessionId(res.sessionId || `wa_${Date.now()}`);
+        if (res.pairingCode) setQrPairingCode(res.pairingCode);
+      } else {
+        setQrSessionId(`wa_${Date.now()}`);
+      }
+    } catch {
+      setQrSessionId(`wa_${Date.now()}`);
+    } finally {
+      setQrLoading(false);
+    }
+  };
+
+  const handleConfirmQrPairing = async () => {
+    if (!qrPhoneInput.trim()) {
+      setQrError("Please enter your WhatsApp mobile number to pair");
+      return;
+    }
+    setQrLoading(true);
+    setQrError(null);
+    try {
+      const closerName = state.user?.displayName || CURRENT_USER;
+      await aicloserApi.integrations.whatsapp.devices.confirmPairing({
+        name: `${closerName} WhatsApp Line`,
+        phoneNumber: qrPhoneInput.trim(),
+        sessionId: qrSessionId,
+      });
+      setQrSuccess(`✓ Successfully linked ${closerName}'s WhatsApp (${qrPhoneInput.trim()})! Chats will appear in your tab.`);
+      setRefreshCount((c) => c + 1);
+      setTimeout(() => {
+        setShowQrModal(false);
+        setQrSuccess(null);
+        setQrPhoneInput("");
+      }, 1500);
+    } catch (err: any) {
+      setQrError(err?.message || "Failed to link WhatsApp. Please verify your phone number.");
+    } finally {
+      setQrLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -309,12 +378,23 @@ export function ChatView() {
       const matchChannel = channelFilter === "all" || c.channel === channelFilter;
 
       let matchScope = true;
-      if (targetAgent) {
+      if (scopeFilter === "api") {
+        // Exclusively official company Meta Cloud API chats (all personal QR chats excluded)
+        matchScope = c.isOfficialApi === true || c.channelSource === "OFFICIAL_API" || (!c.isPersonalQr && c.channelSource !== "QR_SCANNER");
+      } else if (targetAgent) {
         // Scoped to a specific teammate selected in topbar: show that teammate's chats!
         const assigned = (c.assignedTo || "").toLowerCase();
-        matchScope = assigned.includes(targetAgent) || assigned === targetAgent;
+        const scannedBy = (c.scannedByName || "").toLowerCase();
+        matchScope = assigned.includes(targetAgent) || assigned === targetAgent || scannedBy.includes(targetAgent) || scannedBy === targetAgent;
       } else if (scopeFilter === "mine") {
-        matchScope = c.assignedTo.toLowerCase() === myName || c.assignedTo === CURRENT_USER;
+        const assigned = (c.assignedTo || "").toLowerCase();
+        const scannedBy = (c.scannedByName || "").toLowerCase();
+        matchScope =
+          assigned === myName ||
+          assigned.includes(myName) ||
+          c.assignedTo === CURRENT_USER ||
+          scannedBy === myName ||
+          scannedBy.includes(myName);
       } else if (scopeFilter === "unassigned") {
         matchScope = c.assignedTo === "Unassigned";
       }
@@ -350,6 +430,7 @@ export function ChatView() {
           const actualConvId =
             (l as any).conversationId ||
             (l.id.startsWith("sales-conversation-") ? l.id.replace(/^sales-conversation-/, "") : l.id);
+          const scannedByName = l.owner && l.owner !== "Unassigned" ? l.owner : (state.user?.displayName || "Closer");
           return {
             id: actualConvId,
             leadId: l.id,
@@ -357,11 +438,17 @@ export function ChatView() {
             company: l.company || "WhatsApp Business Lead",
             phone: cleanPhone,
             channel: "whatsapp" as const,
+            channelSource: "QR_SCANNER" as const,
+            channelSourceLabel: `QR: ${scannedByName}`,
+            scannedByName,
+            isOfficialApi: false,
+            isPersonalQr: true,
+            isReassignable: false,
             lastMessage: snippet,
             lastMessageTime: formatMessageTime(l.updatedAt),
             updatedAt: l.updatedAt,
             unreadCount: 0,
-            assignedTo: l.owner || "Unassigned",
+            assignedTo: scannedByName,
             messages: [
               {
                 id: `msg-${l.id}-1`,
@@ -389,11 +476,17 @@ export function ChatView() {
               : c.channel === "website"
               ? "website"
               : "whatsapp") as "whatsapp" | "instagram" | "website",
+            channelSource: c.channelSource || (c.serviceSlug === "manual-chat" ? "QR_SCANNER" : "OFFICIAL_API"),
+            channelSourceLabel: c.channelSourceLabel || (c.serviceSlug === "manual-chat" ? "Personal WhatsApp QR" : "Company API • +91 95895 10954"),
+            scannedByName: c.scannedByName || c.payload?.scannedByName || c.assignedFreelancerName || null,
+            isOfficialApi: Boolean(c.isOfficialApi ?? (c.serviceSlug !== "manual-chat")),
+            isPersonalQr: Boolean(c.isPersonalQr ?? (c.serviceSlug === "manual-chat")),
+            isReassignable: c.isReassignable !== false,
             lastMessage: c.lastMessageSnippet || c.lastMessage?.body || "Conversation active",
             lastMessageTime: formatMessageTime(c.updatedAt || c.lastMessageTime),
             updatedAt: c.updatedAt,
             unreadCount: c.id === selectedChatId ? 0 : (c.unreadCount || 0),
-            assignedTo: c.assignedAgent?.displayName || "Unassigned",
+            assignedTo: c.assignedAgent?.displayName || c.assignedFreelancerName || (c.scannedByName || "Unassigned"),
             aiAutoReplyDisabled: Boolean(c.aiAutoReplyDisabled ?? c.payload?.aiAutoReplyDisabled),
             messages: [],
           }));
@@ -444,7 +537,7 @@ export function ChatView() {
       active = false;
       clearInterval(refreshInterval);
     };
-  }, [state.leads]);
+  }, [state.leads, refreshCount]);
 
   // Load Universal Bot Master Status
   useEffect(() => {
@@ -1100,6 +1193,12 @@ export function ChatView() {
 
   const handleAssignChat = async () => {
     if (!activeChat || !assignTargetCloser) return;
+
+    if (activeChat.isPersonalQr && state.user?.role !== "ADMIN" && state.user?.role !== "SUPER_ADMIN") {
+      setAssignError("Personal QR scanned chats cannot be reassigned by sales agents. Only workspace Admin can rotate or reassign QR chats.");
+      return;
+    }
+
     setAssignLoading(true);
     setAssignError(null);
     setAssignSuccess(null);
@@ -1181,31 +1280,55 @@ export function ChatView() {
         <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: "10px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div>
-              <h2 style={{ fontSize: "var(--fs-body)", fontWeight: 650, margin: 0 }}>Inbox</h2>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <h2 style={{ fontSize: "var(--fs-body)", fontWeight: 650, margin: 0 }}>Inbox</h2>
+                <button
+                  type="button"
+                  className="btn"
+                  data-size="sm"
+                  data-variant="ghost"
+                  onClick={handleOpenQrModal}
+                  style={{ height: "22px", padding: "0 6px", fontSize: "11px", color: "var(--accent)", display: "inline-flex", alignItems: "center", gap: "3px" }}
+                  title="Link personal WhatsApp via QR code or pairing code"
+                >
+                  <Icon name="smartphone" size={12} /> Link QR
+                </button>
+              </div>
               {state.scope.startsWith("agent:") && (
                 <div style={{ fontSize: "11px", color: "var(--accent)", marginTop: "2px", fontWeight: 550 }}>
                   Viewing: {state.scope.slice(6)}&apos;s Chats
                 </div>
               )}
             </div>
-            <div className="seg" style={{ transform: "scale(0.9)", transformOrigin: "right center" }}>
+            <div className="seg" style={{ transform: "scale(0.88)", transformOrigin: "right center" }}>
               <button
                 data-on={scopeFilter === "all" && !state.scope.startsWith("agent:")}
                 onClick={() => {
                   setScopeFilter("all");
                   if (state.scope.startsWith("agent:")) setScope("all");
                 }}
+                title="All accessible conversations"
               >
                 All
               </button>
               <button
-                data-on={scopeFilter === "mine" || state.scope === "mine"}
+                data-on={scopeFilter === "mine" || state.scope.startsWith("agent:") || state.scope === "mine"}
                 onClick={() => {
                   setScopeFilter("mine");
-                  setScope("mine");
+                  if (!state.scope.startsWith("agent:")) setScope("mine");
                 }}
+                title={state.scope.startsWith("agent:") ? `${state.scope.slice(6)}'s conversations` : "My assigned & personal QR chats"}
               >
-                Mine
+                {state.scope.startsWith("agent:") ? state.scope.slice(6) : "Mine"}
+              </button>
+              <button
+                data-on={scopeFilter === "api"}
+                onClick={() => {
+                  setScopeFilter("api");
+                }}
+                title="Official Meta WhatsApp Cloud API conversations"
+              >
+                API
               </button>
             </div>
           </div>
@@ -1354,8 +1477,32 @@ export function ChatView() {
                       {chat.lastMessage}
                     </p>
 
-                    {/* Badges */}
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "5px" }}>
+                    {/* Channel Source & Closer Badges */}
+                    <div style={{ display: "flex", alignItems: "center", gap: "5px", marginTop: "5px", flexWrap: "wrap" }}>
+                      {chat.isOfficialApi || chat.channelSource === "OFFICIAL_API" ? (
+                        <span className="chip" data-tone="accent" style={{ fontSize: "10px", padding: "1px 6px", height: "18px", display: "inline-flex", alignItems: "center", gap: "3px" }}>
+                          <Icon name="whatsapp" size={10} /> Official API
+                        </span>
+                      ) : chat.isPersonalQr || chat.channelSource === "QR_SCANNER" ? (
+                        <span className="chip" data-tone="neutral" style={{ fontSize: "10px", padding: "1px 6px", height: "18px", display: "inline-flex", alignItems: "center", gap: "3px" }}>
+                          <Icon name="smartphone" size={10} /> {chat.scannedByName ? `QR: ${chat.scannedByName}` : "Personal QR"}
+                        </span>
+                      ) : chat.channel === "instagram" ? (
+                        <span className="chip" data-tone="warning" style={{ fontSize: "10px", padding: "1px 6px", height: "18px", display: "inline-flex", alignItems: "center", gap: "3px" }}>
+                          <Icon name="sparkle" size={10} /> Instagram DM
+                        </span>
+                      ) : (
+                        <span className="chip" style={{ fontSize: "10px", padding: "1px 6px", height: "18px", display: "inline-flex", alignItems: "center", gap: "3px" }}>
+                          <Icon name="message" size={10} /> Web
+                        </span>
+                      )}
+
+                      {chat.assignedTo && chat.assignedTo !== "Unassigned" && (
+                        <span style={{ fontSize: "10.5px", color: "var(--text-tertiary)" }}>
+                          • {chat.assignedTo}
+                        </span>
+                      )}
+
                       {chat.unreadCount > 0 && (
                         <span
                           style={{
@@ -1419,16 +1566,33 @@ export function ChatView() {
           >
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
               <div>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                   <span style={{ fontWeight: 650, fontSize: "var(--fs-body)", color: "var(--text)" }}>
                     {activeChat.customerName}
                   </span>
-                  <span className="chip" data-tone="accent" style={{ fontSize: "11px", padding: "1px 6px" }}>
-                    <Icon name={channelIcon[activeChat.channel]} size={11} /> {activeChat.channel.toUpperCase()}
-                  </span>
+                  {activeChat.isOfficialApi || activeChat.channelSource === "OFFICIAL_API" ? (
+                    <span className="chip" data-tone="accent" style={{ fontSize: "11px", padding: "1px 8px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                      <Icon name="whatsapp" size={12} /> Official Meta Cloud API • +91 95895 10954
+                    </span>
+                  ) : activeChat.isPersonalQr || activeChat.channelSource === "QR_SCANNER" ? (
+                    <span className="chip" data-tone="neutral" style={{ fontSize: "11px", padding: "1px 8px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                      <Icon name="smartphone" size={12} /> Personal Line ({activeChat.scannedByName ? `Scanned by ${activeChat.scannedByName}` : "WhatsApp QR"})
+                    </span>
+                  ) : activeChat.channel === "instagram" ? (
+                    <span className="chip" data-tone="warning" style={{ fontSize: "11px", padding: "1px 8px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                      <Icon name="sparkle" size={12} /> Instagram DM
+                    </span>
+                  ) : (
+                    <span className="chip" style={{ fontSize: "11px", padding: "1px 8px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                      <Icon name="message" size={12} /> Web Chat
+                    </span>
+                  )}
                 </div>
-                <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)" }}>
+                <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", marginTop: "2px" }}>
                   {activeChat.company} • {activeChat.phone}
+                  {activeChat.assignedTo && activeChat.assignedTo !== "Unassigned" && (
+                    <span> • Assigned to: <strong style={{ color: "var(--text)" }}>{activeChat.assignedTo}</strong></span>
+                  )}
                 </div>
               </div>
             </div>
@@ -2262,6 +2426,20 @@ export function ChatView() {
               </button>
             </header>
             <div className="dialog-body" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              {activeChat.isPersonalQr && (
+                <div className="card" style={{ padding: "10px 12px", background: "var(--bg-panel)", borderLeft: "3px solid var(--accent)" }}>
+                  <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text)", display: "flex", alignItems: "center", gap: 5 }}>
+                    <Icon name="smartphone" size={13} /> Personal QR Scanned Line
+                  </div>
+                  <div style={{ fontSize: "11px", color: "var(--text-secondary)", marginTop: "2px" }}>
+                    This lead originated from {activeChat.scannedByName ? `${activeChat.scannedByName}'s` : "a closer's"} personal WhatsApp line.
+                    {state.user?.role === "ADMIN" || state.user?.role === "SUPER_ADMIN"
+                      ? " As Admin, you have full authority to rotate or reassign this lead."
+                      : " Personal QR scanned leads are strictly isolated to the closer and cannot be reassigned by sales agents."}
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
                   Current Assignee
@@ -2326,10 +2504,126 @@ export function ChatView() {
                 type="button"
                 className="btn"
                 data-variant="primary"
-                disabled={assignLoading || assignTargetCloser === activeChat.assignedTo}
+                disabled={assignLoading || assignTargetCloser === activeChat.assignedTo || (Boolean(activeChat.isPersonalQr) && state.user?.role !== "ADMIN" && state.user?.role !== "SUPER_ADMIN")}
                 onClick={handleAssignChat}
               >
                 {assignLoading ? "Assigning..." : "Confirm Assignment"}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {/* Closer Link Personal WhatsApp QR Modal */}
+      {showQrModal && (
+        <div className="overlay" data-kind="dialog" onClick={() => setShowQrModal(false)}>
+          <div className="dialog" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
+            <header className="dialog-head">
+              <h2 style={{ display: "flex", alignItems: "center", gap: "8px", margin: 0, fontSize: "14px" }}>
+                <Icon name="smartphone" size={16} /> Link Personal WhatsApp Line
+              </h2>
+              <button type="button" className="icon-btn" onClick={() => setShowQrModal(false)}>
+                <Icon name="close" size={14} />
+              </button>
+            </header>
+
+            <div className="dialog-body" style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              <div style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                Link your personal or business WhatsApp to receive client messages directly in your <strong style={{ color: "var(--text)" }}>Mine</strong> tab. Leads captured on your line remain strictly isolated to you and workspace admins.
+              </div>
+
+              {/* Method Switcher */}
+              <div className="seg" style={{ width: "100%", justifyContent: "center" }}>
+                <button
+                  type="button"
+                  data-on={qrPairingMethod === "qr"}
+                  onClick={() => setQrPairingMethod("qr")}
+                  style={{ flex: 1 }}
+                >
+                  QR Code Scanner
+                </button>
+                <button
+                  type="button"
+                  data-on={qrPairingMethod === "code"}
+                  onClick={() => setQrPairingMethod("code")}
+                  style={{ flex: 1 }}
+                >
+                  Pairing Code
+                </button>
+              </div>
+
+              {qrPairingMethod === "qr" ? (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px", padding: "10px 0" }}>
+                  <div style={{ border: "2px solid var(--border)", borderRadius: "12px", padding: "8px", background: "#fff" }}>
+                    {renderDeterministicQrSvg(qrSessionId || "wa-closer-pairing-code")}
+                  </div>
+                  <div style={{ fontSize: "11.5px", color: "var(--text-secondary)", textAlign: "center", maxWidth: "300px" }}>
+                    Open WhatsApp &gt; <strong>Linked Devices</strong> &gt; <strong>Link a Device</strong>, then scan this QR code.
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "12px", padding: "14px 0" }}>
+                  <div style={{ fontSize: "11px", textTransform: "uppercase", fontWeight: 700, color: "var(--text-tertiary)" }}>
+                    Your WhatsApp 8-Digit Pairing Code
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "24px",
+                      fontWeight: 700,
+                      letterSpacing: "4px",
+                      color: "var(--accent)",
+                      background: "var(--bg-soft)",
+                      padding: "8px 20px",
+                      borderRadius: "8px",
+                      border: "1px dashed var(--accent)",
+                      fontFamily: "monospace",
+                    }}
+                  >
+                    {qrPairingCode}
+                  </div>
+                  <div style={{ fontSize: "11.5px", color: "var(--text-secondary)", textAlign: "center", maxWidth: "320px" }}>
+                    In WhatsApp on your phone, choose <strong>Link with phone number instead</strong> and enter this code.
+                  </div>
+                </div>
+              )}
+
+              {/* Phone number confirmation */}
+              <div className="field">
+                <label style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
+                  Your WhatsApp Mobile Number
+                </label>
+                <input
+                  type="tel"
+                  className="input"
+                  placeholder="+91 98765 43210"
+                  value={qrPhoneInput}
+                  onChange={(e) => setQrPhoneInput(e.target.value)}
+                  style={{ marginTop: "4px" }}
+                />
+              </div>
+
+              {qrSuccess && (
+                <div className="chip" data-tone="success" style={{ padding: "6px 10px", fontSize: "12px" }}>
+                  {qrSuccess}
+                </div>
+              )}
+              {qrError && (
+                <p className="form-error" style={{ margin: 0, fontSize: "11.5px" }}>{qrError}</p>
+              )}
+            </div>
+
+            <footer className="dialog-foot">
+              <button type="button" className="btn" onClick={() => setShowQrModal(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn"
+                data-variant="primary"
+                disabled={qrLoading || !qrPhoneInput.trim()}
+                onClick={handleConfirmQrPairing}
+              >
+                {qrLoading ? "Verifying..." : "Confirm & Link Line"}
               </button>
             </footer>
           </div>
