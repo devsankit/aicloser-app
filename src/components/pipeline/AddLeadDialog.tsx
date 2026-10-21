@@ -6,7 +6,6 @@ import { useApp } from "@/lib/store";
 import { aicloserApi } from "@/lib/api-client";
 import {
   PRIORITY_LABEL,
-  SEGMENTS,
   SOURCES,
   STAGES,
   sourceMeta,
@@ -242,21 +241,7 @@ export function AddLeadDialog({
                 ))}
               </select>
             </div>
-            <div className="field">
-              <label htmlFor="a-segment">Segment</label>
-              <select
-                id="a-segment"
-                className="select"
-                value={form.segment}
-                onChange={(e) => setForm({ ...form, segment: e.target.value as Segment })}
-              >
-                {SEGMENTS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </div>
+
           </div>
 
           <div className="drawer-grid">

@@ -11,14 +11,12 @@ import {
   normalizeSource,
   PRIORITY_ICON,
   PRIORITY_LABEL,
-  SEGMENTS,
   SOURCES,
   STAGES,
   sourceMeta,
   type Lead,
   type LeadPoolItem,
   type Priority,
-  type Segment,
   type Source,
   type StageId,
 } from "@/lib/types";
@@ -43,7 +41,6 @@ export function PipelineView() {
     }
   }, []);
   const [source, setSource] = useState<Source | "">("");
-  const [segment, setSegment] = useState<Segment | "">("");
   const [sort, setSort] = useState<SortKey>("recent");
   const [fit, setFit] = useState(false);
   const [dragging, setDragging] = useState<string | null>(null);
@@ -225,7 +222,6 @@ export function PipelineView() {
         const leadSrc = normalizeSource(l.source);
         if (leadSrc !== source && l.source !== source) return false;
       }
-      if (segment && l.segment !== segment) return false;
       if (!q) return true;
       const leadPhoneDigits = (l.phone || "").replace(/\D/g, "");
       const phoneMatches =
@@ -260,7 +256,7 @@ export function PipelineView() {
       const aTime = new Date(a.updatedAt).getTime() || 0;
       return bTime - aTime || a.id.localeCompare(b.id);
     });
-  }, [boardLeads, query, source, segment, sort]);
+  }, [boardLeads, query, source, sort]);
 
   const byStage = useMemo(() => {
     const map = new Map<StageId, Lead[]>();
@@ -270,12 +266,11 @@ export function PipelineView() {
   }, [filtered]);
 
   const active = state.leads.find((l) => l.id === selected) ?? null;
-  const hasFilters = Boolean(query || source || segment);
+  const hasFilters = Boolean(query || source);
 
   const clearFilters = () => {
     setQuery("");
     setSource("");
-    setSegment("");
   };
 
   /** Move the focused card to another stage, or walk the board with arrows. */
@@ -575,7 +570,7 @@ export function PipelineView() {
                               {item.customerName || "Customer Lead"}
                             </h3>
                             <span className="pool-card-sub">
-                              {item.segment || "SMB Lead"}
+                              {item.customerPhone || "Inbound Pool Lead"}
                             </span>
                           </div>
                         </div>
@@ -733,19 +728,7 @@ export function PipelineView() {
               ))}
             </select>
 
-            <select
-              className="select pipe-select"
-              value={segment}
-              onChange={(e) => setSegment(e.target.value as Segment | "")}
-              aria-label="Filter by segment"
-            >
-              <option value="">All segments</option>
-              {SEGMENTS.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
+
 
             <div className="seg pipe-sort" role="group" aria-label="Sort cards">
               <button data-on={sort === "recent"} onClick={() => setSort("recent")} aria-pressed={sort === "recent"}>
@@ -773,14 +756,7 @@ export function PipelineView() {
                 </button>
               </span>
             ) : null}
-            {segment ? (
-              <span className="chip-x">
-                Segment <b>{segment}</b>
-                <button className="x" onClick={() => setSegment("")} aria-label="Clear segment filter">
-                  <Icon name="close" size={11} />
-                </button>
-              </span>
-            ) : null}
+
             {query ? (
               <span className="chip-x">
                 Text <b>{query}</b>
@@ -922,9 +898,7 @@ export function PipelineView() {
                             <span className="chip" data-tone={src.tone}>
                               <Icon name={src.icon} size={11} /> {src.label}
                             </span>
-                            <span className="pill">
-                              <Icon name="layers" size={11} /> {lead.segment}
-                            </span>
+
                           </div>
                           <div className="lead-foot">
                             <span className={`mini-avatar ${lead.owner === "Unassigned" ? "is-empty" : ""}`}>

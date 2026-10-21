@@ -3559,6 +3559,12 @@ button.list-prio:hover {
   background: var(--bg-surface);
 }
 
+.field-row .field-static {
+  display: flex;
+  align-items: center;
+  height: 30px;
+}
+
 .pill {
   display: inline-flex;
   align-items: center;

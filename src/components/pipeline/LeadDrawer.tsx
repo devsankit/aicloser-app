@@ -9,8 +9,6 @@ import {
   OWNERS,
   PRIORITY_ICON,
   PRIORITY_LABEL,
-  SEGMENTS,
-  SOURCES,
   STAGES,
   sourceMeta,
   stageMeta,
@@ -411,36 +409,11 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
               <span className="field-label">
                 <Icon name="plug" size={14} /> Source
               </span>
-              <select
-                className="select"
-                value={draft.source}
-                onChange={(e) => set("source", e.target.value as Source)}
-                aria-label="Source"
-              >
-                {SOURCES.map((s) => (
-                  <option key={s} value={s}>
-                    {sourceMeta(s).label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="field-row">
-              <span className="field-label">
-                <Icon name="target" size={14} /> Segment
-              </span>
-              <select
-                className="select"
-                value={draft.segment}
-                onChange={(e) => set("segment", e.target.value as Segment)}
-                aria-label="Segment"
-              >
-                {SEGMENTS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
+              <div className="field-static">
+                <span className="chip" data-tone="accent">
+                  <Icon name="plug" size={12} /> {sourceMeta(draft.source).label}
+                </span>
+              </div>
             </div>
 
             <div className="field-row">
