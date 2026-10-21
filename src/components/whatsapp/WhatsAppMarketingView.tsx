@@ -12,10 +12,12 @@ export interface WhatsAppCampaign {
   templateName: string;
   audienceName: string;
   targetCount: number;
+  sentCount: number;
   deliveredCount: number;
   readCount: number;
+  failedCount: number;
   replyCount: number;
-  status: "running" | "completed" | "scheduled";
+  status: "running" | "completed" | "scheduled" | "failed" | "sending";
   sentAt: string;
 }
 
@@ -34,6 +36,39 @@ export interface WhatsAppTemplate {
 const DEFAULT_CAMPAIGNS: WhatsAppCampaign[] = [];
 
 const DEFAULT_TEMPLATES: WhatsAppTemplate[] = [];
+
+function parseCampaign(c: any, defaultTitle = "WhatsApp Campaign", audienceFallback?: string): WhatsAppCampaign {
+  const rawStatus = String(c.status || "").toLowerCase();
+  const status: WhatsAppCampaign["status"] =
+    rawStatus === "failed"
+      ? "failed"
+      : rawStatus === "completed"
+      ? "completed"
+      : rawStatus === "scheduled"
+      ? "scheduled"
+      : rawStatus === "sending"
+      ? "sending"
+      : "running";
+
+  return {
+    id: c.id,
+    name: c.name || defaultTitle,
+    templateName: c.template?.name || c.templateName || "Approved Template",
+    audienceName: c.audienceName || audienceFallback || (c.totalRecipients ? (c.totalRecipients + " recipients") : "CRM Leads"),
+    targetCount: c.totalRecipients || c.targetCount || 0,
+    sentCount: c.sentCount || 0,
+    deliveredCount: c.deliveredCount || 0,
+    readCount: c.readCount || 0,
+    failedCount: c.failedCount || 0,
+    replyCount: c.repliedCount || c.replyCount || 0,
+    status,
+    sentAt: c.dispatchedAt
+      ? new Date(c.dispatchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : c.createdAt
+      ? new Date(c.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : "Recent",
+  };
+}
 
 export function WhatsAppMarketingView() {
   const { state } = useApp();
@@ -295,18 +330,9 @@ export function WhatsAppMarketingView() {
 
         if (campaignsRes.status === "fulfilled") {
           const rawList = Array.isArray(campaignsRes.value) ? campaignsRes.value : (campaignsRes.value as any)?.data || (campaignsRes.value as any)?.campaigns || [];
-          const liveCampaigns: WhatsAppCampaign[] = rawList.map((c: any, idx: number) => ({
-            id: c.id || `camp-${idx}`,
-            name: c.name || "WhatsApp Campaign",
-            templateName: c.template?.name || c.templateName || "Approved Template",
-            audienceName: c.audienceName || (c.totalRecipients ? `${c.totalRecipients} recipients` : "CRM Leads"),
-            targetCount: c.totalRecipients || c.targetCount || 0,
-            deliveredCount: c.deliveredCount || 0,
-            readCount: c.readCount || 0,
-            replyCount: c.repliedCount || c.replyCount || 0,
-            status: String(c.status || "").toLowerCase() === "completed" ? "completed" : "running",
-            sentAt: c.dispatchedAt ? new Date(c.dispatchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : (c.createdAt ? new Date(c.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Recent"),
-          }));
+          const liveCampaigns: WhatsAppCampaign[] = rawList.map((c: any, idx: number) =>
+            parseCampaign(c, "WhatsApp Campaign")
+          );
           setCampaigns(liveCampaigns);
         }
       } catch (err) {
@@ -336,18 +362,7 @@ export function WhatsAppMarketingView() {
       const updatedCamps = await aicloserApi.marketing.getCampaigns().catch(() => null);
       if (Array.isArray(updatedCamps)) {
         setCampaigns(
-          updatedCamps.map((c: any, idx: number) => ({
-            id: c.id || `camp-${idx}`,
-            name: c.name || "WhatsApp Campaign",
-            templateName: c.template?.name || c.templateName || "Approved Template",
-            audienceName: c.audienceName || (c.totalRecipients ? `${c.totalRecipients} recipients` : "CRM Leads"),
-            targetCount: c.totalRecipients || c.targetCount || 0,
-            deliveredCount: c.deliveredCount || 0,
-            readCount: c.readCount || 0,
-            replyCount: c.repliedCount || c.replyCount || 0,
-            status: String(c.status || "").toLowerCase() === "completed" ? "completed" : "running",
-            sentAt: c.dispatchedAt ? new Date(c.dispatchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Recent",
-          }))
+          updatedCamps.map((c: any) => parseCampaign(c, "WhatsApp Campaign"))
         );
       }
     } catch (err: any) {
@@ -369,17 +384,25 @@ export function WhatsAppMarketingView() {
           campaignId: camp.id,
           name: camp.name,
           status: camp.status,
-          summary: {
-            totalMessages: camp.targetCount,
-            sent: camp.deliveredCount,
+          totalRecipients: camp.targetCount,
+          sentCount: camp.sentCount,
+          deliveredCount: camp.deliveredCount,
+          readCount: camp.readCount,
+          repliedCount: camp.replyCount,
+          failedCount: camp.failedCount,
+          counts: {
+            sent: camp.sentCount,
             delivered: camp.deliveredCount,
             read: camp.readCount,
             replied: camp.replyCount,
-            failed: 0,
-            deliveryRate: "100.0%",
-            readRate: camp.deliveredCount > 0 ? `${((camp.readCount / camp.deliveredCount) * 100).toFixed(1)}%` : "0.0%",
-            replyRate: camp.deliveredCount > 0 ? `${((camp.replyCount / camp.deliveredCount) * 100).toFixed(1)}%` : "0.0%",
+            failed: camp.failedCount,
           },
+          rates: {
+            deliveryRate: camp.sentCount > 0 ? Number(((camp.deliveredCount / camp.sentCount) * 100).toFixed(1)) : 0,
+            readRate: camp.deliveredCount > 0 ? Number(((camp.readCount / camp.deliveredCount) * 100).toFixed(1)) : 0,
+            replyRate: camp.readCount > 0 ? Number(((camp.replyCount / camp.readCount) * 100).toFixed(1)) : 0,
+          },
+          recipients: [],
         });
       }
     } catch (err: any) {
@@ -498,18 +521,9 @@ export function WhatsAppMarketingView() {
         const rawList = Array.isArray(updated) ? updated : (updated as any)?.data || (updated as any)?.campaigns || [];
         if (Array.isArray(rawList) && rawList.length > 0) {
           setCampaigns(
-            rawList.map((c: any, idx: number) => ({
-              id: c.id || `camp-${idx}`,
-              name: c.name || campaignTitle,
-              templateName: c.template?.name || selectedTemplate,
-              audienceName: `Custom (${finalPhones.length} numbers)`,
-              targetCount: c.totalRecipients || finalPhones.length,
-              deliveredCount: c.deliveredCount || (c.status === "COMPLETED" ? finalPhones.length : 0),
-              readCount: c.readCount || 0,
-              replyCount: c.repliedCount || 0,
-              status: String(c.status || "").toLowerCase() === "completed" ? "completed" : "running",
-              sentAt: "Just now",
-            }))
+            rawList.map((c: any) =>
+              parseCampaign(c, campaignTitle, `Custom (${finalPhones.length} numbers)`)
+            )
           );
         }
       } else {
@@ -544,18 +558,9 @@ export function WhatsAppMarketingView() {
         const rawList = Array.isArray(updated) ? updated : (updated as any)?.data || (updated as any)?.campaigns || [];
         if (Array.isArray(rawList) && rawList.length > 0) {
           setCampaigns(
-            rawList.map((c: any, idx: number) => ({
-              id: c.id || `camp-${idx}`,
-              name: c.name || campaignTitle,
-              templateName: c.template?.name || selectedTemplate,
-              audienceName: c.audienceName || `${selectedAudience} (${targetSize} leads)`,
-              targetCount: c.totalRecipients || targetSize,
-              deliveredCount: c.deliveredCount || 0,
-              readCount: c.readCount || 0,
-              replyCount: c.repliedCount || 0,
-              status: String(c.status || "").toLowerCase() === "completed" ? "completed" : "running",
-              sentAt: "Just now",
-            }))
+            rawList.map((c: any) =>
+              parseCampaign(c, campaignTitle, `${selectedAudience} (${targetSize} leads)`)
+            )
           );
         }
       }
@@ -718,10 +723,12 @@ export function WhatsAppMarketingView() {
             <table className="table" style={{ width: "100%", textAlign: "left" }}>
               <thead>
                 <tr>
-                  <th style={{ width: "240px" }}>Campaign Name</th>
+                  <th style={{ width: "220px" }}>Campaign Name</th>
                   <th>Template</th>
                   <th>Target Segment</th>
+                  <th>Sent</th>
                   <th>Delivered</th>
+                  <th>Failed</th>
                   <th>Read Rate</th>
                   <th>Replies</th>
                   <th>Status</th>
@@ -731,7 +738,7 @@ export function WhatsAppMarketingView() {
               <tbody>
                 {campaigns.length === 0 ? (
                   <tr>
-                    <td colSpan={8} style={{ textAlign: "center", padding: "48px 16px", color: "var(--text-tertiary)" }}>
+                    <td colSpan={10} style={{ textAlign: "center", padding: "48px 16px", color: "var(--text-tertiary)" }}>
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
                         <Icon name="whatsapp" size={28} style={{ opacity: 0.4 }} />
                         <div style={{ fontWeight: 600, color: "var(--text)" }}>No WhatsApp Broadcast Campaigns Yet</div>
@@ -762,7 +769,22 @@ export function WhatsAppMarketingView() {
                           {c.audienceName}
                         </td>
                         <td>
-                          <span style={{ fontWeight: 600 }}>{c.deliveredCount}</span> / {c.targetCount}
+                          <span style={{ fontWeight: 600 }}>{c.sentCount}</span> / {c.targetCount}
+                        </td>
+                        <td>
+                          <span style={{ fontWeight: 600, color: c.deliveredCount > 0 ? "var(--success)" : "inherit" }}>
+                            {c.deliveredCount}
+                          </span>{" "}
+                          / {c.targetCount}
+                        </td>
+                        <td>
+                          {c.failedCount > 0 ? (
+                            <span className="chip" data-tone="danger" style={{ fontSize: "11px" }}>
+                              {c.failedCount} failed
+                            </span>
+                          ) : (
+                            <span style={{ color: "var(--text-tertiary)" }}>0</span>
+                          )}
                         </td>
                         <td>
                           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
@@ -776,10 +798,30 @@ export function WhatsAppMarketingView() {
                         <td>
                           <span
                             className="chip"
-                            data-tone={c.status === "completed" ? "success" : "accent"}
+                            data-tone={
+                              c.status === "completed"
+                                ? "success"
+                                : c.status === "failed"
+                                ? "danger"
+                                : c.status === "scheduled"
+                                ? "warning"
+                                : "accent"
+                            }
                             style={{ fontSize: "11px" }}
                           >
-                            <span className="dot" style={{ background: c.status === "completed" ? "var(--success)" : "var(--accent)" }} />
+                            <span
+                              className="dot"
+                              style={{
+                                background:
+                                  c.status === "completed"
+                                    ? "var(--success)"
+                                    : c.status === "failed"
+                                    ? "var(--danger)"
+                                    : c.status === "scheduled"
+                                    ? "var(--warning)"
+                                    : "var(--accent)",
+                              }}
+                            />
                             {c.status.toUpperCase()}
                           </span>
                         </td>
@@ -1319,18 +1361,32 @@ export function WhatsAppMarketingView() {
       {/* Analytics Modal */}
       {selectedAnalytics && (
         <div className="overlay" data-kind="dialog" onClick={() => setSelectedAnalytics(null)} role="presentation">
-          <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="analytics-dialog-title" onClick={(e) => e.stopPropagation()} style={{ width: "540px", maxWidth: "95vw" }}>
+          <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="analytics-dialog-title" onClick={(e) => e.stopPropagation()} style={{ width: "660px", maxWidth: "95vw" }}>
             <div className="dialog-head">
               <div>
                 <h2 id="analytics-dialog-title" className="card-title">Live Delivery &amp; Reply Analytics</h2>
-                <p className="card-sub">{selectedAnalytics.name} • Status: <span className="chip" data-tone={selectedAnalytics.status === "COMPLETED" ? "success" : "accent"}>{selectedAnalytics.status}</span></p>
+                <p className="card-sub">
+                  {selectedAnalytics.name} • Status:{" "}
+                  <span
+                    className="chip"
+                    data-tone={
+                      String(selectedAnalytics.status).toUpperCase() === "COMPLETED"
+                        ? "success"
+                        : String(selectedAnalytics.status).toUpperCase() === "FAILED"
+                        ? "danger"
+                        : "accent"
+                    }
+                  >
+                    {String(selectedAnalytics.status).toUpperCase()}
+                  </span>
+                </p>
               </div>
               <button className="btn" data-variant="ghost" aria-label="Close dialog" onClick={() => setSelectedAnalytics(null)} style={{ padding: "4px" }}>
                 <Icon name="close" size={14} />
               </button>
             </div>
             <div className="dialog-body" style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-              <div className="stat-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+              <div className="stat-grid" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
                 <div className="stat card">
                   <div className="stat-label">Messages Sent</div>
                   <div className="stat-value">{selectedAnalytics.counts?.sent ?? selectedAnalytics.sentCount ?? 0}</div>
@@ -1342,20 +1398,96 @@ export function WhatsAppMarketingView() {
                   <div className="stat-foot">{selectedAnalytics.percentages?.delivered ?? selectedAnalytics.rates?.deliveryRate ?? 0}% delivery rate</div>
                 </div>
                 <div className="stat card">
-                  <div className="stat-label">Read (Double Blue Ticks)</div>
+                  <div className="stat-label">Read</div>
                   <div className="stat-value" style={{ color: "var(--accent)" }}>{selectedAnalytics.counts?.read ?? selectedAnalytics.readCount ?? 0}</div>
                   <div className="stat-foot">{selectedAnalytics.percentages?.read ?? selectedAnalytics.rates?.readRate ?? 0}% read rate</div>
                 </div>
                 <div className="stat card">
-                  <div className="stat-label">Replies Received</div>
-                  <div className="stat-value" style={{ color: "var(--success)" }}>{selectedAnalytics.counts?.replied ?? selectedAnalytics.repliedCount ?? 0}</div>
-                  <div className="stat-foot">{selectedAnalytics.percentages?.replied ?? selectedAnalytics.rates?.replyRate ?? 0}% engagement rate</div>
+                  <div className="stat-label">Failed</div>
+                  <div className="stat-value" style={{ color: (selectedAnalytics.counts?.failed || selectedAnalytics.failedCount) ? "var(--danger)" : "var(--text-tertiary)" }}>
+                    {selectedAnalytics.counts?.failed ?? selectedAnalytics.failedCount ?? 0}
+                  </div>
+                  <div className="stat-foot">{(selectedAnalytics.counts?.failed || selectedAnalytics.failedCount) ? "Requires review" : "0 delivery errors"}</div>
                 </div>
               </div>
 
               {Boolean(selectedAnalytics.counts?.failed || selectedAnalytics.failedCount) && (
-                <div className="card" style={{ padding: "10px 14px", background: "var(--danger-soft)", color: "var(--danger)", fontSize: "12px", display: "flex", alignItems: "center", gap: "8px" }}>
-                  <Icon name="close" size={14} /> {selectedAnalytics.counts?.failed ?? selectedAnalytics.failedCount} messages failed to deliver (invalid phone numbers or Meta rate limits).
+                <div className="card" style={{ padding: "12px 16px", background: "rgba(239, 68, 68, 0.08)", borderColor: "rgba(239, 68, 68, 0.25)", color: "var(--danger)", fontSize: "12px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 600 }}>
+                    <Icon name="close" size={16} /> Meta Delivery Failure Detected
+                  </div>
+                  <div style={{ color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                    {selectedAnalytics.recipients?.find((r: any) => r.errorMessage)?.errorMessage ||
+                      `${selectedAnalytics.counts?.failed ?? selectedAnalytics.failedCount} messages failed to deliver through Meta WhatsApp Cloud API.`}
+                  </div>
+                  {(selectedAnalytics.recipients?.some((r: any) => r.errorMessage?.includes("billing_hub") || r.errorMessage?.includes("currency")) ||
+                    String(selectedAnalytics.errorMessage || "").includes("billing_hub")) && (
+                    <a
+                      href="https://business.facebook.com/billing_hub"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="btn"
+                      data-variant="primary"
+                      data-size="sm"
+                      style={{ alignSelf: "flex-start", marginTop: "4px", gap: "6px" }}
+                    >
+                      Open Meta Billing Hub to Configure Currency <Icon name="arrow-up-right" size={13} />
+                    </a>
+                  )}
+                </div>
+              )}
+
+              {Array.isArray(selectedAnalytics.recipients) && selectedAnalytics.recipients.length > 0 && (
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: "12px", marginBottom: "8px", color: "var(--text)" }}>
+                    Live Recipient Delivery Log ({selectedAnalytics.recipients.length})
+                  </div>
+                  <div className="table-wrap" style={{ maxHeight: "200px", overflowY: "auto", border: "1px solid var(--border)", borderRadius: "var(--r-md)" }}>
+                    <table style={{ width: "100%", textAlign: "left", fontSize: "12px" }}>
+                      <thead>
+                        <tr>
+                          <th>Recipient</th>
+                          <th>Live Status</th>
+                          <th>Details / Meta Response</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedAnalytics.recipients.map((r: any) => (
+                          <tr key={r.id}>
+                            <td style={{ fontFamily: "var(--mono)" }}>
+                              {r.phone}
+                              {r.name && r.name !== r.phone && (
+                                <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>{r.name}</div>
+                              )}
+                            </td>
+                            <td>
+                              <span
+                                className="chip"
+                                data-tone={
+                                  r.status === "DELIVERED" || r.status === "READ"
+                                    ? "success"
+                                    : r.status === "FAILED"
+                                    ? "danger"
+                                    : "accent"
+                                }
+                                style={{ fontSize: "11px" }}
+                              >
+                                {r.status}
+                              </span>
+                            </td>
+                            <td style={{ fontSize: "11px", color: r.errorMessage ? "var(--danger)" : "var(--text-tertiary)" }}>
+                              {r.errorMessage ||
+                                (r.deliveredAt
+                                  ? `Delivered at ${new Date(r.deliveredAt).toLocaleTimeString()}`
+                                  : r.sentAt
+                                  ? `Dispatched to Meta at ${new Date(r.sentAt).toLocaleTimeString()}`
+                                  : "Queued")}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
 
