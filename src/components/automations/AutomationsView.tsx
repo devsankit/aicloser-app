@@ -623,6 +623,9 @@ Your objective:
 
   const activeWorkflowsCount = workflows.filter((w) => w.status === "active").length;
   const totalRuns = workflows.reduce((acc, w) => acc + w.runsCount, 0);
+  const tokensUsed = totalRuns * 120;
+  const tokensCap = tokenBudget === "250k" ? 250000 : tokenBudget === "1m" ? 1000000 : tokenBudget === "5m" ? 5000000 : Infinity;
+  const percentUsed = tokensCap === Infinity ? 0 : Math.min(100, (tokensUsed / tokensCap) * 100);
 
   return (
     <div style={{ padding: "20px 24px", maxWidth: "1280px", margin: "0 auto" }}>
@@ -725,11 +728,13 @@ Your objective:
             Monthly AI Token Budget
           </div>
           <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, color: "var(--text)", marginTop: "4px", display: "flex", alignItems: "baseline", gap: 8 }}>
-            <span>{tokenBudget === "250k" ? "24.2K" : tokenBudget === "1m" ? "342.2K" : tokenBudget === "5m" ? "1.2M" : "Unlimited"}</span>
+            <span>{tokensUsed > 0 ? `${(tokensUsed / 1000).toFixed(1)}K` : "0"}</span>
             <span style={{ fontSize: "var(--fs-body)", color: "var(--text-tertiary)", fontWeight: 400 }}>/ {tokenBudget === "250k" ? "250.0K" : tokenBudget === "1m" ? "1.0M" : tokenBudget === "5m" ? "5.0M" : "Unlimited"} tokens</span>
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
-            {tokenBudget === "250k" ? "9.7% used (225.8K remaining) · Free Tier" : tokenBudget === "1m" ? "34.2% used (657.8K remaining)" : "Active Budget Quota"}
+            {tokensCap === Infinity
+              ? "Unlimited AI tokens quota"
+              : `${percentUsed.toFixed(1)}% used (${((tokensCap - tokensUsed) / 1000).toFixed(1)}K remaining) · Free Tier`}
           </div>
         </div>
 
@@ -2032,8 +2037,8 @@ Your objective:
             <div className="ai-telemetry-grid">
               <div className="ai-telemetry-item">
                 <span className="ai-telemetry-label">Monthly Processed</span>
-                <span className="ai-telemetry-value">24,180</span>
-                <span className="ai-telemetry-sub">out of {tokenBudget === "250k" ? "250,000" : tokenBudget === "1m" ? "1,000,000" : tokenBudget === "5m" ? "5,000,000" : "Unlimited"} tokens (10%)</span>
+                <span className="ai-telemetry-value">{tokensUsed.toLocaleString()}</span>
+                <span className="ai-telemetry-sub">out of {tokenBudget === "250k" ? "250,000" : tokenBudget === "1m" ? "1,000,000" : tokenBudget === "5m" ? "5,000,000" : "Unlimited"} tokens ({percentUsed.toFixed(0)}%)</span>
               </div>
               <div className="ai-telemetry-item">
                 <span className="ai-telemetry-label">Current Billing</span>

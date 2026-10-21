@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { aicloserApi } from "@/lib/api-client";
+import { isScannedWhatsAppLead } from "@/lib/lead-mapper";
 import { Icon } from "@/components/ui/Icon";
 import { ResizeHandle } from "@/components/ui/ResizeHandle";
 import { compactMoney, isOverdue, LIMITS, money, relativeTime, slaLabel, useApp, useScopedLeads } from "@/lib/store";
@@ -209,10 +210,15 @@ export function PipelineView() {
     }
   };
 
+  const boardLeads = useMemo(
+    () => scoped.filter((l) => !isScannedWhatsAppLead(l)),
+    [scoped]
+  );
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const qDigits = q.replace(/\D/g, "");
-    const rows = scoped.filter((l) => {
+    const rows = boardLeads.filter((l) => {
       if (source) {
         const leadSrc = normalizeSource(l.source);
         if (leadSrc !== source && l.source !== source) return false;
@@ -247,7 +253,7 @@ export function PipelineView() {
       const aTime = new Date(a.updatedAt).getTime() || 0;
       return bTime - aTime || a.id.localeCompare(b.id);
     });
-  }, [scoped, query, source, segment, sort]);
+  }, [boardLeads, query, source, segment, sort]);
 
   const byStage = useMemo(() => {
     const map = new Map<StageId, Lead[]>();
@@ -781,13 +787,13 @@ export function PipelineView() {
             )}
             {state.scope.startsWith("agent:") ? (
               <span className="chip" data-tone="accent" style={{ marginLeft: "auto" }}>
-                <Icon name="whatsapp" size={13} /> Teammate: {state.scope.slice(6)} (Scanned WhatsApp & Leads)
+                <Icon name="target" size={13} /> {state.scope.slice(6)}&apos;s Leads ({boardLeads.length}) · Scanned WhatsApp in Chat tab
               </span>
-            ) : state.scope === "all" ? (
+            ) : (
               <span className="chip" data-tone="neutral" style={{ marginLeft: "auto", fontSize: "11px" }}>
-                <Icon name="shield" size={12} /> General Leads ({scoped.length}) · Teammate chats isolated
+                <Icon name="shield" size={12} /> Sales Pipeline Leads ({boardLeads.length}) · Scanned WhatsApp chats in Chat view
               </span>
-            ) : null}
+            )}
           </div>
 
           <div className="board" data-fit={fit} role="list" aria-label="Lead pipeline board" ref={boardRef}>

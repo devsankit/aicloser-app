@@ -823,7 +823,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const logoutWorkspace = useCallback(async () => {
-    await aicloserApi.auth.logout();
+    await aicloserApi.auth.logout().catch(() => {});
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem("aicloser_token");
+      window.localStorage.removeItem("closer_token");
+      window.location.href = "/login";
+    }
     setState((p) => ({ ...p, apiConnected: false, isLiveCloud: false, user: null, workspaceAuth: null }));
   }, []);
 
@@ -963,7 +968,7 @@ export function useScopedLeads() {
           (myId && (l as any).assignedAgentId === myId)
       );
     }
-    if (state.scope === "unassigned") return state.leads.filter((l) => !l.owner || l.owner === "Unassigned");
+    if (state.scope === "unassigned") return state.leads.filter((l) => (!l.owner || l.owner === "Unassigned") && !isTeammateScannedWhatsAppLead(l));
     if (state.scope.startsWith("agent:")) {
       const targetAgent = state.scope.slice(6).trim().toLowerCase();
       return state.leads.filter(

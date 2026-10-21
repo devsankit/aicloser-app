@@ -20,8 +20,20 @@ function handleCentralAuthFailure(status: number, message: string) {
   if (status === 401) {
     setStoredToken(null);
     window.dispatchEvent(new CustomEvent('aicloser:auth-unauthorized', {
-      detail: { status, message: message || 'Authentication token missing or invalid. Running in local mode.' },
+      detail: { status, message: message || 'Authentication token missing or expired. Redirecting to login.' },
     }));
+
+    const pathname = window.location.pathname;
+    const isPublicPage =
+      pathname === '/login' ||
+      pathname === '/signup' ||
+      pathname.startsWith('/super-admin/login') ||
+      pathname.startsWith('/pay/') ||
+      pathname.startsWith('/forms/public/');
+
+    if (!isPublicPage) {
+      window.location.href = `/login?from=${encodeURIComponent(pathname)}`;
+    }
     return;
   }
 

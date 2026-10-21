@@ -5,6 +5,7 @@ import { Icon, type IconName } from "@/components/ui/Icon";
 import { CURRENT_USER, useApp } from "@/lib/store";
 import { STAGES, type StageId } from "@/lib/types";
 import { aicloserApi } from "@/lib/api-client";
+import { isScannedWhatsAppLead } from "@/lib/lead-mapper";
 import { LeadCommandHistory } from "@/components/pipeline/LeadCommandHistory";
 
 interface ChatMessage {
@@ -318,14 +319,48 @@ export function ChatView() {
     });
   }, [conversations, channelFilter, scopeFilter, search, state.user, state.scope]);
 
-  // Load conversations from live backend API
+  // Load conversations from live backend API + merge scanned WhatsApp conversations
   useEffect(() => {
     let active = true;
+
+    // Build scanned WhatsApp conversations from state.leads
+    const scannedList: ConversationItem[] = state.leads
+      .filter((l) => isScannedWhatsAppLead(l))
+      .map((l) => {
+        const cleanPhone = l.phone || "";
+        const rawNote = l.notes || "";
+        const snippet =
+          rawNote.replace(/^Synced with chat history via WA Business Scanner:\s*"?|"?$/g, "") ||
+          "Recent WhatsApp conversation";
+        return {
+          id: `conv-lead-${l.id}`,
+          leadId: l.id,
+          customerName: l.name && !l.name.startsWith("+") ? l.name : cleanPhone || "WhatsApp Contact",
+          company: l.company || "WhatsApp Business Lead",
+          phone: cleanPhone,
+          channel: "whatsapp" as const,
+          lastMessage: snippet,
+          lastMessageTime: formatMessageTime(l.updatedAt),
+          updatedAt: l.updatedAt,
+          unreadCount: 0,
+          assignedTo: l.owner || "Unassigned",
+          messages: [
+            {
+              id: `msg-${l.id}-1`,
+              sender: "customer" as const,
+              text: snippet,
+              time: formatMessageTime(l.updatedAt),
+              status: "read" as const,
+            },
+          ],
+        };
+      });
+
     aicloserApi.conversations
       .list({ limit: 200 })
       .then((res) => {
-        if (!active || !res?.conversations?.length) return;
-        const mapped: ConversationItem[] = res.conversations.map((c: any) => ({
+        if (!active) return;
+        const apiMapped: ConversationItem[] = (res?.conversations || []).map((c: any) => ({
           id: c.id,
           leadId: c.leadId || `ld-${c.id.slice(-4)}`,
           customerName: c.customerName || "Customer",
@@ -343,14 +378,33 @@ export function ChatView() {
           assignedTo: c.assignedAgent?.displayName || "Unassigned",
           messages: [],
         }));
-        setConversations(mapped);
-        setSelectedChatId((current) => (current ? current : mapped[0]?.id || null));
+
+        const combined = [...apiMapped];
+        const seenPhones = new Set<string>();
+        for (const c of apiMapped) {
+          if (c.phone) seenPhones.add(c.phone.replace(/\D/g, "").slice(-10));
+        }
+        for (const sc of scannedList) {
+          const clean = sc.phone.replace(/\D/g, "").slice(-10);
+          if (!clean || !seenPhones.has(clean)) {
+            if (clean) seenPhones.add(clean);
+            combined.push(sc);
+          }
+        }
+
+        setConversations(combined);
+        setSelectedChatId((current) => (current ? current : combined[0]?.id || null));
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!active) return;
+        setConversations(scannedList);
+        setSelectedChatId((current) => (current ? current : scannedList[0]?.id || null));
+      });
+
     return () => {
       active = false;
     };
-  }, []);
+  }, [state.leads]);
 
   // Fetch real messages for the active conversation when selected
   useEffect(() => {

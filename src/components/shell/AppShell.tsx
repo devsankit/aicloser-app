@@ -275,7 +275,12 @@ export function AppShell({ children }: { children: ReactNode }) {
     const leadCounts = new Map<string, number>();
     for (const l of state.leads) {
       const o = (l.owner || "").trim();
-      if (o && o !== "Unassigned" && o.toLowerCase() !== "admin" && o.toLowerCase() !== (state.user?.displayName || "").toLowerCase()) {
+      const isOwnerOrAdmin =
+        o.toLowerCase() === "admin" ||
+        o.toLowerCase().includes("admin") ||
+        o.toLowerCase() === "ankit rathore" ||
+        o.toLowerCase() === (state.user?.displayName || "").toLowerCase();
+      if (o && o !== "Unassigned" && !isOwnerOrAdmin) {
         leadCounts.set(o.toLowerCase(), (leadCounts.get(o.toLowerCase()) || 0) + 1);
       }
     }
@@ -293,7 +298,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         });
       }
     }
-    return Array.from(map.values()).sort((a, b) => b.count - a.count);
+    return Array.from(map.values())
+      .filter((m) => {
+        const n = m.name.toLowerCase();
+        return n !== "admin" && !n.includes("admin") && n !== "ankit rathore" && n !== (state.user?.displayName || "").toLowerCase();
+      })
+      .sort((a, b) => b.count - a.count);
   }, [teamMembers, state.leads, state.user?.displayName]);
 
   useEffect(() => {

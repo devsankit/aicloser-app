@@ -120,21 +120,16 @@ export function uiLeadToBackendPayload(u: Partial<UiLead>): Partial<BackendLead>
 }
 
 /**
- * Determines whether a lead represents a teammate's personal/business scanned WhatsApp chat.
- * Teammates' scanned chats are isolated so they never leak into the general "All team leads"
- * Kanban board/reassignment pool, and only display when specifically viewing that teammate's scope.
+ * Determines whether a record represents a scanned WhatsApp conversation (personal or business).
+ * Scanned WhatsApp chats belong exclusively in the Chat view (/chat) and must NEVER appear
+ * as movable cards on the Kanban sales board (/pipeline) to prevent accidental cross-reassignment.
  */
-export function isTeammateScannedWhatsAppLead(lead: UiLead): boolean {
-  const owner = (lead.owner || "").trim().toLowerCase();
-  // Unassigned pool leads or workspace owner leads are company leads, not private teammate chats
-  if (!owner || owner === "unassigned" || owner === "admin" || owner === "ankit rathore") {
-    return false;
-  }
-
-  const rawSrc = (lead.rawSource || "").toLowerCase();
+export function isScannedWhatsAppLead(lead: UiLead | { rawSource?: string; source?: string; serviceInterest?: string; company?: string; tags?: string[]; notes?: string }): boolean {
+  const rawSrc = (lead.rawSource || lead.source || "").toLowerCase();
   const interest = (lead.serviceInterest || "").toLowerCase();
   const comp = (lead.company || "").toLowerCase();
   const tagsStr = (lead.tags || []).join(" ").toLowerCase();
+  const notes = (lead.notes || "").toLowerCase();
 
   const isScannerSource =
     rawSrc.includes("qr_scanner") ||
@@ -150,7 +145,13 @@ export function isTeammateScannedWhatsAppLead(lead: UiLead): boolean {
     comp.includes("whatsapp business lead") ||
     comp.includes("whatsapp personal lead") ||
     tagsStr.includes("scanner") ||
-    tagsStr.includes("qr_scanner");
+    tagsStr.includes("wa business scanner") ||
+    notes.includes("wa business scanner") ||
+    notes.includes("qr scanner");
 
   return isScannerSource || isScannerInterestOrCompany;
+}
+
+export function isTeammateScannedWhatsAppLead(lead: UiLead): boolean {
+  return isScannedWhatsAppLead(lead);
 }
