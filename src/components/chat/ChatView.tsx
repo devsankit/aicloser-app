@@ -33,6 +33,7 @@ interface ConversationItem {
   assignedTo: string;
   slaMinutesRemaining?: number;
   aiAutoReplyDisabled?: boolean;
+  notes?: string;
   messages: ChatMessage[];
 }
 
@@ -101,7 +102,7 @@ function renderMessageContent(text: string, isCloser: boolean) {
 }
 
 export function ChatView() {
-  const { state, moveLead, updateLead, reassignLead } = useApp();
+  const { state, moveLead, updateLead, reassignLead, setScope } = useApp();
 
   // Channel filter: all, whatsapp, instagram, website
   const [channelFilter, setChannelFilter] = useState<string>("all");
@@ -326,87 +327,112 @@ export function ChatView() {
   useEffect(() => {
     let active = true;
 
-    // Build scanned WhatsApp conversations from state.leads
-    const scannedList: ConversationItem[] = state.leads
-      .filter((l) => isScannedWhatsAppLead(l))
-      .map((l) => {
-        const cleanPhone = l.phone || "";
-        const rawNote = l.notes || "";
-        const snippet =
-          rawNote.replace(/^Synced with chat history via WA Business Scanner:\s*"?|"?$/g, "") ||
-          "Recent WhatsApp conversation";
-        return {
-          id: `conv-lead-${l.id}`,
-          leadId: l.id,
-          customerName: l.name && !l.name.startsWith("+") ? l.name : cleanPhone || "WhatsApp Contact",
-          company: l.company || "WhatsApp Business Lead",
-          phone: cleanPhone,
-          channel: "whatsapp" as const,
-          lastMessage: snippet,
-          lastMessageTime: formatMessageTime(l.updatedAt),
-          updatedAt: l.updatedAt,
-          unreadCount: 0,
-          assignedTo: l.owner || "Unassigned",
-          messages: [
-            {
-              id: `msg-${l.id}-1`,
-              sender: "customer" as const,
-              text: snippet,
-              time: formatMessageTime(l.updatedAt),
-              status: "read" as const,
-            },
-          ],
-        };
-      });
+    const fetchAllConversations = () => {
+      // Build scanned WhatsApp conversations from state.leads
+      const scannedList: ConversationItem[] = state.leads
+        .filter((l) => isScannedWhatsAppLead(l))
+        .map((l) => {
+          const cleanPhone = l.phone || "";
+          const rawNote = l.notes || "";
+          const snippet =
+            rawNote.replace(/^Synced with chat history via WA Business Scanner:\s*"?|"?$/g, "") ||
+            "Recent WhatsApp conversation";
+          const actualConvId =
+            (l as any).conversationId ||
+            (l.id.startsWith("sales-conversation-") ? l.id.replace(/^sales-conversation-/, "") : l.id);
+          return {
+            id: actualConvId,
+            leadId: l.id,
+            customerName: l.name && !l.name.startsWith("+") ? l.name : cleanPhone || "WhatsApp Contact",
+            company: l.company || "WhatsApp Business Lead",
+            phone: cleanPhone,
+            channel: "whatsapp" as const,
+            lastMessage: snippet,
+            lastMessageTime: formatMessageTime(l.updatedAt),
+            updatedAt: l.updatedAt,
+            unreadCount: 0,
+            assignedTo: l.owner || "Unassigned",
+            messages: [
+              {
+                id: `msg-${l.id}-1`,
+                sender: "customer" as const,
+                text: snippet,
+                time: formatMessageTime(l.updatedAt),
+                status: "read" as const,
+              },
+            ],
+          };
+        });
 
-    aicloserApi.conversations
-      .list({ limit: 200 })
-      .then((res) => {
-        if (!active) return;
-        const apiMapped: ConversationItem[] = (res?.conversations || []).map((c: any) => ({
-          id: c.id,
-          leadId: c.leadId || `ld-${c.id.slice(-4)}`,
-          customerName: c.customerName || "Customer",
-          company: c.lead?.company || "Direct Account",
-          phone: c.customerPhone || "",
-          channel: (c.channel === "instagram"
-            ? "instagram"
-            : c.channel === "website"
-            ? "website"
-            : "whatsapp") as "whatsapp" | "instagram" | "website",
-          lastMessage: c.lastMessageSnippet || c.lastMessage?.body || "Conversation active",
-          lastMessageTime: formatMessageTime(c.updatedAt || c.lastMessageTime),
-          updatedAt: c.updatedAt,
-          unreadCount: c.unreadCount || 0,
-          assignedTo: c.assignedAgent?.displayName || "Unassigned",
-          aiAutoReplyDisabled: Boolean(c.aiAutoReplyDisabled ?? c.payload?.aiAutoReplyDisabled),
-          messages: [],
-        }));
+      aicloserApi.conversations
+        .list({ limit: 200 })
+        .then((res) => {
+          if (!active) return;
+          const apiMapped: ConversationItem[] = (res?.conversations || []).map((c: any) => ({
+            id: c.id,
+            leadId: c.leadId || `ld-${c.id.slice(-4)}`,
+            customerName: c.customerName || "Customer",
+            company: c.lead?.company || "Direct Account",
+            phone: c.customerPhone || "",
+            channel: (c.channel === "instagram"
+              ? "instagram"
+              : c.channel === "website"
+              ? "website"
+              : "whatsapp") as "whatsapp" | "instagram" | "website",
+            lastMessage: c.lastMessageSnippet || c.lastMessage?.body || "Conversation active",
+            lastMessageTime: formatMessageTime(c.updatedAt || c.lastMessageTime),
+            updatedAt: c.updatedAt,
+            unreadCount: c.unreadCount || 0,
+            assignedTo: c.assignedAgent?.displayName || "Unassigned",
+            aiAutoReplyDisabled: Boolean(c.aiAutoReplyDisabled ?? c.payload?.aiAutoReplyDisabled),
+            messages: [],
+          }));
 
-        const combined = [...apiMapped];
-        const seenPhones = new Set<string>();
-        for (const c of apiMapped) {
-          if (c.phone) seenPhones.add(c.phone.replace(/\D/g, "").slice(-10));
-        }
-        for (const sc of scannedList) {
-          const clean = sc.phone.replace(/\D/g, "").slice(-10);
-          if (!clean || !seenPhones.has(clean)) {
-            if (clean) seenPhones.add(clean);
-            combined.push(sc);
+          const combined = [...apiMapped];
+          const seenPhones = new Set<string>();
+          const seenIds = new Set<string>();
+          for (const c of apiMapped) {
+            seenIds.add(c.id);
+            if (c.phone) seenPhones.add(c.phone.replace(/\D/g, "").slice(-10));
           }
-        }
+          for (const sc of scannedList) {
+            const clean = sc.phone.replace(/\D/g, "").slice(-10);
+            if (!seenIds.has(sc.id) && (!clean || !seenPhones.has(clean))) {
+              seenIds.add(sc.id);
+              if (clean) seenPhones.add(clean);
+              combined.push(sc);
+            }
+          }
 
-        setConversations(combined);
-        setSelectedChatId((current) => (current ? current : combined[0]?.id || null));
-      })
-      .catch(() => {
-        if (!active) return;
-        setConversations(scannedList);
-        setSelectedChatId((current) => (current ? current : scannedList[0]?.id || null));
-      });
+          setConversations((prev) => {
+            // Preserve any active message threads already in memory
+            return combined.map((c) => {
+              const existing = prev.find((p) => p.id === c.id);
+              if (existing && existing.messages?.length > 0) {
+                return { ...c, messages: existing.messages };
+              }
+              return c;
+            });
+          });
+          setSelectedChatId((current) => (current ? current : combined[0]?.id || null));
+        })
+        .catch(() => {
+          if (!active) return;
+          setConversations(scannedList);
+          setSelectedChatId((current) => (current ? current : scannedList[0]?.id || null));
+        });
+    };
+
+    fetchAllConversations();
+    const refreshInterval = setInterval(() => {
+      if (!document.hidden) {
+        fetchAllConversations();
+      }
+    }, 25000);
 
     return () => {
       active = false;
+      clearInterval(refreshInterval);
     };
   }, [state.leads]);
 
@@ -430,21 +456,21 @@ export function ChatView() {
     }
   }, [activeChat?.id, activeChat?.aiAutoReplyDisabled]);
 
-  // Fetch real messages for the active conversation when selected
+  // Fetch real messages for the active conversation when selected (stale-while-revalidate)
   useEffect(() => {
     if (!activeChat?.id) return;
 
-    // Check if we already have cached messages
+    // Immediately display cached messages if available for fast UI response
     if (messagesCache[activeChat.id] && messagesCache[activeChat.id].length > 0) {
       setConversations((prev) =>
         prev.map((c) => (c.id === activeChat.id ? { ...c, messages: messagesCache[activeChat.id] } : c))
       );
       setTimeout(() => scrollToBottom("instant"), 10);
-      return;
+    } else {
+      setLoadingMessages(true);
     }
 
     let active = true;
-    setLoadingMessages(true);
 
     aicloserApi.conversations
       .getMessages(activeChat.id)
@@ -499,7 +525,7 @@ export function ChatView() {
             prev.map((c) => (c.id === activeChat.id ? { ...c, messages: mappedMessages } : c))
           );
           setTimeout(() => scrollToBottom("instant"), 30);
-        } else {
+        } else if (!messagesCache[activeChat.id] || messagesCache[activeChat.id].length === 0) {
           // If no message records exist yet in database, synthesize initial inbound bubble if lastMessage is present
           if (activeChat.lastMessage && activeChat.lastMessage !== "Conversation active") {
             const initMsg: ChatMessage = {
@@ -530,6 +556,216 @@ export function ChatView() {
       active = false;
     };
   }, [activeChat?.id, scrollToBottom]);
+
+  // Realtime Server-Sent Events (SSE) listener for live WhatsApp message sync
+  useEffect(() => {
+    const handleRealtimeEvent = (e: Event) => {
+      const customEvent = e as CustomEvent<{ type: string; payload: any }>;
+      const { type, payload } = customEvent.detail || {};
+      if (!type || !payload) return;
+
+      if (type === "chat.message" || type === "message.received") {
+        const rawMsg = payload.message || {};
+        const incomingPhone = (payload.customerPhone || "").replace(/\D/g, "").slice(-10);
+        const incomingConvId = payload.conversationId;
+        const incomingLeadId = payload.leadId;
+
+        const isOutbound =
+          rawMsg.fromMe === true ||
+          rawMsg.direction === "OUTBOUND" ||
+          rawMsg.senderRole === "sales" ||
+          rawMsg.senderRole === "admin" ||
+          rawMsg.senderRole === "closer" ||
+          rawMsg.senderRole === "agent" ||
+          rawMsg.senderRole === "CLOSER" ||
+          rawMsg.senderRole === "ADMIN" ||
+          rawMsg.senderRole === "ai" ||
+          rawMsg.sender === "closer" ||
+          rawMsg.sender === "admin" ||
+          (typeof rawMsg.senderLabel === "string" &&
+            (rawMsg.senderLabel.toLowerCase() === "admin" ||
+              rawMsg.senderLabel.toLowerCase() === "sales closer"));
+
+        const isSystem = rawMsg.senderRole === "system" || rawMsg.sender === "system";
+        const textBody = rawMsg.body || rawMsg.text || "";
+        if (!textBody && !rawMsg.attachments?.length) return;
+
+        const newChatMessage: ChatMessage = {
+          id: rawMsg.id || `realtime-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          sender: isOutbound ? "closer" : isSystem ? "system" : "customer",
+          senderName: isOutbound
+            ? (rawMsg.senderName || rawMsg.senderLabel || "You")
+            : (payload.customerName || activeChat?.customerName || "Customer"),
+          text: textBody,
+          createdAt: rawMsg.createdAt || new Date().toISOString(),
+          time: formatMessageTime(rawMsg.createdAt || new Date().toISOString()),
+          channel: "whatsapp",
+          status: (rawMsg.status || rawMsg.deliveryStatus || "delivered") as "sent" | "delivered" | "read",
+        };
+
+        const activeCleanPhone = (activeChat?.phone || "").replace(/\D/g, "").slice(-10);
+        const isCurrentActive = Boolean(
+          activeChat?.id &&
+          ((incomingConvId && incomingConvId === activeChat.id) ||
+           (incomingLeadId && incomingLeadId === activeChat.leadId) ||
+           (incomingPhone && activeCleanPhone && incomingPhone === activeCleanPhone))
+        );
+
+        if (isCurrentActive && activeChat?.id) {
+          setConversations((prev) =>
+            prev.map((c) => {
+              if (c.id !== activeChat.id) return c;
+              const exists = c.messages.some(
+                (m) =>
+                  m.id === newChatMessage.id ||
+                  (m.text === newChatMessage.text &&
+                    Math.abs(new Date(m.createdAt || 0).getTime() - new Date(newChatMessage.createdAt || 0).getTime()) < 3000)
+              );
+              if (exists) return c;
+              return {
+                ...c,
+                lastMessage: newChatMessage.text,
+                lastMessageTime: newChatMessage.time,
+                updatedAt: newChatMessage.createdAt,
+                messages: [...c.messages, newChatMessage],
+              };
+            })
+          );
+          setMessagesCache((prev) => {
+            const currentCache = prev[activeChat.id] || [];
+            const exists = currentCache.some(
+              (m) =>
+                m.id === newChatMessage.id ||
+                (m.text === newChatMessage.text &&
+                  Math.abs(new Date(m.createdAt || 0).getTime() - new Date(newChatMessage.createdAt || 0).getTime()) < 3000)
+            );
+            if (exists) return prev;
+            return { ...prev, [activeChat.id]: [...currentCache, newChatMessage] };
+          });
+          setTimeout(() => scrollToBottom("smooth"), 30);
+        }
+
+        // Also update conversation in left list
+        setConversations((prev) => {
+          const updated = prev.map((c) => {
+            const cPhone = (c.phone || "").replace(/\D/g, "").slice(-10);
+            const matches =
+              (incomingConvId && c.id === incomingConvId) ||
+              (incomingLeadId && c.leadId === incomingLeadId) ||
+              (incomingPhone && cPhone && incomingPhone === cPhone);
+
+            if (!matches) return c;
+            return {
+              ...c,
+              lastMessage: newChatMessage.text,
+              lastMessageTime: newChatMessage.time,
+              updatedAt: newChatMessage.createdAt,
+              unreadCount: isCurrentActive ? 0 : (c.unreadCount || 0) + 1,
+            };
+          });
+
+          return updated.sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
+        });
+      } else if (type === "chat.status_updated") {
+        const { wamid, status } = payload;
+        if (wamid && status && activeChat?.id) {
+          const mappedStatus =
+            status.toLowerCase() === "read" ? "read" : status.toLowerCase() === "delivered" ? "delivered" : "sent";
+          setConversations((prev) =>
+            prev.map((c) => {
+              if (c.id !== activeChat.id) return c;
+              return {
+                ...c,
+                messages: c.messages.map((m) => (m.id === wamid ? { ...m, status: mappedStatus } : m)),
+              };
+            })
+          );
+        }
+      }
+    };
+
+    window.addEventListener("aicloser:realtime", handleRealtimeEvent);
+    return () => {
+      window.removeEventListener("aicloser:realtime", handleRealtimeEvent);
+    };
+  }, [activeChat?.id, activeChat?.phone, activeChat?.leadId, activeChat?.customerName, scrollToBottom]);
+
+  // Periodic active chat message polling (every 6 seconds if document is visible)
+  useEffect(() => {
+    if (!activeChat?.id) return;
+
+    const interval = setInterval(() => {
+      if (document.hidden) return;
+      aicloserApi.conversations
+        .getMessages(activeChat.id)
+        .then((res: any) => {
+          const apiMessages = res?.messages || res?.data?.messages || [];
+          if (!Array.isArray(apiMessages) || apiMessages.length === 0) return;
+
+          const mappedMessages: ChatMessage[] = apiMessages
+            .filter((m: any) => Boolean((m.body && m.body.trim()) || (m.text && m.text.trim()) || m.attachments?.length))
+            .map((m: any) => {
+              const isOutbound =
+                m.fromMe === true ||
+                m.direction === "OUTBOUND" ||
+                m.senderRole === "sales" ||
+                m.senderRole === "admin" ||
+                m.senderRole === "closer" ||
+                m.senderRole === "agent" ||
+                m.senderRole === "CLOSER" ||
+                m.senderRole === "ADMIN" ||
+                m.senderRole === "ai" ||
+                m.sender === "closer" ||
+                m.sender === "admin" ||
+                (typeof m.senderLabel === "string" &&
+                  (m.senderLabel.toLowerCase() === "admin" ||
+                    m.senderLabel.toLowerCase() === "sales closer"));
+
+              const isSystem = m.senderRole === "system" || m.sender === "system";
+
+              return {
+                id: m.id || `msg-${Math.random()}`,
+                sender: isOutbound ? "closer" : isSystem ? "system" : "customer",
+                senderName: isOutbound
+                  ? (m.senderName || m.senderLabel || m.authorName || (activeChat.assignedTo !== "Unassigned" ? activeChat.assignedTo : "You"))
+                  : (activeChat.customerName || "Customer"),
+                text: m.body || m.text || "",
+                createdAt: m.createdAt,
+                time: formatMessageTime(m.createdAt),
+                channel: activeChat.channel,
+                status: (m.status || m.deliveryStatus || "read") as "sent" | "delivered" | "read",
+              };
+            });
+
+          setMessagesCache((prev) => {
+            const prevMsgs = prev[activeChat.id] || [];
+            if (
+              prevMsgs.length === mappedMessages.length &&
+              prevMsgs[prevMsgs.length - 1]?.id === mappedMessages[mappedMessages.length - 1]?.id
+            ) {
+              return prev;
+            }
+            return { ...prev, [activeChat.id]: mappedMessages };
+          });
+
+          setConversations((prev) =>
+            prev.map((c) => {
+              if (c.id !== activeChat.id) return c;
+              if (
+                c.messages.length === mappedMessages.length &&
+                c.messages[c.messages.length - 1]?.id === mappedMessages[mappedMessages.length - 1]?.id
+              ) {
+                return c;
+              }
+              return { ...c, messages: mappedMessages };
+            })
+          );
+        })
+        .catch(() => {});
+    }, 6000);
+
+    return () => clearInterval(interval);
+  }, [activeChat?.id]);
 
   // Scroll to bottom when conversation or message length changes
   useEffect(() => {
