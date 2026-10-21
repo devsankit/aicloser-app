@@ -1735,7 +1735,7 @@ Your objective:
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: "var(--bg-elevated)", borderRadius: 6, border: "1px solid var(--border)" }}>
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 600, color: "var(--fg)" }}>Daily AI Spend Cap</div>
-                  <div style={{ fontSize: 11, color: "var(--fg-muted)" }}>Current burn: ₹142 today</div>
+                  <div style={{ fontSize: 11, color: "var(--fg-muted)" }}>Current burn: ₹0 today · Free Tier</div>
                 </div>
                 <strong style={{ color: "var(--fg)", fontSize: 14 }}>₹1,500 / day</strong>
               </div>
