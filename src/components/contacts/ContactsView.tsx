@@ -1,17 +1,155 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Icon } from "@/components/ui/Icon";
+import { Icon, type IconName } from "@/components/ui/Icon";
 import { LeadDrawer } from "@/components/pipeline/LeadDrawer";
 import { compactMoney, relativeTime, useApp, useScopedLeads } from "@/lib/store";
-import { PRIORITY_ICON, PRIORITY_LABEL, STAGES, stageMeta, sourceMeta, type StageId } from "@/lib/types";
+import {
+  PRIORITY_ICON,
+  PRIORITY_LABEL,
+  STAGES,
+  stageMeta,
+  sourceMeta,
+  type StageId,
+  type Lead,
+} from "@/lib/types";
 
 type SortKey = "name" | "value" | "updated";
 
+export type ContactColumnId =
+  | "contact"
+  | "stage"
+  | "phone"
+  | "notes"
+  | "callback"
+  | "owner"
+  | "value"
+  | "source"
+  | "email"
+  | "tags"
+  | "updatedAt";
+
+export interface ContactColumnDef {
+  id: ContactColumnId;
+  label: string;
+  description: string;
+  alwaysVisible?: boolean;
+}
+
+export const CONTACT_COLUMNS: ContactColumnDef[] = [
+  { id: "contact", label: "Lead / Contact", description: "Name, company, and lead code", alwaysVisible: true },
+  { id: "stage", label: "Stage / Status", description: "Quick inline stage selector" },
+  { id: "phone", label: "Phone", description: "Phone number with quick call" },
+  { id: "notes", label: "Notes", description: "Latest notes & communication logs" },
+  { id: "callback", label: "Next Callback", description: "Follow-up schedule and SLA badge" },
+  { id: "owner", label: "Assigned Closer", description: "Assigned sales rep" },
+  { id: "value", label: "Deal Value", description: "Estimated lead budget" },
+  { id: "source", label: "Source", description: "Lead acquisition channel" },
+  { id: "email", label: "Email", description: "Customer email address" },
+  { id: "tags", label: "Tags", description: "Custom tags & badges" },
+  { id: "updatedAt", label: "Last Activity", description: "Relative time since last update" },
+];
+
+const STORAGE_KEY = "aicloser_contacts_visible_cols_v2";
+const VIEW_MODE_KEY = "aicloser_contacts_view_mode_v1";
+
+const DEFAULT_COLUMNS: ContactColumnId[] = [
+  "contact",
+  "stage",
+  "phone",
+  "notes",
+  "callback",
+  "owner",
+  "value",
+  "updatedAt",
+];
+
+function formatCallbackInfo(followUpIso?: string) {
+  if (!followUpIso) return null;
+  const d = new Date(followUpIso);
+  if (isNaN(d.getTime())) return null;
+
+  const now = new Date();
+  const diffMs = d.getTime() - now.getTime();
+  const isToday = d.toDateString() === now.toDateString();
+  const timeStr = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  if (diffMs < 0 && !isToday) {
+    return {
+      text: `Overdue: ${d.toLocaleDateString([], { month: "short", day: "numeric" })}`,
+      tone: "danger" as const,
+      icon: "alert-circle" as IconName,
+      title: `Overdue since ${d.toLocaleString()}`,
+    };
+  }
+
+  if (isToday) {
+    return {
+      text: `Today at ${timeStr}`,
+      tone: "warning" as const,
+      icon: "clock" as IconName,
+      title: `Scheduled for today at ${timeStr}`,
+    };
+  }
+
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  if (d.toDateString() === tomorrow.toDateString()) {
+    return {
+      text: `Tomorrow at ${timeStr}`,
+      tone: "info" as const,
+      icon: "calendar-clock" as IconName,
+      title: `Scheduled for tomorrow at ${timeStr}`,
+    };
+  }
+
+  return {
+    text: d.toLocaleDateString([], { month: "short", day: "numeric" }),
+    tone: "neutral" as const,
+    icon: "calendar" as IconName,
+    title: `Follow-up on ${d.toLocaleString()}`,
+  };
+}
+
 export function ContactsView() {
-  const { updateLead, deleteLead } = useApp();
+  const { moveLead, updateLead, deleteLead } = useApp();
   const leads = useScopedLeads();
   const [query, setQuery] = useState("");
+  const [stage, setStage] = useState<StageId | "">("");
+  const [sort, setSort] = useState<SortKey>("updated");
+  const [collapsed, setCollapsed] = useState<Set<StageId>>(new Set());
+  const [cursor, setCursor] = useState(0);
+  const [selection, setSelection] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [showColPicker, setShowColPicker] = useState(false);
+  const colPickerRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+
+  // Column preferences
+  const [visibleColumns, setVisibleColumns] = useState<ContactColumnId[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = window.localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch {}
+    }
+    return DEFAULT_COLUMNS;
+  });
+
+  // View mode: Table View (default) vs Grouped View
+  const [viewMode, setViewMode] = useState<"table" | "grouped">(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = window.localStorage.getItem(VIEW_MODE_KEY);
+        if (saved === "table" || saved === "grouped") return saved;
+      } catch {}
+    }
+    return "table";
+  });
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -20,13 +158,63 @@ export function ContactsView() {
       if (urlQ) setQuery(urlQ);
     }
   }, []);
-  const [stage, setStage] = useState<StageId | "">("");
-  const [sort, setSort] = useState<SortKey>("updated");
-  const [collapsed, setCollapsed] = useState<Set<StageId>>(new Set());
-  const [cursor, setCursor] = useState(0);
-  const [selection, setSelection] = useState<Set<string>>(new Set());
-  const [selected, setSelected] = useState<string | null>(null);
-  const listRef = useRef<HTMLDivElement | null>(null);
+
+  // Close column popover when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (colPickerRef.current && !colPickerRef.current.contains(e.target as Node)) {
+        setShowColPicker(false);
+      }
+    };
+    if (showColPicker) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [showColPicker]);
+
+  // Auto clear toast
+  useEffect(() => {
+    if (!toastMessage) return;
+    const timer = setTimeout(() => setToastMessage(null), 2600);
+    return () => clearTimeout(timer);
+  }, [toastMessage]);
+
+  const updateVisibleColumns = (cols: ContactColumnId[]) => {
+    setVisibleColumns(cols);
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(cols));
+      } catch {}
+    }
+  };
+
+  const toggleColumn = (id: ContactColumnId) => {
+    if (id === "contact") return; // Primary column cannot be disabled
+    if (visibleColumns.includes(id)) {
+      updateVisibleColumns(visibleColumns.filter((c) => c !== id));
+    } else {
+      updateVisibleColumns([...visibleColumns, id]);
+    }
+  };
+
+  const resetColumns = () => {
+    updateVisibleColumns(DEFAULT_COLUMNS);
+  };
+
+  const setView = (mode: "table" | "grouped") => {
+    setViewMode(mode);
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem(VIEW_MODE_KEY, mode);
+      } catch {}
+    }
+  };
+
+  const handleStageChange = (leadId: string, nextStage: StageId, leadName?: string) => {
+    moveLead(leadId, nextStage);
+    updateLead(leadId, { stage: nextStage });
+    setToastMessage(`Moved ${leadName || "lead"} to ${stageMeta(nextStage).label}`);
+  };
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -44,7 +232,8 @@ export function ContactsView() {
         l.code.toLowerCase().includes(q) ||
         l.email.toLowerCase().includes(q) ||
         phoneMatches ||
-        l.owner.toLowerCase().includes(q)
+        l.owner.toLowerCase().includes(q) ||
+        (l.notes && l.notes.toLowerCase().includes(q))
       );
     });
     return filtered.sort((a, b) => {
@@ -62,8 +251,7 @@ export function ContactsView() {
     [rows],
   );
 
-  /** Flat order used by j/k so the cursor walks across group boundaries. */
-  const flat = useMemo(() => groups.flatMap((g) => g.items), [groups]);
+  const flat = useMemo(() => (viewMode === "grouped" ? groups.flatMap((g) => g.items) : rows), [viewMode, groups, rows]);
 
   useEffect(() => {
     setCursor((c) => Math.min(c, Math.max(0, flat.length - 1)));
@@ -74,7 +262,7 @@ export function ContactsView() {
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT")) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (selected) return; // drawer owns the keyboard while open
+      if (selected) return;
 
       if (e.key === "j" || e.key === "ArrowDown") {
         e.preventDefault();
@@ -125,27 +313,48 @@ export function ContactsView() {
     });
 
   const bulkMove = (to: StageId) => {
-    for (const id of selection) updateLead(id, { stage: to });
+    for (const id of selection) {
+      moveLead(id, to);
+      updateLead(id, { stage: to });
+    }
+    setToastMessage(`Moved ${selection.size} leads to ${stageMeta(to).label}`);
     setSelection(new Set());
   };
 
   const handleExportCsv = () => {
     if (!rows.length) return;
-    const headers = ["Code", "Name", "Company", "Phone", "Email", "Stage", "Value", "Owner", "Tags", "UpdatedAt"];
+    const headers = [
+      "Code",
+      "Name",
+      "Company",
+      "Phone",
+      "Email",
+      "Stage",
+      "Value",
+      "Owner",
+      "FollowUp",
+      "Notes",
+      "Tags",
+      "UpdatedAt",
+    ];
     const csvRows = [headers.join(",")];
     for (const r of rows) {
-      csvRows.push([
-        `"${r.code || ""}"`,
-        `"${(r.name || "").replace(/"/g, '""')}"`,
-        `"${(r.company || "").replace(/"/g, '""')}"`,
-        `"${r.phone || ""}"`,
-        `"${r.email || ""}"`,
-        `"${r.stage || ""}"`,
-        r.value || 0,
-        `"${(r.owner || "").replace(/"/g, '""')}"`,
-        `"${(r.tags || []).join("; ")}"`,
-        `"${r.updatedAt || ""}"`,
-      ].join(","));
+      csvRows.push(
+        [
+          `"${r.code || ""}"`,
+          `"${(r.name || "").replace(/"/g, '""')}"`,
+          `"${(r.company || "").replace(/"/g, '""')}"`,
+          `"${r.phone || ""}"`,
+          `"${r.email || ""}"`,
+          `"${r.stage || ""}"`,
+          r.value || 0,
+          `"${(r.owner || "").replace(/"/g, '""')}"`,
+          `"${r.followUp || ""}"`,
+          `"${(r.notes || "").replace(/"/g, '""')}"`,
+          `"${(r.tags || []).join("; ")}"`,
+          `"${r.updatedAt || ""}"`,
+        ].join(","),
+      );
     }
     const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -157,7 +366,9 @@ export function ContactsView() {
     document.body.removeChild(link);
   };
 
-  let index = -1;
+  const isColVisible = (id: ContactColumnId) => visibleColumns.includes(id);
+
+  let flatIndex = -1;
 
   return (
     <div>
@@ -170,6 +381,26 @@ export function ContactsView() {
           </p>
         </div>
         <div className="page-actions">
+          {/* View Mode Toggle */}
+          <div className="seg">
+            <button
+              type="button"
+              data-on={viewMode === "table"}
+              onClick={() => setView("table")}
+              title="Table View with customizable columns"
+            >
+              <Icon name="kanban" size={13} /> Table
+            </button>
+            <button
+              type="button"
+              data-on={viewMode === "grouped"}
+              onClick={() => setView("grouped")}
+              title="Grouped by stages"
+            >
+              <Icon name="layers" size={13} /> Grouped
+            </button>
+          </div>
+
           <select
             className="select pipe-select"
             value={sort}
@@ -186,13 +417,14 @@ export function ContactsView() {
         </div>
       </header>
 
+      {/* Toolbar with Search, Filter & Flexible Column Selector */}
       <div className="pipe-toolbar" style={{ marginBottom: 10 }}>
         <div className="pipe-search">
           <Icon name="search" size={14} />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search name, company, CLO id, owner…"
+            placeholder="Search name, company, CLO id, phone, notes…"
             aria-label="Search contacts"
           />
           {query ? (
@@ -201,6 +433,7 @@ export function ContactsView() {
             </button>
           ) : null}
         </div>
+
         <select
           className="select pipe-select"
           value={stage}
@@ -214,8 +447,88 @@ export function ContactsView() {
             </option>
           ))}
         </select>
+
+        {/* Flexible Column Customization Popover */}
+        <div className="col-picker-wrap" ref={colPickerRef}>
+          <button
+            type="button"
+            className="btn"
+            data-size="sm"
+            onClick={() => setShowColPicker((v) => !v)}
+            aria-expanded={showColPicker}
+            aria-haspopup="dialog"
+            title="Customize which columns appear in the table view"
+          >
+            <Icon name="sliders" size={13} />
+            <span>Columns</span>
+            <span className="chip" data-tone="neutral" data-size="sm">
+              {visibleColumns.length}/{CONTACT_COLUMNS.length}
+            </span>
+          </button>
+
+          {showColPicker && (
+            <div className="col-popover" role="dialog" aria-label="Customize columns">
+              <div className="col-popover-head">
+                <div>
+                  <div className="col-popover-title">Table Columns</div>
+                  <div className="col-popover-sub">Select information to show in table view</div>
+                </div>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => setShowColPicker(false)}
+                  aria-label="Close column picker"
+                >
+                  <Icon name="close" size={12} />
+                </button>
+              </div>
+
+              <div className="col-list">
+                {CONTACT_COLUMNS.map((col) => {
+                  const checked = visibleColumns.includes(col.id);
+                  return (
+                    <label key={col.id} className="col-option">
+                      <div>
+                        <div className="col-option-name">{col.label}</div>
+                        <div className="col-option-desc">{col.description}</div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={col.alwaysVisible}
+                        onChange={() => toggleColumn(col.id)}
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div className="col-popover-foot">
+                <button
+                  type="button"
+                  className="btn"
+                  data-size="sm"
+                  data-variant="ghost"
+                  onClick={resetColumns}
+                >
+                  Reset Defaults
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  data-size="sm"
+                  data-variant="primary"
+                  onClick={() => setShowColPicker(false)}
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
+      {/* Filter summary chips */}
       <div className="chip-row" style={{ marginBottom: 10 }}>
         {stage ? (
           <span className="chip-x">
@@ -227,15 +540,23 @@ export function ContactsView() {
         ) : null}
         {query ? (
           <span className="chip-x">
-            Text <b>{query}</b>
+            Search <b>{query}</b>
             <button className="x" onClick={() => setQuery("")} aria-label="Clear search">
               <Icon name="close" size={11} />
             </button>
           </span>
         ) : null}
-        {!stage && !query ? <span className="hint">No filters applied.</span> : null}
+        {visibleColumns.length < CONTACT_COLUMNS.length ? (
+          <span className="chip" data-tone="neutral" data-size="sm">
+            {visibleColumns.length} of {CONTACT_COLUMNS.length} columns active
+          </span>
+        ) : null}
+        {!stage && !query && visibleColumns.length === CONTACT_COLUMNS.length ? (
+          <span className="hint">All columns visible.</span>
+        ) : null}
       </div>
 
+      {/* Bulk actions */}
       {selection.size ? (
         <div className="bulk">
           <span>
@@ -247,7 +568,7 @@ export function ContactsView() {
             onChange={(e) => e.target.value && bulkMove(e.target.value as StageId)}
             aria-label="Move selected leads to stage"
           >
-            <option value="">Move to…</option>
+            <option value="">Move selected to…</option>
             {STAGES.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.label}
@@ -271,103 +592,466 @@ export function ContactsView() {
         </div>
       ) : null}
 
-      <div className="list" ref={listRef}>
-        {groups.map((group) => {
-          const isCollapsed = collapsed.has(group.meta.id);
-          return (
-            <div key={group.meta.id}>
-              <button
-                className="list-group-head"
-                aria-expanded={!isCollapsed}
-                onClick={() => toggleGroup(group.meta.id)}
-              >
-                <span className="list-group-icon" data-tone={group.meta.tone}><Icon name={group.meta.icon} size={14} /></span>
-                <span className="list-group-title">{group.meta.label}</span>
-                <span className="list-group-count">{group.items.length}</span>
-                <Icon
-                  name={isCollapsed ? "chevron-right" : "chevron-down"}
-                  size={13}
-                  className="chev"
-                />
-              </button>
+      {/* View 1: Customizable Table View */}
+      {viewMode === "table" ? (
+        <div className="table-wrap" ref={listRef}>
+          <table className="table" style={{ width: "100%", textAlign: "left" }}>
+            <thead>
+              <tr>
+                <th style={{ width: 38, textAlign: "center" }}>
+                  <input
+                    type="checkbox"
+                    aria-label="Select all contacts"
+                    checked={rows.length > 0 && selection.size === rows.length}
+                    onChange={(e) => {
+                      if (e.target.checked) setSelection(new Set(rows.map((r) => r.id)));
+                      else setSelection(new Set());
+                    }}
+                  />
+                </th>
+                <th style={{ width: 34, textAlign: "center" }}>Prio</th>
+                {isColVisible("contact") && <th style={{ minWidth: 200 }}>Lead / Contact</th>}
+                {isColVisible("stage") && <th style={{ minWidth: 155 }}>Stage / Status</th>}
+                {isColVisible("phone") && <th style={{ minWidth: 130 }}>Phone</th>}
+                {isColVisible("notes") && <th style={{ minWidth: 190 }}>Notes</th>}
+                {isColVisible("callback") && <th style={{ minWidth: 140 }}>Next Callback</th>}
+                {isColVisible("owner") && <th style={{ minWidth: 130 }}>Assigned Closer</th>}
+                {isColVisible("value") && <th style={{ minWidth: 90 }}>Deal Value</th>}
+                {isColVisible("source") && <th style={{ minWidth: 110 }}>Source</th>}
+                {isColVisible("email") && <th style={{ minWidth: 150 }}>Email</th>}
+                {isColVisible("tags") && <th style={{ minWidth: 120 }}>Tags</th>}
+                {isColVisible("updatedAt") && (
+                  <th style={{ minWidth: 90, textAlign: "right" }}>Last Activity</th>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((lead, idx) => {
+                const isSelected = selection.has(lead.id);
+                const src = sourceMeta(lead.source);
+                const callbackInfo = formatCallbackInfo(lead.followUp);
 
-              {!isCollapsed
-                ? group.items.map((lead) => {
-                    index += 1;
-                    const idx = index;
-                    const isSelected = selection.has(lead.id);
-                    const src = sourceMeta(lead.source);
-                    return (
-                      <div
-                        key={lead.id}
-                        data-idx={idx}
-                        data-selected={cursor === idx || isSelected}
-                        className="list-row"
-                        role="button"
-                        tabIndex={0}
-                        onMouseMove={() => setCursor(idx)}
-                        onClick={() => setSelected(lead.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") setSelected(lead.id);
+                return (
+                  <tr
+                    key={lead.id}
+                    data-idx={idx}
+                    data-selected={cursor === idx || isSelected}
+                    onClick={() => setSelected(lead.id)}
+                    tabIndex={0}
+                    onMouseMove={() => setCursor(idx)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") setSelected(lead.id);
+                    }}
+                  >
+                    {/* Checkbox */}
+                    <td
+                      onClick={(e) => e.stopPropagation()}
+                      style={{ width: 38, textAlign: "center" }}
+                    >
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${lead.name}`}
+                        checked={isSelected}
+                        onChange={() => {
+                          setSelection((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(lead.id)) next.delete(lead.id);
+                            else next.add(lead.id);
+                            return next;
+                          });
                         }}
+                      />
+                    </td>
+
+                    {/* Priority */}
+                    <td style={{ width: 34, textAlign: "center" }}>
+                      <span
+                        className="list-prio"
+                        title={`Priority: ${PRIORITY_LABEL[lead.priority]}`}
                       >
-                        <span className="list-prio" title={`Priority: ${PRIORITY_LABEL[lead.priority]}`}>
-                          <Icon
-                            name={PRIORITY_ICON[lead.priority] as never}
-                            size={14}
-                            className="prio"
-                            data-priority={lead.priority}
-                            aria-label={PRIORITY_LABEL[lead.priority]}
-                          />
-                        </span>
-                        <span className="list-id">{lead.code}</span>
-                        <span className="list-title">
-                          <strong>{lead.name}</strong>
-                          <span>{lead.company}</span>
-                        </span>
-                        <span className="list-cell">
-                          <span className="linear-tag" data-tone={src.tone}>
-                            <Icon name={src.icon} size={11} /> {src.label}
+                        <Icon
+                          name={PRIORITY_ICON[lead.priority] as never}
+                          size={14}
+                          className="prio"
+                          data-priority={lead.priority}
+                          aria-label={PRIORITY_LABEL[lead.priority]}
+                        />
+                      </span>
+                    </td>
+
+                    {/* Lead / Contact */}
+                    {isColVisible("contact") && (
+                      <td>
+                        <div className="cell-person">
+                          <div>
+                            <div className="cell-name">{lead.name}</div>
+                            <span className="cell-sub">
+                              {lead.code} · {lead.company || "Direct Inquiry"}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+                    )}
+
+                    {/* Quick Inline Stage / Status Dropdown */}
+                    {isColVisible("stage") && (
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <div className="stage-select-cell">
+                          <span className="dot" data-tone={stageMeta(lead.stage).tone} />
+                          <select
+                            className="select stage-quick-select"
+                            data-size="sm"
+                            value={lead.stage}
+                            onChange={(e) => {
+                              const nextStage = e.target.value as StageId;
+                              handleStageChange(lead.id, nextStage, lead.name);
+                            }}
+                            aria-label={`Change stage for ${lead.name}`}
+                          >
+                            {STAGES.map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </td>
+                    )}
+
+                    {/* Phone */}
+                    {isColVisible("phone") && (
+                      <td onClick={(e) => e.stopPropagation()}>
+                        {lead.phone ? (
+                          <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            <a
+                              href={`tel:${lead.phone}`}
+                              className="cell-muted"
+                              style={{ fontFamily: "var(--mono)", textDecoration: "none" }}
+                              title={`Call ${lead.phone}`}
+                            >
+                              {lead.phone}
+                            </a>
+                            <a
+                              href={`https://wa.me/${lead.phone.replace(/\D/g, "")}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="icon-btn"
+                              style={{ width: 20, height: 20 }}
+                              title="Chat on WhatsApp"
+                            >
+                              <Icon name="whatsapp" size={11} />
+                            </a>
+                          </div>
+                        ) : (
+                          <span className="cell-muted">—</span>
+                        )}
+                      </td>
+                    )}
+
+                    {/* Notes */}
+                    {isColVisible("notes") && (
+                      <td>
+                        {lead.notes ? (
+                          <div className="contact-note-cell" title={lead.notes}>
+                            <Icon name="message" size={12} className="note-icon" />
+                            <span className="note-text">{lead.notes}</span>
+                          </div>
+                        ) : (
+                          <span className="cell-muted">—</span>
+                        )}
+                      </td>
+                    )}
+
+                    {/* Next Callback / SLA */}
+                    {isColVisible("callback") && (
+                      <td>
+                        {callbackInfo ? (
+                          <span
+                            className="chip"
+                            data-tone={callbackInfo.tone}
+                            data-size="sm"
+                            title={callbackInfo.title}
+                          >
+                            <Icon name={callbackInfo.icon} size={11} />
+                            <span>{callbackInfo.text}</span>
                           </span>
-                        </span>
-                        <span className="list-cell th-num">{compactMoney(lead.value)}</span>
-                        <span className="list-avatar">
+                        ) : (
+                          <span className="cell-muted">—</span>
+                        )}
+                      </td>
+                    )}
+
+                    {/* Assigned Closer */}
+                    {isColVisible("owner") && (
+                      <td>
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                           <span
                             className={`mini-avatar ${lead.owner === "Unassigned" ? "is-empty" : ""}`}
                           >
                             {lead.owner === "Unassigned" ? "?" : lead.owner.slice(0, 1)}
                           </span>
-                          <span className="list-cell">{lead.owner}</span>
+                          <span className="cell-muted">{lead.owner}</span>
+                        </div>
+                      </td>
+                    )}
+
+                    {/* Deal Value */}
+                    {isColVisible("value") && (
+                      <td style={{ fontWeight: 550, fontFamily: "var(--mono)" }}>
+                        {compactMoney(lead.value)}
+                      </td>
+                    )}
+
+                    {/* Source Channel */}
+                    {isColVisible("source") && (
+                      <td>
+                        <span className="linear-tag" data-tone={src.tone}>
+                          <Icon name={src.icon} size={11} /> {src.label}
                         </span>
-                        <span className="list-cell hide-sm" style={{ textAlign: "right" }}>{relativeTime(lead.updatedAt)}</span>
-                      </div>
-                    );
-                  })
-                : null}
+                      </td>
+                    )}
+
+                    {/* Email */}
+                    {isColVisible("email") && (
+                      <td onClick={(e) => e.stopPropagation()}>
+                        {lead.email ? (
+                          <a
+                            href={`mailto:${lead.email}`}
+                            className="cell-muted"
+                            style={{ textDecoration: "none" }}
+                            title={`Email ${lead.email}`}
+                          >
+                            {lead.email}
+                          </a>
+                        ) : (
+                          <span className="cell-muted">—</span>
+                        )}
+                      </td>
+                    )}
+
+                    {/* Tags */}
+                    {isColVisible("tags") && (
+                      <td>
+                        {lead.tags && lead.tags.length > 0 ? (
+                          <div style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
+                            {lead.tags.slice(0, 2).map((t, i) => (
+                              <span key={i} className="chip" data-size="sm" data-tone="neutral">
+                                {t}
+                              </span>
+                            ))}
+                            {lead.tags.length > 2 && (
+                              <span className="cell-muted" style={{ fontSize: 11 }}>
+                                +{lead.tags.length - 2}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="cell-muted">—</span>
+                        )}
+                      </td>
+                    )}
+
+                    {/* Last Activity */}
+                    {isColVisible("updatedAt") && (
+                      <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                        <span className="cell-muted">{relativeTime(lead.updatedAt)}</span>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+
+              {!rows.length && (
+                <tr>
+                  <td
+                    colSpan={visibleColumns.length + 2}
+                    style={{ textAlign: "center", padding: "48px 24px" }}
+                  >
+                    <div className="empty">
+                      <span className="empty-icon">
+                        <Icon name="users" size={18} />
+                      </span>
+                      <h3>No contacts found</h3>
+                      <p>Nothing matches the current search or stage filter.</p>
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={() => {
+                          setQuery("");
+                          setStage("");
+                        }}
+                      >
+                        Reset filters
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        /* View 2: Grouped by Stage (with inline stage mover) */
+        <div className="list" ref={listRef}>
+          {groups.map((group) => {
+            const isCollapsed = collapsed.has(group.meta.id);
+            return (
+              <div key={group.meta.id}>
+                <button
+                  type="button"
+                  className="list-group-head"
+                  aria-expanded={!isCollapsed}
+                  onClick={() => toggleGroup(group.meta.id)}
+                >
+                  <span className="list-group-icon" data-tone={group.meta.tone}>
+                    <Icon name={group.meta.icon} size={14} />
+                  </span>
+                  <span className="list-group-title">{group.meta.label}</span>
+                  <span className="list-group-count">{group.items.length}</span>
+                  <Icon
+                    name={isCollapsed ? "chevron-right" : "chevron-down"}
+                    size={13}
+                    className="chev"
+                  />
+                </button>
+
+                {!isCollapsed
+                  ? group.items.map((lead) => {
+                      flatIndex += 1;
+                      const idx = flatIndex;
+                      const isSelected = selection.has(lead.id);
+                      const src = sourceMeta(lead.source);
+                      const callbackInfo = formatCallbackInfo(lead.followUp);
+
+                      return (
+                        <div
+                          key={lead.id}
+                          data-idx={idx}
+                          data-selected={cursor === idx || isSelected}
+                          className="list-row"
+                          role="button"
+                          tabIndex={0}
+                          onMouseMove={() => setCursor(idx)}
+                          onClick={() => setSelected(lead.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") setSelected(lead.id);
+                          }}
+                        >
+                          <span
+                            className="list-prio"
+                            title={`Priority: ${PRIORITY_LABEL[lead.priority]}`}
+                          >
+                            <Icon
+                              name={PRIORITY_ICON[lead.priority] as never}
+                              size={14}
+                              className="prio"
+                              data-priority={lead.priority}
+                              aria-label={PRIORITY_LABEL[lead.priority]}
+                            />
+                          </span>
+                          <span className="list-id">{lead.code}</span>
+                          <span className="list-title">
+                            <strong>{lead.name}</strong>
+                            <span>{lead.company}</span>
+                          </span>
+
+                          {/* Quick Stage Selector in Grouped View */}
+                          <span
+                            className="list-cell"
+                            onClick={(e) => e.stopPropagation()}
+                            style={{ minWidth: 120 }}
+                          >
+                            <select
+                              className="select stage-quick-select"
+                              data-size="sm"
+                              value={lead.stage}
+                              onChange={(e) => {
+                                const nextStage = e.target.value as StageId;
+                                handleStageChange(lead.id, nextStage, lead.name);
+                              }}
+                              aria-label={`Change stage for ${lead.name}`}
+                            >
+                              {STAGES.map((s) => (
+                                <option key={s.id} value={s.id}>
+                                  {s.label}
+                                </option>
+                              ))}
+                            </select>
+                          </span>
+
+                          {isColVisible("callback") && callbackInfo && (
+                            <span className="list-cell">
+                              <span className="chip" data-tone={callbackInfo.tone} data-size="sm">
+                                <Icon name={callbackInfo.icon} size={11} /> {callbackInfo.text}
+                              </span>
+                            </span>
+                          )}
+
+                          {isColVisible("notes") && lead.notes && (
+                            <span className="list-cell" style={{ maxWidth: 140 }}>
+                              <span className="contact-note-cell" title={lead.notes}>
+                                <Icon name="message" size={11} className="note-icon" />
+                                <span className="note-text">{lead.notes}</span>
+                              </span>
+                            </span>
+                          )}
+
+                          <span className="list-cell">
+                            <span className="linear-tag" data-tone={src.tone}>
+                              <Icon name={src.icon} size={11} /> {src.label}
+                            </span>
+                          </span>
+                          <span className="list-cell th-num">{compactMoney(lead.value)}</span>
+                          <span className="list-avatar">
+                            <span
+                              className={`mini-avatar ${lead.owner === "Unassigned" ? "is-empty" : ""}`}
+                            >
+                              {lead.owner === "Unassigned" ? "?" : lead.owner.slice(0, 1)}
+                            </span>
+                            <span className="list-cell">{lead.owner}</span>
+                          </span>
+                          <span className="list-cell hide-sm" style={{ textAlign: "right" }}>
+                            {relativeTime(lead.updatedAt)}
+                          </span>
+                        </div>
+                      );
+                    })
+                  : null}
+              </div>
+            );
+          })}
+
+          {!rows.length ? (
+            <div className="empty">
+              <span className="empty-icon">
+                <Icon name="users" size={18} />
+              </span>
+              <h3>No contacts found</h3>
+              <p>Nothing matches the current search or status filter.</p>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => {
+                  setQuery("");
+                  setStage("");
+                }}
+              >
+                Reset filters
+              </button>
             </div>
-          );
-        })}
+          ) : null}
+        </div>
+      )}
 
-        {!rows.length ? (
-          <div className="empty">
-            <span className="empty-icon">
-              <Icon name="users" size={18} />
-            </span>
-            <h3>No contacts found</h3>
-            <p>Nothing matches the current search or status filter.</p>
-            <button
-              className="btn"
-              onClick={() => {
-                setQuery("");
-                setStage("");
-              }}
-            >
-              Reset filters
-            </button>
-          </div>
-        ) : null}
-      </div>
+      {/* Stage Change Feedback Toast */}
+      {toastMessage && (
+        <div className="contact-stage-toast" role="status">
+          <Icon name="check" size={14} style={{ color: "var(--accent)" }} />
+          <span>{toastMessage}</span>
+        </div>
+      )}
 
+      {/* Full Lead Details Drawer */}
       {active ? <LeadDrawer lead={active} onClose={() => setSelected(null)} /> : null}
     </div>
   );
