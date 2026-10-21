@@ -938,7 +938,8 @@ export function SettingsView() {
           </div>
           <button
             type="button"
-            className="btn btn-primary"
+            className="btn"
+            data-variant="primary"
             disabled={isSavingAi}
             onClick={handleSaveAiConfig}
             style={{ fontWeight: 600 }}

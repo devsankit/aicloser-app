@@ -103,7 +103,7 @@ export function FormsView() {
       stage: targetStage,
       owner: "Unassigned",
       priority: "high" as Priority,
-      followUp: new Date(Date.now() + 86400000).toISOString(),
+      followUp: "",
       tags: ["web-form", "inbound"],
       notes: `Submitted via published form: ${formTitle}`,
     });

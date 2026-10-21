@@ -755,6 +755,10 @@ export function PipelineView() {
               <button data-on={sort === "priority"} onClick={() => setSort("priority")} aria-pressed={sort === "priority"}>
                 <Icon name="priority-high" size={12} /> Priority
               </button>
+
+              <button data-on={sort === "value"} onClick={() => setSort("value")} aria-pressed={sort === "value"}>
+                <Icon name="tag" size={12} /> Value
+              </button>
             </div>
 
             <span className="col-w-label">{state.colWidth}px columns</span>
@@ -844,9 +848,12 @@ export function PipelineView() {
                     </button>
                     <button
                       className="icon-btn col-add"
-                      onClick={() => setLayout({ colWidth: state.colWidth })}
+                      onClick={() => {
+                        const nextWidth = state.colWidth <= 280 ? 330 : state.colWidth <= 330 ? 380 : 280;
+                        setLayout({ colWidth: nextWidth });
+                      }}
                       aria-label={`${stage.label} column options`}
-                      title="Columns resize together — drag a divider"
+                      title="Click to toggle column width preset (280px / 330px / 380px)"
                     >
                       <Icon name="more" size={14} />
                     </button>

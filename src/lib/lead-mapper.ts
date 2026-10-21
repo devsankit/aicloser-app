@@ -90,7 +90,7 @@ export function backendLeadToUiLead(b: BackendLead): UiLead {
     assignedAgentId,
     priority: normalizePriority(b.priority),
     owner: (b as any).assignedAgent?.user?.displayName || b.assignedAgent?.displayName || "Unassigned",
-    followUp: b.followUpAt || new Date(Date.now() + 86400000).toISOString(),
+    followUp: b.followUpAt || "",
     tags: Array.isArray(b.tags) ? b.tags : [],
     notes: b.notes || (custom.notes as string) || "",
     updatedAt: b.updatedAt || b.createdAt || new Date().toISOString(),

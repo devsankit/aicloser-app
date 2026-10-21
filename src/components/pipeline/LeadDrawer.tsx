@@ -24,13 +24,14 @@ import {
 export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void }) {
   const { moveLead, updateLead, deleteLead, state, setLayout, claimLead, reassignLead } = useApp();
   const [draft, setDraft] = useState(lead);
+  const [rawTagsInput, setRawTagsInput] = useState(lead.tags.join(", "));
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
   const [phoneCopied, setPhoneCopied] = useState(false);
   const [showMaskedPhone, setShowMaskedPhone] = useState(false);
   const [reassignModalOpen, setReassignModalOpen] = useState(false);
-  const [targetCloser, setTargetCloser] = useState("Admin");
+  const [targetCloser, setTargetCloser] = useState("");
   const [handoverNote, setHandoverNote] = useState("");
 
   const allOwners = useMemo(() => {
@@ -42,8 +43,19 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
     return Array.from(set);
   }, [state.user, state.leads]);
 
+  const availableOwners = useMemo(() => {
+    return allOwners.filter((o) => o !== "Unassigned" && o !== draft.owner);
+  }, [allOwners, draft.owner]);
+
+  useEffect(() => {
+    if (availableOwners.length > 0 && (!targetCloser || !availableOwners.includes(targetCloser))) {
+      setTargetCloser(availableOwners[0]);
+    }
+  }, [availableOwners, targetCloser]);
+
   useEffect(() => {
     setDraft(lead);
+    setRawTagsInput(lead.tags.join(", "));
     setConfirmDelete(false);
     setSaved(false);
   }, [lead]);
@@ -271,7 +283,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                     onChange={(e) => setTargetCloser(e.target.value)}
                     style={{ width: "100%", height: "28px", marginTop: "2px" }}
                   >
-                    {allOwners.filter((o) => o !== "Unassigned" && o !== draft.owner).map((o) => (
+                    {availableOwners.map((o) => (
                       <option key={o} value={o}>{o}</option>
                     ))}
                   </select>
@@ -437,18 +449,27 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
               </span>
               <input
                 className="input"
-                value={draft.tags.join(", ")}
-                onChange={(e) =>
+                value={rawTagsInput}
+                onChange={(e) => {
+                  setRawTagsInput(e.target.value);
                   set(
                     "tags",
                     e.target.value
                       .split(",")
                       .map((t) => t.trim())
                       .filter(Boolean),
-                  )
-                }
+                  );
+                }}
+                onBlur={() => {
+                  const cleaned = rawTagsInput
+                    .split(",")
+                    .map((t) => t.trim())
+                    .filter(Boolean);
+                  set("tags", cleaned);
+                  setRawTagsInput(cleaned.join(", "));
+                }}
                 placeholder="hot, inbound"
-                aria-label="Labels"
+                aria-label="Labels comma separated"
               />
             </div>
 

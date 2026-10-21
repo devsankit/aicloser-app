@@ -63,8 +63,8 @@ export interface Lead {
   assignedAgentId?: string;
   priority: Priority;
   owner: string;
-  /** Next follow-up date, ISO — the SLA column. */
-  followUp: string;
+  /** Next follow-up date, ISO — the SLA column. Empty/null if no callback scheduled. */
+  followUp?: string;
   tags: string[];
   notes: string;
   updatedAt: string; // ISO

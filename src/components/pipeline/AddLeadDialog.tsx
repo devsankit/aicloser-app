@@ -41,7 +41,7 @@ export function AddLeadDialog({
     stage: defaultStage,
     owner: currentUserName,
     priority: "medium" as Priority,
-    followUp: new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10),
+    followUp: "",
   });
   const [error, setError] = useState<string | null>(null);
 
@@ -104,10 +104,10 @@ export function AddLeadDialog({
     setSubmitting(true);
     setError(null);
 
-    const parsedFollowUp = form.followUp ? new Date(`${form.followUp}T11:00:00`) : new Date(Date.now() + 86400000);
-    const followUpIso = !isNaN(parsedFollowUp.getTime())
+    const parsedFollowUp = form.followUp ? new Date(`${form.followUp}T11:00:00`) : null;
+    const followUpIso = parsedFollowUp && !isNaN(parsedFollowUp.getTime())
       ? parsedFollowUp.toISOString()
-      : new Date(Date.now() + 86400000).toISOString();
+      : undefined;
 
     const assignedAgentId = ownerAgentMap[form.owner];
 

@@ -958,6 +958,17 @@ svg {
   box-shadow: var(--shadow-sm);
 }
 
+.seg[data-size="sm"] {
+  padding: 1px;
+}
+
+.seg[data-size="sm"] button {
+  height: 22px;
+  padding: 0 6px;
+  font-size: 11px;
+  gap: 3px;
+}
+
 /* ---------- search popover ---------- */
 .search-wrap {
   position: relative;
@@ -1302,6 +1313,12 @@ svg {
   background: var(--danger-soft);
   border-color: transparent;
   color: var(--danger);
+}
+
+.chip[data-tone="info"] {
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.28);
+  color: #38bdf8;
 }
 
 .dot {
@@ -3399,6 +3416,19 @@ svg {
   align-items: center;
   justify-content: center;
   color: var(--text-tertiary);
+}
+
+button.list-prio {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: var(--r-sm);
+  transition: opacity 120ms ease;
+}
+
+button.list-prio:hover {
+  opacity: 0.75;
 }
 
 .linear-tag {

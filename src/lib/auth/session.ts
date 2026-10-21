@@ -198,8 +198,6 @@ export function createSessionPayload(session: SessionInput): SessionUser {
 
 export async function getSessionContext(): Promise<SessionContext> {
   const store = await cookies();
-  const legacyRole = store.get("gx_role")?.value ?? "GUEST";
-  const legacyTenantId = store.get("gx_tenant")?.value ?? null;
   const token = (await getBearerSessionToken()) ?? store.get(SESSION_COOKIE_NAME)?.value ?? null;
   const verified = await verifySessionToken(token);
 
@@ -289,9 +287,9 @@ export async function getSessionContext(): Promise<SessionContext> {
 
   return {
     userId: null,
-    role: legacyRole as UserRole,
+    role: "GUEST",
     assignedRole: null,
-    tenantId: legacyTenantId,
+    tenantId: null,
     displayName: null,
     email: null,
     phone: null,

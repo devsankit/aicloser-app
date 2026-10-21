@@ -316,7 +316,7 @@ export function LeadImportView() {
           stage: targetStage,
           owner: finalOwner,
           priority: "medium" as Priority,
-          followUp: new Date(Date.now() + 2 * 86400000).toISOString(),
+          followUp: "",
           tags: ["imported-batch", targetSource.toLowerCase().replace(/\s+/g, "-")],
           notes: `Imported via ${targetSource} channel (${uploadedFile?.name || "batch"}). Target: ${finalOwner}.`,
         });

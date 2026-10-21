@@ -65,6 +65,13 @@ const DEFAULT_COLUMNS: ContactColumnId[] = [
   "updatedAt",
 ];
 
+const PRIO_CYCLE: Record<Priority, Priority> = {
+  low: "medium",
+  medium: "high",
+  high: "urgent",
+  urgent: "low",
+};
+
 function formatCallbackInfo(followUpIso?: string) {
   if (!followUpIso) return null;
   const d = new Date(followUpIso);
@@ -670,9 +677,17 @@ export function ContactsView() {
 
                     {/* Priority */}
                     <td style={{ width: 34, textAlign: "center" }}>
-                      <span
+                      <button
+                        type="button"
                         className="list-prio"
-                        title={`Priority: ${PRIORITY_LABEL[lead.priority]}`}
+                        aria-label={`Change priority from ${PRIORITY_LABEL[lead.priority]}`}
+                        title={`Priority: ${PRIORITY_LABEL[lead.priority]} · Click to change`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const nextPrio = PRIO_CYCLE[lead.priority] || "medium";
+                          updateLead(lead.id, { priority: nextPrio });
+                          setToastMessage(`Updated ${lead.name} priority to ${PRIORITY_LABEL[nextPrio]}`);
+                        }}
                       >
                         <Icon
                           name={PRIORITY_ICON[lead.priority] as never}
@@ -681,7 +696,7 @@ export function ContactsView() {
                           data-priority={lead.priority}
                           aria-label={PRIORITY_LABEL[lead.priority]}
                         />
-                      </span>
+                      </button>
                     </td>
 
                     {/* Lead / Contact */}
@@ -947,9 +962,17 @@ export function ContactsView() {
                             if (e.key === "Enter") setSelected(lead.id);
                           }}
                         >
-                          <span
+                          <button
+                            type="button"
                             className="list-prio"
-                            title={`Priority: ${PRIORITY_LABEL[lead.priority]}`}
+                            aria-label={`Change priority from ${PRIORITY_LABEL[lead.priority]}`}
+                            title={`Priority: ${PRIORITY_LABEL[lead.priority]} · Click to change`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const nextPrio = PRIO_CYCLE[lead.priority] || "medium";
+                              updateLead(lead.id, { priority: nextPrio });
+                              setToastMessage(`Updated ${lead.name} priority to ${PRIORITY_LABEL[nextPrio]}`);
+                            }}
                           >
                             <Icon
                               name={PRIORITY_ICON[lead.priority] as never}
@@ -958,7 +981,7 @@ export function ContactsView() {
                               data-priority={lead.priority}
                               aria-label={PRIORITY_LABEL[lead.priority]}
                             />
-                          </span>
+                          </button>
                           <span className="list-id">{lead.code}</span>
                           <span className="list-title">
                             <strong>{lead.name}</strong>

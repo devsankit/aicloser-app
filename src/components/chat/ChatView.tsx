@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { CURRENT_USER, useApp } from "@/lib/store";
-import { STAGES, type StageId } from "@/lib/types";
+import { STAGES, type StageId, type Priority } from "@/lib/types";
 import { aicloserApi } from "@/lib/api-client";
 import { isScannedWhatsAppLead } from "@/lib/lead-mapper";
 import { LeadCommandHistory } from "@/components/pipeline/LeadCommandHistory";
@@ -1123,6 +1123,13 @@ export function ChatView() {
     setInputText(text);
   };
 
+  const handlePriorityChange = (newPriority: Priority) => {
+    if (activeLead) {
+      updateLead(activeLead.id, { priority: newPriority });
+      aicloserApi.leads.update(activeLead.id, { priority: newPriority }).catch(() => {});
+    }
+  };
+
   const handleStageChange = (newStage: StageId) => {
     setChatStage(newStage);
     if (activeLead) {
@@ -1417,7 +1424,7 @@ export function ChatView() {
                 </div>
               )}
             </div>
-            <div className="seg" style={{ transform: "scale(0.88)", transformOrigin: "right center" }}>
+            <div className="seg" data-size="sm">
               <button
                 data-on={scopeFilter === "all"}
                 onClick={() => {
@@ -2139,6 +2146,26 @@ export function ChatView() {
                   {s.label}
                 </option>
               ))}
+            </select>
+          </div>
+
+          {/* Priority Selector */}
+          <div className="card" style={{ padding: "12px", background: "var(--bg-surface)" }}>
+            <label htmlFor="chat-priority" style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
+              Lead Priority
+            </label>
+            <select
+              className="select"
+              id="chat-priority"
+              value={activeLead?.priority || "medium"}
+              onChange={(e) => handlePriorityChange(e.target.value as Priority)}
+              disabled={!activeLead}
+              style={{ width: "100%", marginTop: "6px", fontWeight: 600 }}
+            >
+              <option value="urgent">🔴 Urgent</option>
+              <option value="high">🟠 High</option>
+              <option value="medium">🟡 Medium</option>
+              <option value="low">⚪ Low</option>
             </select>
           </div>
 

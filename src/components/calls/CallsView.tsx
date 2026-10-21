@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { aicloserApi } from "@/lib/api-client";
 import { useApp } from "@/lib/store";
@@ -48,98 +48,94 @@ export function CallsView() {
   const [callerScope, setCallerScope] = useState<"all" | "mine">("all");
   const [activeAudioId, setActiveAudioId] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [selectedTranscriptCall, setSelectedTranscriptCall] = useState<CallRecord | null>(null);
 
-  useEffect(() => {
-    let active = true;
-
-    // 1. Fetch live calls and summary totals
-    fetch("/api/sales/call-reports?limit=100")
-      .then((r) => r.json())
-      .then((res) => {
-        if (!active) return;
-        if (res.totals) setTotals(res.totals);
-        const sourceCalls = res.calls || [];
-        if (sourceCalls.length > 0) {
-          const mapped: CallRecord[] = sourceCalls.map((c: any) => {
-            const rawPhone = c.phoneNumber || c.assignment?.customerPhone || "";
-            const displayName = c.assignment?.customerName || rawPhone || "Direct Caller";
-            return {
-              id: c.id,
-              leadCode: c.assignment?.id ? `CLO-${c.assignment.id.slice(-4).toUpperCase()}` : "CLO-LIVE",
-              customerName: displayName,
-              company: c.assignment?.stage ? `${c.assignment.stage}` : "Direct Telephony Call",
-              phone: rawPhone,
-              closerName: c.agent?.user?.displayName || "Assigned Closer",
-              simSlot: c.device?.deviceName || c.device?.model || "SIM Relay Desk",
-              direction:
-                String(c.direction).toUpperCase() === "INBOUND"
-                  ? "inbound"
-                  : c.durationSeconds === 0 || String(c.status).toUpperCase() === "MISSED"
-                  ? "missed"
-                  : "outbound",
-              durationSeconds: Number(c.durationSeconds ?? c.durationSec ?? 0),
-              timestamp: c.startedAt
-                ? new Date(c.startedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })
-                : "Today",
-              disposition: c.outcome || c.status || "Completed",
-              sentiment: "neutral",
-              aiSummary: c.note || (c.durationSeconds > 0 ? "Direct call recording logged." : "Unanswered missed call."),
-              transcript: [],
-              audioUrl: c.recordingUrl || (c.recordingStatus === "UPLOADED" ? `/api/sales/mobile/calls/${c.id}/recording` : undefined),
-              callbackPending: String(c.status).toUpperCase() === "MISSED" || c.durationSeconds === 0,
-            };
-          });
+  const loadData = useCallback(async () => {
+    try {
+      const r = await fetch("/api/sales/call-reports?limit=100");
+      const res = await r.json();
+      if (res.totals) setTotals(res.totals);
+      const sourceCalls = res.calls || [];
+      if (sourceCalls.length > 0) {
+        const mapped: CallRecord[] = sourceCalls.map((c: any) => {
+          const rawPhone = c.phoneNumber || c.assignment?.customerPhone || "";
+          const displayName = c.assignment?.customerName || rawPhone || "Direct Caller";
+          return {
+            id: c.id,
+            leadCode: c.assignment?.id ? `CLO-${c.assignment.id.slice(-4).toUpperCase()}` : "CLO-LIVE",
+            customerName: displayName,
+            company: c.assignment?.stage ? `${c.assignment.stage}` : "Direct Telephony Call",
+            phone: rawPhone,
+            closerName: c.agent?.user?.displayName || "Assigned Closer",
+            simSlot: c.device?.deviceName || c.device?.model || "SIM Relay Desk",
+            direction:
+              String(c.direction).toUpperCase() === "INBOUND"
+                ? "inbound"
+                : c.durationSeconds === 0 || String(c.status).toUpperCase() === "MISSED"
+                ? "missed"
+                : "outbound",
+            durationSeconds: Number(c.durationSeconds ?? c.durationSec ?? 0),
+            timestamp: c.startedAt
+              ? new Date(c.startedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })
+              : "Today",
+            disposition: c.outcome || c.status || "Completed",
+            sentiment: "neutral",
+            aiSummary: c.note || (c.durationSeconds > 0 ? "Direct call recording logged." : "Unanswered missed call."),
+            transcript: [],
+            audioUrl: c.recordingUrl || (c.recordingStatus === "UPLOADED" ? `/api/sales/mobile/calls/${c.id}/recording` : undefined),
+            callbackPending: String(c.status).toUpperCase() === "MISSED" || c.durationSeconds === 0,
+          };
+        });
+        setCalls(mapped);
+      } else {
+        const cRes: any = await aicloserApi.calls.list({ limit: 100 }).catch(() => null);
+        if (cRes?.calls?.length) {
+          const mapped: CallRecord[] = cRes.calls.map((c: any) => ({
+            id: c.id,
+            leadCode: c.assignment?.id ? `CLO-${c.assignment.id.slice(-4).toUpperCase()}` : "CLO-LIVE",
+            customerName: c.assignment?.customerName || c.phoneNumber || "Direct Caller",
+            company: c.assignment?.stage || "Direct Line",
+            phone: c.phoneNumber || c.assignment?.customerPhone || "",
+            closerName: c.agent?.user?.displayName || "Closer Agent",
+            simSlot: c.device?.deviceName || "SIM Relay",
+            direction:
+              c.direction === "INBOUND"
+                ? "inbound"
+                : c.durationSeconds === 0
+                ? "missed"
+                : "outbound",
+            durationSeconds: c.durationSeconds || 0,
+            timestamp: new Date(c.startedAt).toLocaleTimeString("en-IN", {
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+            disposition: c.outcome || c.status || "Completed",
+            sentiment: "neutral",
+            aiSummary: c.note || "Direct call record.",
+            transcript: [],
+            audioUrl: c.recordingUrl,
+            callbackPending: c.direction === "MISSED" || c.durationSeconds === 0,
+          }));
           setCalls(mapped);
-        } else {
-          aicloserApi.calls.list({ limit: 100 }).then((cRes: any) => {
-            if (!active || !cRes?.calls?.length) return;
-            const mapped: CallRecord[] = cRes.calls.map((c: any) => ({
-              id: c.id,
-              leadCode: c.assignment?.id ? `CLO-${c.assignment.id.slice(-4).toUpperCase()}` : "CLO-LIVE",
-              customerName: c.assignment?.customerName || c.phoneNumber || "Direct Caller",
-              company: c.assignment?.stage || "Direct Line",
-              phone: c.phoneNumber || c.assignment?.customerPhone || "",
-              closerName: c.agent?.user?.displayName || "Closer Agent",
-              simSlot: c.device?.deviceName || "SIM Relay",
-              direction:
-                c.direction === "INBOUND"
-                  ? "inbound"
-                  : c.durationSeconds === 0
-                  ? "missed"
-                  : "outbound",
-              durationSeconds: c.durationSeconds || 0,
-              timestamp: new Date(c.startedAt).toLocaleTimeString("en-IN", {
-                hour: "2-digit",
-                minute: "2-digit",
-              }),
-              disposition: c.outcome || c.status || "Completed",
-              sentiment: "neutral",
-              aiSummary: c.note || "Direct call record.",
-              transcript: [],
-              audioUrl: c.recordingUrl,
-              callbackPending: c.durationSeconds === 0,
-            }));
-            setCalls(mapped);
-          }).catch(() => {});
         }
-      })
-      .catch(() => {});
+      }
 
-    // 2. Fetch live connected SIM devices
-    fetch("/api/sales/devices")
-      .then((r) => r.json())
-      .then((res) => {
-        if (active && Array.isArray(res.devices)) {
-          setDevices(res.devices);
+      const devRes = await fetch("/api/sales/devices").catch(() => null);
+      if (devRes && devRes.ok) {
+        const dJson = await devRes.json();
+        if (Array.isArray(dJson.devices)) {
+          setDevices(dJson.devices);
         }
-      })
-      .catch(() => {});
-
-    return () => {
-      active = false;
-    };
+      }
+    } catch {
+      // Non-blocking
+    }
   }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -223,7 +219,7 @@ export function CallsView() {
     }
   };
 
-  const handleResolveMissed = (callId: string) => {
+  const handleResolveMissed = async (callId: string) => {
     setCalls((prev) =>
       prev.map((c) =>
         c.id === callId
@@ -231,6 +227,15 @@ export function CallsView() {
           : c
       )
     );
+    try {
+      await fetch(`/api/sales/call-reports/${callId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ outcome: "Callback Completed", status: "COMPLETED" }),
+      }).catch(() => null);
+    } catch {
+      // Non-blocking
+    }
   };
 
   const filteredCalls = useMemo(() => {
@@ -277,8 +282,16 @@ export function CallsView() {
           </p>
         </div>
         <div style={{ display: "flex", gap: "8px" }}>
-          <button className="btn" data-variant="ghost" onClick={() => window.location.reload()}>
-            <Icon name="clock" size={13} /> Sync SIMs
+          <button
+            className="btn"
+            data-variant="ghost"
+            disabled={isSyncing}
+            onClick={() => {
+              setIsSyncing(true);
+              loadData().finally(() => setIsSyncing(false));
+            }}
+          >
+            <Icon name="clock" size={13} /> {isSyncing ? "Syncing..." : "Sync SIMs"}
           </button>
         </div>
       </header>
