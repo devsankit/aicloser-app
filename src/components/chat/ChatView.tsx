@@ -379,7 +379,7 @@ export function ChatView() {
           updatedAt: c.updatedAt,
           unreadCount: c.unreadCount || 0,
           assignedTo: c.assignedAgent?.displayName || "Unassigned",
-          aiAutoReplyDisabled: Boolean(c.payload?.aiAutoReplyDisabled),
+          aiAutoReplyDisabled: Boolean(c.aiAutoReplyDisabled ?? c.payload?.aiAutoReplyDisabled),
           messages: [],
         }));
 
@@ -450,6 +450,13 @@ export function ChatView() {
       .getMessages(activeChat.id)
       .then((res: any) => {
         if (!active) return;
+        const threadAiDisabled = res?.aiAutoReplyDisabled ?? res?.data?.aiAutoReplyDisabled;
+        if (typeof threadAiDisabled === "boolean") {
+          setAiAutoReply(!threadAiDisabled);
+          setConversations((prev) =>
+            prev.map((c) => (c.id === activeChat.id ? { ...c, aiAutoReplyDisabled: threadAiDisabled } : c))
+          );
+        }
         const apiMessages = res?.messages || res?.data?.messages || [];
         if (Array.isArray(apiMessages) && apiMessages.length > 0) {
           const mappedMessages: ChatMessage[] = apiMessages
