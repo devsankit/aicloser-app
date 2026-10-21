@@ -4274,6 +4274,11 @@ svg {
   font-size: 12px;
 }
 
+.ai-key-input-wrap .input[data-masked="true"] {
+  -webkit-text-security: disc;
+  text-security: disc;
+}
+
 .ai-key-input-wrap .toggle-btn {
   position: absolute;
   right: 6px;

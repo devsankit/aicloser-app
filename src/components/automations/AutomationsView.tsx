@@ -344,6 +344,15 @@ Your objective:
       const cached = localStorage.getItem("aicloser_ai_providers_v2");
       if (cached) {
         const parsed = JSON.parse(cached);
+        // Purge any accidental browser password autofills from cache
+        Object.keys(parsed).forEach((k) => {
+          if (parsed[k]?.apiKey && (parsed[k].apiKey.includes("Anshita") || parsed[k].apiKey === "demo@123" || (!parsed[k].apiKey.includes("_") && parsed[k].apiKey.length < 24))) {
+            parsed[k].apiKey = "";
+          }
+          if (parsed[k]?.maskedApiKey && (parsed[k].maskedApiKey.includes("Anshita") || parsed[k].maskedApiKey.includes("demo"))) {
+            parsed[k].maskedApiKey = "";
+          }
+        });
         setProviders((prev) => ({ ...prev, ...parsed }));
       }
       const cachedBilling = localStorage.getItem("aicloser_ai_billing_v2");
@@ -515,12 +524,14 @@ Your objective:
 
   // AI BYOK Handlers
   const handleKeyChange = (providerId: string, val: string) => {
+    // Discard accidental password autofills
+    const cleanVal = (val.includes("Anshita") || val === "demo@123") ? "" : val;
     setProviders((prev) => ({
       ...prev,
       [providerId]: {
         ...prev[providerId],
-        apiKey: val,
-        isConfigured: Boolean(val.trim() || prev[providerId]?.maskedApiKey),
+        apiKey: cleanVal,
+        isConfigured: Boolean(cleanVal.trim() || prev[providerId]?.maskedApiKey),
       },
     }));
     setTestStatuses((prev) => ({ ...prev, [providerId]: {} }));
@@ -1946,22 +1957,45 @@ Your objective:
                         <div>
                           <div className="ai-key-input-wrap">
                             <input
-                              type={isVisible ? "text" : "password"}
+                              type="text"
+                              data-masked={!isVisible}
                               className="input"
+                              name={`byok_token_${meta.id}`}
+                              id={`byok_token_${meta.id}`}
+                              autoComplete="new-password"
+                              data-lpignore="true"
+                              data-1p-ignore="true"
+                              data-bwignore="true"
+                              data-form-type="other"
+                              data-private="true"
+                              spellCheck={false}
                               placeholder={prov.maskedApiKey ? `Configured: ${prov.maskedApiKey}` : `Enter Key (${meta.placeholder})`}
                               value={prov.apiKey}
                               onChange={(e) => handleKeyChange(meta.id, e.target.value)}
-                              autoComplete="off"
-                              spellCheck={false}
+                              style={{ paddingRight: prov.apiKey ? 56 : 32 }}
                             />
-                            <button
-                              type="button"
-                              className="toggle-btn"
-                              title={isVisible ? "Hide API Key" : "Show API Key"}
-                              onClick={() => toggleKeyVisibility(meta.id)}
-                            >
-                              <Icon name={isVisible ? "eye-off" : "eye"} size={13} />
-                            </button>
+                            <div style={{ position: "absolute", right: 6, display: "flex", alignItems: "center", gap: 2 }}>
+                              {prov.apiKey && (
+                                <button
+                                  type="button"
+                                  className="toggle-btn"
+                                  style={{ position: "static" }}
+                                  title="Clear Key"
+                                  onClick={() => handleKeyChange(meta.id, "")}
+                                >
+                                  <Icon name="close" size={12} />
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                className="toggle-btn"
+                                style={{ position: "static" }}
+                                title={isVisible ? "Hide API Key" : "Show API Key"}
+                                onClick={() => toggleKeyVisibility(meta.id)}
+                              >
+                                <Icon name={isVisible ? "eye-off" : "eye"} size={13} />
+                              </button>
+                            </div>
                           </div>
                           {meta.docsUrl && (
                             <div style={{ marginTop: 4, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
