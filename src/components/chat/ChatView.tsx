@@ -539,7 +539,20 @@ export function ChatView() {
     setTimeout(() => scrollToBottom("smooth"), 30);
 
     // Send to live backend API
-    aicloserApi.conversations.sendMessage(activeChat.id, textToSend).catch(() => {});
+    aicloserApi.conversations
+      .sendMessage(activeChat.id, textToSend)
+      .then((res: any) => {
+        const wamid = res?.data?.externalMessageId || res?.externalMessageId;
+        if (wamid) {
+          setMessagesCache((prev) => ({
+            ...prev,
+            [activeChat.id]: (prev[activeChat.id] || []).map((m) =>
+              m.id === newMsg.id ? { ...m, externalMessageId: wamid, status: "sent" } : m
+            ),
+          }));
+        }
+      })
+      .catch(() => {});
   };
 
   const handleApplyMacro = (text: string) => {
