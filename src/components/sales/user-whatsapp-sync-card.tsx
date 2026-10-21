@@ -784,8 +784,8 @@ function UserWhatsAppSyncModal({
                 boxShadow: "0 8px 24px rgba(0,0,0,0.1)",
               }}
             >
-              {scanner?.qrCodeToken ? (
-                renderDeterministicQrSvg(scanner.qrCodeToken)
+              {scanner ? (
+                renderDeterministicQrSvg(scanner.qrCodeToken || scanner.sessionId || "wa_closer_qr")
               ) : (
                 <div style={{ width: "176px", height: "176px", display: "flex", alignItems: "center", justifyContent: "center" }}>
                   <RefreshCw size={24} className="animate-spin" color="#10b981" />

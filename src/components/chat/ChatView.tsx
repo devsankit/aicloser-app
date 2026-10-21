@@ -186,6 +186,13 @@ export function ChatView() {
       if (urlId) setSelectedChatId(urlId);
     }
   }, []);
+
+  // When admin selects a closer from the header dropdown, automatically activate that closer's chats tab
+  useEffect(() => {
+    if (state.scope.startsWith("agent:")) {
+      setScopeFilter("mine");
+    }
+  }, [state.scope]);
   const [inputText, setInputText] = useState("");
   const [showRightDrawer, setShowRightDrawer] = useState(true);
   const [aiAutoReply, setAiAutoReply] = useState(true);
@@ -1313,7 +1320,7 @@ export function ChatView() {
             </div>
             <div className="seg" style={{ transform: "scale(0.88)", transformOrigin: "right center" }}>
               <button
-                data-on={scopeFilter === "all" && !state.scope.startsWith("agent:")}
+                data-on={scopeFilter === "all"}
                 onClick={() => {
                   setScopeFilter("all");
                   if (state.scope.startsWith("agent:")) setScope("all");
@@ -1323,10 +1330,9 @@ export function ChatView() {
                 All
               </button>
               <button
-                data-on={scopeFilter === "mine" || state.scope.startsWith("agent:") || state.scope === "mine"}
+                data-on={scopeFilter === "mine"}
                 onClick={() => {
                   setScopeFilter("mine");
-                  if (!state.scope.startsWith("agent:")) setScope("mine");
                 }}
                 title={state.scope.startsWith("agent:") ? `${state.scope.slice(6)}'s conversations` : "My assigned & personal QR chats"}
               >
@@ -1500,7 +1506,7 @@ export function ChatView() {
                           <Icon name="whatsapp" size={10} /> Official API
                         </span>
                       ) : chat.isPersonalQr || chat.channelSource === "QR_SCANNER" ? (
-                        <span className="chip" data-tone="neutral" style={{ fontSize: "10px", padding: "1px 6px", height: "18px", display: "inline-flex", alignItems: "center", gap: "3px" }}>
+                        <span className="chip" data-tone="success" style={{ fontSize: "10px", padding: "1px 6px", height: "18px", display: "inline-flex", alignItems: "center", gap: "3px" }}>
                           <Icon name="smartphone" size={10} /> {chat.scannedByName ? `QR: ${chat.scannedByName}` : "Personal QR"}
                         </span>
                       ) : chat.channel === "instagram" ? (
@@ -1591,7 +1597,7 @@ export function ChatView() {
                       <Icon name="whatsapp" size={12} /> Official Meta Cloud API • +91 95895 10954
                     </span>
                   ) : activeChat.isPersonalQr || activeChat.channelSource === "QR_SCANNER" ? (
-                    <span className="chip" data-tone="neutral" style={{ fontSize: "11px", padding: "1px 8px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                    <span className="chip" data-tone="success" style={{ fontSize: "11px", padding: "1px 8px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
                       <Icon name="smartphone" size={12} /> Personal Line ({activeChat.scannedByName ? `Scanned by ${activeChat.scannedByName}` : "WhatsApp QR"})
                     </span>
                   ) : activeChat.channel === "instagram" ? (
