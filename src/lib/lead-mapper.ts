@@ -82,6 +82,8 @@ export function backendLeadToUiLead(b: BackendLead): UiLead {
     email: b.customerEmail || "",
     value: typeof b.budgetAmount === "number" ? b.budgetAmount : 0,
     source: normalizeSource(b.source),
+    rawSource: b.source,
+    serviceInterest: b.serviceInterest,
     segment: normalizeSegment(b.segment),
     stage: normalizeStageId(b.stage),
     rawStage: b.stage,
@@ -115,4 +117,40 @@ export function uiLeadToBackendPayload(u: Partial<UiLead>): Partial<BackendLead>
     };
   }
   return payload;
+}
+
+/**
+ * Determines whether a lead represents a teammate's personal/business scanned WhatsApp chat.
+ * Teammates' scanned chats are isolated so they never leak into the general "All team leads"
+ * Kanban board/reassignment pool, and only display when specifically viewing that teammate's scope.
+ */
+export function isTeammateScannedWhatsAppLead(lead: UiLead): boolean {
+  const owner = (lead.owner || "").trim().toLowerCase();
+  // Unassigned pool leads or workspace owner leads are company leads, not private teammate chats
+  if (!owner || owner === "unassigned" || owner === "admin" || owner === "ankit rathore") {
+    return false;
+  }
+
+  const rawSrc = (lead.rawSource || "").toLowerCase();
+  const interest = (lead.serviceInterest || "").toLowerCase();
+  const comp = (lead.company || "").toLowerCase();
+  const tagsStr = (lead.tags || []).join(" ").toLowerCase();
+
+  const isScannerSource =
+    rawSrc.includes("qr_scanner") ||
+    rawSrc.includes("scanner") ||
+    rawSrc.includes("whatsapp_business_qr") ||
+    rawSrc.includes("whatsapp_personal_qr");
+
+  const isScannerInterestOrCompany =
+    interest.includes("whatsapp business lead") ||
+    interest.includes("whatsapp personal lead") ||
+    interest.includes("manual crm chat") ||
+    interest.includes("qr scanner") ||
+    comp.includes("whatsapp business lead") ||
+    comp.includes("whatsapp personal lead") ||
+    tagsStr.includes("scanner") ||
+    tagsStr.includes("qr_scanner");
+
+  return isScannerSource || isScannerInterestOrCompany;
 }

@@ -13,7 +13,7 @@ import {
 import type { Density, FontScale, Lead, LeadPoolItem, NavSpacing, Priority, Segment, StageId, Theme } from "./types";
 import { normalizeSource } from "./types";
 import { aicloserApi, type UserSession } from "./api-client";
-import { backendLeadToUiLead, uiLeadToBackendPayload, stageIdToBackendStage } from "./lead-mapper";
+import { backendLeadToUiLead, uiLeadToBackendPayload, stageIdToBackendStage, isTeammateScannedWhatsAppLead } from "./lead-mapper";
 
 const KEY = "closer.ui.v2";
 
@@ -970,7 +970,10 @@ export function useScopedLeads() {
         (l) => l.owner.toLowerCase() === targetAgent || l.owner.toLowerCase().includes(targetAgent)
       );
     }
-    return state.leads;
+    // Default "all" scope (All team leads):
+    // Strictly isolate teammates' scanned WhatsApp chats from the general company Kanban/leads pool.
+    // Teammate scanned WhatsApp chats will only appear when viewing that teammate specifically.
+    return state.leads.filter((l) => !isTeammateScannedWhatsAppLead(l));
   }, [state.leads, state.scope, state.user]);
 }
 

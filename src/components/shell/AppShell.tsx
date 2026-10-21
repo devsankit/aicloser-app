@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { ResizeHandle } from "@/components/ui/ResizeHandle";
 import { KeyboardProvider } from "@/components/keyboard/KeyboardProvider";
@@ -235,6 +235,66 @@ export function AppShell({ children }: { children: ReactNode }) {
   });
   const [workspaceInactive, setWorkspaceInactive] = useState<boolean>(false);
   const [impersonatingName, setImpersonatingName] = useState<string | null>(null);
+  const [teamMembers, setTeamMembers] = useState<Array<{ id: string; name: string; count: number }>>([]);
+
+  useEffect(() => {
+    let active = true;
+    aicloserApi.team.listMembers().then((res: any) => {
+      if (!active) return;
+      const rawList = Array.isArray(res)
+        ? res
+        : Array.isArray(res?.members)
+        ? res.members
+        : Array.isArray(res?.data?.members)
+        ? res.data.members
+        : [];
+      if (rawList.length > 0) {
+        const mapped = rawList
+          .filter((m: any) => {
+            const role = String(m.role || m.workspaceRole || "").toUpperCase();
+            return !role.includes("ADMIN");
+          })
+          .map((m: any) => ({
+            id: String(m.id || m.userId),
+            name: m.displayName || m.user?.displayName || m.name || "Sales Agent",
+            count: Number(m.assignedLeadsCount || m._count?.leadAssignments || 0),
+          }));
+        setTeamMembers(mapped);
+      }
+    }).catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const allTeamMembers = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; count: number }>();
+    for (const tm of teamMembers) {
+      map.set(tm.name.toLowerCase(), tm);
+    }
+    const leadCounts = new Map<string, number>();
+    for (const l of state.leads) {
+      const o = (l.owner || "").trim();
+      if (o && o !== "Unassigned" && o.toLowerCase() !== "admin" && o.toLowerCase() !== (state.user?.displayName || "").toLowerCase()) {
+        leadCounts.set(o.toLowerCase(), (leadCounts.get(o.toLowerCase()) || 0) + 1);
+      }
+    }
+    for (const [lowerName, count] of leadCounts.entries()) {
+      const existing = map.get(lowerName);
+      if (existing) {
+        existing.count = Math.max(existing.count, count);
+      } else {
+        const originalLead = state.leads.find((l) => l.owner?.toLowerCase() === lowerName);
+        const name = originalLead?.owner || lowerName;
+        map.set(lowerName, {
+          id: `lead-agent-${lowerName}`,
+          name,
+          count,
+        });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => b.count - a.count);
+  }, [teamMembers, state.leads, state.user?.displayName]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -877,9 +937,18 @@ export function AppShell({ children }: { children: ReactNode }) {
                 onChange={(e) => setScope(e.target.value as Scope)}
                 aria-label="Data scope"
               >
-                <option value="all">All team leads</option>
+                <option value="all">All team leads (General Leads)</option>
                 <option value="mine">My leads ({state.user?.displayName || CURRENT_USER})</option>
                 <option value="unassigned">Unassigned (Lead Grab Pool)</option>
+                {allTeamMembers.length > 0 && (
+                  <optgroup label="Teammates' Scanned WhatsApp & Leads">
+                    {allTeamMembers.map((tm) => (
+                      <option key={tm.id} value={`agent:${tm.name}`}>
+                        {tm.name} {tm.count > 0 ? `(${tm.count} leads)` : ""}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
             </label>
           )}

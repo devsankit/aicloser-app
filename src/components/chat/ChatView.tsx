@@ -287,14 +287,23 @@ export function ChatView() {
 
   const filteredConversations = useMemo(() => {
     const myName = (state.user?.displayName || CURRENT_USER).toLowerCase();
+    const isAgentScope = state.scope.startsWith("agent:");
+    const targetAgent = isAgentScope ? state.scope.slice(6).trim().toLowerCase() : null;
+
     return conversations.filter((c) => {
       const matchChannel = channelFilter === "all" || c.channel === channelFilter;
-      const matchScope =
-        scopeFilter === "all"
-          ? true
-          : scopeFilter === "mine"
-          ? c.assignedTo.toLowerCase() === myName || c.assignedTo === CURRENT_USER
-          : c.assignedTo === "Unassigned";
+
+      let matchScope = true;
+      if (targetAgent) {
+        // Scoped to a specific teammate selected in topbar: show that teammate's chats!
+        const assigned = (c.assignedTo || "").toLowerCase();
+        matchScope = assigned.includes(targetAgent) || assigned === targetAgent;
+      } else if (scopeFilter === "mine") {
+        matchScope = c.assignedTo.toLowerCase() === myName || c.assignedTo === CURRENT_USER;
+      } else if (scopeFilter === "unassigned") {
+        matchScope = c.assignedTo === "Unassigned";
+      }
+
       const q = search.trim().toLowerCase();
       const qDigits = q.replace(/\D/g, "");
       const phoneDigits = (c.phone || "").replace(/\D/g, "");
@@ -307,7 +316,7 @@ export function ChatView() {
         phoneMatches;
       return matchChannel && matchScope && matchSearch;
     });
-  }, [conversations, channelFilter, scopeFilter, search, state.user]);
+  }, [conversations, channelFilter, scopeFilter, search, state.user, state.scope]);
 
   // Load conversations from live backend API
   useEffect(() => {
@@ -737,10 +746,33 @@ export function ChatView() {
         {/* Header with Search */}
         <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: "10px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <h2 style={{ fontSize: "var(--fs-body)", fontWeight: 650, margin: 0 }}>Inbox</h2>
+            <div>
+              <h2 style={{ fontSize: "var(--fs-body)", fontWeight: 650, margin: 0 }}>Inbox</h2>
+              {state.scope.startsWith("agent:") && (
+                <div style={{ fontSize: "11px", color: "var(--accent)", marginTop: "2px", fontWeight: 550 }}>
+                  Viewing: {state.scope.slice(6)}&apos;s Chats
+                </div>
+              )}
+            </div>
             <div className="seg" style={{ transform: "scale(0.9)", transformOrigin: "right center" }}>
-              <button data-on={scopeFilter === "all"} onClick={() => setScopeFilter("all")}>All</button>
-              <button data-on={scopeFilter === "mine"} onClick={() => setScopeFilter("mine")}>Mine</button>
+              <button
+                data-on={scopeFilter === "all" && !state.scope.startsWith("agent:")}
+                onClick={() => {
+                  setScopeFilter("all");
+                  if (state.scope.startsWith("agent:")) setScope("all");
+                }}
+              >
+                All
+              </button>
+              <button
+                data-on={scopeFilter === "mine" || state.scope === "mine"}
+                onClick={() => {
+                  setScopeFilter("mine");
+                  setScope("mine");
+                }}
+              >
+                Mine
+              </button>
             </div>
           </div>
 

@@ -779,6 +779,15 @@ export function PipelineView() {
             ) : (
               <span className="hint">No filters — the whole board is in view.</span>
             )}
+            {state.scope.startsWith("agent:") ? (
+              <span className="chip" data-tone="accent" style={{ marginLeft: "auto" }}>
+                <Icon name="whatsapp" size={13} /> Teammate: {state.scope.slice(6)} (Scanned WhatsApp & Leads)
+              </span>
+            ) : state.scope === "all" ? (
+              <span className="chip" data-tone="neutral" style={{ marginLeft: "auto", fontSize: "11px" }}>
+                <Icon name="shield" size={12} /> General Leads ({scoped.length}) · Teammate chats isolated
+              </span>
+            ) : null}
           </div>
 
           <div className="board" data-fit={fit} role="list" aria-label="Lead pipeline board" ref={boardRef}>

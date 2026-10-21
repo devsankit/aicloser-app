@@ -55,6 +55,8 @@ export interface Lead {
   email: string;
   value: number;
   source: Source;
+  rawSource?: string;
+  serviceInterest?: string;
   segment: Segment;
   stage: StageId;
   rawStage?: string;

@@ -555,8 +555,6 @@ export const aicloserApi = {
     },
 
     async me() {
-      const token = getStoredToken();
-      if (!token) return null;
       try {
         const res = await request<{
           user: UserSession;
@@ -1835,8 +1833,6 @@ export const aicloserApi = {
       return res.data;
     },
     async me() {
-      const token = getStoredToken();
-      if (!token) return null;
       try {
         const res = await request('/team/me');
         return res.data;
@@ -1845,8 +1841,6 @@ export const aicloserApi = {
       }
     },
     async list(params?: { status?: string; assignable?: boolean }) {
-      const token = getStoredToken();
-      if (!token) return [];
       try {
         const searchParams = new URLSearchParams();
         if (params?.status) searchParams.set('status', params.status);

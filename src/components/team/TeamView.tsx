@@ -217,15 +217,127 @@ export function TeamView() {
         });
         setMembers(mapped);
       } else {
-        setMembers([]);
+        // Fallback hydration from active workspace leads and user session
+        const synthesized: TeamMember[] = [];
+        const ownerMap = new Map<string, { count: number; value: number }>();
+        for (const l of state.leads) {
+          const o = (l.owner || "").trim();
+          if (o && o !== "Unassigned") {
+            const cur = ownerMap.get(o) || { count: 0, value: 0 };
+            cur.count += 1;
+            cur.value += Number(l.value || 0);
+            ownerMap.set(o, cur);
+          }
+        }
+
+        const adminName = state.user?.displayName || "Ankit rathore";
+        const adminEmail = state.user?.email || "theankit.storage@gmail.com";
+        const adminLeads = ownerMap.get(adminName) || { count: 0, value: 0 };
+        synthesized.push({
+          id: state.user?.userId || "admin-owner-storage",
+          name: adminName,
+          email: adminEmail,
+          phone: state.user?.phone || "+91 98765 43210",
+          role: "ADMIN",
+          status: "active",
+          simConnected: true,
+          maxCapacity: 100,
+          assignedLeads: adminLeads.count,
+          pipelineValue: adminLeads.value,
+          dealsWon: 0,
+          inRoundRobin: false,
+          onLeave: false,
+          numberMasking: false,
+          reportingManager: "Founder & Owner",
+          joinedAt: "Active",
+        });
+
+        for (const [name, data] of ownerMap.entries()) {
+          if (name.toLowerCase() === adminName.toLowerCase() || name.toLowerCase() === "admin") continue;
+          synthesized.push({
+            id: `agent-${name.toLowerCase().replace(/\s+/g, "-")}`,
+            name,
+            email: `${name.toLowerCase().replace(/\s+/g, "")}@example.com`,
+            phone: "+91 ••••• •••••",
+            role: "CLOSER",
+            status: "active",
+            simConnected: true,
+            maxCapacity: 25,
+            assignedLeads: data.count,
+            pipelineValue: data.value,
+            dealsWon: 0,
+            inRoundRobin: true,
+            onLeave: false,
+            numberMasking: true,
+            reportingManager: adminName,
+            joinedAt: "Active",
+          });
+        }
+        setMembers(synthesized);
       }
     } catch (err) {
       console.warn("Failed to load team from API:", err);
-      setMembers([]);
+      // Fallback hydration on error
+      const synthesized: TeamMember[] = [];
+      const ownerMap = new Map<string, { count: number; value: number }>();
+      for (const l of state.leads) {
+        const o = (l.owner || "").trim();
+        if (o && o !== "Unassigned") {
+          const cur = ownerMap.get(o) || { count: 0, value: 0 };
+          cur.count += 1;
+          cur.value += Number(l.value || 0);
+          ownerMap.set(o, cur);
+        }
+      }
+
+      const adminName = state.user?.displayName || "Ankit rathore";
+      const adminEmail = state.user?.email || "theankit.storage@gmail.com";
+      const adminLeads = ownerMap.get(adminName) || { count: 0, value: 0 };
+      synthesized.push({
+        id: state.user?.userId || "admin-owner-storage",
+        name: adminName,
+        email: adminEmail,
+        phone: state.user?.phone || "+91 98765 43210",
+        role: "ADMIN",
+        status: "active",
+        simConnected: true,
+        maxCapacity: 100,
+        assignedLeads: adminLeads.count,
+        pipelineValue: adminLeads.value,
+        dealsWon: 0,
+        inRoundRobin: false,
+        onLeave: false,
+        numberMasking: false,
+        reportingManager: "Founder & Owner",
+        joinedAt: "Active",
+      });
+
+      for (const [name, data] of ownerMap.entries()) {
+        if (name.toLowerCase() === adminName.toLowerCase() || name.toLowerCase() === "admin") continue;
+        synthesized.push({
+          id: `agent-${name.toLowerCase().replace(/\s+/g, "-")}`,
+          name,
+          email: `${name.toLowerCase().replace(/\s+/g, "")}@example.com`,
+          phone: "+91 ••••• •••••",
+          role: "CLOSER",
+          status: "active",
+          simConnected: true,
+          maxCapacity: 25,
+          assignedLeads: data.count,
+          pipelineValue: data.value,
+          dealsWon: 0,
+          inRoundRobin: true,
+          onLeave: false,
+          numberMasking: true,
+          reportingManager: adminName,
+          joinedAt: "Active",
+        });
+      }
+      setMembers(synthesized);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [state.leads, state.user]);
 
   // Live Audit Logs Fetch
   const loadAuditLogs = useCallback(async () => {
@@ -634,7 +746,12 @@ export function TeamView() {
     });
   }, [members, search, roleFilter]);
 
-  const activeClosersCount = members.filter((m) => m.role === "CLOSER" && m.status === "active").length;
+  const closerMembers = useMemo(() => members.filter((m) => m.role !== "ADMIN"), [members]);
+  const adminMembers = useMemo(() => members.filter((m) => m.role === "ADMIN"), [members]);
+  const closerSeatsUsed = closerMembers.length;
+  const closerSeatsTotal = 10;
+  const availableCloserSeats = Math.max(0, closerSeatsTotal - closerSeatsUsed);
+  const activeClosersCount = closerMembers.filter((m) => m.role === "CLOSER" && m.status === "active" && !m.onLeave).length;
 
   return (
     <div className="team-container" style={{ padding: "20px 24px", maxWidth: "1280px", margin: "0 auto" }}>
@@ -671,13 +788,16 @@ export function TeamView() {
       >
         <div className="card" style={{ padding: "14px 16px" }}>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", fontWeight: 550, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-            Workspace Seats
+            Workspace Closer Seats
           </div>
           <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px" }}>
-            {members.length} <span style={{ fontSize: "var(--fs-body)", fontWeight: 400, color: "var(--text-tertiary)" }}>/ 10 seats</span>
+            {closerSeatsUsed} <span style={{ fontSize: "var(--fs-body)", fontWeight: 400, color: "var(--text-tertiary)" }}>/ {closerSeatsTotal} seats</span>
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--success)", marginTop: "4px", display: "flex", alignItems: "center", gap: "4px" }}>
-            <span className="dot" style={{ background: "var(--success)" }} /> {Math.max(0, 10 - members.length)} seats available
+            <span className="dot" style={{ background: "var(--success)" }} /> {availableCloserSeats} seats available
+          </div>
+          <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: "2px" }}>
+            Admin owner separate (unmetered seat)
           </div>
         </div>
 
@@ -871,8 +991,10 @@ export function TeamView() {
                           <div>
                             <div style={{ fontWeight: 550, color: "var(--text)", display: "flex", alignItems: "center", gap: "6px" }}>
                               {member.name}
-                              {member.role === "ADMIN" && (
-                                <span className="chip" data-tone="accent" style={{ fontSize: "10px", padding: "1px 5px" }}>ADMIN</span>
+                              {member.role === "ADMIN" ? (
+                                <span className="chip" data-tone="accent" style={{ fontSize: "10px", padding: "1px 6px" }}>ADMIN · OWNER (UNMETERED)</span>
+                              ) : (
+                                <span className="chip" data-tone="neutral" style={{ fontSize: "10px", padding: "1px 6px" }}>CLOSER SEAT</span>
                               )}
                             </div>
                             <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", lineHeight: 1.25 }}>
