@@ -1,8 +1,16 @@
 import { NextResponse } from "next/server";
+import { requireSessionRole } from "@/lib/api/require-session-role";
 import { getStoredFeedback, saveStoredFeedback, type CustomerFeedbackItem } from "@/lib/customer-feedback";
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
+    const auth = await requireSessionRole(["SUPER_ADMIN"]);
+    if (!auth.ok) {
+      return auth.response;
+    }
+
     const items = await getStoredFeedback();
     
     // Summary statistics
@@ -28,6 +36,11 @@ export async function GET() {
 
 export async function PATCH(req: Request) {
   try {
+    const auth = await requireSessionRole(["SUPER_ADMIN"]);
+    if (!auth.ok) {
+      return auth.response;
+    }
+
     const { id, status, adminNotes } = await req.json();
     if (!id || !status) {
       return NextResponse.json({ error: "id and status are required" }, { status: 400 });

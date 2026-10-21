@@ -6,7 +6,10 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    await requireSessionRole(["SUPER_ADMIN"]);
+    const auth = await requireSessionRole(["SUPER_ADMIN"]);
+    if (!auth.ok) {
+      return auth.response;
+    }
 
     const [devices, calls, diagnosticEvents, uploads] = await Promise.all([
       prisma.salesMobileDevice.findMany({

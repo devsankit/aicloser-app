@@ -112,6 +112,7 @@ export function CrmSettingsPanel({
   const [profileName, setProfileName] = useState(profile?.displayName ?? "");
   const [profileEmail, setProfileEmail] = useState(profile?.email ?? "");
   const [profilePhone, setProfilePhone] = useState(profile?.phone ?? "");
+  const [currentPasswordDraft, setCurrentPasswordDraft] = useState("");
   const [passwordDraft, setPasswordDraft] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [passwordSaving, setPasswordSaving] = useState(false);
@@ -301,7 +302,7 @@ export function CrmSettingsPanel({
         const response = await fetch("/api/auth/password", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ password: passwordDraft, confirmPassword: passwordConfirmation }),
+          body: JSON.stringify({ currentPassword: currentPasswordDraft, password: passwordDraft, confirmPassword: passwordConfirmation }),
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok || !data.ok) {
@@ -311,6 +312,7 @@ export function CrmSettingsPanel({
         saved = true;
       }
       if (saved) {
+        setCurrentPasswordDraft("");
         setPasswordDraft("");
         setPasswordConfirmation("");
         setBanner({ tone: "success", text: "Workspace password saved. You can now sign in with email and password." });
@@ -1120,7 +1122,8 @@ export function CrmSettingsPanel({
                   <strong style={{ display: "block" }}>Workspace password</strong>
                   <span style={{ display: "block", marginTop: 4, color: "var(--muted)", fontSize: 12 }}>Google-signup users can set a password here and use email/password login any time.</span>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 10, alignItems: "end" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 10, alignItems: "end" }}>
+                  <label style={{ display: "grid", gap: 4, fontSize: 12, fontWeight: 700 }}>Current password<input type="password" value={currentPasswordDraft} onChange={(event) => setCurrentPasswordDraft(event.target.value)} placeholder="Required if changing" style={{ width: "100%", padding: 9, borderRadius: 8, fontSize: 13 }} /></label>
                   <label style={{ display: "grid", gap: 4, fontSize: 12, fontWeight: 700 }}>New password<input minLength={8} type="password" value={passwordDraft} onChange={(event) => setPasswordDraft(event.target.value)} placeholder="At least 8 characters" style={{ width: "100%", padding: 9, borderRadius: 8, fontSize: 13 }} /></label>
                   <label style={{ display: "grid", gap: 4, fontSize: 12, fontWeight: 700 }}>Confirm password<input minLength={8} type="password" value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} placeholder="Repeat password" style={{ width: "100%", padding: 9, borderRadius: 8, fontSize: 13 }} /></label>
                   <button className="sales-primary-button compact" type="button" disabled={passwordSaving || !passwordDraft || !passwordConfirmation} onClick={() => void handleSavePassword()}>{passwordSaving ? "Saving…" : "Save password"}</button>

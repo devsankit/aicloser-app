@@ -6,7 +6,14 @@ const HEADER = {
 const encoder = new TextEncoder();
 
 function getTokenSecret() {
-  return process.env.SESSION_SECRET?.trim() || "e88656903145ee2ad75187d3bbf95733183e298552269a01bbf81616b69f1bde";
+  const secret = process.env.SESSION_SECRET?.trim() || process.env.GIGXOMI_SESSION_SECRET?.trim();
+  if (!secret) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("CRITICAL SECURITY CONFIGURATION ERROR: SESSION_SECRET must be configured in production.");
+    }
+    return "dev-insecure-local-only-secret-do-not-use-in-production";
+  }
+  return secret;
 }
 
 function bytesToBase64Url(bytes: Uint8Array) {

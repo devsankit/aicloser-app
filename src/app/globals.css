@@ -99,6 +99,24 @@
   --bg-card: var(--bg-surface);
   --bg-elevated: var(--bg-soft);
   --bg-subtle: var(--bg-hover);
+
+  /* Canonical aliases for legacy tokens */
+  --closer-orange: var(--accent);
+  --closer-orange-dark: var(--accent-strong);
+  --closer-orange-border: var(--accent-border);
+  --closer-text: var(--text);
+  --closer-surface: var(--bg-surface);
+  --closer-surface-soft: var(--bg-soft);
+  --closer-surface-strong: var(--bg-panel);
+  --closer-line: var(--border);
+  --color-surface: var(--bg-surface);
+  --color-surface-soft: var(--bg-soft);
+  --color-surface-elevated: var(--bg-panel);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text: var(--text);
+  --color-text-secondary: var(--text-secondary);
+  --muted: var(--text-tertiary);
 }
 
 /* ---------- tokens: light ---------- */
@@ -166,6 +184,24 @@
   --bg-card: var(--bg-surface);
   --bg-elevated: var(--bg-soft);
   --bg-subtle: var(--bg-hover);
+
+  /* Canonical aliases for legacy tokens */
+  --closer-orange: var(--accent);
+  --closer-orange-dark: var(--accent-strong);
+  --closer-orange-border: var(--accent-border);
+  --closer-text: var(--text);
+  --closer-surface: var(--bg-surface);
+  --closer-surface-soft: var(--bg-soft);
+  --closer-surface-strong: var(--bg-panel);
+  --closer-line: var(--border);
+  --color-surface: var(--bg-surface);
+  --color-surface-soft: var(--bg-soft);
+  --color-surface-elevated: var(--bg-panel);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text: var(--text);
+  --color-text-secondary: var(--text-secondary);
+  --muted: var(--text-tertiary);
 }
 
 /* ---------- reset ---------- */

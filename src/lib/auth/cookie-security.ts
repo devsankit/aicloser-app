@@ -7,5 +7,6 @@ export function shouldUseSecureCookies() {
   if (explicit === "true") return true;
   if (explicit === "false") return false;
 
-  return process.env.NODE_ENV === "production" && /^https:\/\//i.test(process.env.NEXT_PUBLIC_APP_URL?.trim() ?? "");
+  if (process.env.NODE_ENV === "production") return true;
+  return /^https:\/\//i.test(process.env.NEXT_PUBLIC_APP_URL?.trim() ?? "");
 }

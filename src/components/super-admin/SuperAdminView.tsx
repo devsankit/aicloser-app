@@ -903,7 +903,7 @@ export function SuperAdminView() {
         <div
           style={{
             background: "linear-gradient(90deg, var(--accent) 0%, var(--accent-strong) 100%)",
-            color: "#FFFFFF",
+            color: "var(--text)",
             padding: "10px 16px",
             borderRadius: "var(--r-md)",
             display: "flex",
@@ -921,7 +921,7 @@ export function SuperAdminView() {
           <button
             className="btn btn-sm"
             onClick={handleReturnFromImpersonation}
-            style={{ background: "#FFFFFF", color: "var(--text-inverse)", fontWeight: 650 }}
+            style={{ background: "var(--text)", color: "var(--text-inverse)", fontWeight: 650 }}
           >
             Exit Impersonation
           </button>
@@ -1703,7 +1703,7 @@ export function SuperAdminView() {
             <div className="card" style={{ padding: 20 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <Icon name="whatsapp" size={18} style={{ color: "#25D366" }} />
+                  <Icon name="whatsapp" size={18} style={{ color: "var(--success)" }} />
                   <h3 style={{ margin: 0, fontSize: "var(--fs-body)", fontWeight: 600 }}>
                     Official Meta WhatsApp Business Cloud API
                   </h3>

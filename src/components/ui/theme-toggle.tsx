@@ -17,14 +17,12 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
         setTheme(savedTheme);
         applyTheme(savedTheme);
       } else {
-        // Default to dark mode for pro sales dashboard, or honor system if preferred
         const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
         const initialTheme: Theme = prefersDark ? "dark" : "dark";
         setTheme(initialTheme);
         applyTheme(initialTheme);
       }
     } catch {
-      // Fallback if localStorage is inaccessible
       applyTheme("dark");
     }
   }, []);
@@ -52,59 +50,29 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
   if (!mounted) {
     return (
       <div
-        className={`theme-switcher-skeleton ${className}`}
-        style={{
-          width: "72px",
-          height: "32px",
-          borderRadius: "20px",
-          background: "var(--color-surface-soft, rgba(255, 255, 255, 0.05))",
-          border: "1px solid var(--color-border, rgba(255, 255, 255, 0.08))",
-        }}
+        className={`seg ${className}`}
+        style={{ width: "72px", height: "28px" }}
+        aria-hidden="true"
       />
     );
   }
 
   return (
     <div
-      className={`theme-toggle-segmented ${className}`}
+      className={`seg ${className}`}
       role="group"
       aria-label="Theme selection"
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        padding: "3px",
-        borderRadius: "24px",
-        background: "var(--color-surface-soft)",
-        border: "1px solid var(--color-border-strong)",
-        gap: "2px",
-        position: "relative",
-      }}
     >
       <button
         type="button"
         onClick={() => handleToggle("light")}
         aria-label="Switch to Light mode"
         aria-pressed={theme === "light"}
+        data-on={theme === "light"}
         title="Light mode"
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "5px",
-          padding: "5px 12px",
-          borderRadius: "18px",
-          border: "none",
-          fontSize: "12px",
-          fontWeight: 700,
-          cursor: "pointer",
-          transition: "all 0.18s cubic-bezier(0.16, 1, 0.3, 1)",
-          background: theme === "light" ? "var(--color-surface, #ffffff)" : "transparent",
-          color: theme === "light" ? "var(--closer-orange, #ff6b2f)" : "var(--color-text-secondary)",
-          boxShadow: theme === "light" ? "0 1px 4px rgba(0, 0, 0, 0.08), 0 0 0 1px var(--closer-orange-border)" : "none",
-        }}
       >
-        <Sun size={14} strokeWidth={2.4} />
-        <span className="theme-toggle-label" style={{ fontSize: "11px", letterSpacing: "0.02em" }}>Light</span>
+        <Sun size={13} strokeWidth={2.4} />
+        <span className="theme-toggle-label">Light</span>
       </button>
 
       <button
@@ -112,26 +80,11 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
         onClick={() => handleToggle("dark")}
         aria-label="Switch to Dark mode"
         aria-pressed={theme === "dark"}
+        data-on={theme === "dark"}
         title="Dark mode"
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "5px",
-          padding: "5px 12px",
-          borderRadius: "18px",
-          border: "none",
-          fontSize: "12px",
-          fontWeight: 700,
-          cursor: "pointer",
-          transition: "all 0.18s cubic-bezier(0.16, 1, 0.3, 1)",
-          background: theme === "dark" ? "var(--color-surface-elevated, #26282d)" : "transparent",
-          color: theme === "dark" ? "var(--closer-orange, #ff6b2f)" : "var(--color-text-secondary)",
-          boxShadow: theme === "dark" ? "0 1px 4px rgba(0, 0, 0, 0.3), 0 0 0 1px var(--closer-orange-border)" : "none",
-        }}
       >
-        <Moon size={14} strokeWidth={2.4} />
-        <span className="theme-toggle-label" style={{ fontSize: "11px", letterSpacing: "0.02em" }}>Dark</span>
+        <Moon size={13} strokeWidth={2.4} />
+        <span className="theme-toggle-label">Dark</span>
       </button>
     </div>
   );

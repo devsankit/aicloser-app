@@ -438,7 +438,7 @@ function isMetaReviewCredentialUser(user: { email: string | null; phone?: string
 }
 
 function buildOtpCode(user: { email: string | null; phone?: string | null; loginPhoneAliases?: string[] | null; isSeeded: boolean }) {
-  if (user.email?.toLowerCase() === SUPER_ADMIN_LOGIN_EMAIL_LOWER) {
+  if (process.env.NODE_ENV !== "production" && user.email?.toLowerCase() === SUPER_ADMIN_LOGIN_EMAIL_LOWER) {
     return DEFAULT_OTP_CODE;
   }
 
@@ -446,7 +446,7 @@ function buildOtpCode(user: { email: string | null; phone?: string | null; login
     return META_REVIEW_OTP_CODE;
   }
 
-  return TEST_MODE && user.isSeeded ? getDemoCredentialForUser(user)?.otpCode ?? DEFAULT_OTP_CODE : String(randomInt(100000, 1000000));
+  return process.env.NODE_ENV !== "production" && TEST_MODE && user.isSeeded ? getDemoCredentialForUser(user)?.otpCode ?? DEFAULT_OTP_CODE : String(randomInt(100000, 1000000));
 }
 
 async function issueOtpChallengeForUser(user: AuthUserRecord, options?: { deliveryPhone?: string | null }) {
@@ -746,13 +746,22 @@ export async function authenticatePassword(identifier: string, password: string,
   return fromDbUser(updated).managed;
 }
 
-export async function setAuthenticatedUserPassword(userId: string, nextPassword: string) {
+export async function setAuthenticatedUserPassword(userId: string, nextPassword: string, currentPassword?: string) {
   await ensureBootstrapped();
   const password = nextPassword.trim();
   if (password.length < 8) return { ok: false as const, error: "Password must be at least 8 characters." };
   const existing = await prisma.appAuthUser.findUnique({ where: { id: userId } });
   if (!existing) return { ok: false as const, error: "User account was not found." };
   if (existing.id === SUPER_ADMIN_USER_ID) return { ok: false as const, error: "Super admin password must be managed through the owner recovery flow." };
+  if (existing.passwordHash) {
+    if (!currentPassword) {
+      return { ok: false as const, error: "Current password is required to change password." };
+    }
+    const currentHash = hashPassword(currentPassword, existing.passwordSalt || "");
+    if (currentHash !== existing.passwordHash) {
+      return { ok: false as const, error: "Current password is incorrect." };
+    }
+  }
   const passwordSalt = randomBytes(16).toString("hex");
   await prisma.appAuthUser.update({
     where: { id: existing.id },

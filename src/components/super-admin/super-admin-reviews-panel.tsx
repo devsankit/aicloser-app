@@ -116,8 +116,8 @@ export function SuperAdminReviewsPanel() {
       {/* Header Banner & Tools */}
       <div
         style={{
-          backgroundColor: "#18181B",
-          border: "1px solid #27272A",
+          backgroundColor: "var(--bg-surface)",
+          border: "1px solid var(--border)",
           borderRadius: "16px",
           padding: "24px",
           display: "flex",
@@ -132,7 +132,7 @@ export function SuperAdminReviewsPanel() {
             <span
               style={{
                 backgroundColor: "rgba(249, 115, 22, 0.15)",
-                color: "#F97316",
+                color: "var(--accent)",
                 padding: "4px 10px",
                 borderRadius: "8px",
                 fontSize: "12px",
@@ -143,12 +143,12 @@ export function SuperAdminReviewsPanel() {
             >
               GMB Protection Funnel
             </span>
-            <span style={{ color: "#71717A", fontSize: "13px" }}>Ai Closer - Sales CRM</span>
+            <span style={{ color: "var(--text-tertiary)", fontSize: "13px" }}>Ai Closer - Sales CRM</span>
           </div>
-          <h2 style={{ fontSize: "20px", fontWeight: 700, color: "#FFFFFF", margin: "0 0 6px 0" }}>
+          <h2 style={{ fontSize: "20px", fontWeight: 700, color: "var(--text)", margin: "0 0 6px 0" }}>
             Customer Feedback & Reviews Gate
           </h2>
-          <p style={{ fontSize: "14px", color: "#A1A1AA", margin: 0, maxWidth: "620px" }}>
+          <p style={{ fontSize: "14px", color: "var(--text-secondary)", margin: 0, maxWidth: "620px" }}>
             4–5 star raters are automatically routed to Google Maps. 1–3 star complaints are intercepted here
             so you can resolve them privately without hurting your public rating.
           </p>
@@ -164,16 +164,16 @@ export function SuperAdminReviewsPanel() {
               alignItems: "center",
               gap: "8px",
               padding: "10px 16px",
-              backgroundColor: "#27272A",
-              color: "#FAFAFA",
-              border: "1px solid #3F3F46",
+              backgroundColor: "var(--border)",
+              color: "var(--text)",
+              border: "1px solid var(--border-strong)",
               borderRadius: "10px",
               fontSize: "13px",
               fontWeight: 600,
               cursor: "pointer",
             }}
           >
-            {copiedLink ? <Check size={16} color="#22C55E" /> : <Copy size={16} />}
+            {copiedLink ? <Check size={16} color="var(--success)" /> : <Copy size={16} />}
             <span>{copiedLink ? "Link Copied!" : "Copy Review Link"}</span>
           </button>
 
@@ -186,8 +186,8 @@ export function SuperAdminReviewsPanel() {
               alignItems: "center",
               gap: "8px",
               padding: "10px 16px",
-              backgroundColor: "#F97316",
-              color: "#FFFFFF",
+              backgroundColor: "var(--accent)",
+              color: "var(--text)",
               borderRadius: "10px",
               fontSize: "13px",
               fontWeight: 600,
@@ -208,10 +208,10 @@ export function SuperAdminReviewsPanel() {
               justifyContent: "center",
               width: "38px",
               height: "38px",
-              backgroundColor: "#27272A",
-              border: "1px solid #3F3F46",
+              backgroundColor: "var(--border)",
+              border: "1px solid var(--border-strong)",
               borderRadius: "10px",
-              color: "#FAFAFA",
+              color: "var(--text)",
               cursor: "pointer",
             }}
             title="Refresh Feed"
@@ -231,80 +231,80 @@ export function SuperAdminReviewsPanel() {
       >
         <div
           style={{
-            backgroundColor: "#18181B",
-            border: "1px solid #27272A",
+            backgroundColor: "var(--bg-surface)",
+            border: "1px solid var(--border)",
             borderRadius: "14px",
             padding: "18px 20px",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "#A1A1AA", fontSize: "13px" }}>
-            <ShieldCheck size={16} color="#22C55E" />
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--text-secondary)", fontSize: "13px" }}>
+            <ShieldCheck size={16} color="var(--success)" />
             <span>Bad Reviews Intercepted</span>
           </div>
-          <div style={{ fontSize: "28px", fontWeight: 700, color: "#FFFFFF", marginTop: "10px" }}>
+          <div style={{ fontSize: "28px", fontWeight: 700, color: "var(--text)", marginTop: "10px" }}>
             {stats.total}
           </div>
-          <div style={{ fontSize: "12px", color: "#22C55E", marginTop: "4px" }}>
+          <div style={{ fontSize: "12px", color: "var(--success)", marginTop: "4px" }}>
             Filtered from Google Maps
           </div>
         </div>
 
         <div
           style={{
-            backgroundColor: "#18181B",
-            border: "1px solid #27272A",
+            backgroundColor: "var(--bg-surface)",
+            border: "1px solid var(--border)",
             borderRadius: "14px",
             padding: "18px 20px",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "#A1A1AA", fontSize: "13px" }}>
-            <AlertTriangle size={16} color="#EF4444" />
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--text-secondary)", fontSize: "13px" }}>
+            <AlertTriangle size={16} color="var(--danger)" />
             <span>Pending Action</span>
           </div>
-          <div style={{ fontSize: "28px", fontWeight: 700, color: "#EF4444", marginTop: "10px" }}>
+          <div style={{ fontSize: "28px", fontWeight: 700, color: "var(--danger)", marginTop: "10px" }}>
             {stats.pending}
           </div>
-          <div style={{ fontSize: "12px", color: "#A1A1AA", marginTop: "4px" }}>
+          <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "4px" }}>
             Clients awaiting follow-up
           </div>
         </div>
 
         <div
           style={{
-            backgroundColor: "#18181B",
-            border: "1px solid #27272A",
+            backgroundColor: "var(--bg-surface)",
+            border: "1px solid var(--border)",
             borderRadius: "14px",
             padding: "18px 20px",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "#A1A1AA", fontSize: "13px" }}>
-            <CheckCircle2 size={16} color="#3B82F6" />
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--text-secondary)", fontSize: "13px" }}>
+            <CheckCircle2 size={16} color="var(--accent)" />
             <span>Resolved Grievances</span>
           </div>
-          <div style={{ fontSize: "28px", fontWeight: 700, color: "#3B82F6", marginTop: "10px" }}>
+          <div style={{ fontSize: "28px", fontWeight: 700, color: "var(--accent)", marginTop: "10px" }}>
             {stats.resolved}
           </div>
-          <div style={{ fontSize: "12px", color: "#A1A1AA", marginTop: "4px" }}>
+          <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "4px" }}>
             Issues resolved by team
           </div>
         </div>
 
         <div
           style={{
-            backgroundColor: "#18181B",
-            border: "1px solid #27272A",
+            backgroundColor: "var(--bg-surface)",
+            border: "1px solid var(--border)",
             borderRadius: "14px",
             padding: "18px 20px",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "#A1A1AA", fontSize: "13px" }}>
-            <Star size={16} color="#FBBF24" />
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--text-secondary)", fontSize: "13px" }}>
+            <Star size={16} color="var(--warning)" />
             <span>Intercepted Avg Rating</span>
           </div>
-          <div style={{ fontSize: "28px", fontWeight: 700, color: "#FBBF24", marginTop: "10px" }}>
-            {stats.avgRating} <span style={{ fontSize: "16px", color: "#71717A" }}>/ 5</span>
+          <div style={{ fontSize: "28px", fontWeight: 700, color: "var(--warning)", marginTop: "10px" }}>
+            {stats.avgRating} <span style={{ fontSize: "16px", color: "var(--text-tertiary)" }}>/ 5</span>
           </div>
-          <div style={{ fontSize: "12px", color: "#A1A1AA", marginTop: "4px" }}>
+          <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "4px" }}>
             Target Google Rating: 5.0 ⭐
           </div>
         </div>
@@ -326,9 +326,9 @@ export function SuperAdminReviewsPanel() {
                 fontWeight: 600,
                 cursor: "pointer",
                 border: "1px solid",
-                borderColor: isActive ? "#F97316" : "#27272A",
-                backgroundColor: isActive ? "#F97316" : "#18181B",
-                color: isActive ? "#FFFFFF" : "#A1A1AA",
+                borderColor: isActive ? "var(--accent)" : "var(--border)",
+                backgroundColor: isActive ? "var(--accent)" : "var(--bg-surface)",
+                color: isActive ? "var(--text)" : "var(--text-secondary)",
                 transition: "all 0.15s ease",
               }}
             >
@@ -344,14 +344,14 @@ export function SuperAdminReviewsPanel() {
       {/* Feed List */}
       <div
         style={{
-          backgroundColor: "#18181B",
-          border: "1px solid #27272A",
+          backgroundColor: "var(--bg-surface)",
+          border: "1px solid var(--border)",
           borderRadius: "16px",
           padding: "20px",
         }}
       >
         {loading ? (
-          <div style={{ textAlign: "center", padding: "40px", color: "#71717A" }}>
+          <div style={{ textAlign: "center", padding: "40px", color: "var(--text-tertiary)" }}>
             Loading feedbacks...
           </div>
         ) : filteredItems.length === 0 ? (
@@ -362,7 +362,7 @@ export function SuperAdminReviewsPanel() {
                 height: "56px",
                 borderRadius: "50%",
                 backgroundColor: "rgba(34, 197, 94, 0.15)",
-                color: "#22C55E",
+                color: "var(--success)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -371,10 +371,10 @@ export function SuperAdminReviewsPanel() {
             >
               <CheckCircle2 size={28} />
             </div>
-            <h3 style={{ fontSize: "18px", fontWeight: 700, color: "#FFFFFF", margin: "0 0 6px 0" }}>
+            <h3 style={{ fontSize: "18px", fontWeight: 700, color: "var(--text)", margin: "0 0 6px 0" }}>
               No Negative Reviews in this Queue
             </h3>
-            <p style={{ fontSize: "14px", color: "#71717A", margin: 0 }}>
+            <p style={{ fontSize: "14px", color: "var(--text-tertiary)", margin: 0 }}>
               All good! Either all complaints are resolved or customers are rating 4–5 stars on Google.
             </p>
           </div>
@@ -391,7 +391,7 @@ export function SuperAdminReviewsPanel() {
                   key={item.id}
                   style={{
                     backgroundColor: "#121215",
-                    border: "1px solid #27272A",
+                    border: "1px solid var(--border)",
                     borderRadius: "14px",
                     padding: "18px 20px",
                     display: "flex",
@@ -411,7 +411,7 @@ export function SuperAdminReviewsPanel() {
                   >
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                        <span style={{ fontSize: "16px", fontWeight: 700, color: "#FFFFFF" }}>
+                        <span style={{ fontSize: "16px", fontWeight: 700, color: "var(--text)" }}>
                           {item.name}
                         </span>
                         {/* Rating Stars */}
@@ -420,8 +420,8 @@ export function SuperAdminReviewsPanel() {
                             <Star
                               key={s}
                               size={14}
-                              fill={s <= item.rating ? "#FBBF24" : "none"}
-                              color={s <= item.rating ? "#FBBF24" : "#52525B"}
+                              fill={s <= item.rating ? "var(--warning)" : "none"}
+                              color={s <= item.rating ? "var(--warning)" : "#52525B"}
                             />
                           ))}
                         </div>
@@ -439,16 +439,16 @@ export function SuperAdminReviewsPanel() {
                                 : "rgba(34, 197, 94, 0.15)",
                             color:
                               item.status === "NEW"
-                                ? "#EF4444"
+                                ? "var(--danger)"
                                 : item.status === "CONTACTED"
-                                ? "#EAB308"
-                                : "#22C55E",
+                                ? "var(--warning)"
+                                : "var(--success)",
                           }}
                         >
                           {item.status}
                         </span>
                       </div>
-                      <div style={{ fontSize: "12px", color: "#71717A", marginTop: "4px" }}>
+                      <div style={{ fontSize: "12px", color: "var(--text-tertiary)", marginTop: "4px" }}>
                         Phone / Contact: <span style={{ color: "#D4D4D8", fontWeight: 600 }}>{item.contact}</span> •{" "}
                         {new Date(item.createdAt).toLocaleString("en-IN", {
                           dateStyle: "medium",
@@ -469,8 +469,8 @@ export function SuperAdminReviewsPanel() {
                           alignItems: "center",
                           gap: "6px",
                           padding: "6px 12px",
-                          backgroundColor: "#22C55E",
-                          color: "#FFFFFF",
+                          backgroundColor: "var(--success)",
+                          color: "var(--text)",
                           borderRadius: "8px",
                           fontSize: "12px",
                           fontWeight: 600,
@@ -489,9 +489,9 @@ export function SuperAdminReviewsPanel() {
                           alignItems: "center",
                           gap: "6px",
                           padding: "6px 12px",
-                          backgroundColor: "#27272A",
-                          color: "#FAFAFA",
-                          border: "1px solid #3F3F46",
+                          backgroundColor: "var(--border)",
+                          color: "var(--text)",
+                          border: "1px solid var(--border-strong)",
                           borderRadius: "8px",
                           fontSize: "12px",
                           fontWeight: 600,
@@ -509,7 +509,7 @@ export function SuperAdminReviewsPanel() {
                           style={{
                             padding: "6px 12px",
                             backgroundColor: "rgba(59, 130, 246, 0.15)",
-                            color: "#3B82F6",
+                            color: "var(--accent)",
                             border: "1px solid rgba(59, 130, 246, 0.3)",
                             borderRadius: "8px",
                             fontSize: "12px",
@@ -526,8 +526,8 @@ export function SuperAdminReviewsPanel() {
                           style={{
                             padding: "6px 12px",
                             backgroundColor: "transparent",
-                            color: "#71717A",
-                            border: "1px solid #3F3F46",
+                            color: "var(--text-tertiary)",
+                            border: "1px solid var(--border-strong)",
                             borderRadius: "8px",
                             fontSize: "12px",
                             cursor: "pointer",
@@ -542,8 +542,8 @@ export function SuperAdminReviewsPanel() {
                   {/* Comment Body */}
                   <div
                     style={{
-                      backgroundColor: "#18181B",
-                      border: "1px solid #27272A",
+                      backgroundColor: "var(--bg-surface)",
+                      border: "1px solid var(--border)",
                       borderRadius: "10px",
                       padding: "12px 14px",
                       fontSize: "14px",

@@ -22,10 +22,8 @@ export async function GET(request: NextRequest) {
     process.env.META_WHATSAPP_VERIFY_TOKEN,
     process.env.META_WEBHOOK_VERIFY_TOKEN,
     process.env.META_VERIFY_TOKEN,
-    "aicloser_webhook_secret_2026",
-    "gigxomi_whatsapp_marketing_token",
-    "b21af41afc075d5ee39e7785765bcb27",
-  ].filter(Boolean);
+    process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN,
+  ].filter((t): t is string => Boolean(t && t.trim()));
 
   if (allowedTokens.includes(token)) {
     console.info("[WHATSAPP_MARKETING_WEBHOOK] Meta verification handshake succeeded.");
