@@ -18,6 +18,7 @@ interface ChatMessage {
   createdAt?: string;
   channel?: "whatsapp" | "instagram" | "website";
   status?: "sent" | "delivered" | "read";
+  externalMessageId?: string;
 }
 
 interface ConversationItem {
@@ -121,7 +122,7 @@ export function ChatView() {
   const [showQrModal, setShowQrModal] = useState(false);
   const [qrPairingMethod, setQrPairingMethod] = useState<"qr" | "code">("qr");
   const [qrSessionId, setQrSessionId] = useState("");
-  const [qrPairingCode, setQrPairingCode] = useState("7482-9104");
+  const [qrPairingCode, setQrPairingCode] = useState("");
   const [qrPhoneInput, setQrPhoneInput] = useState("");
   const [qrLoading, setQrLoading] = useState(false);
   const [qrSuccess, setQrSuccess] = useState<string | null>(null);
@@ -297,7 +298,17 @@ export function ChatView() {
 
   const activeChat = useMemo(() => {
     if (!conversations.length) return null;
-    return conversations.find((c) => c.id === selectedChatId) || conversations[0] || null;
+    const match = conversations.find((c) => c.id === selectedChatId);
+    if (match) return match;
+    // Check if ID changed between lead- and conv- by phone digits
+    if (selectedChatId) {
+      const targetPhone = selectedChatId.replace(/\D/g, "").slice(-10);
+      if (targetPhone.length >= 10) {
+        const phoneMatch = conversations.find((c) => c.phone && c.phone.replace(/\D/g, "").slice(-10) === targetPhone);
+        if (phoneMatch) return phoneMatch;
+      }
+    }
+    return conversations[0] || null;
   }, [conversations, selectedChatId]);
 
   const activeLead = useMemo(() => {
@@ -473,6 +484,7 @@ export function ChatView() {
                 sender: "customer" as const,
                 text: snippet,
                 time: formatMessageTime(l.updatedAt),
+                createdAt: l.updatedAt || new Date().toISOString(),
                 status: "read" as const,
               },
             ],
@@ -524,6 +536,13 @@ export function ChatView() {
               combined.push(sc);
             }
           }
+
+          // Sort conversations strictly by updatedAt descending (newest chat on top, matching phone WhatsApp)
+          combined.sort((a, b) => {
+            const timeA = new Date(a.updatedAt || a.lastMessageTime || 0).getTime();
+            const timeB = new Date(b.updatedAt || b.lastMessageTime || 0).getTime();
+            return timeB - timeA;
+          });
 
           setConversations((prev) => {
             // Preserve any active message threads already in memory
@@ -644,8 +663,16 @@ export function ChatView() {
                 time: formatMessageTime(m.createdAt),
                 channel: activeChat.channel,
                 status: (m.status || m.deliveryStatus || "read") as "sent" | "delivered" | "read",
+                externalMessageId: m.externalMessageId || m.wamid || undefined,
               };
             });
+
+          // Sort messages chronologically (oldest at top, newest at bottom, exactly like WhatsApp on phone)
+          mappedMessages.sort((a, b) => {
+            const timeA = new Date(a.createdAt || 0).getTime();
+            const timeB = new Date(b.createdAt || 0).getTime();
+            return timeA - timeB;
+          });
 
           setMessagesCache((prev) => ({ ...prev, [activeChat.id]: mappedMessages }));
           setConversations((prev) =>
@@ -745,8 +772,9 @@ export function ChatView() {
               const exists = c.messages.some(
                 (m) =>
                   m.id === newChatMessage.id ||
-                  (m.text === newChatMessage.text &&
-                    Math.abs(new Date(m.createdAt || 0).getTime() - new Date(newChatMessage.createdAt || 0).getTime()) < 3000)
+                  (m.sender === newChatMessage.sender &&
+                    m.text === newChatMessage.text &&
+                    Math.abs(new Date(m.createdAt || 0).getTime() - new Date(newChatMessage.createdAt || 0).getTime()) < 30000)
               );
               if (exists) return c;
               return {
@@ -763,8 +791,9 @@ export function ChatView() {
             const exists = currentCache.some(
               (m) =>
                 m.id === newChatMessage.id ||
-                (m.text === newChatMessage.text &&
-                  Math.abs(new Date(m.createdAt || 0).getTime() - new Date(newChatMessage.createdAt || 0).getTime()) < 3000)
+                (m.sender === newChatMessage.sender &&
+                  m.text === newChatMessage.text &&
+                  Math.abs(new Date(m.createdAt || 0).getTime() - new Date(newChatMessage.createdAt || 0).getTime()) < 30000)
             );
             if (exists) return prev;
             return { ...prev, [activeChat.id]: [...currentCache, newChatMessage] };
@@ -803,7 +832,9 @@ export function ChatView() {
               if (c.id !== activeChat.id) return c;
               return {
                 ...c,
-                messages: c.messages.map((m) => (m.id === wamid ? { ...m, status: mappedStatus } : m)),
+                messages: c.messages.map((m) =>
+                  m.id === wamid || m.externalMessageId === wamid ? { ...m, status: mappedStatus } : m
+                ),
               };
             })
           );
@@ -861,30 +892,45 @@ export function ChatView() {
                 time: formatMessageTime(m.createdAt),
                 channel: activeChat.channel,
                 status: (m.status || m.deliveryStatus || "read") as "sent" | "delivered" | "read",
+                externalMessageId: m.externalMessageId || m.wamid || undefined,
               };
             });
+
+          // Sort messages chronologically (oldest at top, newest at bottom, exactly like WhatsApp on phone)
+          mappedMessages.sort((a, b) => {
+            const timeA = new Date(a.createdAt || 0).getTime();
+            const timeB = new Date(b.createdAt || 0).getTime();
+            return timeA - timeB;
+          });
+
+          // Preserve initial customer message if server only returns outbound messages
+          const initialCustomerMsg = activeChat.messages.find((m) => m.sender === "customer");
+          const serverHasCustomerMsg = mappedMessages.some((m) => m.sender === "customer");
+          const finalMessages = (!serverHasCustomerMsg && initialCustomerMsg)
+            ? [initialCustomerMsg, ...mappedMessages].sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime())
+            : mappedMessages;
 
           setMessagesCache((prev) => {
             const prevMsgs = prev[activeChat.id] || [];
             if (
-              prevMsgs.length === mappedMessages.length &&
-              prevMsgs[prevMsgs.length - 1]?.id === mappedMessages[mappedMessages.length - 1]?.id
+              prevMsgs.length === finalMessages.length &&
+              prevMsgs[prevMsgs.length - 1]?.id === finalMessages[finalMessages.length - 1]?.id
             ) {
               return prev;
             }
-            return { ...prev, [activeChat.id]: mappedMessages };
+            return { ...prev, [activeChat.id]: finalMessages };
           });
 
           setConversations((prev) =>
             prev.map((c) => {
               if (c.id !== activeChat.id) return c;
               if (
-                c.messages.length === mappedMessages.length &&
-                c.messages[c.messages.length - 1]?.id === mappedMessages[mappedMessages.length - 1]?.id
+                c.messages.length === finalMessages.length &&
+                c.messages[c.messages.length - 1]?.id === finalMessages[finalMessages.length - 1]?.id
               ) {
                 return c;
               }
-              return { ...c, messages: mappedMessages };
+              return { ...c, messages: finalMessages };
             })
           );
         })
@@ -1223,29 +1269,30 @@ export function ChatView() {
 
     try {
       // 1. Live API: assign conversation on Central API
-      await aicloserApi.conversations.assign(activeChat.id, assignTargetCloser).catch(() => {});
-
-      // 2. Local Next.js API: update assignment in local DB / dummy store
-      await fetch(`/api/conversations/${encodeURIComponent(activeChat.id)}/assignment`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          freelancerId: assignTargetCloser,
-          assignmentMode: "replace",
-          handoverNote: assignHandoverNote || undefined,
-        }),
-      }).catch(() => {});
-
-      // 3. If lead is linked in state, update lead owner
-      if (activeLead) {
-        reassignLead(activeLead.id, assignTargetCloser, assignHandoverNote);
+      const res: any = await aicloserApi.conversations.assign(activeChat.id, assignTargetCloser);
+      if (res && res.success === false) {
+        throw new Error(res.message || "Failed to assign conversation");
       }
 
-      // 4. Add system message in conversation thread
+      const targetMember = teamMembers.find(
+        (m) => m.id === assignTargetCloser || m.name.toLowerCase() === assignTargetCloser.toLowerCase()
+      );
+      const assignedDisplayName =
+        res?.data?.assignedFreelancerName ||
+        res?.assignedFreelancerName ||
+        targetMember?.name ||
+        assignTargetCloser;
+
+      // 2. If lead is linked in state, update lead owner
+      if (activeLead) {
+        reassignLead(activeLead.id, assignedDisplayName, assignHandoverNote);
+      }
+
+      // 3. Add system message in conversation thread
       const sysMsg: ChatMessage = {
         id: `sys-assign-${Date.now()}`,
         sender: "system",
-        text: `Chat assigned to ${assignTargetCloser} by ${state.user?.displayName || CURRENT_USER}${assignHandoverNote ? ` (${assignHandoverNote})` : ""}`,
+        text: `Chat assigned to ${assignedDisplayName} by ${state.user?.displayName || CURRENT_USER}${assignHandoverNote ? ` (${assignHandoverNote})` : ""}`,
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         createdAt: new Date().toISOString(),
       };
@@ -1253,18 +1300,20 @@ export function ChatView() {
       setConversations((prev) =>
         prev.map((c) =>
           c.id === activeChat.id
-            ? { ...c, assignedTo: assignTargetCloser, messages: [...c.messages, sysMsg] }
+            ? { ...c, assignedTo: assignedDisplayName, messages: [...c.messages, sysMsg] }
             : c
         )
       );
 
-      setAssignSuccess(`Chat assigned to ${assignTargetCloser}.`);
+      setAssignSuccess(`Chat assigned to ${assignedDisplayName}.`);
+      showToast(`Assigned to ${assignedDisplayName}`);
       setTimeout(() => {
         setAssignSuccess(null);
         setShowAssignModal(false);
-      }, 1000);
+      }, 1200);
     } catch (err: any) {
-      setAssignError(err?.message || "Could not assign chat.");
+      console.error("Assignment failed:", err);
+      setAssignError(err?.message || "Failed to assign conversation. Please try again.");
     } finally {
       setAssignLoading(false);
     }
@@ -1499,29 +1548,41 @@ export function ChatView() {
                       {chat.lastMessage}
                     </p>
 
-                    {/* Channel Source & Closer Badges */}
-                    <div style={{ display: "flex", alignItems: "center", gap: "5px", marginTop: "5px", flexWrap: "wrap" }}>
+                    {/* Channel Source & Closer Badges (Scrollable horizontally without wrapping) */}
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "5px",
+                        marginTop: "5px",
+                        overflowX: "auto",
+                        scrollbarWidth: "none",
+                        msOverflowStyle: "none",
+                        flexWrap: "nowrap",
+                        maxWidth: "100%",
+                      }}
+                    >
                       {chat.isOfficialApi || chat.channelSource === "OFFICIAL_API" ? (
-                        <span className="chip" data-tone="accent" style={{ fontSize: "10px", padding: "1px 6px", height: "18px", display: "inline-flex", alignItems: "center", gap: "3px" }}>
+                        <span className="chip" data-tone="accent" style={{ fontSize: "10px", padding: "1px 6px", height: "18px", display: "inline-flex", alignItems: "center", gap: "3px", flexShrink: 0, whiteSpace: "nowrap" }}>
                           <Icon name="whatsapp" size={10} /> Official API
                         </span>
                       ) : chat.isPersonalQr || chat.channelSource === "QR_SCANNER" ? (
-                        <span className="chip" data-tone="success" style={{ fontSize: "10px", padding: "1px 6px", height: "18px", display: "inline-flex", alignItems: "center", gap: "3px" }}>
+                        <span className="chip" data-tone="success" style={{ fontSize: "10px", padding: "1px 6px", height: "18px", display: "inline-flex", alignItems: "center", gap: "3px", flexShrink: 0, whiteSpace: "nowrap" }}>
                           <Icon name="smartphone" size={10} /> {chat.scannedByName ? `QR: ${chat.scannedByName}` : "Personal QR"}
                         </span>
                       ) : chat.channel === "instagram" ? (
-                        <span className="chip" data-tone="warning" style={{ fontSize: "10px", padding: "1px 6px", height: "18px", display: "inline-flex", alignItems: "center", gap: "3px" }}>
+                        <span className="chip" data-tone="warning" style={{ fontSize: "10px", padding: "1px 6px", height: "18px", display: "inline-flex", alignItems: "center", gap: "3px", flexShrink: 0, whiteSpace: "nowrap" }}>
                           <Icon name="sparkle" size={10} /> Instagram DM
                         </span>
                       ) : (
-                        <span className="chip" style={{ fontSize: "10px", padding: "1px 6px", height: "18px", display: "inline-flex", alignItems: "center", gap: "3px" }}>
+                        <span className="chip" style={{ fontSize: "10px", padding: "1px 6px", height: "18px", display: "inline-flex", alignItems: "center", gap: "3px", flexShrink: 0, whiteSpace: "nowrap" }}>
                           <Icon name="message" size={10} /> Web
                         </span>
                       )}
 
                       {chat.assignedTo && chat.assignedTo !== "Unassigned" && (
-                        <span style={{ fontSize: "10.5px", color: "var(--text-tertiary)" }}>
-                          • {chat.assignedTo}
+                        <span className="chip" data-tone="neutral" style={{ fontSize: "10px", padding: "1px 6px", height: "18px", flexShrink: 0, whiteSpace: "nowrap" }}>
+                          {chat.assignedTo}
                         </span>
                       )}
 
@@ -1535,6 +1596,7 @@ export function ChatView() {
                             padding: "1px 6px",
                             fontSize: "11px",
                             fontWeight: 700,
+                            flexShrink: 0,
                           }}
                         >
                           {chat.unreadCount}
@@ -1650,7 +1712,17 @@ export function ChatView() {
               <button
                 className="btn"
                 data-size="sm"
-                onClick={() => setShowAssignModal(true)}
+                onClick={() => {
+                  setAssignError(null);
+                  setAssignSuccess(null);
+                  if (teamMembers.length > 0) {
+                    const other = teamMembers.find(
+                      (m) => m.name.toLowerCase() !== (activeChat.assignedTo || "").toLowerCase()
+                    );
+                    setAssignTargetCloser(other?.id || other?.name || teamMembers[0]?.id || teamMembers[0]?.name || "");
+                  }
+                  setShowAssignModal(true);
+                }}
                 title="Assign conversation to a team closer"
               >
                 <Icon name="users" size={12} /> Assign ({activeChat.assignedTo || "Unassigned"})
@@ -2349,14 +2421,11 @@ export function ChatView() {
                     onChange={(e) => setShareTargetUser(e.target.value)}
                     style={{ flex: 1, height: "32px", fontSize: "12px" }}
                   >
-                    {availableClosers.filter((u) => u !== activeChat.assignedTo).map((u) => {
-                      const member = teamMembers.find((m) => m.name === u);
-                      return (
-                        <option key={u} value={u}>
-                          {u} {member?.role ? `(${member.role})` : ""}
-                        </option>
-                      );
-                    })}
+                    {teamMembers.filter((m) => m.name !== activeChat.assignedTo).map((m) => (
+                      <option key={m.id || m.name} value={m.name}>
+                        {m.name} {m.role ? `(${m.role})` : ""}
+                      </option>
+                    ))}
                   </select>
                   <select
                     className="select"
@@ -2484,14 +2553,11 @@ export function ChatView() {
                   onChange={(e) => setAssignTargetCloser(e.target.value)}
                   style={{ width: "100%", marginTop: "4px", height: "32px", fontSize: "12px" }}
                 >
-                  {availableClosers.map((u) => {
-                    const member = teamMembers.find((m) => m.name === u);
-                    return (
-                      <option key={u} value={u}>
-                        {u} {member?.role ? `(${member.role})` : ""}
-                      </option>
-                    );
-                  })}
+                  {teamMembers.map((member) => (
+                    <option key={member.id || member.name} value={member.id || member.name}>
+                      {member.name} {member.role ? `(${member.role})` : ""}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -2526,7 +2592,11 @@ export function ChatView() {
                 type="button"
                 className="btn"
                 data-variant="primary"
-                disabled={assignLoading || assignTargetCloser === activeChat.assignedTo || (Boolean(activeChat.isPersonalQr) && state.user?.role !== "ADMIN" && state.user?.role !== "SUPER_ADMIN")}
+                disabled={
+                  assignLoading ||
+                  (teamMembers.find((m) => m.id === assignTargetCloser || m.name === assignTargetCloser)?.name.toLowerCase() === (activeChat.assignedTo || "").toLowerCase()) ||
+                  (Boolean(activeChat.isPersonalQr) && state.user?.role !== "ADMIN" && state.user?.role !== "SUPER_ADMIN")
+                }
                 onClick={handleAssignChat}
               >
                 {assignLoading ? "Assigning..." : "Confirm Assignment"}

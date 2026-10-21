@@ -87,14 +87,14 @@ export function AddLeadDialog({
   const submit = async () => {
     if (submitting) return;
     const cleanName = form.name.trim();
-    const cleanCompany = form.company.trim();
+    const cleanCompany = form.company.trim() || `${cleanName}'s Venture`;
     const rawPhone = form.phone.trim();
-    const cleanPhone = rawPhone.replace(/\D/g, "").slice(-10);
+    const cleanDigits = rawPhone.replace(/\D/g, "");
+    const cleanPhone = cleanDigits.length >= 10 ? cleanDigits.slice(-10) : cleanDigits;
 
     if (!cleanName) return setError("Give the lead a name.");
-    if (!cleanCompany) return setError("Company name or business inquiry is required.");
-    if (!cleanPhone || cleanPhone.length !== 10 || !/^[6-9]/.test(cleanPhone)) {
-      return setError("Enter a valid 10-digit Indian mobile number starting with 6–9.");
+    if (!cleanPhone || cleanPhone.length < 10) {
+      return setError("Enter a valid mobile number (at least 10 digits).");
     }
 
     if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
@@ -168,13 +168,13 @@ export function AddLeadDialog({
               />
             </div>
             <div className="field">
-              <label htmlFor="a-company">Company / Business</label>
+              <label htmlFor="a-company">Company / Business (Optional)</label>
               <input
                 id="a-company"
                 className="input"
                 value={form.company}
                 onChange={(e) => setForm({ ...form, company: e.target.value })}
-                placeholder="e.g. Nimbus Interiors"
+                placeholder="e.g. Nimbus Interiors (or leave blank)"
               />
             </div>
             <div className="field">

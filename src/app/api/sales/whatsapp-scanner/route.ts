@@ -123,28 +123,11 @@ export async function GET() {
         connectedAt: activeDev.createdAt || new Date().toISOString(),
         lastSyncAt: activeDev.lastSyncedAt || new Date().toISOString(),
         stats: {
-          totalScrapedContacts: (activeDev.sampleLeads || []).length || 8,
-          totalSyncedChatThreads: activeDev.activeConversations || 8,
+          totalScrapedContacts: (activeDev.sampleLeads || []).length,
+          totalSyncedChatThreads: activeDev.activeConversations || 0,
           totalGroupContactsScraped: 0,
         },
-        discoveredChats: (activeDev.sampleLeads || []).map((lead: any, idx: number) => ({
-          jid: `${(lead.phone || "").replace(/\D/g, "") || "919876543210"}@s.whatsapp.net`,
-          name: lead.name || "WhatsApp Customer",
-          phone: lead.phone || "+919876543210",
-          accountType: "WHATSAPP_BUSINESS" as WhatsAppAccountType,
-          unreadCount: 0,
-          lastMessageAt: new Date(Date.now() - idx * 15 * 60 * 1000).toISOString(),
-          lastMessagePreview: lead.topic || "Inbound inquiry on WhatsApp",
-          labels: ["Personal QR Lead", "Direct Inquiry"],
-          messages: [
-            {
-              id: `msg-${idx}-1`,
-              role: "customer",
-              body: lead.topic || "Hello, I am interested in your services.",
-              timestamp: new Date(Date.now() - idx * 15 * 60 * 1000).toISOString(),
-            },
-          ],
-        })),
+        discoveredChats: [],
         discoveredGroups: [],
       };
 
@@ -212,8 +195,8 @@ export async function POST(request: Request) {
         connectedAt: new Date().toISOString(),
         lastSyncAt: new Date().toISOString(),
         stats: {
-          totalScrapedContacts: 8,
-          totalSyncedChatThreads: 8,
+          totalScrapedContacts: 0,
+          totalSyncedChatThreads: 0,
           totalGroupContactsScraped: 0,
         },
       };
