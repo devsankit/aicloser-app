@@ -14,6 +14,8 @@ interface ResizeHandleProps {
   /** Upper bound reported to assistive tech (px). */
   max?: number;
   style?: React.CSSProperties;
+  /** Which edge of the panel this handle is on. Default is "right". Use "left" for right-anchored sidebars/drawers. */
+  edge?: "left" | "right";
 }
 
 /**
@@ -29,16 +31,19 @@ export function ResizeHandle({
   min = 0,
   max = 1000,
   style,
+  edge = "right",
 }: ResizeHandleProps) {
   const base = useRef(0);
   const startX = useRef(0);
   const [active, setActive] = useState(false);
 
+  const edgeStyle = edge === "left" ? { left: -3 } : { right: -3 };
+
   return (
     <div
       className="resize-x"
       data-active={active}
-      style={{ right: -3, ...style }}
+      style={{ ...edgeStyle, ...style }}
       role="separator"
       aria-orientation="vertical"
       aria-label={label}
@@ -56,7 +61,9 @@ export function ResizeHandle({
       }}
       onPointerMove={(e) => {
         if (!active) return;
-        setWidth(base.current + (e.clientX - startX.current));
+        const delta = edge === "left" ? (startX.current - e.clientX) : (e.clientX - startX.current);
+        const next = Math.max(min, Math.min(max, base.current + delta));
+        setWidth(next);
       }}
       onPointerUp={() => setActive(false)}
       onPointerCancel={() => setActive(false)}
@@ -65,10 +72,12 @@ export function ResizeHandle({
         const step = e.shiftKey ? 32 : 8;
         if (e.key === "ArrowLeft") {
           e.preventDefault();
-          setWidth(getWidth() - step);
+          const next = edge === "left" ? getWidth() + step : getWidth() - step;
+          setWidth(Math.max(min, Math.min(max, next)));
         } else if (e.key === "ArrowRight") {
           e.preventDefault();
-          setWidth(getWidth() + step);
+          const next = edge === "left" ? getWidth() - step : getWidth() + step;
+          setWidth(Math.max(min, Math.min(max, next)));
         } else if (e.key === "Home" && resetTo !== undefined) {
           e.preventDefault();
           setWidth(resetTo);

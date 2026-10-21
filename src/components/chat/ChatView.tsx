@@ -8,6 +8,7 @@ import { aicloserApi } from "@/lib/api-client";
 import { isScannedWhatsAppLead } from "@/lib/lead-mapper";
 import { LeadCommandHistory } from "@/components/pipeline/LeadCommandHistory";
 import { renderDeterministicQrSvg } from "@/components/sales/contacts-hub";
+import { ResizeHandle } from "@/components/ui/ResizeHandle";
 
 interface ChatMessage {
   id: string;
@@ -196,6 +197,45 @@ export function ChatView() {
   }, [state.scope]);
   const [inputText, setInputText] = useState("");
   const [showRightDrawer, setShowRightDrawer] = useState(true);
+
+  // Adjustable panel widths with localStorage persistence
+  const [inboxWidth, setInboxWidth] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("aicloser_chat_inbox_width");
+      if (saved) {
+        const parsed = Number(saved);
+        if (!isNaN(parsed) && parsed >= 260 && parsed <= 460) return parsed;
+      }
+    }
+    return 320;
+  });
+
+  const handleSetInboxWidth = useCallback((w: number) => {
+    const clamped = Math.max(260, Math.min(460, w));
+    setInboxWidth(clamped);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("aicloser_chat_inbox_width", String(clamped));
+    }
+  }, []);
+
+  const [drawerWidth, setDrawerWidth] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("aicloser_chat_drawer_width");
+      if (saved) {
+        const parsed = Number(saved);
+        if (!isNaN(parsed) && parsed >= 260 && parsed <= 560) return parsed;
+      }
+    }
+    return 320;
+  });
+
+  const handleSetDrawerWidth = useCallback((w: number) => {
+    const clamped = Math.max(260, Math.min(560, w));
+    setDrawerWidth(clamped);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("aicloser_chat_drawer_width", String(clamped));
+    }
+  }, []);
   const [aiAutoReply, setAiAutoReply] = useState(true);
   const [universalAiEnabled, setUniversalAiEnabled] = useState<boolean | null>(null);
   const [togglingAiReply, setTogglingAiReply] = useState(false);
@@ -1333,7 +1373,7 @@ export function ChatView() {
       <aside
         aria-label="Conversations"
         style={{
-          width: "320px",
+          width: `${inboxWidth}px`,
           flexShrink: 0,
           borderRight: "1px solid var(--border)",
           display: "flex",
@@ -1341,8 +1381,18 @@ export function ChatView() {
           background: "var(--bg-sidebar)",
           height: "100%",
           minHeight: 0,
+          position: "relative",
         }}
       >
+        <ResizeHandle
+          edge="right"
+          label="Resize conversations inbox"
+          resetTo={320}
+          min={260}
+          max={460}
+          getWidth={() => inboxWidth}
+          setWidth={handleSetInboxWidth}
+        />
         {/* Header with Search */}
         <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: "10px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1990,7 +2040,7 @@ export function ChatView() {
         <aside
           aria-label="Lead context"
           style={{
-            width: "300px",
+            width: `${drawerWidth}px`,
             flexShrink: 0,
             borderLeft: "1px solid var(--border)",
             background: "var(--bg-sidebar)",
@@ -2001,8 +2051,18 @@ export function ChatView() {
             gap: "16px",
             height: "100%",
             minHeight: 0,
+            position: "relative",
           }}
         >
+          <ResizeHandle
+            edge="left"
+            label="Resize lead profile sidebar"
+            resetTo={320}
+            min={260}
+            max={560}
+            getWidth={() => drawerWidth}
+            setWidth={handleSetDrawerWidth}
+          />
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", fontWeight: 600, textTransform: "uppercase" }}>
