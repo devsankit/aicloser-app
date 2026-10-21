@@ -980,6 +980,13 @@ export const aicloserApi = {
       return res.data;
     },
 
+    async markAllRead() {
+      const res = await requestConversation('/conversations/read-all', {
+        method: 'POST',
+      });
+      return res.data;
+    },
+
     async assign(conversationId: string, assignedAgentId: string) {
       const res = await request('/conversations/' + encodeURIComponent(conversationId) + '/assign', {
         method: 'POST',

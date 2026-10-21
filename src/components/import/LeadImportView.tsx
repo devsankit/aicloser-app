@@ -391,18 +391,6 @@ export function LeadImportView() {
 
         <div className="card" style={{ padding: "14px 16px" }}>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", fontWeight: 550, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-            Admin Exclusion Rule
-          </div>
-          <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px", color: "var(--accent)" }}>
-            100% Active
-          </div>
-          <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
-            Admin strictly excluded from round-robin & billing
-          </div>
-        </div>
-
-        <div className="card" style={{ padding: "14px 16px" }}>
-          <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", fontWeight: 550, textTransform: "uppercase", letterSpacing: "0.04em" }}>
             Rollback Safety
           </div>
           <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px" }}>

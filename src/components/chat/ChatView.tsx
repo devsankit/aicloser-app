@@ -126,6 +126,16 @@ export function ChatView() {
   const [activeHistoryTab, setActiveHistoryTab] = useState<"history" | "note" | "callback" | "calls">("history");
   const [leadPayment, setLeadPayment] = useState<any>(null);
 
+  // Payment amount editing & quick-creation states
+  const [isEditingPayment, setIsEditingPayment] = useState(false);
+  const [editPaymentAmount, setEditPaymentAmount] = useState("");
+  const [savingPayment, setSavingPayment] = useState(false);
+
+  const [isCreatingPayment, setIsCreatingPayment] = useState(false);
+  const [newPaymentAmount, setNewPaymentAmount] = useState("");
+  const [newPaymentTitle, setNewPaymentTitle] = useState("CRM Setup & Consultation");
+  const [creatingPayment, setCreatingPayment] = useState(false);
+
   // Copyability & clipboard feedback states
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [copiedContact, setCopiedContact] = useState<string | null>(null);
@@ -382,7 +392,7 @@ export function ChatView() {
             lastMessage: c.lastMessageSnippet || c.lastMessage?.body || "Conversation active",
             lastMessageTime: formatMessageTime(c.updatedAt || c.lastMessageTime),
             updatedAt: c.updatedAt,
-            unreadCount: c.unreadCount || 0,
+            unreadCount: c.id === selectedChatId ? 0 : (c.unreadCount || 0),
             assignedTo: c.assignedAgent?.displayName || "Unassigned",
             aiAutoReplyDisabled: Boolean(c.aiAutoReplyDisabled ?? c.payload?.aiAutoReplyDisabled),
             messages: [],
@@ -449,12 +459,18 @@ export function ChatView() {
       .catch(() => undefined);
   }, []);
 
-  // Sync Per-Conversation AI Copilot status when active thread changes
+  // Sync Per-Conversation AI Copilot status when active thread changes & auto-clear unread
   useEffect(() => {
     if (activeChat) {
       setAiAutoReply(!activeChat.aiAutoReplyDisabled);
+      if (activeChat.unreadCount > 0) {
+        aicloserApi.conversations.markRead(activeChat.id).catch(() => undefined);
+        setConversations((prev) =>
+          prev.map((c) => (c.id === activeChat.id ? { ...c, unreadCount: 0 } : c))
+        );
+      }
     }
-  }, [activeChat?.id, activeChat?.aiAutoReplyDisabled]);
+  }, [activeChat?.id, activeChat?.aiAutoReplyDisabled, activeChat?.unreadCount]);
 
   // Fetch real messages for the active conversation when selected (stale-while-revalidate)
   useEffect(() => {
@@ -850,15 +866,59 @@ export function ChatView() {
     }
   };
 
-  const handleToggleUniversalAi = async () => {
-    const nextVal = universalAiEnabled === false ? true : false;
-    setUniversalAiEnabled(nextVal);
-    showToast(nextVal ? "Universal AI Bot is now Active globally" : "Universal AI Bot is now Paused globally");
+  const handleMarkAllRead = async () => {
+    setConversations((prev) => prev.map((c) => ({ ...c, unreadCount: 0 })));
+    showToast("All conversations marked as read");
     try {
-      await aicloserApi.ai.updateBotConfig({ enabled: nextVal });
+      await aicloserApi.conversations.markAllRead();
+    } catch (err) {
+      console.error("Failed to mark all read", err);
+    }
+  };
+
+  const handleSavePaymentAmount = async () => {
+    if (!leadPayment?.id) return;
+    const num = Number(editPaymentAmount);
+    if (isNaN(num) || num <= 0) {
+      showToast("Please enter a valid amount greater than ₹0");
+      return;
+    }
+    setSavingPayment(true);
+    try {
+      await aicloserApi.payments.updatePayment(leadPayment.id, { amount: num });
+      setLeadPayment((prev: any) => ({ ...prev, totalAmount: num, baseAmount: num }));
+      setIsEditingPayment(false);
+      showToast(`Payment amount updated to ₹${num.toLocaleString("en-IN")}`);
     } catch (err: any) {
-      setUniversalAiEnabled(!nextVal);
-      showToast("Failed to toggle Universal AI bot");
+      showToast(err?.message || "Failed to update payment amount");
+    } finally {
+      setSavingPayment(false);
+    }
+  };
+
+  const handleCreateNewPaymentLink = async () => {
+    const num = Number(newPaymentAmount);
+    if (isNaN(num) || num <= 0) {
+      showToast("Please enter a valid amount greater than ₹0");
+      return;
+    }
+    setCreatingPayment(true);
+    try {
+      const created = await aicloserApi.payments.createUpiLink({
+        amount: num,
+        customerName: activeLeadProfile?.name || activeChat?.customerName || "Customer",
+        customerPhone: activeLeadProfile?.phone || activeChat?.phone,
+        productName: newPaymentTitle.trim() || "CRM Setup & Consultation",
+      });
+      const paymentObj = (created as any)?.payment || created;
+      setLeadPayment(paymentObj);
+      setIsCreatingPayment(false);
+      setNewPaymentAmount("");
+      showToast(`Payment link created for ₹${num.toLocaleString("en-IN")}`);
+    } catch (err: any) {
+      showToast(err?.message || "Failed to create payment link");
+    } finally {
+      setCreatingPayment(false);
     }
   };
 
@@ -1160,61 +1220,36 @@ export function ChatView() {
             />
           </div>
 
-          {/* Channel Filters */}
-          <div style={{ display: "flex", gap: "4px" }}>
-            {[
-              { id: "all", label: "All" },
-              { id: "whatsapp", label: "WhatsApp", icon: "whatsapp" },
-              { id: "instagram", label: "Instagram", icon: "sparkle" },
-              { id: "website", label: "Web", icon: "message" },
-            ].map((ch) => (
-              <button
-                key={ch.id}
-                className="btn"
-                data-size="sm"
-                data-variant={channelFilter === ch.id ? "primary" : "ghost"}
-                onClick={() => setChannelFilter(ch.id)}
-                style={{ height: "24px", fontSize: "11px", padding: "0 7px" }}
-              >
-                {ch.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Universal AI Status Quick Bar */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "6px 8px",
-              background: "var(--bg-panel)",
-              borderRadius: "var(--r-sm)",
-              border: "1px solid var(--border)",
-              fontSize: "11px",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span
-                className="dot"
-                style={{
-                  background: universalAiEnabled === false ? "var(--warning)" : "var(--success)",
-                }}
-              />
-              <span style={{ color: "var(--text-secondary)" }}>Universal AI:</span>
-              <strong style={{ color: universalAiEnabled === false ? "var(--warning)" : "var(--success)" }}>
-                {universalAiEnabled === false ? "Paused" : "Active"}
-              </strong>
+          {/* Channel Filters & Quick Mark Read */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "4px" }}>
+            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+              {[
+                { id: "all", label: "All" },
+                { id: "whatsapp", label: "WhatsApp", icon: "whatsapp" },
+                { id: "instagram", label: "Instagram", icon: "sparkle" },
+                { id: "website", label: "Web", icon: "message" },
+              ].map((ch) => (
+                <button
+                  key={ch.id}
+                  className="btn"
+                  data-size="sm"
+                  data-variant={channelFilter === ch.id ? "primary" : "ghost"}
+                  onClick={() => setChannelFilter(ch.id)}
+                  style={{ height: "24px", fontSize: "11px", padding: "0 7px" }}
+                >
+                  {ch.label}
+                </button>
+              ))}
             </div>
             <button
               className="btn"
               data-size="sm"
               data-variant="ghost"
-              onClick={handleToggleUniversalAi}
-              style={{ height: "20px", fontSize: "10px", padding: "0 6px" }}
-              title="Toggle Universal Bot across all channels without leaving chat"
+              onClick={handleMarkAllRead}
+              style={{ height: "24px", fontSize: "10px", padding: "0 6px", whiteSpace: "nowrap" }}
+              title="Mark all conversations in this inbox as read"
             >
-              {universalAiEnabled === false ? "Resume Global" : "Pause Global"}
+              <Icon name="check" size={11} /> Mark read
             </button>
           </div>
         </div>
@@ -1242,6 +1277,9 @@ export function ChatView() {
                     setConversations((prev) =>
                       prev.map((c) => (c.id === chat.id ? { ...c, unreadCount: 0 } : c))
                     );
+                    if (chat.unreadCount > 0) {
+                      aicloserApi.conversations.markRead(chat.id).catch(() => undefined);
+                    }
                   }}
                   style={{
                     padding: "10px 14px",
@@ -1396,7 +1434,7 @@ export function ChatView() {
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              {/* AI Assistant Toggle */}
+              {/* WhatsApp AI Thread Toggle */}
               <button
                 className="btn"
                 data-size="sm"
@@ -1405,11 +1443,11 @@ export function ChatView() {
                 disabled={togglingAiReply}
                 title={
                   aiAutoReply
-                    ? "AI Copilot is auto-replying to this contact. Click to pause (Human Takeover mode)."
-                    : "AI Copilot is paused for this contact. Click to resume."
+                    ? "WhatsApp AI is answering this contact. Click to pause for human takeover."
+                    : "WhatsApp AI is paused for this contact. Click to resume."
                 }
               >
-                <Icon name="sparkle" size={12} /> AI Copilot {aiAutoReply ? "On" : "Paused"}
+                <Icon name="sparkle" size={12} /> WhatsApp AI {aiAutoReply ? "On" : "Paused"}
               </button>
 
               {/* Share Chat Button */}
@@ -1792,33 +1830,107 @@ export function ChatView() {
               <label style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
                 Payment Status
               </label>
-              {leadPayment ? (
-                <span
-                  className="chip"
-                  data-tone={leadPayment.status === "PAID" ? "success" : leadPayment.status === "CUSTOMER_CONFIRMED" ? "accent" : "warning"}
-                  style={{ fontSize: "10px", padding: "1px 6px" }}
-                >
-                  {leadPayment.status === "PAID" ? "Paid" : leadPayment.status === "CUSTOMER_CONFIRMED" ? "Proof Submitted" : "Pending"}
-                </span>
-              ) : (
-                <span className="chip" data-tone="neutral" style={{ fontSize: "10px", padding: "1px 6px" }}>
-                  Unbilled
-                </span>
-              )}
+              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                {leadPayment ? (
+                  <span
+                    className="chip"
+                    data-tone={leadPayment.status === "PAID" ? "success" : leadPayment.status === "CUSTOMER_CONFIRMED" ? "accent" : "warning"}
+                    style={{ fontSize: "10px", padding: "1px 6px" }}
+                  >
+                    {leadPayment.status === "PAID" ? "Paid" : leadPayment.status === "CUSTOMER_CONFIRMED" ? "Proof Submitted" : "Pending"}
+                  </span>
+                ) : (
+                  <span className="chip" data-tone="neutral" style={{ fontSize: "10px", padding: "1px 6px" }}>
+                    Unbilled
+                  </span>
+                )}
+              </div>
             </div>
 
             {leadPayment ? (
-              <div style={{ marginTop: "6px" }}>
-                <div style={{ fontSize: "var(--fs-metric)", fontWeight: 700 }}>
-                  ₹{Number(leadPayment.totalAmount || leadPayment.baseAmount || 0).toLocaleString("en-IN")}
-                </div>
-                {leadPayment.productName &&
-                !leadPayment.productName.toLowerCase().includes("auto-created") &&
-                !leadPayment.productName.toLowerCase().includes("enrich this contact") && (
-                  <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: "2px" }}>
-                    {leadPayment.productName}
+              <div style={{ marginTop: "8px" }}>
+                {!isEditingPayment ? (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div>
+                      <div style={{ fontSize: "var(--fs-metric)", fontWeight: 700 }}>
+                        ₹{Number(leadPayment.totalAmount || leadPayment.baseAmount || 0).toLocaleString("en-IN")}
+                      </div>
+                      {leadPayment.productName &&
+                      !leadPayment.productName.toLowerCase().includes("auto-created") &&
+                      !leadPayment.productName.toLowerCase().includes("enrich this contact") && (
+                        <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: "2px" }}>
+                          {leadPayment.productName}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", gap: "4px" }}>
+                      <button
+                        type="button"
+                        className="btn"
+                        data-size="sm"
+                        data-variant="ghost"
+                        onClick={() => {
+                          setEditPaymentAmount(String(leadPayment.totalAmount || leadPayment.baseAmount || ""));
+                          setIsEditingPayment(true);
+                          setIsCreatingPayment(false);
+                        }}
+                        title="Edit payment amount"
+                        style={{ height: "24px", fontSize: "11px", padding: "0 6px" }}
+                      >
+                        <Icon name="pencil" size={11} /> Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="btn"
+                        data-size="sm"
+                        data-variant="ghost"
+                        onClick={() => {
+                          setIsCreatingPayment(true);
+                          setIsEditingPayment(false);
+                        }}
+                        title="Create new payment link with another amount"
+                        style={{ height: "24px", fontSize: "11px", padding: "0 6px" }}
+                      >
+                        <Icon name="plus" size={11} /> New
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: "6px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                    <div style={{ fontSize: "11px", color: "var(--text-secondary)", fontWeight: 550 }}>Edit Amount (₹):</div>
+                    <div style={{ display: "flex", gap: "6px" }}>
+                      <input
+                        type="number"
+                        className="input"
+                        value={editPaymentAmount}
+                        onChange={(e) => setEditPaymentAmount(e.target.value)}
+                        placeholder="e.g. 999"
+                        style={{ height: "28px", fontSize: "12px", flex: 1 }}
+                        autoFocus
+                      />
+                      <button
+                        className="btn"
+                        data-size="sm"
+                        data-variant="primary"
+                        onClick={handleSavePaymentAmount}
+                        disabled={savingPayment}
+                        style={{ height: "28px", fontSize: "11px" }}
+                      >
+                        {savingPayment ? "Saving..." : "Save"}
+                      </button>
+                      <button
+                        className="btn"
+                        data-size="sm"
+                        data-variant="ghost"
+                        onClick={() => setIsEditingPayment(false)}
+                        style={{ height: "28px", fontSize: "11px" }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   </div>
                 )}
+
                 {leadPayment.publicToken && (
                   <div className="drawer-contact-row" style={{ marginTop: "8px" }}>
                     <div className="drawer-contact-label">
@@ -1842,8 +1954,87 @@ export function ChatView() {
                 )}
               </div>
             ) : (
-              <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "6px" }}>
-                No active payment link generated for this contact.
+              <div style={{ marginTop: "6px" }}>
+                <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+                  No active payment link generated for this contact.
+                </div>
+                {!isCreatingPayment && (
+                  <button
+                    type="button"
+                    className="btn"
+                    data-size="sm"
+                    data-variant="outline"
+                    onClick={() => {
+                      setIsCreatingPayment(true);
+                      setIsEditingPayment(false);
+                    }}
+                    style={{ marginTop: "8px", height: "26px", fontSize: "11px", width: "100%" }}
+                  >
+                    <Icon name="plus" size={11} /> Generate Payment Link
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Quick Creation Form (Inline) */}
+            {isCreatingPayment && (
+              <div
+                style={{
+                  marginTop: "10px",
+                  padding: "10px",
+                  background: "var(--bg-panel)",
+                  borderRadius: "var(--r-sm)",
+                  border: "1px solid var(--border)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "8px",
+                }}
+              >
+                <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text)" }}>New Payment Link</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                  <label style={{ fontSize: "10px", color: "var(--text-tertiary)" }}>Amount (₹)</label>
+                  <input
+                    type="number"
+                    className="input"
+                    value={newPaymentAmount}
+                    onChange={(e) => setNewPaymentAmount(e.target.value)}
+                    placeholder="e.g. 1499"
+                    style={{ height: "28px", fontSize: "12px" }}
+                    autoFocus
+                  />
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                  <label style={{ fontSize: "10px", color: "var(--text-tertiary)" }}>Title / Service</label>
+                  <input
+                    type="text"
+                    className="input"
+                    value={newPaymentTitle}
+                    onChange={(e) => setNewPaymentTitle(e.target.value)}
+                    placeholder="CRM Setup & Consultation"
+                    style={{ height: "28px", fontSize: "12px" }}
+                  />
+                </div>
+                <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end", marginTop: "2px" }}>
+                  <button
+                    className="btn"
+                    data-size="sm"
+                    data-variant="ghost"
+                    onClick={() => setIsCreatingPayment(false)}
+                    style={{ height: "26px", fontSize: "11px" }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="btn"
+                    data-size="sm"
+                    data-variant="primary"
+                    onClick={handleCreateNewPaymentLink}
+                    disabled={creatingPayment}
+                    style={{ height: "26px", fontSize: "11px" }}
+                  >
+                    {creatingPayment ? "Creating..." : "Create Link"}
+                  </button>
+                </div>
               </div>
             )}
           </div>
