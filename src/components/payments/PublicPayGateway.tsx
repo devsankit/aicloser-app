@@ -113,11 +113,19 @@ export function PublicPayGateway({ token }: { token: string }) {
       formData.append("customerName", payment.customerName);
       if (payment.customerPhone) formData.append("customerPhone", payment.customerPhone);
 
-      // Send to public payment confirmation route
-      const res = await fetch(`/api/v1/payments/${encodeURIComponent(payment.id)}/proof`, {
+      const targetId = payment.publicToken || payment.id;
+      // First attempt public confirm endpoint (unauthenticated for customers), fallback to /proof endpoint
+      let res = await fetch(`/api/v1/payments/public/${encodeURIComponent(targetId)}/confirm`, {
         method: "POST",
         body: formData,
       });
+
+      if (!res.ok) {
+        res = await fetch(`/api/v1/payments/${encodeURIComponent(payment.id)}/proof`, {
+          method: "POST",
+          body: formData,
+        });
+      }
 
       const resData = await res.json().catch(() => null);
       if (!res.ok || resData?.success === false) {
@@ -125,7 +133,7 @@ export function PublicPayGateway({ token }: { token: string }) {
       }
 
       setProofSubmitted(true);
-      setBanner("Payment confirmation & UTR reference submitted successfully. Verification in progress.");
+      setBanner("Payment confirmation submitted successfully. Verification in progress.");
       startTransition(() => {
         void loadPaymentDetails();
       });
@@ -296,14 +304,13 @@ export function PublicPayGateway({ token }: { token: string }) {
                 </div>
 
                 <div className="field">
-                  <label htmlFor="utr-ref">Bank UTR / UPI Reference Number</label>
+                  <label htmlFor="utr-ref">Bank UTR / UPI Reference Number (Optional)</label>
                   <input
                     id="utr-ref"
                     className="input"
                     value={utrNumber}
                     onChange={(e) => setUtrNumber(e.target.value)}
-                    placeholder="12-digit UTR (e.g. 429381029482)"
-                    required
+                    placeholder="12-digit UTR if available (e.g. 429381029482)"
                   />
                 </div>
 
@@ -337,7 +344,7 @@ export function PublicPayGateway({ token }: { token: string }) {
                   disabled={isSubmittingProof || proofSubmitted}
                   style={{ width: "100%", height: "38px" }}
                 >
-                  <Icon name="check" size={13} /> {isSubmittingProof ? "Submitting Proof..." : proofSubmitted ? "Proof Submitted ✓" : "Submit Payment Confirmation"}
+                  <Icon name="check" size={13} /> {isSubmittingProof ? "Submitting Confirmation..." : proofSubmitted ? "Payment Confirmed ✓" : "I Have Made This Payment"}
                 </button>
               </form>
             )}

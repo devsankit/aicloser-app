@@ -696,11 +696,13 @@ export function ContactsView() {
                     {/* Quick Inline Stage / Status Dropdown */}
                     {isColVisible("stage") && (
                       <td onClick={(e) => e.stopPropagation()}>
-                        <div className="stage-select-cell">
-                          <span className="dot" data-tone={stageMeta(lead.stage).tone} />
+                        <label
+                          className="stage-badge-select"
+                          data-tone={stageMeta(lead.stage).tone}
+                          title={`Stage: ${stageMeta(lead.stage).label} (Click to change)`}
+                        >
+                          <span className="stage-badge-dot" />
                           <select
-                            className="select stage-quick-select"
-                            data-size="sm"
                             value={lead.stage}
                             onChange={(e) => {
                               const nextStage = e.target.value as StageId;
@@ -714,7 +716,10 @@ export function ContactsView() {
                               </option>
                             ))}
                           </select>
-                        </div>
+                          <span className="stage-badge-chevron">
+                            <Icon name="chevron-down" size={10} />
+                          </span>
+                        </label>
                       </td>
                     )}
 
@@ -961,22 +966,30 @@ export function ContactsView() {
                             onClick={(e) => e.stopPropagation()}
                             style={{ minWidth: 120 }}
                           >
-                            <select
-                              className="select stage-quick-select"
-                              data-size="sm"
-                              value={lead.stage}
-                              onChange={(e) => {
-                                const nextStage = e.target.value as StageId;
-                                handleStageChange(lead.id, nextStage, lead.name);
-                              }}
-                              aria-label={`Change stage for ${lead.name}`}
+                            <label
+                              className="stage-badge-select"
+                              data-tone={stageMeta(lead.stage).tone}
+                              title={`Stage: ${stageMeta(lead.stage).label} (Click to change)`}
                             >
-                              {STAGES.map((s) => (
-                                <option key={s.id} value={s.id}>
-                                  {s.label}
-                                </option>
-                              ))}
-                            </select>
+                              <span className="stage-badge-dot" />
+                              <select
+                                value={lead.stage}
+                                onChange={(e) => {
+                                  const nextStage = e.target.value as StageId;
+                                  handleStageChange(lead.id, nextStage, lead.name);
+                                }}
+                                aria-label={`Change stage for ${lead.name}`}
+                              >
+                                {STAGES.map((s) => (
+                                  <option key={s.id} value={s.id}>
+                                    {s.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <span className="stage-badge-chevron">
+                                <Icon name="chevron-down" size={10} />
+                              </span>
+                            </label>
                           </span>
 
                           {isColVisible("callback") && callbackInfo && (

@@ -314,6 +314,17 @@ export function ChatView() {
     }
   }, [activeLead?.id, activeLead?.stage, activeChat?.id]);
 
+  // Automatically mark opened/active chat as read
+  useEffect(() => {
+    if (!activeChat) return;
+    if ((activeChat.unreadCount || 0) > 0) {
+      setConversations((prev) =>
+        prev.map((c) => (c.id === activeChat.id ? { ...c, unreadCount: 0 } : c))
+      );
+      aicloserApi.conversations.markRead(activeChat.id).catch(() => undefined);
+    }
+  }, [activeChat?.id, activeChat?.unreadCount]);
+
   // Unified Lead Profile: uses activeLead or falls back to activeChat info
   // Ensures the right drawer is ALWAYS present when showRightDrawer is true
   const activeLeadProfile = useMemo(() => {
@@ -1343,37 +1354,42 @@ export function ChatView() {
             />
           </div>
 
-          {/* Channel Filters & Quick Mark Read */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "4px" }}>
-            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-              {[
-                { id: "all", label: "All" },
-                { id: "whatsapp", label: "WhatsApp", icon: "whatsapp" },
-                { id: "instagram", label: "Instagram", icon: "sparkle" },
-                { id: "website", label: "Web", icon: "message" },
-              ].map((ch) => (
-                <button
-                  key={ch.id}
-                  className="btn"
-                  data-size="sm"
-                  data-variant={channelFilter === ch.id ? "primary" : "ghost"}
-                  onClick={() => setChannelFilter(ch.id)}
-                  style={{ height: "24px", fontSize: "11px", padding: "0 7px" }}
-                >
-                  {ch.label}
-                </button>
-              ))}
-            </div>
-            <button
-              className="btn"
-              data-size="sm"
-              data-variant="ghost"
-              onClick={handleMarkAllRead}
-              style={{ height: "24px", fontSize: "10px", padding: "0 6px", whiteSpace: "nowrap" }}
-              title="Mark all conversations in this inbox as read"
-            >
-              <Icon name="check" size={11} /> Mark read
-            </button>
+          {/* Channel Filters (Scrollable, Clean Linear Navigation) */}
+          <div
+            style={{
+              display: "flex",
+              gap: "6px",
+              overflowX: "auto",
+              whiteSpace: "nowrap",
+              scrollbarWidth: "none",
+              msOverflowStyle: "none",
+              WebkitOverflowScrolling: "touch",
+              paddingBottom: "2px",
+            }}
+          >
+            {[
+              { id: "all", label: "All" },
+              { id: "whatsapp", label: "WhatsApp", icon: "whatsapp" },
+              { id: "instagram", label: "Instagram", icon: "sparkle" },
+              { id: "website", label: "Web", icon: "message" },
+            ].map((ch) => (
+              <button
+                key={ch.id}
+                className="btn"
+                data-size="sm"
+                data-variant={channelFilter === ch.id ? "primary" : "ghost"}
+                onClick={() => setChannelFilter(ch.id)}
+                style={{
+                  height: "26px",
+                  fontSize: "11px",
+                  padding: "0 10px",
+                  flexShrink: 0,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {ch.label}
+              </button>
+            ))}
           </div>
         </div>
 

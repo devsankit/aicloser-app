@@ -1306,6 +1306,13 @@ svg {
   flex: 0 0 auto;
 }
 
+.dot[data-tone="accent"] { background: var(--accent); }
+.dot[data-tone="success"] { background: var(--success); }
+.dot[data-tone="warning"] { background: var(--warning); }
+.dot[data-tone="danger"] { background: var(--danger); }
+.dot[data-tone="info"] { background: #38bdf8; }
+.dot[data-tone="neutral"] { background: var(--text-tertiary); }
+
 /* ---------- card ---------- */
 .card {
   background: var(--bg-surface);
@@ -2555,6 +2562,142 @@ svg {
   justify-content: space-between;
   padding-top: 8px;
   border-top: 1px solid var(--border);
+}
+
+/* ---------- Stage Badge Dropdown (Linear / Modern SaaS Style) ---------- */
+.stage-badge-select {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+  height: 24px;
+  padding: 0 20px 0 8px;
+  border-radius: 9999px;
+  font-size: 11.5px;
+  font-weight: 550;
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
+  color: var(--text);
+  cursor: pointer;
+  transition: all var(--speed) ease;
+  user-select: none;
+  max-width: 145px;
+  line-height: 1;
+}
+
+.stage-badge-select:hover {
+  border-color: var(--border-strong);
+  filter: brightness(1.05);
+}
+
+.stage-badge-select:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.stage-badge-select .stage-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  margin-right: 6px;
+  pointer-events: none;
+}
+
+.stage-badge-select select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 550;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  line-height: 1;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.stage-badge-select select option {
+  background: var(--bg-panel, #1a1b1e);
+  color: var(--text, #ffffff);
+  font-size: 12px;
+  padding: 6px 10px;
+}
+
+.stage-badge-select .stage-badge-chevron {
+  position: absolute;
+  right: 7px;
+  pointer-events: none;
+  opacity: 0.65;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+}
+
+.stage-badge-select:hover .stage-badge-chevron {
+  opacity: 1;
+}
+
+/* Tone styling for stage-badge-select */
+.stage-badge-select[data-tone="accent"] {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+.stage-badge-select[data-tone="accent"] .stage-badge-dot {
+  background: var(--accent);
+}
+
+.stage-badge-select[data-tone="success"] {
+  background: var(--success-soft);
+  border-color: color-mix(in srgb, var(--success) 35%, transparent);
+  color: var(--success);
+}
+.stage-badge-select[data-tone="success"] .stage-badge-dot {
+  background: var(--success);
+}
+
+.stage-badge-select[data-tone="warning"] {
+  background: var(--warning-soft);
+  border-color: color-mix(in srgb, var(--warning) 35%, transparent);
+  color: var(--warning);
+}
+.stage-badge-select[data-tone="warning"] .stage-badge-dot {
+  background: var(--warning);
+}
+
+.stage-badge-select[data-tone="danger"] {
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+  color: var(--danger);
+}
+.stage-badge-select[data-tone="danger"] .stage-badge-dot {
+  background: var(--danger);
+}
+
+.stage-badge-select[data-tone="info"] {
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.35);
+  color: #38bdf8;
+}
+.stage-badge-select[data-tone="info"] .stage-badge-dot {
+  background: #38bdf8;
+}
+
+.stage-badge-select[data-tone="neutral"] {
+  background: var(--bg-soft);
+  border-color: var(--border-strong);
+  color: var(--text-secondary);
+}
+.stage-badge-select[data-tone="neutral"] .stage-badge-dot {
+  background: var(--text-tertiary);
 }
 
 .stage-select-cell {
