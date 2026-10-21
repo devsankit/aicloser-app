@@ -42,8 +42,13 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // 4. Verify session token for protected CRM routes
-  const token = request.cookies.get("gx_session")?.value ?? null;
+  // 4. Verify session token for protected CRM routes (check aicloser_token, gx_session, and Bearer header)
+  const token =
+    request.cookies.get("aicloser_token")?.value ??
+    request.cookies.get("gx_session")?.value ??
+    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
+    null;
+
   const session = await verifySessionToken(token);
 
   if (!session) {
