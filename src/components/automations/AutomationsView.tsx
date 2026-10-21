@@ -187,7 +187,8 @@ const DEFAULT_WORKFLOWS: WorkflowRule[] = [];
 const DEFAULT_LOGS: ExecutionLog[] = [];
 
 export function AutomationsView() {
-  const { state } = useApp();
+  const { state, toggleGlobalAiBot } = useApp();
+  const universalBotEnabled = state.globalAiBotEnabled;
   const [workflows, setWorkflows] = useState<WorkflowRule[]>(DEFAULT_WORKFLOWS);
   const [logs, setLogs] = useState<ExecutionLog[]>(DEFAULT_LOGS);
   const [activeTab, setActiveTab] = useState<"workflows" | "distribution" | "history" | "bot_config" | "guardrails" | "ai_byok">("workflows");
@@ -246,7 +247,6 @@ export function AutomationsView() {
   const [activeClosers, setActiveClosers] = useState<Array<any>>([]);
 
   // Bot Prompt settings state
-  const [universalBotEnabled, setUniversalBotEnabled] = useState(true);
   const [togglingBot, setTogglingBot] = useState(false);
   const [aiModel, setAiModel] = useState("gpt-4o-closer-v2");
   const [temperature, setTemperature] = useState(0.3);
@@ -403,18 +403,7 @@ Your objective:
       })
       .catch(() => {});
 
-    // Load Universal Bot Config from Server
-    aicloserApi.ai.getBotConfig()
-      .then((res: any) => {
-        if (!active) return;
-        const cfg = res?.data || res;
-        if (cfg && typeof cfg.enabled === "boolean") {
-          setUniversalBotEnabled(cfg.enabled);
-        }
-      })
-      .catch(() => {});
-
-    // Load Bot Training Knowledge Docs
+    // Bot Training Knowledge Docs
     aicloserApi.ai.getBotTraining()
       .then((res: any) => {
         if (!active) return;
@@ -489,18 +478,15 @@ Your objective:
   }
 
   async function handleToggleUniversalBot() {
-    const nextVal = !universalBotEnabled;
-    setUniversalBotEnabled(nextVal);
     setTogglingBot(true);
     try {
-      await aicloserApi.ai.updateBotConfig({ enabled: nextVal });
+      const nextVal = await toggleGlobalAiBot();
       setBannerNotice(
         nextVal
           ? "✓ Universal AI Chatbot is now ACTIVE across all channels."
           : "Universal AI Chatbot is now PAUSED (Manual Human Takeover mode)."
       );
     } catch (err: any) {
-      setUniversalBotEnabled(!nextVal);
       setBannerNotice(`Failed to toggle AI Bot: ${err?.message || "Server error"}`);
     } finally {
       setTogglingBot(false);

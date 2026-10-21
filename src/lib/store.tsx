@@ -52,10 +52,15 @@ interface AppState extends Persisted {
   poolLeads: LeadPoolItem[];
   poolCount: number;
   isPoolLoading: boolean;
+  /** Global AI Bot master toggle across all channels */
+  globalAiBotEnabled: boolean;
+  isTogglingAiBot: boolean;
 }
 
 interface AppApi {
   state: AppState;
+  toggleGlobalAiBot: () => Promise<boolean>;
+  setGlobalAiBotEnabled: (enabled: boolean) => void;
   moveLead: (id: string, stage: StageId) => void;
   updateLead: (id: string, patch: Partial<Lead>) => void;
   addLead: (lead: Omit<Lead, "id" | "updatedAt" | "code">) => void;
@@ -339,6 +344,8 @@ const initialState: AppState = {
   poolLeads: [],
   poolCount: 0,
   isPoolLoading: false,
+  globalAiBotEnabled: true,
+  isTogglingAiBot: false,
 };
 
 const clamp = (value: number, [min, max]: readonly [number, number]) =>
@@ -887,9 +894,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch {}
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    aicloserApi.ai
+      .getBotConfig()
+      .then((res: any) => {
+        if (!active) return;
+        const cfg = res?.data || res;
+        if (cfg && typeof cfg.enabled === "boolean") {
+          setState((p) => ({ ...p, globalAiBotEnabled: cfg.enabled }));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const toggleGlobalAiBot = useCallback(async () => {
+    const nextVal = !state.globalAiBotEnabled;
+    setState((p) => ({ ...p, globalAiBotEnabled: nextVal, isTogglingAiBot: true }));
+    try {
+      await aicloserApi.ai.updateBotConfig({ enabled: nextVal });
+      setState((p) => ({ ...p, isTogglingAiBot: false }));
+      return nextVal;
+    } catch (err) {
+      setState((p) => ({ ...p, globalAiBotEnabled: !nextVal, isTogglingAiBot: false }));
+      throw err;
+    }
+  }, [state.globalAiBotEnabled]);
+
+  const setGlobalAiBotEnabled = useCallback((enabled: boolean) => {
+    setState((p) => ({ ...p, globalAiBotEnabled: enabled }));
+  }, []);
+
   const api = useMemo<AppApi>(
     () => ({
       state,
+      toggleGlobalAiBot,
+      setGlobalAiBotEnabled,
       moveLead,
       updateLead,
       addLead,
@@ -918,6 +961,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }),
     [
       state,
+      toggleGlobalAiBot,
+      setGlobalAiBotEnabled,
       moveLead,
       updateLead,
       addLead,

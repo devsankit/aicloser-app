@@ -222,7 +222,7 @@ function GlobalSearch() {
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { state, toggleSidebar, setTheme, setScope, setLayout, setQuickAdd, setPalette, refreshLeads, logoutWorkspace } = useApp();
+  const { state, toggleSidebar, setTheme, setScope, setLayout, setQuickAdd, setPalette, refreshLeads, logoutWorkspace, toggleGlobalAiBot } = useApp();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [loginModalOpen, setLoginModalOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -962,6 +962,27 @@ export function AppShell({ children }: { children: ReactNode }) {
               </select>
             </label>
           )}
+
+                    {/* Master Global AI Bot Switch */}
+          <button
+            type="button"
+            className="topbar-ai-btn"
+            data-active={state.globalAiBotEnabled}
+            onClick={() => {
+              void toggleGlobalAiBot().catch(() => {});
+            }}
+            disabled={state.isTogglingAiBot}
+            title={
+              state.globalAiBotEnabled
+                ? "Global AI Sales Bot is ACTIVE across all channels (WhatsApp and Inbound). Click to pause."
+                : "Global AI Sales Bot is PAUSED (Manual Human Takeover mode). Click to activate."
+            }
+            aria-label="Toggle Global AI Bot"
+          >
+            <span className="dot" />
+            <Icon name="bot" size={15} />
+            <span className="hide-sm">{state.globalAiBotEnabled ? "AI Bot ON" : "AI Bot OFF"}</span>
+          </button>
 
           <div className="seg" role="group" aria-label="Colour theme">
             <button
