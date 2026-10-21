@@ -824,111 +824,115 @@ export function LeadImportView() {
                     </button>
                   </div>
 
-                  {/* QR Scanner Modal */}
+                  {/* QR Scanner Modal (Floating Dialog) */}
                   {scannerQrModal && (
-                    <div className="modal-backdrop" onClick={() => setScannerQrModal(false)}>
-                      <div className="modal-card" style={{ maxWidth: 460, padding: 24 }} onClick={(e) => e.stopPropagation()}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                          <h3 style={{ fontSize: "var(--fs-title)", fontWeight: 650, display: "flex", alignItems: "center", gap: 8 }}>
+                    <div className="overlay" data-kind="dialog" onClick={() => setScannerQrModal(false)}>
+                      <div className="dialog" style={{ maxWidth: 460, width: "100%", maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+                        <header className="dialog-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <h3 style={{ fontSize: "var(--fs-title)", fontWeight: 650, display: "flex", alignItems: "center", gap: 8, margin: 0 }}>
                             <Icon name="whatsapp" size={18} /> Link WhatsApp Account
                           </h3>
-                          <button className="btn" data-variant="ghost" data-size="sm" onClick={() => setScannerQrModal(false)}>✕</button>
-                        </div>
-                        <p style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginBottom: 14, lineHeight: 1.4 }}>
-                          Link your WhatsApp number to auto-ingest incoming customer leads and threads directly into the CRM.
-                        </p>
-
-                        {/* Pairing Method Switcher */}
-                        <div className="seg" style={{ width: "100%", justifyContent: "center", marginBottom: 16 }}>
-                          <button
-                            type="button"
-                            data-on={scannerPairingMethod === "qr"}
-                            onClick={() => setScannerPairingMethod("qr")}
-                            style={{ flex: 1 }}
-                          >
-                            QR Code Scanner
+                          <button type="button" className="icon-btn" onClick={() => setScannerQrModal(false)}>
+                            <Icon name="close" size={14} />
                           </button>
-                          <button
-                            type="button"
-                            data-on={scannerPairingMethod === "code"}
-                            onClick={() => setScannerPairingMethod("code")}
-                            style={{ flex: 1 }}
-                          >
-                            Pairing Code
-                          </button>
-                        </div>
+                        </header>
+                        <div className="dialog-body" style={{ padding: "16px 20px" }}>
+                          <p style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginBottom: 14, lineHeight: 1.4 }}>
+                            Link your WhatsApp number to auto-ingest incoming customer leads and threads directly into the CRM.
+                          </p>
 
-                        {scannerPairingMethod === "qr" ? (
-                          <div style={{ textAlign: "center", margin: "10px 0" }}>
-                            {scannerQrData ? (
-                              /* eslint-disable-next-line @next/next/no-img-element */
-                              <img
-                                src={scannerQrData}
-                                alt="WhatsApp QR Code"
-                                style={{ width: 220, height: 220, margin: "0 auto", borderRadius: 8, border: "1px solid var(--border)", background: "#fff", padding: 8 }}
-                              />
-                            ) : (
-                              <div style={{ display: "inline-block", border: "1px solid var(--border)", borderRadius: "8px", padding: "8px", background: "#fff" }}>
-                                {renderDeterministicQrSvg(scannerPairingCode || "wa-companion-scanner")}
-                              </div>
-                            )}
-                            <div style={{ fontSize: "11.5px", color: "var(--text-secondary)", marginTop: 8 }}>
-                              Open WhatsApp &gt; <strong>Linked Devices</strong> &gt; <strong>Link a Device</strong>, then scan this QR code.
-                            </div>
-                          </div>
-                        ) : (
-                          <div style={{ textAlign: "center", padding: "16px 12px", background: "var(--bg-soft)", borderRadius: 8, margin: "10px 0", border: "1px dashed var(--border-strong)" }}>
-                            <div style={{ fontSize: "11px", textTransform: "uppercase", fontWeight: 700, color: "var(--text-tertiary)" }}>
-                              Your WhatsApp 8-Digit Pairing Code
-                            </div>
-                            <div style={{ fontSize: "24px", fontWeight: 700, letterSpacing: "4px", color: "var(--accent)", marginTop: 6, fontFamily: "monospace" }}>
-                              {scannerPairingCode || "7482-9104"}
-                            </div>
-                            <div style={{ fontSize: "11.5px", color: "var(--text-secondary)", marginTop: 6 }}>
-                              In WhatsApp on your phone, choose <strong>Link with phone number instead</strong> and enter this code.
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Mobile Number Link Field */}
-                        <div className="field" style={{ marginTop: 14 }}>
-                          <label style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
-                            WhatsApp Mobile Number
-                          </label>
-                          <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
-                            <input
-                              type="tel"
-                              className="input"
-                              placeholder="+91 98765 43210"
-                              value={scannerPhoneInput}
-                              onChange={(e) => setScannerPhoneInput(e.target.value)}
-                              style={{ flex: 1 }}
-                            />
+                          {/* Pairing Method Switcher */}
+                          <div className="seg" style={{ width: "100%", justifyContent: "center", marginBottom: 16 }}>
                             <button
                               type="button"
-                              className="btn"
-                              data-variant="primary"
-                              disabled={scannerIsLinking || !scannerPhoneInput.trim()}
-                              onClick={handleConfirmScannerPairing}
+                              data-on={scannerPairingMethod === "qr"}
+                              onClick={() => setScannerPairingMethod("qr")}
+                              style={{ flex: 1 }}
                             >
-                              {scannerIsLinking ? "Linking..." : "Confirm & Link"}
+                              QR Code Scanner
+                            </button>
+                            <button
+                              type="button"
+                              data-on={scannerPairingMethod === "code"}
+                              onClick={() => setScannerPairingMethod("code")}
+                              style={{ flex: 1 }}
+                            >
+                              Pairing Code
                             </button>
                           </div>
-                        </div>
 
-                        {scannerSuccessMsg && (
-                          <div className="chip" data-tone="success" style={{ padding: "6px 10px", fontSize: "12px", marginTop: 10, width: "100%", justifyContent: "center" }}>
-                            {scannerSuccessMsg}
+                          {scannerPairingMethod === "qr" ? (
+                            <div style={{ textAlign: "center", margin: "10px 0" }}>
+                              {scannerQrData ? (
+                                /* eslint-disable-next-line @next/next/no-img-element */
+                                <img
+                                  src={scannerQrData}
+                                  alt="WhatsApp QR Code"
+                                  style={{ width: 220, height: 220, margin: "0 auto", borderRadius: 8, border: "1px solid var(--border)", background: "#fff", padding: 8 }}
+                                />
+                              ) : (
+                                <div style={{ display: "inline-block", border: "1px solid var(--border)", borderRadius: "8px", padding: "8px", background: "#fff" }}>
+                                  {renderDeterministicQrSvg(scannerPairingCode || "wa-companion-scanner")}
+                                </div>
+                              )}
+                              <div style={{ fontSize: "11.5px", color: "var(--text-secondary)", marginTop: 8 }}>
+                                Open WhatsApp &gt; <strong>Linked Devices</strong> &gt; <strong>Link a Device</strong>, then scan this QR code.
+                              </div>
+                            </div>
+                          ) : (
+                            <div style={{ textAlign: "center", padding: "16px 12px", background: "var(--bg-soft)", borderRadius: 8, margin: "10px 0", border: "1px dashed var(--border-strong)" }}>
+                              <div style={{ fontSize: "11px", textTransform: "uppercase", fontWeight: 700, color: "var(--text-tertiary)" }}>
+                                Your WhatsApp 8-Digit Pairing Code
+                              </div>
+                              <div style={{ fontSize: "24px", fontWeight: 700, letterSpacing: "4px", color: "var(--accent)", marginTop: 6, fontFamily: "monospace" }}>
+                                {scannerPairingCode || "7482-9104"}
+                              </div>
+                              <div style={{ fontSize: "11.5px", color: "var(--text-secondary)", marginTop: 6 }}>
+                                In WhatsApp on your phone, choose <strong>Link with phone number instead</strong> and enter this code.
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Mobile Number Link Field */}
+                          <div className="field" style={{ marginTop: 14 }}>
+                            <label style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
+                              WhatsApp Mobile Number
+                            </label>
+                            <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
+                              <input
+                                type="tel"
+                                className="input"
+                                placeholder="+91 98765 43210"
+                                value={scannerPhoneInput}
+                                onChange={(e) => setScannerPhoneInput(e.target.value)}
+                                style={{ flex: 1 }}
+                              />
+                              <button
+                                type="button"
+                                className="btn"
+                                data-variant="primary"
+                                disabled={scannerIsLinking || !scannerPhoneInput.trim()}
+                                onClick={handleConfirmScannerPairing}
+                              >
+                                {scannerIsLinking ? "Linking..." : "Confirm & Link"}
+                              </button>
+                            </div>
                           </div>
-                        )}
-                        {scannerErrorMsg && (
-                          <p className="form-error" style={{ margin: "8px 0 0", fontSize: "11.5px" }}>{scannerErrorMsg}</p>
-                        )}
 
-                        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20, paddingTop: 14, borderTop: "1px solid var(--border)" }}>
-                          <button className="btn" onClick={() => void handleStartScanner()}>Refresh QR</button>
-                          <button className="btn" data-variant="primary" onClick={() => { setScannerQrModal(false); void loadScannerState(); }}>Done</button>
+                          {scannerSuccessMsg && (
+                            <div className="chip" data-tone="success" style={{ padding: "6px 10px", fontSize: "12px", marginTop: 10, width: "100%", justifyContent: "center" }}>
+                              {scannerSuccessMsg}
+                            </div>
+                          )}
+                          {scannerErrorMsg && (
+                            <p className="form-error" style={{ margin: "8px 0 0", fontSize: "11.5px" }}>{scannerErrorMsg}</p>
+                          )}
                         </div>
+
+                        <footer className="dialog-foot" style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "14px 20px" }}>
+                          <button type="button" className="btn" onClick={() => void handleStartScanner()}>Refresh QR</button>
+                          <button type="button" className="btn" data-variant="primary" onClick={() => { setScannerQrModal(false); void loadScannerState(); }}>Done</button>
+                        </footer>
                       </div>
                     </div>
                   )}
