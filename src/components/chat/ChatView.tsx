@@ -32,6 +32,7 @@ interface ConversationItem {
   unreadCount: number;
   assignedTo: string;
   slaMinutesRemaining?: number;
+  aiAutoReplyDisabled?: boolean;
   messages: ChatMessage[];
 }
 
@@ -118,6 +119,8 @@ export function ChatView() {
   const [inputText, setInputText] = useState("");
   const [showRightDrawer, setShowRightDrawer] = useState(true);
   const [aiAutoReply, setAiAutoReply] = useState(true);
+  const [universalAiEnabled, setUniversalAiEnabled] = useState<boolean | null>(null);
+  const [togglingAiReply, setTogglingAiReply] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [activeHistoryTab, setActiveHistoryTab] = useState<"history" | "note" | "callback" | "calls">("history");
   const [leadPayment, setLeadPayment] = useState<any>(null);
@@ -376,6 +379,7 @@ export function ChatView() {
           updatedAt: c.updatedAt,
           unreadCount: c.unreadCount || 0,
           assignedTo: c.assignedAgent?.displayName || "Unassigned",
+          aiAutoReplyDisabled: Boolean(c.payload?.aiAutoReplyDisabled),
           messages: [],
         }));
 
@@ -405,6 +409,26 @@ export function ChatView() {
       active = false;
     };
   }, [state.leads]);
+
+  // Load Universal Bot Master Status
+  useEffect(() => {
+    aicloserApi.ai
+      .getBotConfig()
+      .then((cfg: any) => {
+        const val = cfg?.data?.enabled ?? cfg?.enabled;
+        if (typeof val === "boolean") {
+          setUniversalAiEnabled(val);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+
+  // Sync Per-Conversation AI Copilot status when active thread changes
+  useEffect(() => {
+    if (activeChat) {
+      setAiAutoReply(!activeChat.aiAutoReplyDisabled);
+    }
+  }, [activeChat?.id, activeChat?.aiAutoReplyDisabled]);
 
   // Fetch real messages for the active conversation when selected
   useEffect(() => {
@@ -553,6 +577,46 @@ export function ChatView() {
         }
       })
       .catch(() => {});
+  };
+
+  const handleToggleAiAutoReply = async () => {
+    if (!activeChat) return;
+    const nextVal = !aiAutoReply;
+    setAiAutoReply(nextVal);
+    setTogglingAiReply(true);
+
+    // Optimistically update conversation state
+    setConversations((prev) =>
+      prev.map((c) => (c.id === activeChat.id ? { ...c, aiAutoReplyDisabled: !nextVal } : c))
+    );
+
+    showToast(nextVal ? "AI Copilot resumed for this contact" : "AI Copilot paused (Manual human takeover)");
+
+    try {
+      await aicloserApi.conversations.setAiAutoReply(activeChat.id, !nextVal);
+    } catch (err: any) {
+      console.error("Failed to update AI auto reply", err);
+      // Rollback on error
+      setAiAutoReply(!nextVal);
+      setConversations((prev) =>
+        prev.map((c) => (c.id === activeChat.id ? { ...c, aiAutoReplyDisabled: nextVal } : c))
+      );
+      showToast("Failed to update AI setting");
+    } finally {
+      setTogglingAiReply(false);
+    }
+  };
+
+  const handleToggleUniversalAi = async () => {
+    const nextVal = universalAiEnabled === false ? true : false;
+    setUniversalAiEnabled(nextVal);
+    showToast(nextVal ? "Universal AI Bot is now Active globally" : "Universal AI Bot is now Paused globally");
+    try {
+      await aicloserApi.ai.updateBotConfig({ enabled: nextVal });
+    } catch (err: any) {
+      setUniversalAiEnabled(!nextVal);
+      showToast("Failed to toggle Universal AI bot");
+    }
   };
 
   const handleApplyMacro = (text: string) => {
@@ -873,6 +937,43 @@ export function ChatView() {
               </button>
             ))}
           </div>
+
+          {/* Universal AI Status Quick Bar */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "6px 8px",
+              background: "var(--bg-panel)",
+              borderRadius: "var(--r-sm)",
+              border: "1px solid var(--border)",
+              fontSize: "11px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <span
+                className="dot"
+                style={{
+                  background: universalAiEnabled === false ? "var(--warning)" : "var(--success)",
+                }}
+              />
+              <span style={{ color: "var(--text-secondary)" }}>Universal AI:</span>
+              <strong style={{ color: universalAiEnabled === false ? "var(--warning)" : "var(--success)" }}>
+                {universalAiEnabled === false ? "Paused" : "Active"}
+              </strong>
+            </div>
+            <button
+              className="btn"
+              data-size="sm"
+              data-variant="ghost"
+              onClick={handleToggleUniversalAi}
+              style={{ height: "20px", fontSize: "10px", padding: "0 6px" }}
+              title="Toggle Universal Bot across all channels without leaving chat"
+            >
+              {universalAiEnabled === false ? "Resume Global" : "Pause Global"}
+            </button>
+          </div>
         </div>
 
         {/* Conversation Rows */}
@@ -1057,10 +1158,15 @@ export function ChatView() {
                 className="btn"
                 data-size="sm"
                 data-variant={aiAutoReply ? "accent" : "ghost"}
-                onClick={() => setAiAutoReply(!aiAutoReply)}
-                title="Toggle AI Auto-Suggestion assistant"
+                onClick={handleToggleAiAutoReply}
+                disabled={togglingAiReply}
+                title={
+                  aiAutoReply
+                    ? "AI Copilot is auto-replying to this contact. Click to pause (Human Takeover mode)."
+                    : "AI Copilot is paused for this contact. Click to resume."
+                }
               >
-                <Icon name="sparkle" size={12} /> AI Copilot {aiAutoReply ? "On" : "Off"}
+                <Icon name="sparkle" size={12} /> AI Copilot {aiAutoReply ? "On" : "Paused"}
               </button>
 
               {/* Share Chat Button */}

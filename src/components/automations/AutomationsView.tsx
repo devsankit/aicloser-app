@@ -246,6 +246,8 @@ export function AutomationsView() {
   const [activeClosers, setActiveClosers] = useState<Array<any>>([]);
 
   // Bot Prompt settings state
+  const [universalBotEnabled, setUniversalBotEnabled] = useState(true);
+  const [togglingBot, setTogglingBot] = useState(false);
   const [aiModel, setAiModel] = useState("gpt-4o-closer-v2");
   const [temperature, setTemperature] = useState(0.3);
   const [systemPrompt, setSystemPrompt] = useState(
@@ -392,6 +394,17 @@ Your objective:
       })
       .catch(() => {});
 
+    // Load Universal Bot Config from Server
+    aicloserApi.ai.getBotConfig()
+      .then((res: any) => {
+        if (!active) return;
+        const cfg = res?.data || res;
+        if (cfg && typeof cfg.enabled === "boolean") {
+          setUniversalBotEnabled(cfg.enabled);
+        }
+      })
+      .catch(() => {});
+
     // Load Bot Training Knowledge Docs
     aicloserApi.ai.getBotTraining()
       .then((res: any) => {
@@ -464,6 +477,26 @@ Your objective:
       setBannerNotice(`⚡ Trigger tested for "${rule.name}". Rule criteria validated.`);
     }
     setTimeout(() => setBannerNotice(null), 5000);
+  }
+
+  async function handleToggleUniversalBot() {
+    const nextVal = !universalBotEnabled;
+    setUniversalBotEnabled(nextVal);
+    setTogglingBot(true);
+    try {
+      await aicloserApi.ai.updateBotConfig({ enabled: nextVal });
+      setBannerNotice(
+        nextVal
+          ? "✓ Universal AI Chatbot is now ACTIVE across all channels."
+          : "Universal AI Chatbot is now PAUSED (Manual Human Takeover mode)."
+      );
+    } catch (err: any) {
+      setUniversalBotEnabled(!nextVal);
+      setBannerNotice(`Failed to toggle AI Bot: ${err?.message || "Server error"}`);
+    } finally {
+      setTogglingBot(false);
+      setTimeout(() => setBannerNotice(null), 4000);
+    }
   }
 
   async function handleSavePrompt() {
@@ -1518,7 +1551,47 @@ Your objective:
 
       {/* TAB 3: AI BOT CONFIGURATION & PROMPT PLAYGROUND */}
       {activeTab === "bot_config" && (
-        <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 16 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Universal Bot Master Toggle Card */}
+          <div
+            className="card"
+            style={{
+              padding: "16px 20px",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              border: "1px solid var(--border)",
+              background: "var(--bg-card)",
+              borderRadius: 8,
+            }}
+          >
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <h3 style={{ fontSize: 16, fontWeight: 650, color: "var(--fg)", margin: 0 }}>
+                  Universal Autonomous AI Chatbot
+                </h3>
+                <span className="chip" data-tone={universalBotEnabled ? "success" : "warning"}>
+                  <span className="dot" />
+                  {universalBotEnabled ? "Active (Auto-Replying)" : "Paused (Manual Human-Only)"}
+                </span>
+              </div>
+              <p style={{ fontSize: 12, color: "var(--fg-muted)", marginTop: 4, marginBottom: 0 }}>
+                Master switch for your entire workspace. When enabled, Closer AI autonomously handles inbound inquiries across WhatsApp, Instagram, and Web.
+              </p>
+            </div>
+            <button
+              className="btn"
+              data-variant={universalBotEnabled ? "primary" : "outline"}
+              onClick={handleToggleUniversalBot}
+              disabled={togglingBot}
+              style={{ cursor: "pointer", minWidth: 160 }}
+            >
+              <Icon name="sparkle" size={13} />
+              {universalBotEnabled ? "Pause Universal Bot" : "Activate Universal Bot"}
+            </button>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 16 }}>
           {/* Left: System Prompt Editor */}
           <div className="card" style={{ border: "1px solid var(--border)", background: "var(--bg-card)", borderRadius: 8, padding: 18 }}>
             <h3 style={{ fontSize: 15, fontWeight: 600, color: "var(--fg)", marginBottom: 4 }}>
@@ -1683,7 +1756,8 @@ Your objective:
             </div>
           </div>
         </div>
-      )}
+      </div>
+    )}
 
       {/* TAB 4: SAFETY GUARDRAILS & VELOCITY */}
       {activeTab === "guardrails" && (
