@@ -2206,6 +2206,8 @@ export const aicloserApi = {
       scheduledAt?: string;
       variableMappings?: any;
       groupIds?: string[];
+      manualPhoneNumbers?: string[];
+      autoDispatch?: boolean;
     }) {
       const res = await request('/marketing/campaigns', {
         method: 'POST',

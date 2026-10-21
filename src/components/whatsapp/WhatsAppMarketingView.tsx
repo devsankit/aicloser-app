@@ -69,6 +69,10 @@ export function WhatsAppMarketingView() {
   const [campName, setCampName] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState("commercial_offer_v3");
   const [selectedAudience, setSelectedAudience] = useState("Negotiation Stage");
+  const [audienceMode, setAudienceMode] = useState<"segment" | "manual">("segment");
+  const [manualPhoneInput, setManualPhoneInput] = useState("");
+  const [manualPhoneList, setManualPhoneList] = useState<string[]>([]);
+  const [isLaunching, setIsLaunching] = useState(false);
   const [successBanner, setSuccessBanner] = useState<string | null>(null);
 
 
@@ -281,6 +285,12 @@ export function WhatsAppMarketingView() {
             };
           });
           setTemplates(liveTemplates);
+          if (liveTemplates.length > 0) {
+            setSelectedTemplate((prev) => {
+              const exists = liveTemplates.some((t) => t.name === prev);
+              return exists ? prev : liveTemplates[0].name;
+            });
+          }
         }
 
         if (campaignsRes.status === "fulfilled") {
@@ -407,50 +417,154 @@ export function WhatsAppMarketingView() {
     }
   };
 
-  const handleLaunchCampaign = async () => {
-    if (!campName.trim()) return;
+  const handleAddManualPhone = () => {
+    if (!manualPhoneInput.trim()) return;
 
-    const targetSize =
-      selectedAudience === "Negotiation Stage"
-        ? Math.max(1, negotiationCount)
-        : selectedAudience === "Demo Booked"
-        ? Math.max(1, qualifiedCount)
-        : selectedAudience === "Stalled Leads"
-        ? Math.max(1, stalledCount)
-        : Math.max(1, totalLeadsCount);
+    const tokens = manualPhoneInput
+      .split(/[\s,;]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
 
-    const newCamp: WhatsAppCampaign = {
-      id: `camp-${Date.now()}`,
-      name: campName.trim(),
-      templateName: selectedTemplate,
-      audienceName: `${selectedAudience} (${targetSize} leads)`,
-      targetCount: targetSize,
-      deliveredCount: targetSize,
-      readCount: 1,
-      replyCount: 0,
-      status: "running",
-      sentAt: "Just now",
-    };
-
-    setCampaigns([newCamp, ...campaigns]);
-    setIsNewCampOpen(false);
-    setCampName("");
-
-    // Dispatch to backend API
-    try {
-      await aicloserApi.marketing.whatsappFlows.save({
-        name: newCamp.name,
-        templateName: newCamp.templateName,
-        audienceName: newCamp.audienceName,
-        targetCount: targetSize,
-        status: "active",
-      });
-    } catch (e) {
-      // optimistic state is kept
+    const newNumbers: string[] = [];
+    for (const token of tokens) {
+      const cleanDigits = token.replace(/\D/g, "");
+      if (cleanDigits.length < 10) continue;
+      const formatted = token.startsWith("+")
+        ? token
+        : (cleanDigits.length === 10 ? `+91${cleanDigits}` : `+${cleanDigits}`);
+      if (!manualPhoneList.includes(formatted) && !newNumbers.includes(formatted)) {
+        newNumbers.push(formatted);
+      }
     }
 
-    setSuccessBanner(`Broadcast "${newCamp.name}" queued across ${targetSize} leads via Meta WABA!`);
-    setTimeout(() => setSuccessBanner(null), 4500);
+    if (newNumbers.length > 0) {
+      setManualPhoneList((prev) => [...prev, ...newNumbers]);
+      setManualPhoneInput("");
+    }
+  };
+
+  const handleRemoveManualPhone = (index: number) => {
+    setManualPhoneList((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const handleLaunchCampaign = async () => {
+    let finalPhones = [...manualPhoneList];
+
+    // Pick up any typed number that user didn't explicitly click "+ Add" for
+    if (audienceMode === "manual" && manualPhoneInput.trim()) {
+      const tokens = manualPhoneInput
+        .split(/[\s,;]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      for (const token of tokens) {
+        const cleanDigits = token.replace(/\D/g, "");
+        if (cleanDigits.length >= 10) {
+          const formatted = token.startsWith("+")
+            ? token
+            : (cleanDigits.length === 10 ? `+91${cleanDigits}` : `+${cleanDigits}`);
+          if (!finalPhones.includes(formatted)) {
+            finalPhones.push(formatted);
+          }
+        }
+      }
+    }
+
+    if (audienceMode === "manual" && finalPhones.length === 0) {
+      setSuccessBanner("⚠️ Please provide at least one valid 10-digit phone number.");
+      setTimeout(() => setSuccessBanner(null), 3500);
+      return;
+    }
+
+    const campaignTitle = campName.trim() || `WhatsApp Broadcast ${new Date().toLocaleDateString([], { month: "short", day: "numeric" })}`;
+    setIsLaunching(true);
+
+    try {
+      if (audienceMode === "manual") {
+        await aicloserApi.marketing.createCampaign({
+          name: campaignTitle,
+          templateId: selectedTemplate,
+          manualPhoneNumbers: finalPhones,
+          autoDispatch: true,
+        });
+
+        setSuccessBanner(`✓ Broadcast dispatched immediately to ${finalPhones.length} recipient(s) via WhatsApp Cloud API!`);
+        setIsNewCampOpen(false);
+        setCampName("");
+        setManualPhoneList([]);
+        setManualPhoneInput("");
+
+        // Refresh live campaigns list
+        const updated = await aicloserApi.marketing.getCampaigns().catch(() => null);
+        const rawList = Array.isArray(updated) ? updated : (updated as any)?.data || (updated as any)?.campaigns || [];
+        if (Array.isArray(rawList) && rawList.length > 0) {
+          setCampaigns(
+            rawList.map((c: any, idx: number) => ({
+              id: c.id || `camp-${idx}`,
+              name: c.name || campaignTitle,
+              templateName: c.template?.name || selectedTemplate,
+              audienceName: `Custom (${finalPhones.length} numbers)`,
+              targetCount: c.totalRecipients || finalPhones.length,
+              deliveredCount: c.deliveredCount || (c.status === "COMPLETED" ? finalPhones.length : 0),
+              readCount: c.readCount || 0,
+              replyCount: c.repliedCount || 0,
+              status: String(c.status || "").toLowerCase() === "completed" ? "completed" : "running",
+              sentAt: "Just now",
+            }))
+          );
+        }
+      } else {
+        const targetSize =
+          selectedAudience === "Negotiation Stage"
+            ? Math.max(1, negotiationCount)
+            : selectedAudience === "Demo Booked"
+            ? Math.max(1, qualifiedCount)
+            : selectedAudience === "Stalled Leads"
+            ? Math.max(1, stalledCount)
+            : Math.max(1, totalLeadsCount);
+
+        await aicloserApi.marketing.createCampaign({
+          name: campaignTitle,
+          templateId: selectedTemplate,
+          autoDispatch: true,
+        }).catch(async () => {
+          await aicloserApi.marketing.whatsappFlows.save({
+            name: campaignTitle,
+            templateName: selectedTemplate,
+            audienceName: `${selectedAudience} (${targetSize} leads)`,
+            targetCount: targetSize,
+            status: "active",
+          });
+        });
+
+        setSuccessBanner(`✓ Broadcast queued for ${selectedAudience} via WhatsApp Cloud API!`);
+        setIsNewCampOpen(false);
+        setCampName("");
+
+        const updated = await aicloserApi.marketing.getCampaigns().catch(() => null);
+        const rawList = Array.isArray(updated) ? updated : (updated as any)?.data || (updated as any)?.campaigns || [];
+        if (Array.isArray(rawList) && rawList.length > 0) {
+          setCampaigns(
+            rawList.map((c: any, idx: number) => ({
+              id: c.id || `camp-${idx}`,
+              name: c.name || campaignTitle,
+              templateName: c.template?.name || selectedTemplate,
+              audienceName: c.audienceName || `${selectedAudience} (${targetSize} leads)`,
+              targetCount: c.totalRecipients || targetSize,
+              deliveredCount: c.deliveredCount || 0,
+              readCount: c.readCount || 0,
+              replyCount: c.repliedCount || 0,
+              status: String(c.status || "").toLowerCase() === "completed" ? "completed" : "running",
+              sentAt: "Just now",
+            }))
+          );
+        }
+      }
+    } catch (err: any) {
+      setSuccessBanner(err?.message || "Failed to launch broadcast campaign.");
+    } finally {
+      setIsLaunching(false);
+      setTimeout(() => setSuccessBanner(null), 5000);
+    }
   };
 
   // Check closer permission guard (Bulk marketing hidden from closer unless enabled by admin)
@@ -778,7 +892,7 @@ export function WhatsAppMarketingView() {
             <p style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "6px" }}>
               Leads who have received a commercial quote and are currently in the Negotiation stage.
             </p>
-            <button className="btn" data-size="sm" data-variant="primary" onClick={() => { setSelectedAudience("Negotiation Stage"); setIsNewCampOpen(true); }} style={{ marginTop: "12px", width: "100%" }}>
+            <button className="btn" data-size="sm" data-variant="primary" onClick={() => { setSelectedAudience("Negotiation Stage"); setAudienceMode("segment"); setIsNewCampOpen(true); }} style={{ marginTop: "12px", width: "100%" }}>
               Broadcast to this Segment ({negotiationCount})
             </button>
           </div>
@@ -791,7 +905,7 @@ export function WhatsAppMarketingView() {
             <p style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "6px" }}>
               Early-stage inquiries where no progress has occurred. High priority for automated re-engagement.
             </p>
-            <button className="btn" data-size="sm" data-variant="primary" onClick={() => { setSelectedAudience("Stalled Leads"); setIsNewCampOpen(true); }} style={{ marginTop: "12px", width: "100%" }}>
+            <button className="btn" data-size="sm" data-variant="primary" onClick={() => { setSelectedAudience("Stalled Leads"); setAudienceMode("segment"); setIsNewCampOpen(true); }} style={{ marginTop: "12px", width: "100%" }}>
               Broadcast to this Segment ({stalledCount})
             </button>
           </div>
@@ -804,7 +918,7 @@ export function WhatsAppMarketingView() {
             <p style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "6px" }}>
               Upcoming booked product walkthroughs. Send preparation guide and calendar Google Meet link.
             </p>
-            <button className="btn" data-size="sm" data-variant="primary" onClick={() => { setSelectedAudience("Demo Booked"); setIsNewCampOpen(true); }} style={{ marginTop: "12px", width: "100%" }}>
+            <button className="btn" data-size="sm" data-variant="primary" onClick={() => { setSelectedAudience("Demo Booked"); setAudienceMode("segment"); setIsNewCampOpen(true); }} style={{ marginTop: "12px", width: "100%" }}>
               Broadcast to this Segment ({qualifiedCount})
             </button>
           </div>
@@ -817,7 +931,7 @@ export function WhatsAppMarketingView() {
             <p style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "6px" }}>
               Full database broadcast for major feature launches, company announcements, or festive offers.
             </p>
-            <button className="btn" data-size="sm" data-variant="primary" onClick={() => { setSelectedAudience("All CRM Contacts"); setIsNewCampOpen(true); }} style={{ marginTop: "12px", width: "100%" }}>
+            <button className="btn" data-size="sm" data-variant="primary" onClick={() => { setSelectedAudience("All CRM Contacts"); setAudienceMode("segment"); setIsNewCampOpen(true); }} style={{ marginTop: "12px", width: "100%" }}>
               Broadcast to All ({totalLeadsCount})
             </button>
           </div>
@@ -1030,7 +1144,7 @@ export function WhatsAppMarketingView() {
       {/* New Campaign Modal */}
       {isNewCampOpen && (
         <div className="overlay" data-kind="dialog" onClick={() => setIsNewCampOpen(false)} role="presentation">
-          <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="campaign-dialog-title" onClick={(e) => e.stopPropagation()} style={{ width: "460px" }}>
+          <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="campaign-dialog-title" onClick={(e) => e.stopPropagation()} style={{ width: "480px", maxWidth: "95vw" }}>
             <div className="dialog-head">
               <h2 id="campaign-dialog-title" style={{ fontSize: "var(--fs-title)", fontWeight: 650 }}>New WhatsApp Broadcast Campaign</h2>
               <button className="btn" data-variant="ghost" aria-label="Close dialog" onClick={() => setIsNewCampOpen(false)} style={{ padding: "4px" }}>
@@ -1057,39 +1171,145 @@ export function WhatsAppMarketingView() {
                   value={selectedTemplate}
                   onChange={(e) => setSelectedTemplate(e.target.value)}
                 >
-                  {templates.map((t) => (
-                    <option key={t.id} value={t.name}>
-                      {t.name} ({t.category})
-                    </option>
-                  ))}
+                  {templates.length === 0 ? (
+                    <option value="">No templates found (Sync with Meta first)</option>
+                  ) : (
+                    templates.map((t) => (
+                      <option key={t.id} value={t.name}>
+                        {t.name} ({t.category})
+                      </option>
+                    ))
+                  )}
                 </select>
               </div>
 
               <div className="field">
-                <label htmlFor="camp-audience" style={{ fontSize: "var(--fs-caption)", fontWeight: 600, color: "var(--text-secondary)" }}>Audience Segment</label>
-                <select
-                  className="select"
-                  id="camp-audience"
-                  value={selectedAudience}
-                  onChange={(e) => setSelectedAudience(e.target.value)}
-                >
-                  <option value="Negotiation Stage">Negotiation Stage ({negotiationCount} leads)</option>
-                  <option value="Stalled Leads">Stalled Leads ({stalledCount} leads)</option>
-                  <option value="Demo Booked">Demo Booked ({qualifiedCount} leads)</option>
-                  <option value="All CRM Contacts">All CRM Contacts ({totalLeadsCount} leads)</option>
-                </select>
+                <label style={{ fontSize: "var(--fs-caption)", fontWeight: 600, color: "var(--text-secondary)" }}>Audience Type</label>
+                <div className="seg" role="group" aria-label="Audience Type" style={{ width: "100%" }}>
+                  <button
+                    type="button"
+                    data-on={audienceMode === "segment"}
+                    onClick={() => setAudienceMode("segment")}
+                    style={{ flex: 1, justifyContent: "center" }}
+                  >
+                    CRM Leads Segment
+                  </button>
+                  <button
+                    type="button"
+                    data-on={audienceMode === "manual"}
+                    onClick={() => setAudienceMode("manual")}
+                    style={{ flex: 1, justifyContent: "center" }}
+                  >
+                    Custom Phone Numbers
+                  </button>
+                </div>
               </div>
+
+              {audienceMode === "segment" ? (
+                <div className="field">
+                  <label htmlFor="camp-audience" style={{ fontSize: "var(--fs-caption)", fontWeight: 600, color: "var(--text-secondary)" }}>Audience Segment</label>
+                  <select
+                    className="select"
+                    id="camp-audience"
+                    value={selectedAudience}
+                    onChange={(e) => setSelectedAudience(e.target.value)}
+                  >
+                    <option value="Negotiation Stage">Negotiation Stage ({negotiationCount} leads)</option>
+                    <option value="Stalled Leads">Stalled Leads ({stalledCount} leads)</option>
+                    <option value="Demo Booked">Demo Booked ({qualifiedCount} leads)</option>
+                    <option value="All CRM Contacts">All CRM Contacts ({totalLeadsCount} leads)</option>
+                  </select>
+                </div>
+              ) : (
+                <div className="field" style={{ gap: "6px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <label htmlFor="manual-phone-input" style={{ fontSize: "var(--fs-caption)", fontWeight: 600, color: "var(--text-secondary)" }}>
+                      Target Phone Numbers ({manualPhoneList.length} added)
+                    </label>
+                    {manualPhoneList.length > 0 && (
+                      <button
+                        type="button"
+                        className="btn"
+                        data-variant="ghost"
+                        data-size="sm"
+                        onClick={() => setManualPhoneList([])}
+                        style={{ fontSize: "11px", height: "22px", padding: "0 6px" }}
+                      >
+                        Clear All
+                      </button>
+                    )}
+                  </div>
+
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <input
+                      className="input"
+                      id="manual-phone-input"
+                      placeholder="e.g. +91 95895 10954, 9182496963"
+                      value={manualPhoneInput}
+                      onChange={(e) => setManualPhoneInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleAddManualPhone();
+                        }
+                      }}
+                      style={{ flex: 1 }}
+                    />
+                    <button
+                      type="button"
+                      className="btn"
+                      data-variant="outline"
+                      data-size="sm"
+                      onClick={handleAddManualPhone}
+                      disabled={!manualPhoneInput.trim()}
+                      style={{ flexShrink: 0 }}
+                    >
+                      <Icon name="plus" size={13} /> Add
+                    </button>
+                  </div>
+                  <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                    Add 2-3 or more numbers manually. Supports +91, 10-digit mobile, comma-separated, or paste multiple.
+                  </span>
+
+                  {manualPhoneList.length > 0 && (
+                    <div className="chip-row" style={{ marginTop: "4px", maxHeight: "110px", overflowY: "auto", padding: "4px 0" }}>
+                      {manualPhoneList.map((num, idx) => (
+                        <span key={idx} className="chip-x">
+                          <b>{num}</b>
+                          <button
+                            type="button"
+                            className="x"
+                            onClick={() => handleRemoveManualPhone(idx)}
+                            aria-label={`Remove ${num}`}
+                          >
+                            <Icon name="close" size={11} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="card" style={{ padding: "10px", background: "var(--bg-soft)", fontSize: "11px", color: "var(--text-secondary)" }}>
                 ⚡ Messages will dispatch through official Meta WhatsApp Cloud API with automatic rate-limit throttling (25 msg/sec).
               </div>
             </div>
             <div className="dialog-foot" style={{ display: "flex", justifyContent: "flex-end", gap: "8px", padding: "12px 20px" }}>
-              <button className="btn" data-variant="ghost" onClick={() => setIsNewCampOpen(false)}>
+              <button className="btn" data-variant="ghost" onClick={() => setIsNewCampOpen(false)} disabled={isLaunching}>
                 Cancel
               </button>
-              <button className="btn" data-variant="primary" onClick={handleLaunchCampaign}>
-                Send WhatsApp Broadcast
+              <button
+                className="btn"
+                data-variant="primary"
+                onClick={handleLaunchCampaign}
+                disabled={isLaunching || (audienceMode === "manual" && manualPhoneList.length === 0 && !manualPhoneInput.trim())}
+              >
+                {isLaunching
+                  ? "Broadcasting..."
+                  : audienceMode === "manual"
+                  ? `Send Broadcast (${manualPhoneList.length + (manualPhoneInput.trim() ? 1 : 0)})`
+                  : "Send WhatsApp Broadcast"}
               </button>
             </div>
           </div>
