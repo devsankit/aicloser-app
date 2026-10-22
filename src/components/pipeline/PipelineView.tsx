@@ -125,7 +125,7 @@ export function PipelineView() {
         setClaimFeedback({
           id: item.id,
           status: "success",
-          message: `âœ… Lead "${item.customerName || "Customer"}" assigned to ${cleanCloser}! Added to New Leads.`,
+          message: `Lead "${item.customerName || "Customer"}" assigned to ${cleanCloser}. Added to New Leads.`,
         });
         setTimeout(() => setClaimFeedback(null), 4000);
       } else {
@@ -150,7 +150,7 @@ export function PipelineView() {
       const count = res?.count ?? res?.assignments?.length ?? openPoolList.length;
       setClaimFeedback({
         status: "success",
-        message: `âš¡ Successfully auto-distributed ${count} lead${count === 1 ? "" : "s"} across active closers via Round-Robin!`,
+        message: `Successfully auto-distributed ${count} lead${count === 1 ? "" : "s"} across active closers via Round-Robin.`,
       });
       setTimeout(() => setClaimFeedback(null), 5000);
     } catch (e: any) {
@@ -293,7 +293,7 @@ export function PipelineView() {
         setClaimFeedback({
           id: item.id,
           status: "success",
-          message: `âš¡ Lead "${item.customerName || "Customer"}" grabbed! Added to your New Leads column.`,
+          message: `Lead "${item.customerName || "Customer"}" claimed. Added to your New Leads column.`,
         });
         setTimeout(() => setClaimFeedback(null), 4000);
       } else {
@@ -306,8 +306,8 @@ export function PipelineView() {
           id: item.id,
           status: isQuota ? "quota_limit" : "already_claimed",
           message: isQuota
-            ? `âš ï¸ Quota Limit: You already hold ${myActiveLeads}/${myCap} active leads. Close existing deals before grabbing more.`
-            : `âš¡ Lead was just grabbed by another closer!`,
+            ? ` Quota Limit: You already hold ${myActiveLeads}/${myCap} active leads. Close existing deals before grabbing more.`
+            : `Lead was just grabbed by another closer!`,
         });
         setTimeout(() => setClaimFeedback(null), 4500);
       }
@@ -317,7 +317,7 @@ export function PipelineView() {
       setClaimFeedback({
         id: item.id,
         status: "already_claimed",
-        message: "âš¡ Lead is no longer available or was grabbed by another closer.",
+        message: "Lead is no longer available or was grabbed by another closer.",
       });
       setTimeout(() => setClaimFeedback(null), 4500);
     }
@@ -474,16 +474,9 @@ export function PipelineView() {
             </div>
           </div>
           <p className="page-sub">
-            {viewMode === "board" ? (
-              <>
-                {filtered.length} leads Â·{" "}
-                drag a card or select it and press â‡§ â† â†’
-              </>
-            ) : (
-              <>
-                âš¡ <b>{isAdmin ? "Unassigned Leads Pool" : "First-Come, First-Served Pool"}</b> Â· {openPoolList.length} unassigned leads waiting Â· {isAdmin ? "Distribute leads to team closers or let closers claim them from their Lead Grab Pool." : "Grabbing a lead instantly claims it into your New Leads."}
-              </>
-            )}
+            {viewMode === "board"
+              ? `${filtered.length} active leads across pipeline stages`
+              : `Unassigned pool · ${openPoolList.length} leads waiting to be claimed or distributed`}
           </p>
         </div>
         <div className="page-actions">
@@ -620,7 +613,7 @@ export function PipelineView() {
                   disabled={isDistributing || openPoolList.length === 0}
                 >
                   <Icon name={isDistributing ? "refresh" : "zap"} size={13} className={isDistributing ? "spin" : ""} />
-                  {isDistributing ? "Distributing leads..." : "âš¡ Auto-Distribute (Round-Robin)"}
+                  {isDistributing ? "Distributing leads..." : "Auto-Distribute (Round-Robin)"}
                 </button>
               </div>
             ) : (
@@ -628,7 +621,7 @@ export function PipelineView() {
                 <div className="pool-quota-header">
                   <span className="pool-quota-title">YOUR ACTIVE CAPACITY</span>
                   <span className="chip" data-tone={isAtQuota ? "danger" : "success"}>
-                    {isAtQuota ? "âš ï¸ Quota Full" : `âœ… ${Math.max(0, myCap - myActiveLeads)} grabs left`}
+                    {isAtQuota ? "Quota Full" : `Claim Available (${Math.max(0, myCap - myActiveLeads)} left)`}
                   </span>
                 </div>
                 <div className="pool-quota-stat">
@@ -805,7 +798,7 @@ export function PipelineView() {
                           }}
                           aria-label="Assign lead to closer"
                         >
-                          <option value="" disabled>Assign to Closer â–¾</option>
+                          <option value="" disabled>Assign to Closer...</option>
                           {activeClosers.length > 0
                             ? activeClosers.map((closer) => (
                                 <option key={closer.id} value={`${closer.id}::${closer.name}`}>
@@ -995,7 +988,7 @@ export function PipelineView() {
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search by name, company, CLO id, phoneâ€¦"
+                placeholder="Search by name, company, phone, ID..."
                 aria-label="Search leads"
               />
               {query ? (
@@ -1061,15 +1054,15 @@ export function PipelineView() {
                 Clear all
               </button>
             ) : (
-              <span className="hint">No filters â€” the whole board is in view.</span>
+              <span className="hint">Showing all leads (no filters applied)</span>
             )}
             {state.scope.startsWith("agent:") ? (
-              <span className="chip" data-tone="accent" style={{ marginLeft: "auto" }}>
-                <Icon name="target" size={13} /> {state.scope.slice(6)}&apos;s Leads ({boardLeads.length}) Â· Scanned WhatsApp in Chat tab
+              <span className="chip" data-tone="accent">
+                <Icon name="target" size={13} /> {state.scope.slice(6)}&apos;s Leads ({boardLeads.length}) • Scanned WhatsApp in Chat tab
               </span>
             ) : (
-              <span className="chip" data-tone="neutral" style={{ marginLeft: "auto", fontSize: "11px" }}>
-                <Icon name="shield" size={12} /> Sales Pipeline Leads ({boardLeads.length}) Â· Scanned WhatsApp chats in Chat view
+              <span className="chip" data-tone="neutral">
+                <Icon name="shield" size={12} /> Sales Pipeline Leads ({boardLeads.length}) • Scanned WhatsApp chats in Chat view
               </span>
             )}
           </div>
@@ -1160,7 +1153,7 @@ export function PipelineView() {
                               type="button"
                               className="icon-btn"
                               data-size="sm"
-                              title={`Priority: ${PRIORITY_LABEL[lead.priority]} Â· Click to change`}
+                              title={`Priority: ${PRIORITY_LABEL[lead.priority]} • Click to change`}
                               aria-label={`Change priority from ${PRIORITY_LABEL[lead.priority]}`}
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -1255,10 +1248,7 @@ export function PipelineView() {
             </div>
           ) : null}
 
-          <p className="hint">
-            {relativeTime(new Date().toISOString())} Â· tip: focus a card and press â‡§ â† â†’ to move the
-            stage, Enter to open, Esc to close.
-          </p>
+          
         </>
       )}
 

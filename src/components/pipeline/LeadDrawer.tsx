@@ -667,9 +667,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
           />
 
           <p className="hint">
-            Last updated {relativeTime(lead.updatedAt)} Â· press <span className="kbd">Esc</span> to
-            close, <span className="kbd">âŒ˜</span>
-            <span className="kbd">â†µ</span> to save.
+            Last updated {relativeTime(lead.updatedAt)}
           </p>
         </div>
 

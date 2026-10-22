@@ -433,16 +433,9 @@ export function ContactsView() {
             )}
           </div>
           <p className="page-sub">
-            {activeTab === "recycle" ? (
-              <>
-                ðŸ—‘ï¸ <b>Recycle Bin</b> Â· {recycleLeads.length} soft-deleted leads Â· Leads can be restored to active contacts or permanently deleted.
-              </>
-            ) : (
-              <>
-                {rows.length} people Â· {compactMoney(total)} total value Â· press <span className="kbd">J</span>{" "}
-                <span className="kbd">K</span> to move, <span className="kbd">X</span> to select
-              </>
-            )}
+            {activeTab === "recycle"
+              ? `Recycle Bin · ${recycleLeads.length} soft-deleted leads · Leads can be restored to active contacts or permanently deleted.`
+              : `${rows.length} contacts · ${compactMoney(total)} total pipeline value`}
           </p>
         </div>
         <div className="page-actions">
@@ -501,13 +494,13 @@ export function ContactsView() {
       </header>
 
       {/* Toolbar with Search, Filter & Flexible Column Selector */}
-      <div className="pipe-toolbar" style={{ marginBottom: 10 }}>
+      <div className="pipe-toolbar" className="pipe-toolbar">
         <div className="pipe-search">
           <Icon name="search" size={14} />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search name, company, CLO id, phone, notesÃ¢â‚¬Â¦"
+            placeholder="Search name, company, phone, ID, notes..."
             aria-label="Search contacts"
           />
           {query ? (
@@ -612,7 +605,7 @@ export function ContactsView() {
       </div>
 
       {/* Filter summary chips */}
-      <div className="chip-row" style={{ marginBottom: 10 }}>
+      <div className="chip-row" className="pipe-toolbar">
         {stage ? (
           <span className="chip-x">
             Status <b>{stageMeta(stage).label}</b>
@@ -651,7 +644,7 @@ export function ContactsView() {
             onChange={(e) => e.target.value && bulkMove(e.target.value as StageId)}
             aria-label="Move selected leads to stage"
           >
-            <option value="">Move selected toÃ¢â‚¬Â¦</option>
+            <option value="">Move selected to...</option>
             {STAGES.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.label}
@@ -752,7 +745,7 @@ export function ContactsView() {
                         type="button"
                         className="list-prio"
                         aria-label={`Change priority from ${PRIORITY_LABEL[lead.priority]}`}
-                        title={`Priority: ${PRIORITY_LABEL[lead.priority]} Ã‚Â· Click to change`}
+                        title={`Priority: ${PRIORITY_LABEL[lead.priority]} • Click to change`}
                         onClick={(e) => {
                           e.stopPropagation();
                           const nextPrio = PRIO_CYCLE[lead.priority] || "medium";
@@ -777,7 +770,7 @@ export function ContactsView() {
                           <div>
                             <div className="cell-name">{lead.name}</div>
                             <span className="cell-sub">
-                              {lead.code} Ã‚Â· {lead.company || "Direct Inquiry"}
+                              {lead.code} • {lead.company || "Direct Inquiry"}
                             </span>
                           </div>
                         </div>
@@ -839,7 +832,7 @@ export function ContactsView() {
                             </a>
                           </div>
                         ) : (
-                          <span className="cell-muted">Ã¢â‚¬â€</span>
+                          <span className="cell-muted">—</span>
                         )}
                       </td>
                     )}
@@ -853,7 +846,7 @@ export function ContactsView() {
                             <span className="note-text">{lead.notes}</span>
                           </div>
                         ) : (
-                          <span className="cell-muted">Ã¢â‚¬â€</span>
+                          <span className="cell-muted">—</span>
                         )}
                       </td>
                     )}
@@ -872,7 +865,7 @@ export function ContactsView() {
                             <span>{callbackInfo.text}</span>
                           </span>
                         ) : (
-                          <span className="cell-muted">Ã¢â‚¬â€</span>
+                          <span className="cell-muted">—</span>
                         )}
                       </td>
                     )}
@@ -932,7 +925,7 @@ export function ContactsView() {
                             {lead.email}
                           </a>
                         ) : (
-                          <span className="cell-muted">Ã¢â‚¬â€</span>
+                          <span className="cell-muted">—</span>
                         )}
                       </td>
                     )}
@@ -954,7 +947,7 @@ export function ContactsView() {
                             )}
                           </div>
                         ) : (
-                          <span className="cell-muted">Ã¢â‚¬â€</span>
+                          <span className="cell-muted">—</span>
                         )}
                       </td>
                     )}
@@ -1057,7 +1050,7 @@ export function ContactsView() {
                         </div>
                       </td>
                       <td>
-                        <span>{rLead.phone || "â€”"}</span>
+                        <span>{rLead.phone || "—"}</span>
                       </td>
                       <td>
                         <span className="cell-muted">{relativeTime(rLead.updatedAt)}</span>

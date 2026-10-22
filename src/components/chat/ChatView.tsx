@@ -176,7 +176,7 @@ export function ChatView() {
         phoneNumber: qrPhoneInput.trim(),
         sessionId: qrSessionId,
       });
-      setQrSuccess(`âœ“ Successfully linked ${closerName}'s WhatsApp (${qrPhoneInput.trim()})! Chats will appear in your tab.`);
+      setQrSuccess(`Successfully linked ${closerName}'s WhatsApp (${qrPhoneInput.trim()})! Chats will appear in your tab.`);
       setRefreshCount((c) => c + 1);
       setTimeout(() => {
         setShowQrModal(false);
@@ -402,7 +402,7 @@ export function ChatView() {
       id: activeChat.leadId || `lead-${activeChat.id}`,
       name: activeChat.customerName && activeChat.customerName !== "Customer"
         ? activeChat.customerName
-        : `Unknown caller â€¢ ${cleanPhone || "Direct"}`,
+        : `Unknown caller • ${cleanPhone || "Direct"}`,
       company: activeChat.company || "Phone enquiry",
       phone: activeChat.phone || "",
       email: "",
@@ -616,7 +616,7 @@ export function ChatView() {
               channelSource: isManualQr ? "QR_SCANNER" : (c.channelSource || "OFFICIAL_API"),
               channelSourceLabel: isManualQr
                 ? (c.channelSourceLabel || (c.scannedByName ? `QR: ${c.scannedByName}` : "Personal WhatsApp QR"))
-                : (c.channelSourceLabel || "Company API â€¢ +91 95895 10954"),
+                : (c.channelSourceLabel || "Company API • +91 95895 10954"),
               scannedByName: isManualQr ? (c.scannedByName || c.payload?.scannedByName || c.assignedFreelancerName || null) : null,
               isOfficialApi: !isManualQr,
               isPersonalQr: isManualQr,
@@ -1143,7 +1143,7 @@ export function ChatView() {
     if (!leadPayment?.id) return;
     const num = Number(editPaymentAmount);
     if (isNaN(num) || num <= 0) {
-      showToast("Please enter a valid amount greater than â‚¹0");
+      showToast("Please enter a valid amount greater than ₹0");
       return;
     }
     setSavingPayment(true);
@@ -1151,7 +1151,7 @@ export function ChatView() {
       await aicloserApi.payments.updatePayment(leadPayment.id, { amount: num });
       setLeadPayment((prev: any) => ({ ...prev, totalAmount: num, baseAmount: num }));
       setIsEditingPayment(false);
-      showToast(`Payment amount updated to â‚¹${num.toLocaleString("en-IN")}`);
+      showToast(`Payment amount updated to ₹${num.toLocaleString("en-IN")}`);
     } catch (err: any) {
       showToast(err?.message || "Failed to update payment amount");
     } finally {
@@ -1162,7 +1162,7 @@ export function ChatView() {
   const handleCreateNewPaymentLink = async () => {
     const num = Number(newPaymentAmount);
     if (isNaN(num) || num <= 0) {
-      showToast("Please enter a valid amount greater than â‚¹0");
+      showToast("Please enter a valid amount greater than ₹0");
       return;
     }
     setCreatingPayment(true);
@@ -1177,7 +1177,7 @@ export function ChatView() {
       setLeadPayment(paymentObj);
       setIsCreatingPayment(false);
       setNewPaymentAmount("");
-      showToast(`Payment link created for â‚¹${num.toLocaleString("en-IN")}`);
+      showToast(`Payment link created for ₹${num.toLocaleString("en-IN")}`);
     } catch (err: any) {
       showToast(err?.message || "Failed to create payment link");
     } finally {
@@ -1976,7 +1976,7 @@ export function ChatView() {
                   </span>
                   {activeChat.isOfficialApi || activeChat.channelSource === "OFFICIAL_API" ? (
                     <span className="chip" data-tone="accent" style={{ fontSize: "11px", padding: "1px 8px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                      <Icon name="whatsapp" size={12} /> Official Meta Cloud API â€¢ +91 95895 10954
+                      <Icon name="whatsapp" size={12} /> Official Meta Cloud API • +91 95895 10954
                     </span>
                   ) : activeChat.isPersonalQr || activeChat.channelSource === "QR_SCANNER" ? (
                     <span className="chip" data-tone="success" style={{ fontSize: "11px", padding: "1px 8px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
@@ -1993,9 +1993,9 @@ export function ChatView() {
                   )}
                 </div>
                 <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", marginTop: "2px" }}>
-                  {activeChat.company} â€¢ {activeChat.phone}
+                  {activeChat.company} • {activeChat.phone}
                   {activeChat.assignedTo && activeChat.assignedTo !== "Unassigned" && (
-                    <span> â€¢ Assigned to: <strong style={{ color: "var(--text)" }}>{activeChat.assignedTo}</strong></span>
+                    <span> • Assigned to: <strong style={{ color: "var(--text)" }}>{activeChat.assignedTo}</strong></span>
                   )}
                 </div>
               </div>
@@ -2139,7 +2139,7 @@ export function ChatView() {
                             border: "1px dashed var(--border-strong)",
                           }}
                         >
-                          âš¡ {msg.text} â€¢ {msg.time}
+                          {msg.text} • {msg.time}
                         </span>
                       </div>
                     </div>
@@ -2200,7 +2200,7 @@ export function ChatView() {
                             ? (msg.senderName || activeChat.assignedTo || (state.user?.displayName || CURRENT_USER))
                             : (activeChat.customerName || "Customer")}
                         </span>
-                        <span>â€¢</span>
+                        <span>•</span>
                         <span>{msg.time}</span>
                         {isCloser && (
                           <span
@@ -2214,7 +2214,7 @@ export function ChatView() {
                               alignItems: "center",
                             }}
                           >
-                            {msg.status === "sent" ? "âœ“" : "âœ“âœ“"}
+                            {msg.status === "sent" ? "✓" : "✓✓"}
                           </span>
                         )}
                       </div>
@@ -2323,7 +2323,7 @@ export function ChatView() {
         </div>
       )}
 
-      {/* 3. Right Column: CRM 360Â° Lead Context */}
+      {/* 3. Right Column: CRM 360° Lead Context */}
       {showRightDrawer && activeLeadProfile && (
         <aside
           aria-label="Lead context"
@@ -2443,10 +2443,10 @@ export function ChatView() {
               disabled={!activeLead}
               style={{ width: "100%", marginTop: "6px", fontWeight: 600 }}
             >
-              <option value="urgent">ðŸ”´ Urgent</option>
-              <option value="high">ðŸŸ  High</option>
-              <option value="medium">ðŸŸ¡ Medium</option>
-              <option value="low">âšª Low</option>
+              <option value="urgent">Urgent</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
             </select>
           </div>
 
@@ -2479,7 +2479,7 @@ export function ChatView() {
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                     <div>
                       <div style={{ fontSize: "var(--fs-metric)", fontWeight: 700 }}>
-                        â‚¹{Number(leadPayment.totalAmount || leadPayment.baseAmount || 0).toLocaleString("en-IN")}
+                        ₹{Number(leadPayment.totalAmount || leadPayment.baseAmount || 0).toLocaleString("en-IN")}
                       </div>
                       {leadPayment.productName &&
                       !leadPayment.productName.toLowerCase().includes("auto-created") &&
@@ -2523,7 +2523,7 @@ export function ChatView() {
                   </div>
                 ) : (
                   <div style={{ marginTop: "6px", display: "flex", flexDirection: "column", gap: "6px" }}>
-                    <div style={{ fontSize: "11px", color: "var(--text-secondary)", fontWeight: 550 }}>Edit Amount (â‚¹):</div>
+                    <div style={{ fontSize: "11px", color: "var(--text-secondary)", fontWeight: 550 }}>Edit Amount (₹):</div>
                     <div style={{ display: "flex", gap: "6px" }}>
                       <input
                         type="number"
@@ -2618,7 +2618,7 @@ export function ChatView() {
               >
                 <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text)" }}>New Payment Link</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                  <label style={{ fontSize: "10px", color: "var(--text-tertiary)" }}>Amount (â‚¹)</label>
+                  <label style={{ fontSize: "10px", color: "var(--text-tertiary)" }}>Amount (₹)</label>
                   <input
                     type="number"
                     className="input"
@@ -2673,7 +2673,7 @@ export function ChatView() {
               onClick={() => {
                 if (leadPayment?.publicToken) {
                   const payUrl = `${window.location.origin}/pay/${leadPayment.publicToken}`;
-                  handleApplyMacro(`Here is your custom payment link for â‚¹${Number(leadPayment.totalAmount || leadPayment.baseAmount || 0).toLocaleString("en-IN")}: ${payUrl}`);
+                  handleApplyMacro(`Here is your custom payment link for ₹${Number(leadPayment.totalAmount || leadPayment.baseAmount || 0).toLocaleString("en-IN")}: ${payUrl}`);
                 } else {
                   const qs = new URLSearchParams({
                     customerName: activeLeadProfile.name || "",
