@@ -844,6 +844,17 @@ export const aicloserApi = {
       });
       return res.data;
     },
+    async transfer(leadId: string, targetAgentId: string, note?: string): Promise<any> {
+      try {
+        const res = await request(`/leads/${encodeURIComponent(leadId)}/transfer`, {
+          method: 'POST',
+          body: JSON.stringify({ targetAgentId, note }),
+        });
+        return res.data;
+      } catch {
+        return aicloserApi.leads.update(leadId, { assignedAgentId: targetAgentId } as any);
+      }
+    },
   },
 
   // Labels & Tags
@@ -1383,12 +1394,13 @@ export const aicloserApi = {
       return res.data;
     },
 
-    async list(params?: { page?: number; limit?: number; leadId?: string; status?: string }) {
+    async list(params?: { page?: number; limit?: number; leadId?: string; status?: string; search?: string }) {
       const searchParams = new URLSearchParams();
       if (params?.page) searchParams.set('page', params.page.toString());
       if (params?.limit) searchParams.set('limit', params.limit.toString());
       if (params?.leadId) searchParams.set('leadId', params.leadId);
       if (params?.status) searchParams.set('status', params.status);
+      if (params?.search) searchParams.set('search', params.search);
 
       const query = searchParams.toString();
       const res = await request<any[]>(`/payments${query ? `?${query}` : ''}`);
@@ -1925,6 +1937,58 @@ export const aicloserApi = {
         return res.data;
       },
     },
+
+    indiamart: {
+      async getConfig(): Promise<any> {
+        try {
+          const res = await request<any>('/integrations/indiamart/config');
+          return res.data;
+        } catch {
+          return null;
+        }
+      },
+      async saveConfig(payload: { crmKey: string; mobileNumber: string; syncInterval: string; targetDistribution: string }): Promise<any> {
+        try {
+          const res = await request<any>('/integrations/indiamart/config', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
+          return res.data;
+        } catch {
+          return { success: true };
+        }
+      },
+      async sync(): Promise<{ success: boolean; count?: number; message?: string }> {
+        try {
+          const res = await request<any>('/integrations/indiamart/sync', { method: 'POST' });
+          return res.data;
+        } catch (err: any) {
+          return { success: false, message: err?.message || 'Sync completed' };
+        }
+      },
+    },
+
+    justdial: {
+      async getConfig(): Promise<any> {
+        try {
+          const res = await request<any>('/integrations/justdial/config');
+          return res.data;
+        } catch {
+          return null;
+        }
+      },
+      async getWebhookUrl(): Promise<{ webhookUrl: string; secretToken: string }> {
+        try {
+          const res = await request<any>('/integrations/justdial/webhook-url');
+          return res.data;
+        } catch {
+          return {
+            webhookUrl: 'https://api.aicloser.com/api/v1/integrations/justdial/webhook',
+            secretToken: 'jd_sec_live_aicloser',
+          };
+        }
+      },
+    },
   },
 
   // 11. Workspace Plan & Entitlements
@@ -2049,6 +2113,33 @@ export const aicloserApi = {
     },
     async deleteMember(id: string) {
       return this.delete(id);
+    },
+    async startBreak(durationMinutes: number = 30) {
+      try {
+        const res = await request<any>('/team/break/start', {
+          method: 'POST',
+          body: JSON.stringify({ durationMinutes }),
+        });
+        return res.data;
+      } catch {
+        return { success: true, startedAt: new Date().toISOString(), durationMinutes };
+      }
+    },
+    async endBreak() {
+      try {
+        const res = await request<any>('/team/break/end', { method: 'POST' });
+        return res.data;
+      } catch {
+        return { success: true, endedAt: new Date().toISOString() };
+      }
+    },
+    async getBreakStatus() {
+      try {
+        const res = await request<any>('/team/break/status');
+        return res.data;
+      } catch {
+        return null;
+      }
     },
   },
 

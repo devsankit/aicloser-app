@@ -421,25 +421,21 @@ export function ChatView() {
   }, [activeLead, activeChat, chatStage]);
 
   useEffect(() => {
-    if (!activeLeadProfile?.phone) {
+    const targetLeadId = activeLeadProfile?.id || activeLead?.id || activeChat?.leadId;
+    if (!targetLeadId) {
       setLeadPayment(null);
       return;
     }
     let active = true;
-    const cleanLeadPhone = activeLeadProfile.phone.replace(/\D/g, "").slice(-10);
     aicloserApi.payments
-      .list({ search: cleanLeadPhone || activeLeadProfile.phone, limit: 10 } as any)
+      .list({ leadId: targetLeadId, limit: 5 })
       .then((res: any) => {
         if (!active) return;
         const payments = res?.payments || [];
         const matching =
-          payments.find((p: any) => {
-            const pPhone = (p.customerPhone || "").replace(/\D/g, "").slice(-10);
-            if (cleanLeadPhone && pPhone && cleanLeadPhone === pPhone) return true;
-            if (p.customFields && p.customFields.leadId && p.customFields.leadId === activeLeadProfile.id) return true;
-            if (p.leadId && p.leadId === activeLeadProfile.id) return true;
-            return false;
-          }) || null;
+          payments.find((p: any) => p.leadId === targetLeadId || p.customFields?.leadId === targetLeadId) ||
+          payments[0] ||
+          null;
         setLeadPayment(matching);
       })
       .catch(() => {
@@ -448,7 +444,7 @@ export function ChatView() {
     return () => {
       active = false;
     };
-  }, [activeLeadProfile?.phone, activeLeadProfile?.id]);
+  }, [activeLeadProfile?.id, activeLead?.id, activeChat?.leadId]);
 
   const filteredConversations = useMemo(() => {
     const myName = (state.user?.displayName || CURRENT_USER).toLowerCase();
@@ -1191,6 +1187,7 @@ export function ChatView() {
     setCreatingPayment(true);
     try {
       const created = await aicloserApi.payments.createUpiLink({
+        leadId: activeLeadProfile?.id || activeLead?.id || activeChat?.leadId,
         amount: num,
         customerName: activeLeadProfile?.name || activeChat?.customerName || "Customer",
         customerPhone: activeLeadProfile?.phone || activeChat?.phone,
@@ -2250,36 +2247,22 @@ export function ChatView() {
           </div>
 
           {/* Quick Sales Macros */}
-          <div
-            style={{
-              padding: "8px 18px",
-              borderTop: "1px solid var(--border)",
-              background: "var(--bg-surface)",
-              display: "flex",
-              gap: "6px",
-              overflowX: "auto",
-              alignItems: "center",
-              flexShrink: 0,
-            }}
-          >
-            <span style={{ fontSize: "11px", color: "var(--text-tertiary)", fontWeight: 600 }}>Quick Macros:</span>
+          <div className="macro-bar">
+            <span className="macro-label">Quick Macros:</span>
             {macros.map((m) => (
               <button
                 key={m.id}
                 type="button"
-                className="btn"
-                data-size="sm"
+                className="macro-chip"
                 onClick={() => handleApplyMacro(m.content)}
-                style={{ height: "24px", fontSize: "11px", padding: "0 8px" }}
+                title={m.content}
               >
                 {m.name}
               </button>
             ))}
             <button
               type="button"
-              className="btn"
-              data-size="sm"
-              data-variant="ghost"
+              className="macro-chip"
               onClick={() => {
                 setEditingMacro(null);
                 setMacroFormName("");
@@ -2287,10 +2270,9 @@ export function ChatView() {
                 setMacroError(null);
                 setShowMacroModal(true);
               }}
-              style={{ height: "24px", fontSize: "11px", padding: "0 8px" }}
               title="Manage Macros"
             >
-              <Icon name="plus" size={11} /> Manage Macros
+              <Icon name="plus" size={11} /> Manage
             </button>
           </div>
 
@@ -2474,22 +2456,21 @@ export function ChatView() {
           </div>
 
           {/* Payment & Collection Status */}
-          <div className="card" style={{ padding: "12px", background: "var(--bg-surface)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <label style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
+          <div className="payment-card-wrap">
+            <div className="payment-card-head">
+              <span className="payment-card-title">
                 Payment Status
-              </label>
+              </span>
               <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                 {leadPayment ? (
                   <span
                     className="chip"
                     data-tone={leadPayment.status === "PAID" ? "success" : leadPayment.status === "CUSTOMER_CONFIRMED" ? "accent" : "warning"}
-                    style={{ fontSize: "10px", padding: "1px 6px" }}
                   >
                     {leadPayment.status === "PAID" ? "Paid" : leadPayment.status === "CUSTOMER_CONFIRMED" ? "Proof Submitted" : "Pending"}
                   </span>
                 ) : (
-                  <span className="chip" data-tone="neutral" style={{ fontSize: "10px", padding: "1px 6px" }}>
+                  <span className="chip" data-tone="neutral">
                     Unbilled
                   </span>
                 )}
@@ -2501,7 +2482,7 @@ export function ChatView() {
                 {!isEditingPayment ? (
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                     <div>
-                      <div style={{ fontSize: "var(--fs-metric)", fontWeight: 700 }}>
+                      <div className="payment-card-amount">
                         ₹{Number(leadPayment.totalAmount || leadPayment.baseAmount || 0).toLocaleString("en-IN")}
                       </div>
                       {leadPayment.productName &&
@@ -2524,7 +2505,6 @@ export function ChatView() {
                           setIsCreatingPayment(false);
                         }}
                         title="Edit payment amount"
-                        style={{ height: "24px", fontSize: "11px", padding: "0 6px" }}
                       >
                         <Icon name="pencil" size={11} /> Edit
                       </button>
@@ -2538,7 +2518,6 @@ export function ChatView() {
                           setIsEditingPayment(false);
                         }}
                         title="Create new payment link with another amount"
-                        style={{ height: "24px", fontSize: "11px", padding: "0 6px" }}
                       >
                         <Icon name="plus" size={11} /> New
                       </button>
@@ -2554,7 +2533,6 @@ export function ChatView() {
                         value={editPaymentAmount}
                         onChange={(e) => setEditPaymentAmount(e.target.value)}
                         placeholder="e.g. 999"
-                        style={{ height: "28px", fontSize: "12px", flex: 1 }}
                         autoFocus
                       />
                       <button
@@ -2563,7 +2541,6 @@ export function ChatView() {
                         data-variant="primary"
                         onClick={handleSavePaymentAmount}
                         disabled={savingPayment}
-                        style={{ height: "28px", fontSize: "11px" }}
                       >
                         {savingPayment ? "Saving..." : "Save"}
                       </button>
@@ -2572,7 +2549,6 @@ export function ChatView() {
                         data-size="sm"
                         data-variant="ghost"
                         onClick={() => setIsEditingPayment(false)}
-                        style={{ height: "28px", fontSize: "11px" }}
                       >
                         Cancel
                       </button>
@@ -2581,10 +2557,10 @@ export function ChatView() {
                 )}
 
                 {leadPayment.publicToken && (
-                  <div className="drawer-contact-row" style={{ marginTop: "8px" }}>
+                  <div className="payment-card-foot">
                     <div className="drawer-contact-label">
                       <Icon name="link" size={12} />
-                      <span style={{ fontSize: "11px" }}>/pay/{leadPayment.publicToken.slice(0, 8)}...</span>
+                      <span style={{ fontSize: "11px", fontFamily: "var(--mono)" }}>/pay/{leadPayment.publicToken.slice(0, 8)}...</span>
                     </div>
                     <button
                       type="button"
@@ -2603,10 +2579,9 @@ export function ChatView() {
                 )}
               </div>
             ) : (
-              <div style={{ marginTop: "6px" }}>
-                <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
-                  No active payment link generated for this contact.
-                </div>
+              <div className="empty" style={{ padding: "16px 8px" }}>
+                <div className="empty-title" style={{ fontSize: "12px" }}>No active payment link</div>
+                <div className="empty-desc" style={{ fontSize: "11px" }}>Generate a dynamic UPI payment link for this lead.</div>
                 {!isCreatingPayment && (
                   <button
                     type="button"
@@ -2617,7 +2592,7 @@ export function ChatView() {
                       setIsCreatingPayment(true);
                       setIsEditingPayment(false);
                     }}
-                    style={{ marginTop: "8px", height: "26px", fontSize: "11px", width: "100%" }}
+                    style={{ marginTop: "8px", width: "100%" }}
                   >
                     <Icon name="plus" size={11} /> Generate Payment Link
                   </button>

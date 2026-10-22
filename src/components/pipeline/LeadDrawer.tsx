@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { ResizeHandle } from "@/components/ui/ResizeHandle";
 import { LeadCommandHistory } from "./LeadCommandHistory";
@@ -34,6 +34,35 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
   const [reassignModalOpen, setReassignModalOpen] = useState(false);
   const [targetCloser, setTargetCloser] = useState("");
   const [handoverNote, setHandoverNote] = useState("");
+
+  // Transfer Lead Dialog State
+  const [transferModalOpen, setTransferModalOpen] = useState(false);
+  const [transferTargetAgentId, setTransferTargetAgentId] = useState("");
+  const [transferNote, setTransferNote] = useState("");
+  const [isTransferring, setIsTransferring] = useState(false);
+  const [transferToast, setTransferToast] = useState<string | null>(null);
+
+  const handleConfirmTransfer = async () => {
+    if (!transferTargetAgentId) return;
+    setIsTransferring(true);
+    setTransferToast(null);
+    try {
+      const selectedMember = state.teamMembers?.find((m) => m.id === transferTargetAgentId);
+      const targetName = selectedMember?.name || transferTargetAgentId;
+      await aicloserApi.leads.transfer(lead.id, transferTargetAgentId, transferNote);
+      reassignLead(lead.id, targetName, transferNote);
+      setTransferToast(`✓ Lead successfully transferred to ${targetName}. Closing drawer...`);
+      setTimeout(() => {
+        setTransferModalOpen(false);
+        onClose();
+      }, 1200);
+    } catch (err: any) {
+      setTransferToast(err?.message || "Failed to transfer lead. Please try again.");
+      setTimeout(() => setTransferToast(null), 3000);
+    } finally {
+      setIsTransferring(false);
+    }
+  };
   const [workspaceLabels, setWorkspaceLabels] = useState<Array<{ id: string; name: string; color?: string }>>([]);
   const [showAddLabel, setShowAddLabel] = useState(false);
   const [newLabelInput, setNewLabelInput] = useState("");
@@ -326,6 +355,22 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
             >
               <Icon name="card" size={13} /> Collect Payment
             </a>
+            <button
+              type="button"
+              className="btn"
+              data-size="sm"
+              data-variant="accent"
+              onClick={() => {
+                if (state.teamMembers && state.teamMembers.length > 0 && !transferTargetAgentId) {
+                  const firstOther = state.teamMembers.find((m) => m.id !== state.user?.id);
+                  if (firstOther) setTransferTargetAgentId(firstOther.id);
+                }
+                setTransferModalOpen(true);
+              }}
+              title="Transfer lead ownership to a teammate"
+            >
+              <Icon name="handshake" size={13} /> Transfer Lead
+            </button>
             <button
               className="btn"
               data-size="sm"
@@ -745,6 +790,90 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
           setWidth={(drawerWidth) => setLayout({ drawerWidth })}
         />
       </aside>
+
+      {/* Dedicated Lead Transfer Modal */}
+      {transferModalOpen && (
+        <div className="dialog-overlay" onClick={() => !isTransferring && setTransferModalOpen(false)}>
+          <div className="dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
+            <div className="dialog-head">
+              <h2 className="dialog-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Icon name="handshake" size={16} /> Transfer Lead Ownership
+              </h2>
+              <button
+                className="icon-btn"
+                onClick={() => !isTransferring && setTransferModalOpen(false)}
+                aria-label="Close transfer dialog"
+              >
+                <Icon name="close" size={13} />
+              </button>
+            </div>
+
+            <div className="dialog-body" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <p style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", margin: 0 }}>
+                Transfer <strong>{draft.name || "this lead"}</strong> ({draft.company || draft.phone}) to another sales agent. The lead will be atomically assigned to their pipeline.
+              </p>
+
+              {transferToast && (
+                <div className="chip" data-tone={transferToast.startsWith("✓") ? "success" : "danger"} style={{ width: "100%", justifyContent: "center" }}>
+                  {transferToast}
+                </div>
+              )}
+
+              <div className="field">
+                <label className="field-label">Select Target Teammate</label>
+                <select
+                  className="select"
+                  value={transferTargetAgentId}
+                  onChange={(e) => setTransferTargetAgentId(e.target.value)}
+                  disabled={isTransferring}
+                >
+                  <option value="" disabled>Choose teammate...</option>
+                  {state.teamMembers && state.teamMembers.length > 0 ? (
+                    state.teamMembers.map((m) => (
+                      <option key={m.id} value={m.id} disabled={m.id === state.user?.id}>
+                        {m.name} {m.role ? `(${m.role})` : ""} {m.id === state.user?.id ? "— You" : ""}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="round_robin">Available Team Closers</option>
+                  )}
+                </select>
+              </div>
+
+              <div className="field">
+                <label className="field-label">Handover Note / Context for Teammate</label>
+                <textarea
+                  className="textarea"
+                  rows={3}
+                  value={transferNote}
+                  onChange={(e) => setTransferNote(e.target.value)}
+                  placeholder="Explain why this lead is being transferred (e.g. requested enterprise demo, spoke in regional language, price pre-negotiated)..."
+                  disabled={isTransferring}
+                />
+              </div>
+            </div>
+
+            <div className="dialog-foot">
+              <button
+                className="btn"
+                onClick={() => setTransferModalOpen(false)}
+                disabled={isTransferring}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn"
+                data-variant="accent"
+                onClick={handleConfirmTransfer}
+                disabled={!transferTargetAgentId || isTransferring}
+              >
+                <Icon name={isTransferring ? "refresh" : "check"} size={13} className={isTransferring ? "spin" : ""} />
+                {isTransferring ? "Transferring Lead..." : "Confirm Transfer"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

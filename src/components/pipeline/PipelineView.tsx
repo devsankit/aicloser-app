@@ -282,6 +282,51 @@ export function PipelineView() {
     });
   }, [state.poolLeads, disappearedIds, poolQuery, poolSource]);
 
+  // 1-second interval timer for Grab Pool 10-minute SLA countdown
+  const [now, setNow] = useState<number>(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const getRemainingSeconds = (createdAtStr?: string) => {
+    if (!createdAtStr) return 600;
+    const created = new Date(createdAtStr).getTime();
+    if (isNaN(created)) return 600;
+    const elapsed = Math.floor((now - created) / 1000);
+    const remaining = 600 - elapsed;
+    return Math.max(0, remaining);
+  };
+
+  const formatCountdown = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  };
+
+  const prevRemainingRef = useRef<Record<string, number>>({});
+  useEffect(() => {
+    let justExpired = false;
+    openPoolList.forEach((lead) => {
+      const rem = getRemainingSeconds(lead.createdAt);
+      const prev = prevRemainingRef.current[lead.id];
+      if (prev !== undefined && prev > 0 && rem === 0) {
+        justExpired = true;
+      }
+      prevRemainingRef.current[lead.id] = rem;
+    });
+    if (justExpired) {
+      refreshLeads();
+      fetchPoolLeads().catch(() => {});
+    }
+  }, [now, openPoolList, refreshLeads, fetchPoolLeads]);
+
+  const missedCount = useMemo(() => {
+    return openPoolList.filter((lead) => getRemainingSeconds(lead.createdAt) <= 0).length;
+  }, [openPoolList, now]);
+
   const handleClaimLead = async (item: LeadPoolItem) => {
     if (claimingId || isAtQuota) return;
     setClaimingId(item.id);
@@ -683,6 +728,13 @@ export function PipelineView() {
             <span className="col-w-label">
               Showing {openPoolList.length} leads
             </span>
+            <span
+              className="chip"
+              data-tone={missedCount > 0 ? "danger" : "neutral"}
+              title="Leads exceeding 10-minute SLA countdown"
+            >
+              Missed: {missedCount} leads
+            </span>
 
             {isAdmin ? (
               <div className="seg" role="group" aria-label="Pool display limit">
@@ -709,6 +761,8 @@ export function PipelineView() {
                 const src = sourceMeta(item.source || "Google Sheets");
                 const isClaiming = claimingId === item.id;
                 const isDisappearing = disappearedIds.has(item.id);
+                const remainingSec = getRemainingSeconds(item.createdAt);
+                const isUrgent = remainingSec > 0 && remainingSec < 120;
 
                 return (
                   <div
@@ -732,9 +786,15 @@ export function PipelineView() {
                             </span>
                           </div>
                         </div>
-                        <span className="chip" data-tone={src.tone}>
-                          <Icon name={src.icon} size={10} /> {src.label}
-                        </span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <div className="pool-timer" data-urgent={isUrgent}>
+                            <Icon name="clock" size={11} />
+                            <span>{remainingSec > 0 ? `⏱️ ${formatCountdown(remainingSec)}` : "Missed"}</span>
+                          </div>
+                          <span className="chip" data-tone={src.tone}>
+                            <Icon name={src.icon} size={10} /> {src.label}
+                          </span>
+                        </div>
                       </div>
 
                       {/* Contact Info */}
@@ -1068,6 +1128,107 @@ export function PipelineView() {
           </div>
 
           <div className="board" data-fit={fit} role="list" aria-label="Lead pipeline board" ref={boardRef}>
+            {/* Grab Pool Column ("Lead Grab") */}
+            <div
+              className="col"
+              aria-label={`Lead Grab Pool, ${openPoolList.length} leads`}
+              role="listitem"
+            >
+              <header className="col-head">
+                <h2 className="col-title">
+                  <span className="stage-icon-badge" data-tone="accent">
+                    <Icon name="zap" size={15} />
+                  </span>
+                  Lead Grab
+                </h2>
+                <span className="col-count">{openPoolList.length}</span>
+                <span
+                  className="chip"
+                  data-tone={missedCount > 0 ? "danger" : "neutral"}
+                  title={missedCount > 0 ? `${missedCount} leads missed SLA` : "No missed leads"}
+                >
+                  Missed: {missedCount}
+                </span>
+                <button
+                  className="icon-btn col-add"
+                  onClick={() => {
+                    setViewMode("pool");
+                    fetchPoolLeads().catch(() => {});
+                  }}
+                  aria-label="Open full Lead Grab Pool"
+                  title="Open full Lead Grab Pool"
+                >
+                  <Icon name="external" size={13} />
+                </button>
+              </header>
+
+              <div className="col-cards">
+                {openPoolList.map((item) => {
+                  const remainingSec = getRemainingSeconds(item.createdAt);
+                  const isUrgent = remainingSec > 0 && remainingSec < 120;
+                  const isClaiming = claimingId === item.id;
+                  const src = sourceMeta(item.source || "Website");
+
+                  return (
+                    <div
+                      key={item.id}
+                      className="card lead"
+                    >
+                      <div className="lead-top">
+                        <span className="stage-icon-badge" data-tone={src.tone} title={`Lead source: ${src.label}`}>
+                          <Icon name={src.icon} size={15} />
+                        </span>
+                        <div className="pool-timer" data-urgent={isUrgent}>
+                          <Icon name="clock" size={11} />
+                          <span>{remainingSec > 0 ? `⏱️ ${formatCountdown(remainingSec)}` : "Missed"}</span>
+                        </div>
+                      </div>
+                      <h3 className="lead-name" style={{ fontSize: "13px", fontWeight: 650, marginTop: "4px" }}>
+                        {item.customerName || "Customer Lead"}
+                      </h3>
+                      <p className="lead-company">
+                        <Icon name="phone" size={12} /> {item.customerPhone || "No phone"}
+                      </p>
+                      {item.serviceInterest && (
+                        <div style={{ fontSize: "11px", color: "var(--text-secondary)", marginTop: "4px", lineHeight: 1.3 }}>
+                          {item.serviceInterest}
+                        </div>
+                      )}
+                      <div className="lead-sla-claim" style={{ marginTop: "8px" }}>
+                        <button
+                          className="btn"
+                          data-variant="accent"
+                          data-size="sm"
+                          disabled={isClaiming || isAtQuota}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleClaimLead(item);
+                          }}
+                          style={{ width: "100%", justifyContent: "center" }}
+                        >
+                          {isClaiming ? (
+                            <>
+                              <Icon name="refresh" size={12} className="spin" /> Grabbing...
+                            </>
+                          ) : (
+                            <>
+                              <Icon name="zap" size={12} /> Grab Lead (SLA)
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {!openPoolList.length && (
+                  <div className="col-empty" style={{ cursor: "default" }}>
+                    <span>Pool empty</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
             {STAGES.map((stage, stageIndex) => {
               const cards = byStage.get(stage.id) ?? [];
               return (

@@ -240,6 +240,86 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [impersonatingName, setImpersonatingName] = useState<string | null>(null);
   const [teamMembers, setTeamMembers] = useState<Array<{ id: string; name: string; count: number }>>([]);
 
+  // Agent Break Mode State & Countdown
+  const [isOnBreak, setIsOnBreak] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("aicloser_on_break");
+      const exp = localStorage.getItem("aicloser_break_expires");
+      if (stored === "true" && exp && Number(exp) > Date.now()) return true;
+    }
+    return false;
+  });
+  const [breakRemainingSec, setBreakRemainingSec] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const exp = localStorage.getItem("aicloser_break_expires");
+      if (exp) {
+        const diff = Math.floor((Number(exp) - Date.now()) / 1000);
+        return diff > 0 ? diff : 0;
+      }
+    }
+    return 0;
+  });
+
+  useEffect(() => {
+    aicloserApi.team.getBreakStatus().then((status) => {
+      if (status?.isOnBreak && status.remainingSeconds) {
+        setIsOnBreak(true);
+        setBreakRemainingSec(status.remainingSeconds);
+        const expiresAt = Date.now() + status.remainingSeconds * 1000;
+        localStorage.setItem("aicloser_on_break", "true");
+        localStorage.setItem("aicloser_break_expires", String(expiresAt));
+      }
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!isOnBreak) return;
+    const interval = setInterval(() => {
+      const exp = localStorage.getItem("aicloser_break_expires");
+      if (!exp) {
+        setIsOnBreak(false);
+        return;
+      }
+      const diff = Math.floor((Number(exp) - Date.now()) / 1000);
+      if (diff <= 0) {
+        setIsOnBreak(false);
+        setBreakRemainingSec(0);
+        localStorage.removeItem("aicloser_on_break");
+        localStorage.removeItem("aicloser_break_expires");
+        aicloserApi.team.endBreak().catch(() => {});
+      } else {
+        setBreakRemainingSec(diff);
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isOnBreak]);
+
+  const breakMins = Math.floor(breakRemainingSec / 60);
+  const breakSecs = breakRemainingSec % 60;
+  const formattedBreakRemaining = `${String(breakMins).padStart(2, "0")}:${String(breakSecs).padStart(2, "0")}`;
+
+  const handleToggleBreak = async () => {
+    if (isOnBreak) {
+      setIsOnBreak(false);
+      setBreakRemainingSec(0);
+      localStorage.removeItem("aicloser_on_break");
+      localStorage.removeItem("aicloser_break_expires");
+      try {
+        await aicloserApi.team.endBreak();
+      } catch {}
+    } else {
+      const duration = 30; // 30 minutes
+      const expiresAt = Date.now() + duration * 60 * 1000;
+      setIsOnBreak(true);
+      setBreakRemainingSec(duration * 60);
+      localStorage.setItem("aicloser_on_break", "true");
+      localStorage.setItem("aicloser_break_expires", String(expiresAt));
+      try {
+        await aicloserApi.team.startBreak(duration);
+      } catch {}
+    }
+  };
+
   useEffect(() => {
     let active = true;
     aicloserApi.team.listMembers().then((res: any) => {
@@ -976,7 +1056,20 @@ export function AppShell({ children }: { children: ReactNode }) {
             </label>
           )}
 
-                    {/* Master Global AI Bot Switch */}
+                    {/* Agent Break Mode Header Toggle */}
+          <button
+            type="button"
+            className="break-badge"
+            data-active={isOnBreak}
+            onClick={handleToggleBreak}
+            title={isOnBreak ? "Currently on 30-min break. Click to resume receiving leads." : "Take a 30-minute break (pauses inbound lead routing)"}
+            aria-label="Toggle Break Mode"
+          >
+            <Icon name="coffee" size={13} />
+            <span>{isOnBreak ? `On Break (${formattedBreakRemaining})` : "Take Break"}</span>
+          </button>
+
+          {/* Master Global AI Bot Switch */}
           <button
             type="button"
             className="topbar-ai-btn"

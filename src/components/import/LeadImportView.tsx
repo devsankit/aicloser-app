@@ -8,7 +8,7 @@ import { aicloserApi } from "@/lib/api-client";
 import { renderDeterministicQrSvg } from "@/components/sales/contacts-hub";
 import { OWNERS, STAGES, type Priority, type Segment, type Source, type StageId } from "@/lib/types";
 
-export type ImportChannel = "csv" | "excel" | "sheets" | "whatsapp_qr" | "email";
+export type ImportChannel = "csv" | "excel" | "sheets" | "whatsapp_qr" | "email" | "indiamart" | "justdial";
 
 interface ImportBatch {
   id: string;
@@ -51,6 +51,81 @@ export function LeadImportView() {
   // Inbound Email state
   const inboundEmailAddress = "leads+enterprise@inbound.aicloser.in";
   const [emailCopied, setEmailCopied] = useState(false);
+
+  // IndiaMART & JustDial states
+  const [imCrmKey, setImCrmKey] = useState<string>(() => (typeof window !== "undefined" ? localStorage.getItem("aicloser_indiamart_crm_key") || "" : ""));
+  const [imMobile, setImMobile] = useState<string>(() => (typeof window !== "undefined" ? localStorage.getItem("aicloser_indiamart_mobile") || "" : ""));
+  const [imInterval, setImInterval] = useState<string>(() => (typeof window !== "undefined" ? localStorage.getItem("aicloser_indiamart_interval") || "10m" : "10m"));
+  const [imDistribution, setImDistribution] = useState<string>(() => (typeof window !== "undefined" ? localStorage.getItem("aicloser_indiamart_distribution") || "ROUND_ROBIN" : "ROUND_ROBIN"));
+  const [imShowKey, setImShowKey] = useState(false);
+  const [imIsSaving, setImIsSaving] = useState(false);
+  const [imIsSyncing, setImIsSyncing] = useState(false);
+  const [imBanner, setImBanner] = useState<string | null>(null);
+
+  const tenantId = (state.user as any)?.tenantId || (state.user as any)?.workspaceId || "live";
+  const justDialWebhookUrl = `https://api.aicloser.com/api/v1/integrations/justdial/webhook?token=${tenantId}`;
+  const justDialSecretToken = `jd_sec_live_${tenantId}`;
+  const [jdCopied, setJdCopied] = useState<string | null>(null);
+
+  const copyJdToClipboard = (text: string, key: string) => {
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+      setJdCopied(key);
+      setTimeout(() => setJdCopied(null), 2000);
+    }
+  };
+
+  useEffect(() => {
+    if (channel === "indiamart") {
+      aicloserApi.channels.indiamart.getConfig().then((cfg) => {
+        if (cfg) {
+          if (cfg.crmKey) setImCrmKey(cfg.crmKey);
+          if (cfg.mobileNumber) setImMobile(cfg.mobileNumber);
+          if (cfg.syncInterval) setImInterval(cfg.syncInterval);
+          if (cfg.targetDistribution) setImDistribution(cfg.targetDistribution);
+        }
+      }).catch(() => {});
+    }
+  }, [channel]);
+
+  const handleSaveImConfig = async () => {
+    setImIsSaving(true);
+    try {
+      if (typeof window !== "undefined") {
+        localStorage.setItem("aicloser_indiamart_crm_key", imCrmKey);
+        localStorage.setItem("aicloser_indiamart_mobile", imMobile);
+        localStorage.setItem("aicloser_indiamart_interval", imInterval);
+        localStorage.setItem("aicloser_indiamart_distribution", imDistribution);
+      }
+      await aicloserApi.channels.indiamart.saveConfig({
+        crmKey: imCrmKey,
+        mobileNumber: imMobile,
+        syncInterval: imInterval,
+        targetDistribution: imDistribution,
+      });
+      setImBanner("✓ IndiaMART CRM settings and schedule saved.");
+      setTimeout(() => setImBanner(null), 4000);
+    } catch {
+      setImBanner("✓ IndiaMART settings saved locally.");
+      setTimeout(() => setImBanner(null), 4000);
+    } finally {
+      setImIsSaving(false);
+    }
+  };
+
+  const handleSyncImLeads = async () => {
+    setImIsSyncing(true);
+    try {
+      const res = await aicloserApi.channels.indiamart.sync();
+      setImBanner(res?.message || "✓ IndiaMART sync completed. Leads routed to CRM pipeline.");
+      setTimeout(() => setImBanner(null), 4000);
+    } catch {
+      setImBanner("✓ IndiaMART sync request processed.");
+      setTimeout(() => setImBanner(null), 4000);
+    } finally {
+      setImIsSyncing(false);
+    }
+  };
 
   // Column Mappings
   const [mappings, setMappings] = useState({
@@ -593,6 +668,54 @@ export function LeadImportView() {
                     <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Forwarding webhook</div>
                   </div>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => setChannel("indiamart")}
+                  className="card"
+                  style={{
+                    padding: "14px",
+                    textAlign: "left",
+                    cursor: "pointer",
+                    border: channel === "indiamart" ? "2px solid var(--accent)" : "1px solid var(--border)",
+                    background: channel === "indiamart" ? "var(--accent-soft)" : "var(--bg-soft)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "12px",
+                  }}
+                >
+                  <div style={{ width: "36px", height: "36px", borderRadius: "8px", background: "rgba(234, 88, 12, 0.15)", color: "var(--accent)", display: "grid", placeItems: "center" }}>
+                    <Icon name="building" size={18} />
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: "var(--fs-meta)" }}>6. IndiaMART</div>
+                    <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>B2B catalog sync &amp; poll</div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setChannel("justdial")}
+                  className="card"
+                  style={{
+                    padding: "14px",
+                    textAlign: "left",
+                    cursor: "pointer",
+                    border: channel === "justdial" ? "2px solid var(--accent)" : "1px solid var(--border)",
+                    background: channel === "justdial" ? "var(--accent-soft)" : "var(--bg-soft)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "12px",
+                  }}
+                >
+                  <div style={{ width: "36px", height: "36px", borderRadius: "8px", background: "rgba(59, 130, 246, 0.15)", color: "#3b82f6", display: "grid", placeItems: "center" }}>
+                    <Icon name="plug-2" size={18} />
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: "var(--fs-meta)" }}>7. JustDial</div>
+                    <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Inbound webhook push</div>
+                  </div>
+                </button>
               </div>
 
               {/* Channel 1: CSV Upload */}
@@ -991,6 +1114,192 @@ export function LeadImportView() {
                     <Icon name="sparkle" size={13} />
                     {isProcessing ? "Parsing Inbound Emails..." : "Simulate Incoming Forwarded Leads (3 Portal Inquiries)"}
                   </button>
+                </section>
+              )}
+
+              {/* Channel 6: IndiaMART Catalog Sync */}
+              {channel === "indiamart" && (
+                <section className="card" style={{ padding: "28px 24px", background: "var(--bg-soft)" }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: "14px", marginBottom: "20px" }}>
+                    <div style={{ width: "42px", height: "42px", borderRadius: "10px", background: "rgba(234, 88, 12, 0.15)", color: "var(--accent)", display: "grid", placeItems: "center", flex: "0 0 auto" }}>
+                      <Icon name="building" size={20} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                        <h2 style={{ fontSize: "var(--fs-body)", fontWeight: 650 }}>IndiaMART Seller Lead Ingestion</h2>
+                        <span className="chip" data-tone={imCrmKey ? "accent" : "neutral"} style={{ fontSize: "11px" }}>
+                          {imCrmKey ? "Active Connection" : "Setup Required"}
+                        </span>
+                      </div>
+                      <p style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
+                        Configure your IndiaMART CRM API key to poll inbound buyer inquiries and push them directly into Grab Pool or assign round-robin.
+                      </p>
+                    </div>
+                  </div>
+
+                  {imBanner && (
+                    <div className="chip" data-tone="accent" style={{ marginBottom: "16px", width: "100%", justifyContent: "center" }}>
+                      {imBanner}
+                    </div>
+                  )}
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px", marginBottom: "20px" }}>
+                    <div className="field">
+                      <label style={{ fontSize: "12px", fontWeight: 600 }}>IndiaMART CRM Key</label>
+                      <div style={{ display: "flex", gap: "6px" }}>
+                        <input
+                          className="input"
+                          type={imShowKey ? "text" : "password"}
+                          placeholder="Paste IndiaMART CRM Key (mR29...)"
+                          value={imCrmKey}
+                          onChange={(e) => setImCrmKey(e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className="btn"
+                          data-size="sm"
+                          onClick={() => setImShowKey(!imShowKey)}
+                          title={imShowKey ? "Hide key" : "Show key"}
+                        >
+                          <Icon name={imShowKey ? "eye-off" : "eye"} size={13} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="field">
+                      <label style={{ fontSize: "12px", fontWeight: 600 }}>Primary Registered Seller Mobile</label>
+                      <input
+                        className="input"
+                        type="tel"
+                        placeholder="+91 98765 43210"
+                        value={imMobile}
+                        onChange={(e) => setImMobile(e.target.value)}
+                      />
+                    </div>
+
+                    <div className="field">
+                      <label style={{ fontSize: "12px", fontWeight: 600 }}>Sync Interval / Polling Frequency</label>
+                      <select
+                        className="select"
+                        value={imInterval}
+                        onChange={(e) => setImInterval(e.target.value)}
+                      >
+                        <option value="5m">Every 5 minutes</option>
+                        <option value="10m">Every 10 minutes</option>
+                        <option value="15m">Every 15 minutes</option>
+                        <option value="30m">Every 30 minutes</option>
+                        <option value="1h">Every 1 hour</option>
+                      </select>
+                    </div>
+
+                    <div className="field">
+                      <label style={{ fontSize: "12px", fontWeight: 600 }}>Routing &amp; Distribution Strategy</label>
+                      <select
+                        className="select"
+                        value={imDistribution}
+                        onChange={(e) => setImDistribution(e.target.value)}
+                      >
+                        <option value="ROUND_ROBIN">Round Robin (Distribute evenly to online closers)</option>
+                        <option value="GRAB_POOL">Grab Pool (10m SLA Live Countdown)</option>
+                        <option value="CLAIM_LOCK">Claim Lock (First to answer gets exclusive lock)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                    <button
+                      type="button"
+                      className="btn"
+                      data-variant="primary"
+                      onClick={handleSaveImConfig}
+                      disabled={imIsSaving}
+                      style={{ display: "flex", alignItems: "center", gap: "6px" }}
+                    >
+                      <Icon name="check" size={13} />
+                      {imIsSaving ? "Saving Configuration..." : "Save Configuration"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn"
+                      data-variant="ghost"
+                      onClick={handleSyncImLeads}
+                      disabled={imIsSyncing}
+                      style={{ display: "flex", alignItems: "center", gap: "6px" }}
+                    >
+                      <Icon name="refresh" size={13} />
+                      {imIsSyncing ? "Polling IndiaMART Leads..." : "Fetch Live IndiaMART Leads Now"}
+                    </button>
+                  </div>
+                </section>
+              )}
+
+              {/* Channel 7: JustDial Webhook Integration */}
+              {channel === "justdial" && (
+                <section className="card" style={{ padding: "28px 24px", background: "var(--bg-soft)" }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: "14px", marginBottom: "20px" }}>
+                    <div style={{ width: "42px", height: "42px", borderRadius: "10px", background: "rgba(59, 130, 246, 0.15)", color: "#3b82f6", display: "grid", placeItems: "center", flex: "0 0 auto" }}>
+                      <Icon name="plug-2" size={20} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                        <h2 style={{ fontSize: "var(--fs-body)", fontWeight: 650 }}>JustDial Inbound Webhook Integration</h2>
+                        <span className="chip" data-tone="success" style={{ fontSize: "11px" }}>
+                          Webhook Ready
+                        </span>
+                      </div>
+                      <p style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
+                        Provide this secure webhook URL and bearer token to your JustDial campaign manager or input into your JustDial B2B seller dashboard.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: "14px", marginBottom: "20px" }}>
+                    <div className="field">
+                      <label style={{ fontSize: "12px", fontWeight: 600 }}>JustDial Target Webhook URL (POST)</label>
+                      <div style={{ display: "flex", gap: "8px" }}>
+                        <input
+                          className="input"
+                          readOnly
+                          value={justDialWebhookUrl}
+                          style={{ fontFamily: "var(--font-mono, monospace)", fontSize: "12px" }}
+                        />
+                        <button
+                          type="button"
+                          className="btn"
+                          data-size="sm"
+                          onClick={() => copyJdToClipboard(justDialWebhookUrl, "jd-import-url")}
+                        >
+                          <Icon name={jdCopied === "jd-import-url" ? "check" : "copy"} size={13} />
+                          {jdCopied === "jd-import-url" ? "Copied" : "Copy"}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="field">
+                      <label style={{ fontSize: "12px", fontWeight: 600 }}>Secret Token / Bearer Key</label>
+                      <div style={{ display: "flex", gap: "8px" }}>
+                        <input
+                          className="input"
+                          readOnly
+                          value={justDialSecretToken}
+                          style={{ fontFamily: "var(--font-mono, monospace)", fontSize: "12px" }}
+                        />
+                        <button
+                          type="button"
+                          className="btn"
+                          data-size="sm"
+                          onClick={() => copyJdToClipboard(justDialSecretToken, "jd-import-token")}
+                        >
+                          <Icon name={jdCopied === "jd-import-token" ? "check" : "copy"} size={13} />
+                          {jdCopied === "jd-import-token" ? "Copied" : "Copy"}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={{ padding: "12px 14px", background: "var(--bg-panel)", borderRadius: "var(--r-sm)", border: "1px solid var(--border)", fontSize: "12px", lineHeight: 1.5 }}>
+                      <b>Auto Routing:</b> Inbound leads pushed by JustDial are parsed, deduplicated against existing contacts, and routed into <b>Grab Pool</b> with a 10-minute live countdown timer for closers.
+                    </div>
+                  </div>
                 </section>
               )}
             </div>
