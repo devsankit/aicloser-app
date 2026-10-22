@@ -62,6 +62,7 @@ export function TeamView() {
   const [routingHoursOnly, setRoutingHoursOnly] = useState(true);
   const [unclaimedTimeout, setUnclaimedTimeout] = useState(15);
   const [allowQrLeadsRoundRobin, setAllowQrLeadsRoundRobin] = useState<boolean>(false);
+  const [allowManagerLeadDeletion, setAllowManagerLeadDeletion] = useState<boolean>(false);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("ALL");
   const [tableViewMode, setTableViewMode] = useState<"standard" | "extended">("standard");
@@ -129,6 +130,7 @@ export function TeamView() {
         else setRoutingAlgorithm("equal");
         if (typeof data.settings.workingHoursOnly === "boolean") setRoutingHoursOnly(data.settings.workingHoursOnly);
         if (typeof data.settings.allowQrLeadsRoundRobin === "boolean") setAllowQrLeadsRoundRobin(data.settings.allowQrLeadsRoundRobin);
+        if (typeof data.settings.allowManagerLeadDeletion === "boolean") setAllowManagerLeadDeletion(data.settings.allowManagerLeadDeletion);
       }
     }).catch(() => null);
 
@@ -139,6 +141,8 @@ export function TeamView() {
         if (parsed.routingAlgorithm) setRoutingAlgorithm(parsed.routingAlgorithm);
         if (parsed.routingHoursOnly !== undefined) setRoutingHoursOnly(parsed.routingHoursOnly);
         if (parsed.unclaimedTimeout) setUnclaimedTimeout(parsed.unclaimedTimeout);
+        if (parsed.allowQrLeadsRoundRobin !== undefined) setAllowQrLeadsRoundRobin(parsed.allowQrLeadsRoundRobin);
+        if (parsed.allowManagerLeadDeletion !== undefined) setAllowManagerLeadDeletion(parsed.allowManagerLeadDeletion);
       }
       const storedNav = localStorage.getItem("closer.manager.nav.v1");
       if (storedNav) {
@@ -1414,6 +1418,26 @@ export function TeamView() {
               </div>
             </div>
 
+            <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", marginTop: "12px", padding: "12px 14px", background: "var(--bg-soft)", border: "1px solid var(--border)", borderRadius: "var(--r-md)" }}>
+              <input
+                type="checkbox"
+                id="manager-lead-deletion"
+                checked={allowManagerLeadDeletion}
+                onChange={(e) => setAllowManagerLeadDeletion(e.target.checked)}
+                style={{ accentColor: "var(--accent)", width: "16px", height: "16px", marginTop: "2px" }}
+              />
+              <div>
+                <label htmlFor="manager-lead-deletion" style={{ fontSize: "var(--fs-meta)", fontWeight: 600, cursor: "pointer", display: "block" }}>
+                  Allow Sales Managers to delete leads within their reporting team
+                </label>
+                <span style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "2px", display: "block" }}>
+                  {allowManagerLeadDeletion
+                    ? "Enabled — Sales Managers can soft-delete or recycle leads assigned to team members under their direct supervision."
+                    : "Disabled (Recommended) — Lead deletion is restricted strictly to workspace Super Admins and Owners."}
+                </span>
+              </div>
+            </div>
+
             <div style={{ marginTop: "16px" }}>
               <button
                 className="btn"
@@ -1424,6 +1448,7 @@ export function TeamView() {
                       mode: routingAlgorithm === "capacity" ? "LOAD_BALANCED" : "STRICT_ROUND_ROBIN",
                       workingHoursOnly: routingHoursOnly,
                       allowQrLeadsRoundRobin,
+                      allowManagerLeadDeletion,
                     });
                     localStorage.setItem(
                       "closer.team.v1",
@@ -1432,6 +1457,7 @@ export function TeamView() {
                         routingHoursOnly,
                         unclaimedTimeout,
                         allowQrLeadsRoundRobin,
+                        allowManagerLeadDeletion,
                       })
                     );
                     setSavedBanner("Routing engine parameters saved to backend!");

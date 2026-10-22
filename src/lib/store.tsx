@@ -55,6 +55,8 @@ interface AppState extends Persisted {
   /** Global AI Bot master toggle across all channels */
   globalAiBotEnabled: boolean;
   isTogglingAiBot: boolean;
+  /** Active workspace team members */
+  teamMembers: Array<{ id: string; name: string; role?: string; displayName?: string }>;
 }
 
 interface AppApi {
@@ -346,6 +348,7 @@ const initialState: AppState = {
   isPoolLoading: false,
   globalAiBotEnabled: true,
   isTogglingAiBot: false,
+  teamMembers: [],
 };
 
 const clamp = (value: number, [min, max]: readonly [number, number]) =>
@@ -462,12 +465,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setState((p) => ({ ...p, isLoadingApi: true }));
       const me = await aicloserApi.auth.me().catch(() => null);
       if (me?.user) {
-        const [{ leads: apiLeads }, poolItems] = await Promise.all([
+        const [{ leads: apiLeads }, poolItems, teamData] = await Promise.all([
           aicloserApi.leads.list({ limit: 1000 }).catch(() => ({ leads: [] })),
           aicloserApi.leads.getPool().catch(() => []),
+          aicloserApi.team.listMembers().catch(() => []),
         ]);
         const poolList = Array.isArray(poolItems) ? poolItems : [];
         const poolCount = Array.isArray(poolItems) ? poolItems.length : 0;
+        const rawTeam = Array.isArray(teamData)
+          ? teamData
+          : Array.isArray((teamData as any)?.members)
+          ? (teamData as any).members
+          : Array.isArray((teamData as any)?.data?.members)
+          ? (teamData as any).data.members
+          : [];
+        const teamMembers = rawTeam.map((m: any) => ({
+          id: String(m.id || m.userId),
+          name: m.displayName || m.user?.displayName || m.name || "Sales Agent",
+          displayName: m.displayName || m.user?.displayName || m.name || "Sales Agent",
+          role: m.role || m.workspaceRole || "SALES_AGENT",
+        }));
         const userTheme: Theme | undefined = me.user?.themePreference
           ? (String(me.user.themePreference).toLowerCase() === "dark" ? "dark" : "light")
           : undefined;
@@ -478,6 +495,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             leads: mapped,
             poolLeads: poolList,
             poolCount,
+            teamMembers: teamMembers.length > 0 ? teamMembers : p.teamMembers,
             theme: userTheme || p.theme,
             apiConnected: true,
             isLiveCloud: true,
@@ -491,6 +509,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ...p,
           poolLeads: poolList,
           poolCount: poolList.length,
+          teamMembers: teamMembers.length > 0 ? teamMembers : p.teamMembers,
           theme: userTheme || p.theme,
           apiConnected: true,
           isLiveCloud: true,
@@ -591,9 +610,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }));
     if (state.apiConnected) {
       aicloserApi.leads.update(id, uiLeadToBackendPayload(patch)).catch(() => {});
-      if (patch.notes) {
-        aicloserApi.leads.addNote(id, patch.notes).catch(() => {});
-      }
     }
   }, [state.apiConnected]);
 

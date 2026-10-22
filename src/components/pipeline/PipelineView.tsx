@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import * as XLSX from "xlsx";
 import { aicloserApi } from "@/lib/api-client";
 import { isScannedWhatsAppLead } from "@/lib/lead-mapper";
 import { Icon } from "@/components/ui/Icon";
@@ -28,9 +29,9 @@ type SortKey = "recent" | "value" | "priority";
 const PRIORITY_ORDER = { urgent: 0, high: 1, medium: 2, low: 3 } as const;
 
 export function PipelineView() {
-  const { state, moveLead, updateLead, setLayout, claimLead, claimFromPool, fetchPoolLeads, autoDistributePool } = useApp();
+  const { state, moveLead, updateLead, setLayout, claimLead, claimFromPool, fetchPoolLeads, autoDistributePool, refreshLeads } = useApp();
   const scoped = useScopedLeads();
-  const [viewMode, setViewMode] = useState<"board" | "pool">("board");
+  const [viewMode, setViewMode] = useState<"board" | "pool" | "recycle">("board");
   const [query, setQuery] = useState("");
 
   useEffect(() => {
@@ -55,6 +56,13 @@ export function PipelineView() {
   const [claimingId, setClaimingId] = useState<string | null>(null);
   const [disappearedIds, setDisappearedIds] = useState<Set<string>>(new Set());
   const [claimFeedback, setClaimFeedback] = useState<{ id?: string; status: "success" | "already_claimed" | "quota_limit"; message: string } | null>(null);
+
+  // Recycle Bin State
+  const [recycleLeads, setRecycleLeads] = useState<Lead[]>([]);
+  const [loadingRecycle, setLoadingRecycle] = useState(false);
+  const [recycleActionId, setRecycleActionId] = useState<string | null>(null);
+  const [confirmPermanentDeleteId, setConfirmPermanentDeleteId] = useState<string | null>(null);
+  const [recycleFeedback, setRecycleFeedback] = useState<string | null>(null);
 
   const userRole = state.user?.role || "ADMIN";
   const isAdmin = userRole === "ADMIN" || userRole === "SUPER_ADMIN" || userRole === "MANAGER";
@@ -114,7 +122,7 @@ export function PipelineView() {
         setClaimFeedback({
           id: item.id,
           status: "success",
-          message: `✅ Lead "${item.customerName || "Customer"}" assigned to ${cleanCloser}! Added to New Leads.`,
+          message: `âœ… Lead "${item.customerName || "Customer"}" assigned to ${cleanCloser}! Added to New Leads.`,
         });
         setTimeout(() => setClaimFeedback(null), 4000);
       } else {
@@ -139,7 +147,7 @@ export function PipelineView() {
       const count = res?.count ?? res?.assignments?.length ?? openPoolList.length;
       setClaimFeedback({
         status: "success",
-        message: `⚡ Successfully auto-distributed ${count} lead${count === 1 ? "" : "s"} across active closers via Round-Robin!`,
+        message: `âš¡ Successfully auto-distributed ${count} lead${count === 1 ? "" : "s"} across active closers via Round-Robin!`,
       });
       setTimeout(() => setClaimFeedback(null), 5000);
     } catch (e: any) {
@@ -152,12 +160,115 @@ export function PipelineView() {
     }
   };
 
+  const loadRecycleBin = async () => {
+    setLoadingRecycle(true);
+    try {
+      const res = await aicloserApi.leads.getRecycleBin();
+      const mapped = (res || []).map((l: any) => {
+        if (l.code && l.name) return l as Lead;
+        return {
+          id: l.id,
+          code: l.leadCode || l.code || `CLO-${l.id.slice(-4)}`,
+          name: l.customerName || l.name || "Unknown Lead",
+          phone: l.customerPhone || l.phone || "",
+          email: l.customerEmail || l.email || "",
+          company: l.serviceInterest || l.company || "",
+          stage: "lost",
+          value: Number(l.budgetAmount || l.value || 0),
+          owner: l.assignedAgent?.user?.displayName || l.owner || "Unassigned",
+          source: normalizeSource(l.source),
+          segment: "SMB",
+          priority: "medium",
+          followUp: null,
+          notes: l.notes || "",
+          tags: Array.isArray(l.tags) ? l.tags : [],
+          updatedAt: l.updatedAt || new Date().toISOString(),
+        } as Lead;
+      });
+      setRecycleLeads(mapped);
+    } catch {
+      setRecycleLeads([]);
+    } finally {
+      setLoadingRecycle(false);
+    }
+  };
+
+  useEffect(() => {
+    if (viewMode === "recycle") {
+      void loadRecycleBin();
+    }
+  }, [viewMode]);
+
+  const handleRestore = async (leadId: string) => {
+    setRecycleActionId(leadId);
+    try {
+      await aicloserApi.leads.restore(leadId);
+      setRecycleLeads((prev) => prev.filter((l) => l.id !== leadId));
+      setRecycleFeedback("Lead restored successfully to New Leads column.");
+      setTimeout(() => setRecycleFeedback(null), 3000);
+      void refreshLeads();
+    } catch (e: any) {
+      setRecycleFeedback("Failed to restore lead: " + (e.message || String(e)));
+      setTimeout(() => setRecycleFeedback(null), 3500);
+    } finally {
+      setRecycleActionId(null);
+    }
+  };
+
+  const handlePermanentDelete = async (leadId: string) => {
+    setRecycleActionId(leadId);
+    try {
+      await aicloserApi.leads.permanentDelete(leadId);
+      setRecycleLeads((prev) => prev.filter((l) => l.id !== leadId));
+      setConfirmPermanentDeleteId(null);
+      setRecycleFeedback("Lead permanently deleted.");
+      setTimeout(() => setRecycleFeedback(null), 3000);
+    } catch (e: any) {
+      setRecycleFeedback("Failed to permanently delete: " + (e.message || String(e)));
+      setTimeout(() => setRecycleFeedback(null), 3500);
+    } finally {
+      setRecycleActionId(null);
+    }
+  };
+
+  const handleExportXlsx = () => {
+    const listToExport = filtered.length > 0 ? filtered : scoped;
+    if (!listToExport.length) return;
+    const data = listToExport.map((l) => ({
+      "Lead Code": l.code || "",
+      "Name": l.name || "",
+      "Company": l.company || "",
+      "Phone": l.phone || "",
+      "Email": l.email || "",
+      "Stage": l.stage || "",
+      "Deal Value (INR)": l.value || 0,
+      "Payment Status": (l as any).paymentStatus || "",
+      "Assigned Closer": l.owner || "Unassigned",
+      "Source Channel": l.source || "",
+      "Priority": l.priority || "",
+      "Next Callback": l.followUp || "",
+      "Notes": l.notes || "",
+      "Tags": (l.tags || []).join(", "),
+      "Last Updated": l.updatedAt || "",
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Leads");
+    const dateStr = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `aicloser-pipeline-leads-${dateStr}.xlsx`);
+  };
+
   const openPoolList = useMemo(() => {
     const q = poolQuery.trim().toLowerCase();
     return (state.poolLeads || []).filter((p) => {
       if (disappearedIds.has(p.id)) return false;
       if (p.status !== "OPEN") return false;
-      if (poolSource && p.source !== poolSource) return false;
+      if (poolSource) {
+        const pSrc = (p.source || "").toLowerCase();
+        const targetSrc = poolSource.toLowerCase();
+        const normSrc = normalizeSource(p.source).toLowerCase();
+        if (pSrc !== targetSrc && normSrc !== targetSrc) return false;
+      }
       if (!q) return true;
       return (
         (p.customerName || "").toLowerCase().includes(q) ||
@@ -179,7 +290,7 @@ export function PipelineView() {
         setClaimFeedback({
           id: item.id,
           status: "success",
-          message: `⚡ Lead "${item.customerName || "Customer"}" grabbed! Added to your New Leads column.`,
+          message: `âš¡ Lead "${item.customerName || "Customer"}" grabbed! Added to your New Leads column.`,
         });
         setTimeout(() => setClaimFeedback(null), 4000);
       } else {
@@ -192,8 +303,8 @@ export function PipelineView() {
           id: item.id,
           status: isQuota ? "quota_limit" : "already_claimed",
           message: isQuota
-            ? `⚠️ Quota Limit: You already hold ${myActiveLeads}/${myCap} active leads. Close existing deals before grabbing more.`
-            : `⚡ Lead was just grabbed by another closer!`,
+            ? `âš ï¸ Quota Limit: You already hold ${myActiveLeads}/${myCap} active leads. Close existing deals before grabbing more.`
+            : `âš¡ Lead was just grabbed by another closer!`,
         });
         setTimeout(() => setClaimFeedback(null), 4500);
       }
@@ -203,7 +314,7 @@ export function PipelineView() {
       setClaimFeedback({
         id: item.id,
         status: "already_claimed",
-        message: "⚡ Lead is no longer available or was grabbed by another closer.",
+        message: "âš¡ Lead is no longer available or was grabbed by another closer.",
       });
       setTimeout(() => setClaimFeedback(null), 4500);
     }
@@ -238,13 +349,24 @@ export function PipelineView() {
     });
     return rows.sort((a, b) => {
       if (sort === "value") {
+        const isPendingPayment = (l: Lead) => {
+          const status = String((l as any).paymentStatus || "").toUpperCase();
+          if (status === "PENDING" || status === "PAYMENT_PENDING") return true;
+          if (l.tags?.some((t) => /payment|pending|pay-link/i.test(t))) return true;
+          return false;
+        };
+        const aPending = isPendingPayment(a) ? 1 : 0;
+        const bPending = isPendingPayment(b) ? 1 : 0;
+        if (aPending !== bPending) return bPending - aPending;
         return b.value - a.value || a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
       }
       if (sort === "priority") {
-        const aOverdue = isOverdue(a.followUp) && a.stage !== "won" && a.stage !== "lost" ? 1 : 0;
-        const bOverdue = isOverdue(b.followUp) && b.stage !== "won" && b.stage !== "lost" ? 1 : 0;
-        if (aOverdue !== bOverdue) {
-          return bOverdue - aOverdue;
+        const aHasCallback = Boolean(a.followUp && a.stage !== "won" && a.stage !== "lost");
+        const bHasCallback = Boolean(b.followUp && b.stage !== "won" && b.stage !== "lost");
+        const aCallbackScore = aHasCallback ? (isOverdue(a.followUp) ? 2 : 1) : 0;
+        const bCallbackScore = bHasCallback ? (isOverdue(b.followUp) ? 2 : 1) : 0;
+        if (aCallbackScore !== bCallbackScore) {
+          return bCallbackScore - aCallbackScore;
         }
         return (
           PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority] ||
@@ -334,17 +456,29 @@ export function PipelineView() {
                   {openPoolList.length || state.poolCount || 0}
                 </span>
               </button>
+              {isAdmin && (
+                <button
+                  data-on={viewMode === "recycle"}
+                  onClick={() => setViewMode("recycle")}
+                >
+                  <Icon name="trash" size={13} />
+                  <span>Recycle Bin</span>
+                  {recycleLeads.length > 0 && (
+                    <span className="chip" data-tone="danger">{recycleLeads.length}</span>
+                  )}
+                </button>
+              )}
             </div>
           </div>
           <p className="page-sub">
             {viewMode === "board" ? (
               <>
-                {filtered.length} leads ·{" "}
-                drag a card or select it and press ⇧ ← →
+                {filtered.length} leads Â·{" "}
+                drag a card or select it and press â‡§ â† â†’
               </>
             ) : (
               <>
-                ⚡ <b>{isAdmin ? "Unassigned Leads Pool" : "First-Come, First-Served Pool"}</b> · {openPoolList.length} unassigned leads waiting · {isAdmin ? "Distribute leads to team closers or let closers claim them from their Lead Grab Pool." : "Grabbing a lead instantly claims it into your New Leads."}
+                âš¡ <b>{isAdmin ? "Unassigned Leads Pool" : "First-Come, First-Served Pool"}</b> Â· {openPoolList.length} unassigned leads waiting Â· {isAdmin ? "Distribute leads to team closers or let closers claim them from their Lead Grab Pool." : "Grabbing a lead instantly claims it into your New Leads."}
               </>
             )}
           </p>
@@ -364,11 +498,33 @@ export function PipelineView() {
                   <Icon name="zap" size={14} /> {isAdmin ? "Unassigned Pool" : "Open Grab Pool"} ({openPoolList.length || state.poolCount})
                 </button>
               )}
+              {isAdmin && (
+                <button
+                  className="btn"
+                  onClick={handleExportXlsx}
+                  title="Export leads to Excel spreadsheet (.xlsx)"
+                >
+                  <Icon name="download" size={14} /> Export .xlsx
+                </button>
+              )}
               <button className="btn" onClick={() => setFit((f) => !f)} aria-pressed={fit}>
                 <Icon name="panel" size={14} /> {fit ? "Fixed columns" : "Fit board"}
               </button>
               <button className="btn" data-variant="primary" onClick={() => setAddStage("new")}>
                 <Icon name="pencil" size={14} /> New lead
+              </button>
+            </>
+          ) : viewMode === "recycle" ? (
+            <>
+              <button
+                className="btn"
+                onClick={loadRecycleBin}
+                disabled={loadingRecycle}
+              >
+                <Icon name="refresh" size={14} className={loadingRecycle ? "spin" : ""} /> {loadingRecycle ? "Refreshing..." : "Refresh Recycle Bin"}
+              </button>
+              <button className="btn" data-variant="primary" onClick={() => setViewMode("board")}>
+                <Icon name="kanban" size={14} /> View Kanban Board
               </button>
             </>
           ) : (
@@ -461,7 +617,7 @@ export function PipelineView() {
                   disabled={isDistributing || openPoolList.length === 0}
                 >
                   <Icon name={isDistributing ? "refresh" : "zap"} size={13} className={isDistributing ? "spin" : ""} />
-                  {isDistributing ? "Distributing leads..." : "⚡ Auto-Distribute (Round-Robin)"}
+                  {isDistributing ? "Distributing leads..." : "âš¡ Auto-Distribute (Round-Robin)"}
                 </button>
               </div>
             ) : (
@@ -469,7 +625,7 @@ export function PipelineView() {
                 <div className="pool-quota-header">
                   <span className="pool-quota-title">YOUR ACTIVE CAPACITY</span>
                   <span className="chip" data-tone={isAtQuota ? "danger" : "success"}>
-                    {isAtQuota ? "⚠️ Quota Full" : `✅ ${Math.max(0, myCap - myActiveLeads)} grabs left`}
+                    {isAtQuota ? "âš ï¸ Quota Full" : `âœ… ${Math.max(0, myCap - myActiveLeads)} grabs left`}
                   </span>
                 </div>
                 <div className="pool-quota-stat">
@@ -515,11 +671,17 @@ export function PipelineView() {
             >
               <option value="">All Ingestion Sources</option>
               <option value="Google Sheets">Google Sheets</option>
-              <option value="WhatsApp">WhatsApp API / Relays</option>
+              <option value="WhatsApp">WhatsApp</option>
+              <option value="WhatsApp QR">WhatsApp QR</option>
               <option value="Excel">Excel / CSV Batches</option>
               <option value="Website">Website Webhooks</option>
               <option value="IndiaMART">IndiaMART</option>
               <option value="Justdial">Justdial</option>
+              <option value="Email">Email</option>
+              <option value="Ads">Ads / Meta</option>
+              <option value="Cold call">Cold call</option>
+              <option value="Lead form">Lead form</option>
+              <option value="Referral">Referral</option>
             </select>
 
             <span className="col-w-label">
@@ -640,7 +802,7 @@ export function PipelineView() {
                           }}
                           aria-label="Assign lead to closer"
                         >
-                          <option value="" disabled>Assign to Closer ▾</option>
+                          <option value="" disabled>Assign to Closer â–¾</option>
                           {activeClosers.length > 0
                             ? activeClosers.map((closer) => (
                                 <option key={closer.id} value={`${closer.id}::${closer.name}`}>
@@ -696,6 +858,132 @@ export function PipelineView() {
             </div>
           )}
         </div>
+      ) : viewMode === "recycle" ? (
+        <div className="recycle-container card">
+          <div className="card-head">
+            <div>
+              <h2 className="card-title">Recycle Bin</h2>
+              <p className="card-sub">
+                Soft-deleted leads from this workspace. Restoring a lead moves it back to the New Leads column. Permanent deletion removes the lead record from the database.
+              </p>
+            </div>
+            <button
+              className="btn"
+              data-size="sm"
+              onClick={loadRecycleBin}
+              disabled={loadingRecycle}
+            >
+              <Icon name="refresh" size={13} className={loadingRecycle ? "spin" : ""} />
+              {loadingRecycle ? "Refreshing..." : "Refresh"}
+            </button>
+          </div>
+
+          {recycleFeedback && (
+            <div className="card-head">
+              <span className="chip" data-tone="accent">{recycleFeedback}</span>
+            </div>
+          )}
+
+          {recycleLeads.length === 0 ? (
+            <div className="empty">
+              <div className="empty-icon">
+                <Icon name="trash" size={32} />
+              </div>
+              <div className="empty-title">Recycle Bin is Empty</div>
+              <p className="empty-desc">
+                There are no soft-deleted or recycled leads. Leads deleted from the pipeline or contacts list will appear here.
+              </p>
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Lead Code</th>
+                    <th>Customer Name</th>
+                    <th>Phone</th>
+                    <th>Deleted / Updated</th>
+                    <th>Owner</th>
+                    <th className="cell-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recycleLeads.map((rLead) => (
+                    <tr key={rLead.id}>
+                      <td>
+                        <span className="cell-mono font-bold">{rLead.code}</span>
+                      </td>
+                      <td>
+                        <div className="cell-person">
+                          <div>
+                            <div className="cell-name">{rLead.name}</div>
+                            <span className="cell-sub">{rLead.company || "Direct inquiry"}</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        <span>{rLead.phone || "—"}</span>
+                      </td>
+                      <td>
+                        <span className="cell-muted">{relativeTime(rLead.updatedAt)}</span>
+                      </td>
+                      <td>
+                        <span className="cell-muted">{rLead.owner || "Unassigned"}</span>
+                      </td>
+                      <td className="cell-right">
+                        <div className="chip-row">
+                          <button
+                            type="button"
+                            className="btn"
+                            data-size="sm"
+                            data-variant="accent"
+                            disabled={recycleActionId === rLead.id}
+                            onClick={() => handleRestore(rLead.id)}
+                          >
+                            <Icon name="refresh" size={12} /> Restore
+                          </button>
+                          {confirmPermanentDeleteId === rLead.id ? (
+                            <>
+                              <button
+                                type="button"
+                                className="btn"
+                                data-size="sm"
+                                data-variant="danger"
+                                disabled={recycleActionId === rLead.id}
+                                onClick={() => handlePermanentDelete(rLead.id)}
+                              >
+                                Confirm Permanent Delete
+                              </button>
+                              <button
+                                type="button"
+                                className="btn"
+                                data-size="sm"
+                                onClick={() => setConfirmPermanentDeleteId(null)}
+                              >
+                                Cancel
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              className="btn"
+                              data-size="sm"
+                              data-variant="ghost"
+                              disabled={recycleActionId === rLead.id}
+                              onClick={() => setConfirmPermanentDeleteId(rLead.id)}
+                            >
+                              <Icon name="trash" size={12} /> Delete Permanently
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       ) : (
         <>
           <div className="pipe-toolbar">
@@ -704,7 +992,7 @@ export function PipelineView() {
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search by name, company, CLO id, phone…"
+                placeholder="Search by name, company, CLO id, phoneâ€¦"
                 aria-label="Search leads"
               />
               {query ? (
@@ -770,15 +1058,15 @@ export function PipelineView() {
                 Clear all
               </button>
             ) : (
-              <span className="hint">No filters — the whole board is in view.</span>
+              <span className="hint">No filters â€” the whole board is in view.</span>
             )}
             {state.scope.startsWith("agent:") ? (
               <span className="chip" data-tone="accent" style={{ marginLeft: "auto" }}>
-                <Icon name="target" size={13} /> {state.scope.slice(6)}&apos;s Leads ({boardLeads.length}) · Scanned WhatsApp in Chat tab
+                <Icon name="target" size={13} /> {state.scope.slice(6)}&apos;s Leads ({boardLeads.length}) Â· Scanned WhatsApp in Chat tab
               </span>
             ) : (
               <span className="chip" data-tone="neutral" style={{ marginLeft: "auto", fontSize: "11px" }}>
-                <Icon name="shield" size={12} /> Sales Pipeline Leads ({boardLeads.length}) · Scanned WhatsApp chats in Chat view
+                <Icon name="shield" size={12} /> Sales Pipeline Leads ({boardLeads.length}) Â· Scanned WhatsApp chats in Chat view
               </span>
             )}
           </div>
@@ -869,7 +1157,7 @@ export function PipelineView() {
                               type="button"
                               className="icon-btn"
                               data-size="sm"
-                              title={`Priority: ${PRIORITY_LABEL[lead.priority]} · Click to change`}
+                              title={`Priority: ${PRIORITY_LABEL[lead.priority]} Â· Click to change`}
                               aria-label={`Change priority from ${PRIORITY_LABEL[lead.priority]}`}
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -965,7 +1253,7 @@ export function PipelineView() {
           ) : null}
 
           <p className="hint">
-            {relativeTime(new Date().toISOString())} · tip: focus a card and press ⇧ ← → to move the
+            {relativeTime(new Date().toISOString())} Â· tip: focus a card and press â‡§ â† â†’ to move the
             stage, Enter to open, Esc to close.
           </p>
         </>

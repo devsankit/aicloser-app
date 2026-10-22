@@ -39,6 +39,10 @@ export interface SimDevice {
 
 export function CallsView() {
   const { state } = useApp();
+  const isAdmin = state.user?.role === "ADMIN" || state.user?.role === "SUPER_ADMIN" || state.user?.role === "OWNER";
+  const isManager = state.user?.role === "MANAGER";
+  const canViewDevices = isAdmin || isManager;
+
   const [tab, setTab] = useState<"all" | "missed" | "devices">("all");
   const [calls, setCalls] = useState<CallRecord[]>([]);
   const [devices, setDevices] = useState<SimDevice[]>([]);
@@ -50,6 +54,14 @@ export function CallsView() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [selectedTranscriptCall, setSelectedTranscriptCall] = useState<CallRecord | null>(null);
+
+  useEffect(() => {
+    if (!isAdmin && !isManager) {
+      setCallerScope("mine");
+    } else if (isAdmin) {
+      setCallerScope("all");
+    }
+  }, [isAdmin, isManager]);
 
   const loadData = useCallback(async () => {
     try {
@@ -228,10 +240,9 @@ export function CallsView() {
       )
     );
     try {
-      await fetch(`/api/sales/call-reports/${callId}`, {
-        method: "PATCH",
+      await fetch(`/api/v1/calls/${callId}/resolve-missed`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ outcome: "Callback Completed", status: "COMPLETED" }),
       }).catch(() => null);
     } catch {
       // Non-blocking
@@ -341,17 +352,19 @@ export function CallsView() {
           </div>
         </div>
 
-        <div className="card" style={{ padding: "14px 16px" }}>
-          <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", fontWeight: 550, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-            SIM Telephony Engine
+        {canViewDevices && (
+          <div className="card" style={{ padding: "14px 16px" }}>
+            <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", fontWeight: 550, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+              SIM Telephony Engine
+            </div>
+            <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px", color: devices.length > 0 ? "var(--success)" : "var(--text-tertiary)" }}>
+              {devices.filter((d) => d.recordingService === "active").length} / {devices.length} Active
+            </div>
+            <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
+              {devices.length > 0 ? "Direct Android audio background sync" : "No devices connected"}
+            </div>
           </div>
-          <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px", color: devices.length > 0 ? "var(--success)" : "var(--text-tertiary)" }}>
-            {devices.filter((d) => d.recordingService === "active").length} / {devices.length} Active
-          </div>
-          <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
-            {devices.length > 0 ? "Direct Android audio background sync" : "No devices connected"}
-          </div>
-        </div>
+        )}
       </div>
 
       {/* Tabs */}
@@ -363,9 +376,11 @@ export function CallsView() {
           <button data-on={tab === "missed"} onClick={() => setTab("missed")}>
             <Icon name="clock" size={13} /> Missed Call Queue ({missedCalls.length})
           </button>
-          <button data-on={tab === "devices"} onClick={() => setTab("devices")}>
-            <Icon name="plug" size={13} /> Connected SIM Devices ({devices.length})
-          </button>
+          {canViewDevices && (
+            <button data-on={tab === "devices"} onClick={() => setTab("devices")}>
+              <Icon name="plug" size={13} /> Connected SIM Devices ({devices.length})
+            </button>
+          )}
         </div>
       </div>
 
@@ -390,14 +405,16 @@ export function CallsView() {
                 </button>
               ))}
             </div>
-            <div className="seg">
-              <button data-on={callerScope === "all"} onClick={() => setCallerScope("all")}>
-                <Icon name="users" size={12} /> Team Calls
-              </button>
-              <button data-on={callerScope === "mine"} onClick={() => setCallerScope("mine")}>
-                <Icon name="phone" size={12} /> My Calls
-              </button>
-            </div>
+            {isManager && (
+              <div className="seg">
+                <button data-on={callerScope === "all"} onClick={() => setCallerScope("all")}>
+                  <Icon name="users" size={12} /> Team Calls
+                </button>
+                <button data-on={callerScope === "mine"} onClick={() => setCallerScope("mine")}>
+                  <Icon name="phone" size={12} /> My Calls
+                </button>
+              </div>
+            )}
             <div style={{ marginLeft: "auto", fontSize: "var(--fs-caption)", color: "var(--text-tertiary)" }}>
               {filteredCalls.length} recorded calls
             </div>
@@ -627,7 +644,7 @@ export function CallsView() {
       )}
 
       {/* Tab 3: Connected SIM Devices */}
-      {tab === "devices" && (
+      {tab === "devices" && canViewDevices && (
         <section className="card" style={{ padding: "0", overflow: "hidden" }}>
           <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)" }}>
             <h2 style={{ fontSize: "var(--fs-body)", fontWeight: 600 }}>Active Telephony Physical SIM Android Devices</h2>

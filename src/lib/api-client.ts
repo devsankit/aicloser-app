@@ -807,6 +807,60 @@ export const aicloserApi = {
       );
       return res.data;
     },
+    async getRecycleBin(): Promise<Lead[]> {
+      try {
+        const res = await requestConversation<{ leads?: Lead[] } | Lead[]>('/leads/recycle-bin');
+        const data = Array.isArray(res.data) ? res.data : (res.data?.leads ?? []);
+        if (data && data.length > 0) return data;
+      } catch {
+        // Fallback to querying stage=RECYCLED
+      }
+      try {
+        const res = await aicloserApi.leads.list({ stage: 'RECYCLED', limit: 100 });
+        return res.leads || [];
+      } catch {
+        return [];
+      }
+    },
+    async restore(leadId: string): Promise<Lead> {
+      try {
+        const res = await request<Lead>(`/leads/${encodeURIComponent(leadId)}/restore`, {
+          method: 'POST',
+        });
+        return res.data;
+      } catch {
+        return aicloserApi.leads.update(leadId, { stage: 'NEW' });
+      }
+    },
+    async permanentDelete(leadId: string): Promise<any> {
+      const res = await request(`/leads/${encodeURIComponent(leadId)}`, {
+        method: 'DELETE',
+      });
+      return res.data;
+    },
+  },
+
+  // Labels & Tags
+  labels: {
+    async list(): Promise<Array<{ id: string; name: string; color?: string }>> {
+      try {
+        const res = await request<Array<{ id: string; name: string; color?: string }>>('/labels');
+        return res.data || [];
+      } catch {
+        return [];
+      }
+    },
+    async create(label: { name: string; color?: string }): Promise<{ id: string; name: string; color?: string }> {
+      try {
+        const res = await request<{ id: string; name: string; color?: string }>('/labels', {
+          method: 'POST',
+          body: JSON.stringify(label),
+        });
+        return res.data;
+      } catch {
+        return { id: `lbl-${Date.now()}`, name: label.name, color: label.color };
+      }
+    },
   },
 
   // 3. Stages Configuration
@@ -2632,6 +2686,33 @@ export const aicloserApi = {
       const res = await request<any>('/developer/test-request', {
         method: 'POST',
         body: JSON.stringify(payload),
+      });
+      return res.data;
+    },
+  },
+
+  macros: {
+    async list() {
+      const res = await request<any>('/macros');
+      return res.data;
+    },
+    async create(payload: { name: string; content: string }) {
+      const res = await request<any>('/macros', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      return res.data;
+    },
+    async update(id: string, payload: { name?: string; content?: string }) {
+      const res = await request<any>(`/macros/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
+      return res.data;
+    },
+    async delete(id: string) {
+      const res = await request<any>(`/macros/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
       });
       return res.data;
     },

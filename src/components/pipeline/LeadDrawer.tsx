@@ -5,6 +5,7 @@ import { Icon } from "@/components/ui/Icon";
 import { ResizeHandle } from "@/components/ui/ResizeHandle";
 import { LeadCommandHistory } from "./LeadCommandHistory";
 import { LIMITS, maskPhone, money, relativeTime, slaLabel, useApp } from "@/lib/store";
+import { aicloserApi } from "@/lib/api-client";
 import {
   OWNERS,
   PRIORITY_ICON,
@@ -21,29 +22,83 @@ import {
 
 export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void }) {
   const { moveLead, updateLead, deleteLead, state, setLayout, claimLead, reassignLead } = useApp();
+  const isAdmin = state.user?.role === "ADMIN" || state.user?.role === "SUPER_ADMIN";
   const [draft, setDraft] = useState(lead);
   const [rawTagsInput, setRawTagsInput] = useState(lead.tags.join(", "));
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
   const [phoneCopied, setPhoneCopied] = useState(false);
-  const [showMaskedPhone, setShowMaskedPhone] = useState(false);
   const [reassignModalOpen, setReassignModalOpen] = useState(false);
   const [targetCloser, setTargetCloser] = useState("");
   const [handoverNote, setHandoverNote] = useState("");
+  const [workspaceLabels, setWorkspaceLabels] = useState<Array<{ id: string; name: string }>>([]);
+  const [showAddLabel, setShowAddLabel] = useState(false);
+  const [newLabelInput, setNewLabelInput] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    aicloserApi.labels.list().then((items) => {
+      if (active && Array.isArray(items)) {
+        setWorkspaceLabels(items);
+      }
+    }).catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const allOwners = useMemo(() => {
-    const set = new Set<string>(OWNERS);
-    if (state.user?.displayName) set.add(state.user.displayName);
-    state.leads.forEach((l) => {
-      if (l.owner && l.owner !== "Unassigned") set.add(l.owner);
-    });
-    return Array.from(set);
-  }, [state.user, state.leads]);
+    const list: string[] = [];
+    if (isAdmin) {
+      list.push("Unassigned");
+    }
+    if (state.teamMembers && state.teamMembers.length > 0) {
+      state.teamMembers.forEach((m) => {
+        if (m.name && !list.includes(m.name)) list.push(m.name);
+      });
+    } else {
+      if (state.user?.displayName && !list.includes(state.user.displayName)) {
+        list.push(state.user.displayName);
+      }
+      state.leads.forEach((l) => {
+        if (l.owner && l.owner !== "Unassigned" && !list.includes(l.owner)) {
+          list.push(l.owner);
+        }
+      });
+    }
+    if (draft.owner && !list.includes(draft.owner) && (isAdmin || draft.owner !== "Unassigned")) {
+      list.push(draft.owner);
+    }
+    return list;
+  }, [state.teamMembers, state.user, state.leads, isAdmin, draft.owner]);
 
   const availableOwners = useMemo(() => {
     return allOwners.filter((o) => o !== "Unassigned" && o !== draft.owner);
   }, [allOwners, draft.owner]);
+
+  const availableWorkspaceLabels = useMemo(() => {
+    const currentTags = new Set(draft.tags.map((t) => t.toLowerCase()));
+    return workspaceLabels.filter((l) => !currentTags.has(l.name.toLowerCase()));
+  }, [workspaceLabels, draft.tags]);
+
+  const addTag = (tagName: string) => {
+    const trimmed = tagName.trim();
+    if (!trimmed) return;
+    if (!draft.tags.some((t) => t.toLowerCase() === trimmed.toLowerCase())) {
+      const nextTags = [...draft.tags, trimmed];
+      setDraft((d) => ({ ...d, tags: nextTags }));
+      setRawTagsInput(nextTags.join(", "));
+    }
+    setNewLabelInput("");
+    setShowAddLabel(false);
+  };
+
+  const removeTag = (tagToRemove: string) => {
+    const nextTags = draft.tags.filter((t) => t !== tagToRemove);
+    setDraft((d) => ({ ...d, tags: nextTags }));
+    setRawTagsInput(nextTags.join(", "));
+  };
 
   useEffect(() => {
     if (availableOwners.length > 0 && (!targetCloser || !availableOwners.includes(targetCloser))) {
@@ -408,30 +463,86 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
               <span className="field-label">
                 <Icon name="tag" size={14} /> Labels
               </span>
-              <input
-                className="input"
-                value={rawTagsInput}
-                onChange={(e) => {
-                  setRawTagsInput(e.target.value);
-                  set(
-                    "tags",
-                    e.target.value
-                      .split(",")
-                      .map((t) => t.trim())
-                      .filter(Boolean),
-                  );
-                }}
-                onBlur={() => {
-                  const cleaned = rawTagsInput
-                    .split(",")
-                    .map((t) => t.trim())
-                    .filter(Boolean);
-                  set("tags", cleaned);
-                  setRawTagsInput(cleaned.join(", "));
-                }}
-                placeholder="hot, inbound"
-                aria-label="Labels comma separated"
-              />
+              <div className="chip-row">
+                {draft.tags.map((tag) => (
+                  <span key={tag} className="chip-x">
+                    <b>{tag}</b>
+                    <button
+                      type="button"
+                      className="x"
+                      onClick={() => removeTag(tag)}
+                      aria-label={`Remove label ${tag}`}
+                      title={`Remove ${tag}`}
+                    >
+                      <Icon name="close" size={10} />
+                    </button>
+                  </span>
+                ))}
+                {showAddLabel ? (
+                  <div className="chip-row">
+                    <input
+                      className="input"
+                      value={newLabelInput}
+                      onChange={(e) => setNewLabelInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          addTag(newLabelInput);
+                        } else if (e.key === "Escape") {
+                          setShowAddLabel(false);
+                        }
+                      }}
+                      placeholder="Label name (press ↵)"
+                      autoFocus
+                    />
+                    {availableWorkspaceLabels.length > 0 && (
+                      <select
+                        className="select"
+                        value=""
+                        onChange={(e) => {
+                          if (e.target.value) addTag(e.target.value);
+                        }}
+                        aria-label="Pick existing workspace label"
+                      >
+                        <option value="">Or pick existing…</option>
+                        {availableWorkspaceLabels.map((l) => (
+                          <option key={l.id || l.name} value={l.name}>
+                            {l.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <button
+                      type="button"
+                      className="btn"
+                      data-size="sm"
+                      data-variant="accent"
+                      onClick={() => addTag(newLabelInput)}
+                    >
+                      Add
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      onClick={() => setShowAddLabel(false)}
+                      title="Cancel"
+                      aria-label="Cancel"
+                    >
+                      <Icon name="close" size={12} />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn"
+                    data-size="sm"
+                    data-variant="ghost"
+                    onClick={() => setShowAddLabel(true)}
+                  >
+                    <Icon name="plus" size={12} /> Add label
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="field-row">
@@ -451,27 +562,18 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
               <span className="field-label">
                 <Icon name="phone" size={14} /> Phone
               </span>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", flex: 1 }}>
+              <div className="field-static">
                 <input
                   className="input"
                   inputMode="tel"
-                  value={showMaskedPhone ? maskPhone(draft.phone, true) : draft.phone}
-                  onChange={(e) => set("phone", e.target.value)}
-                  readOnly={showMaskedPhone}
+                  value={isAdmin ? draft.phone : maskPhone(draft.phone, true)}
+                  onChange={(e) => {
+                    if (isAdmin) set("phone", e.target.value);
+                  }}
+                  readOnly={!isAdmin}
                   aria-label="Phone"
-                  style={{ flex: 1 }}
+                  title={!isAdmin ? "Phone number locked for closer isolation" : "Client phone number"}
                 />
-                <button
-                  type="button"
-                  className="chip"
-                  data-tone={showMaskedPhone ? "info" : "default"}
-                  onClick={() => setShowMaskedPhone((v) => !v)}
-                  title={showMaskedPhone ? "Click to view full phone number" : "Click to mask phone number (+91 98765 •••••)"}
-                  style={{ cursor: "pointer", fontSize: "11px", height: "26px", border: "none" }}
-                >
-                  <Icon name={showMaskedPhone ? "shield" : "eye"} size={11} />
-                  {showMaskedPhone ? "Masked" : "Raw"}
-                </button>
               </div>
             </div>
           </div>
@@ -490,14 +592,13 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
             onNoteSaved={(newNote) => {
               const updated = draft.notes ? `${draft.notes}\n\n${newNote}` : newNote;
               set("notes", updated);
-              updateLead(lead.id, { notes: updated });
             }}
           />
 
           <p className="hint">
-            Last updated {relativeTime(lead.updatedAt)} · press <span className="kbd">Esc</span> to
-            close, <span className="kbd">⌘</span>
-            <span className="kbd">↵</span> to save.
+            Last updated {relativeTime(lead.updatedAt)} Â· press <span className="kbd">Esc</span> to
+            close, <span className="kbd">âŒ˜</span>
+            <span className="kbd">â†µ</span> to save.
           </p>
         </div>
 

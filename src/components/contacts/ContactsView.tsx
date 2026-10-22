@@ -1,11 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import * as XLSX from "xlsx";
+import { aicloserApi } from "@/lib/api-client";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { LeadDrawer } from "@/components/pipeline/LeadDrawer";
 import { AddLeadDialog } from "@/components/pipeline/AddLeadDialog";
-import { compactMoney, relativeTime, useApp, useScopedLeads } from "@/lib/store";
+import { compactMoney, money, relativeTime, useApp, useScopedLeads } from "@/lib/store";
 import {
+  normalizeSource,
   PRIORITY_ICON,
   PRIORITY_LABEL,
   STAGES,
@@ -120,8 +123,15 @@ function formatCallbackInfo(followUpIso?: string) {
 }
 
 export function ContactsView() {
-  const { moveLead, updateLead, deleteLead } = useApp();
+  const { state, moveLead, updateLead, deleteLead, refreshLeads } = useApp();
+  const isAdmin = state.user?.role === "ADMIN" || state.user?.role === "SUPER_ADMIN" || state.user?.role === "MANAGER";
   const leads = useScopedLeads();
+  const [activeTab, setActiveTab] = useState<"contacts" | "recycle">("contacts");
+  const [recycleLeads, setRecycleLeads] = useState<Lead[]>([]);
+  const [loadingRecycle, setLoadingRecycle] = useState(false);
+  const [recycleActionId, setRecycleActionId] = useState<string | null>(null);
+  const [confirmPermanentDeleteId, setConfirmPermanentDeleteId] = useState<string | null>(null);
+
   const [query, setQuery] = useState("");
   const [stage, setStage] = useState<StageId | "">("");
   const [sort, setSort] = useState<SortKey>("updated");
@@ -149,16 +159,98 @@ export function ContactsView() {
     return DEFAULT_COLUMNS;
   });
 
-  // View mode: Table View (default) vs Grouped View
-  const [viewMode, setViewMode] = useState<"table" | "grouped">(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const saved = window.localStorage.getItem(VIEW_MODE_KEY);
-        if (saved === "table" || saved === "grouped") return saved;
-      } catch {}
+  const loadRecycleBin = async () => {
+    setLoadingRecycle(true);
+    try {
+      const res = await aicloserApi.leads.getRecycleBin();
+      const mapped = (res || []).map((l: any) => {
+        if (l.code && l.name) return l as Lead;
+        return {
+          id: l.id,
+          code: l.leadCode || l.code || `CLO-${l.id.slice(-4)}`,
+          name: l.customerName || l.name || "Unknown Lead",
+          phone: l.customerPhone || l.phone || "",
+          email: l.customerEmail || l.email || "",
+          company: l.serviceInterest || l.company || "",
+          stage: "lost",
+          value: Number(l.budgetAmount || l.value || 0),
+          owner: l.assignedAgent?.user?.displayName || l.owner || "Unassigned",
+          source: normalizeSource(l.source),
+          segment: "SMB",
+          priority: "medium",
+          followUp: null,
+          notes: l.notes || "",
+          tags: Array.isArray(l.tags) ? l.tags : [],
+          updatedAt: l.updatedAt || new Date().toISOString(),
+        } as Lead;
+      });
+      setRecycleLeads(mapped);
+    } catch {
+      setRecycleLeads([]);
+    } finally {
+      setLoadingRecycle(false);
     }
-    return "table";
-  });
+  };
+
+  useEffect(() => {
+    if (activeTab === "recycle") {
+      void loadRecycleBin();
+    }
+  }, [activeTab]);
+
+  const handleRestore = async (leadId: string) => {
+    setRecycleActionId(leadId);
+    try {
+      await aicloserApi.leads.restore(leadId);
+      setRecycleLeads((prev) => prev.filter((l) => l.id !== leadId));
+      setToastMessage("Lead restored to New Leads.");
+      void refreshLeads();
+    } catch (e: any) {
+      setToastMessage("Failed to restore lead: " + (e.message || String(e)));
+    } finally {
+      setRecycleActionId(null);
+    }
+  };
+
+  const handlePermanentDelete = async (leadId: string) => {
+    setRecycleActionId(leadId);
+    try {
+      await aicloserApi.leads.permanentDelete(leadId);
+      setRecycleLeads((prev) => prev.filter((l) => l.id !== leadId));
+      setConfirmPermanentDeleteId(null);
+      setToastMessage("Lead permanently deleted.");
+    } catch (e: any) {
+      setToastMessage("Failed to permanently delete: " + (e.message || String(e)));
+    } finally {
+      setRecycleActionId(null);
+    }
+  };
+
+  const handleExportXlsx = () => {
+    if (!rows.length) return;
+    const data = rows.map((r) => ({
+      "Lead Code": r.code || "",
+      "Name": r.name || "",
+      "Company": r.company || "",
+      "Phone": r.phone || "",
+      "Email": r.email || "",
+      "Stage": r.stage || "",
+      "Deal Value (INR)": r.value || 0,
+      "Payment Status": (r as any).paymentStatus || "",
+      "Assigned Closer": r.owner || "Unassigned",
+      "Source Channel": r.source || "",
+      "Priority": r.priority || "",
+      "Next Callback": r.followUp || "",
+      "Notes": r.notes || "",
+      "Tags": (r.tags || []).join(", "),
+      "Last Updated": r.updatedAt || "",
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Contacts");
+    const dateStr = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `aicloser-contacts-${dateStr}.xlsx`);
+  };
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -210,15 +302,6 @@ export function ContactsView() {
     updateVisibleColumns(DEFAULT_COLUMNS);
   };
 
-  const setView = (mode: "table" | "grouped") => {
-    setViewMode(mode);
-    if (typeof window !== "undefined") {
-      try {
-        window.localStorage.setItem(VIEW_MODE_KEY, mode);
-      } catch {}
-    }
-  };
-
   const handleStageChange = (leadId: string, nextStage: StageId, leadName?: string) => {
     moveLead(leadId, nextStage);
     updateLead(leadId, { stage: nextStage });
@@ -252,15 +335,7 @@ export function ContactsView() {
     });
   }, [leads, query, stage, sort]);
 
-  const groups = useMemo(
-    () =>
-      STAGES.map((meta) => ({ meta, items: rows.filter((l) => l.stage === meta.id) })).filter(
-        (g) => g.items.length > 0,
-      ),
-    [rows],
-  );
-
-  const flat = useMemo(() => (viewMode === "grouped" ? groups.flatMap((g) => g.items) : rows), [viewMode, groups, rows]);
+  const flat = rows;
 
   useEffect(() => {
     setCursor((c) => Math.min(c, Math.max(0, flat.length - 1)));
@@ -313,14 +388,6 @@ export function ContactsView() {
   const total = rows.reduce((s, l) => s + l.value, 0);
   const active = leads.find((l) => l.id === selected) ?? null;
 
-  const toggleGroup = (id: StageId) =>
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-
   const bulkMove = (to: StageId) => {
     for (const id of selection) {
       moveLead(id, to);
@@ -328,51 +395,6 @@ export function ContactsView() {
     }
     setToastMessage(`Moved ${selection.size} leads to ${stageMeta(to).label}`);
     setSelection(new Set());
-  };
-
-  const handleExportCsv = () => {
-    if (!rows.length) return;
-    const headers = [
-      "Code",
-      "Name",
-      "Company",
-      "Phone",
-      "Email",
-      "Stage",
-      "Value",
-      "Owner",
-      "FollowUp",
-      "Notes",
-      "Tags",
-      "UpdatedAt",
-    ];
-    const csvRows = [headers.join(",")];
-    for (const r of rows) {
-      csvRows.push(
-        [
-          `"${r.code || ""}"`,
-          `"${(r.name || "").replace(/"/g, '""')}"`,
-          `"${(r.company || "").replace(/"/g, '""')}"`,
-          `"${r.phone || ""}"`,
-          `"${r.email || ""}"`,
-          `"${r.stage || ""}"`,
-          r.value || 0,
-          `"${(r.owner || "").replace(/"/g, '""')}"`,
-          `"${r.followUp || ""}"`,
-          `"${(r.notes || "").replace(/"/g, '""')}"`,
-          `"${(r.tags || []).join("; ")}"`,
-          `"${r.updatedAt || ""}"`,
-        ].join(","),
-      );
-    }
-    const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `closer-contacts-${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
   };
 
   const isColVisible = (id: ContactColumnId) => visibleColumns.includes(id);
@@ -383,49 +405,98 @@ export function ContactsView() {
     <div>
       <header className="page-head">
         <div>
-          <h1 className="page-title">Contacts</h1>
+          <div className="pipe-title-row">
+            <h1 className="page-title">Contacts</h1>
+            {isAdmin && (
+              <div className="seg" role="group" aria-label="Contacts Views">
+                <button
+                  type="button"
+                  data-on={activeTab === "contacts"}
+                  onClick={() => setActiveTab("contacts")}
+                >
+                  <Icon name="kanban" size={13} />
+                  <span>Contacts</span>
+                  <span className="chip">{rows.length}</span>
+                </button>
+                <button
+                  type="button"
+                  data-on={activeTab === "recycle"}
+                  onClick={() => setActiveTab("recycle")}
+                >
+                  <Icon name="trash" size={13} />
+                  <span>Recycle Bin</span>
+                  {recycleLeads.length > 0 && (
+                    <span className="chip" data-tone="danger">{recycleLeads.length}</span>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
           <p className="page-sub">
-            {rows.length} people · {compactMoney(total)} total value · press <span className="kbd">J</span>{" "}
-            <span className="kbd">K</span> to move, <span className="kbd">X</span> to select
+            {activeTab === "recycle" ? (
+              <>
+                ðŸ—‘ï¸ <b>Recycle Bin</b> Â· {recycleLeads.length} soft-deleted leads Â· Leads can be restored to active contacts or permanently deleted.
+              </>
+            ) : (
+              <>
+                {rows.length} people Â· {compactMoney(total)} total value Â· press <span className="kbd">J</span>{" "}
+                <span className="kbd">K</span> to move, <span className="kbd">X</span> to select
+              </>
+            )}
           </p>
         </div>
         <div className="page-actions">
-          {/* View Mode Toggle */}
-          <div className="seg">
-            <button
-              type="button"
-              data-on={viewMode === "table"}
-              onClick={() => setView("table")}
-              title="Table View with customizable columns"
-            >
-              <Icon name="kanban" size={13} /> Table
-            </button>
-            <button
-              type="button"
-              data-on={viewMode === "grouped"}
-              onClick={() => setView("grouped")}
-              title="Grouped by stages"
-            >
-              <Icon name="layers" size={13} /> Grouped
-            </button>
-          </div>
-
-          <select
-            className="select pipe-select"
-            value={sort}
-            onChange={(e) => setSort(e.target.value as SortKey)}
-            aria-label="Sort contacts"
-          >
-            <option value="updated">Sort: last activity</option>
-            <option value="name">Sort: name</option>
-            <option value="value">Sort: deal value</option>
-          </select>
-          <button className="btn" onClick={handleExportCsv}>
-            <Icon name="download" size={14} /> Export
-          </button>
-          <button className="btn" data-variant="primary" onClick={() => setShowAddLead(true)}>
-            <Icon name="plus" size={14} /> Add lead
-          </button>
+          {activeTab === "contacts" ? (
+            <>
+              <select
+                className="select pipe-select"
+                value={sort}
+                onChange={(e) => setSort(e.target.value as SortKey)}
+                aria-label="Sort contacts"
+              >
+                <option value="updated">Sort: last activity</option>
+                <option value="name">Sort: name</option>
+                <option value="value">Sort: deal value</option>
+              </select>
+              {isAdmin && (
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={handleExportXlsx}
+                  title="Export contacts to Excel (.xlsx)"
+                >
+                  <Icon name="download" size={14} /> Export .xlsx
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn"
+                data-variant="primary"
+                onClick={() => setShowAddLead(true)}
+              >
+                <Icon name="plus" size={14} /> Add lead
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="btn"
+                onClick={loadRecycleBin}
+                disabled={loadingRecycle}
+              >
+                <Icon name="refresh" size={14} className={loadingRecycle ? "spin" : ""} /> {loadingRecycle ? "Refreshing..." : "Refresh Recycle Bin"}
+              </button>
+              <button
+                type="button"
+                className="btn"
+                data-variant="primary"
+                onClick={() => setActiveTab("contacts")}
+              >
+                <Icon name="kanban" size={14} /> View Contacts
+              </button>
+            </>
+          )}
         </div>
       </header>
 
@@ -436,7 +507,7 @@ export function ContactsView() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search name, company, CLO id, phone, notes…"
+            placeholder="Search name, company, CLO id, phone, notesÃ¢â‚¬Â¦"
             aria-label="Search contacts"
           />
           {query ? (
@@ -580,7 +651,7 @@ export function ContactsView() {
             onChange={(e) => e.target.value && bulkMove(e.target.value as StageId)}
             aria-label="Move selected leads to stage"
           >
-            <option value="">Move selected to…</option>
+            <option value="">Move selected toÃ¢â‚¬Â¦</option>
             {STAGES.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.label}
@@ -605,7 +676,7 @@ export function ContactsView() {
       ) : null}
 
       {/* View 1: Customizable Table View */}
-      {viewMode === "table" ? (
+      {activeTab === "contacts" ? (
         <div className="table-wrap" ref={listRef}>
           <table className="table table-full">
             <thead>
@@ -681,7 +752,7 @@ export function ContactsView() {
                         type="button"
                         className="list-prio"
                         aria-label={`Change priority from ${PRIORITY_LABEL[lead.priority]}`}
-                        title={`Priority: ${PRIORITY_LABEL[lead.priority]} · Click to change`}
+                        title={`Priority: ${PRIORITY_LABEL[lead.priority]} Ã‚Â· Click to change`}
                         onClick={(e) => {
                           e.stopPropagation();
                           const nextPrio = PRIO_CYCLE[lead.priority] || "medium";
@@ -706,7 +777,7 @@ export function ContactsView() {
                           <div>
                             <div className="cell-name">{lead.name}</div>
                             <span className="cell-sub">
-                              {lead.code} · {lead.company || "Direct Inquiry"}
+                              {lead.code} Ã‚Â· {lead.company || "Direct Inquiry"}
                             </span>
                           </div>
                         </div>
@@ -768,7 +839,7 @@ export function ContactsView() {
                             </a>
                           </div>
                         ) : (
-                          <span className="cell-muted">—</span>
+                          <span className="cell-muted">Ã¢â‚¬â€</span>
                         )}
                       </td>
                     )}
@@ -782,7 +853,7 @@ export function ContactsView() {
                             <span className="note-text">{lead.notes}</span>
                           </div>
                         ) : (
-                          <span className="cell-muted">—</span>
+                          <span className="cell-muted">Ã¢â‚¬â€</span>
                         )}
                       </td>
                     )}
@@ -801,7 +872,7 @@ export function ContactsView() {
                             <span>{callbackInfo.text}</span>
                           </span>
                         ) : (
-                          <span className="cell-muted">—</span>
+                          <span className="cell-muted">Ã¢â‚¬â€</span>
                         )}
                       </td>
                     )}
@@ -822,8 +893,20 @@ export function ContactsView() {
 
                     {/* Deal Value */}
                     {isColVisible("value") && (
-                      <td style={{ fontWeight: 550, fontFamily: "var(--mono)" }}>
-                        {compactMoney(lead.value)}
+                      <td className="cell-mono">
+                        <div className="chip-row">
+                          <span>{money(lead.value)}</span>
+                          {((lead as any).paymentStatus === "PENDING" || (lead as any).paymentStatus === "PAYMENT_PENDING") && (
+                            <span className="chip" data-tone="warning">
+                              Pending
+                            </span>
+                          )}
+                          {(lead as any).paymentStatus === "PAID" && (
+                            <span className="chip" data-tone="success">
+                              Paid
+                            </span>
+                          )}
+                        </div>
                       </td>
                     )}
 
@@ -849,7 +932,7 @@ export function ContactsView() {
                             {lead.email}
                           </a>
                         ) : (
-                          <span className="cell-muted">—</span>
+                          <span className="cell-muted">Ã¢â‚¬â€</span>
                         )}
                       </td>
                     )}
@@ -871,7 +954,7 @@ export function ContactsView() {
                             )}
                           </div>
                         ) : (
-                          <span className="cell-muted">—</span>
+                          <span className="cell-muted">Ã¢â‚¬â€</span>
                         )}
                       </td>
                     )}
@@ -916,174 +999,127 @@ export function ContactsView() {
           </table>
         </div>
       ) : (
-        /* View 2: Grouped by Stage (with inline stage mover) */
-        <div className="list" ref={listRef}>
-          {groups.map((group) => {
-            const isCollapsed = collapsed.has(group.meta.id);
-            return (
-              <div key={group.meta.id}>
-                <button
-                  type="button"
-                  className="list-group-head"
-                  aria-expanded={!isCollapsed}
-                  onClick={() => toggleGroup(group.meta.id)}
-                >
-                  <span className="list-group-icon" data-tone={group.meta.tone}>
-                    <Icon name={group.meta.icon} size={14} />
-                  </span>
-                  <span className="list-group-title">{group.meta.label}</span>
-                  <span className="list-group-count">{group.items.length}</span>
-                  <Icon
-                    name={isCollapsed ? "chevron-right" : "chevron-down"}
-                    size={13}
-                    className="chev"
-                  />
-                </button>
+        <div className="card recycle-container">
+          <div className="card-head">
+            <div>
+              <h2 className="card-title">Recycle Bin</h2>
+              <p className="card-sub">
+                Soft-deleted leads from this workspace. Restoring a lead moves it back to active contacts. Permanent deletion completely removes the lead.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn"
+              data-size="sm"
+              onClick={loadRecycleBin}
+              disabled={loadingRecycle}
+            >
+              <Icon name="refresh" size={13} className={loadingRecycle ? "spin" : ""} />
+              {loadingRecycle ? "Refreshing..." : "Refresh"}
+            </button>
+          </div>
 
-                {!isCollapsed
-                  ? group.items.map((lead) => {
-                      flatIndex += 1;
-                      const idx = flatIndex;
-                      const isSelected = selection.has(lead.id);
-                      const src = sourceMeta(lead.source);
-                      const callbackInfo = formatCallbackInfo(lead.followUp);
-
-                      return (
-                        <div
-                          key={lead.id}
-                          data-idx={idx}
-                          data-selected={cursor === idx || isSelected}
-                          className="list-row"
-                          role="button"
-                          tabIndex={0}
-                          onMouseMove={() => setCursor(idx)}
-                          onClick={() => setSelected(lead.id)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") setSelected(lead.id);
-                          }}
-                        >
+          {recycleLeads.length === 0 ? (
+            <div className="empty">
+              <div className="empty-icon">
+                <Icon name="trash" size={32} />
+              </div>
+              <div className="empty-title">Recycle Bin is Empty</div>
+              <p className="empty-desc">
+                There are no soft-deleted contacts. Leads deleted from the table will appear here.
+              </p>
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Lead Code</th>
+                    <th>Customer Name</th>
+                    <th>Phone</th>
+                    <th>Deleted / Updated</th>
+                    <th>Owner</th>
+                    <th className="cell-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recycleLeads.map((rLead) => (
+                    <tr key={rLead.id}>
+                      <td>
+                        <span className="cell-mono font-bold">{rLead.code}</span>
+                      </td>
+                      <td>
+                        <div className="cell-person">
+                          <div>
+                            <div className="cell-name">{rLead.name}</div>
+                            <span className="cell-sub">{rLead.company || "Direct inquiry"}</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        <span>{rLead.phone || "â€”"}</span>
+                      </td>
+                      <td>
+                        <span className="cell-muted">{relativeTime(rLead.updatedAt)}</span>
+                      </td>
+                      <td>
+                        <span className="cell-muted">{rLead.owner || "Unassigned"}</span>
+                      </td>
+                      <td className="cell-right">
+                        <div className="chip-row">
                           <button
                             type="button"
-                            className="list-prio"
-                            aria-label={`Change priority from ${PRIORITY_LABEL[lead.priority]}`}
-                            title={`Priority: ${PRIORITY_LABEL[lead.priority]} · Click to change`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const nextPrio = PRIO_CYCLE[lead.priority] || "medium";
-                              updateLead(lead.id, { priority: nextPrio });
-                              setToastMessage(`Updated ${lead.name} priority to ${PRIORITY_LABEL[nextPrio]}`);
-                            }}
+                            className="btn"
+                            data-size="sm"
+                            data-variant="accent"
+                            disabled={recycleActionId === rLead.id}
+                            onClick={() => handleRestore(rLead.id)}
                           >
-                            <Icon
-                              name={PRIORITY_ICON[lead.priority] as never}
-                              size={14}
-                              className="prio"
-                              data-priority={lead.priority}
-                              aria-label={PRIORITY_LABEL[lead.priority]}
-                            />
+                            <Icon name="refresh" size={12} /> Restore
                           </button>
-                          <span className="list-id">{lead.code}</span>
-                          <span className="list-title">
-                            <strong>{lead.name}</strong>
-                            <span>{lead.company}</span>
-                          </span>
-
-                          {/* Quick Stage Selector in Grouped View */}
-                          <span
-                            className="list-cell"
-                            onClick={(e) => e.stopPropagation()}
-                            style={{ minWidth: 120 }}
-                          >
-                            <label
-                              className="stage-badge-select"
-                              data-tone={stageMeta(lead.stage).tone}
-                              title={`Stage: ${stageMeta(lead.stage).label} (Click to change)`}
-                            >
-                              <span className="stage-badge-dot" />
-                              <select
-                                value={lead.stage}
-                                onChange={(e) => {
-                                  const nextStage = e.target.value as StageId;
-                                  handleStageChange(lead.id, nextStage, lead.name);
-                                }}
-                                aria-label={`Change stage for ${lead.name}`}
+                          {confirmPermanentDeleteId === rLead.id ? (
+                            <>
+                              <button
+                                type="button"
+                                className="btn"
+                                data-size="sm"
+                                data-variant="danger"
+                                disabled={recycleActionId === rLead.id}
+                                onClick={() => handlePermanentDelete(rLead.id)}
                               >
-                                {STAGES.map((s) => (
-                                  <option key={s.id} value={s.id}>
-                                    {s.label}
-                                  </option>
-                                ))}
-                              </select>
-                              <span className="stage-badge-chevron">
-                                <Icon name="chevron-down" size={10} />
-                              </span>
-                            </label>
-                          </span>
-
-                          {isColVisible("callback") && callbackInfo && (
-                            <span className="list-cell">
-                              <span className="chip" data-tone={callbackInfo.tone} data-size="sm">
-                                <Icon name={callbackInfo.icon} size={11} /> {callbackInfo.text}
-                              </span>
-                            </span>
-                          )}
-
-                          {isColVisible("notes") && lead.notes && (
-                            <span className="list-cell" style={{ maxWidth: 140 }}>
-                              <span className="contact-note-cell" title={lead.notes}>
-                                <Icon name="message" size={11} className="note-icon" />
-                                <span className="note-text">{lead.notes}</span>
-                              </span>
-                            </span>
-                          )}
-
-                          <span className="list-cell">
-                            <span className="linear-tag" data-tone={src.tone}>
-                              <Icon name={src.icon} size={11} /> {src.label}
-                            </span>
-                          </span>
-                          <span className="list-cell th-num">{compactMoney(lead.value)}</span>
-                          <span className="list-avatar">
-                            <span
-                              className={`mini-avatar ${lead.owner === "Unassigned" ? "is-empty" : ""}`}
+                                Confirm Permanent Delete
+                              </button>
+                              <button
+                                type="button"
+                                className="btn"
+                                data-size="sm"
+                                onClick={() => setConfirmPermanentDeleteId(null)}
+                              >
+                                Cancel
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              className="btn"
+                              data-size="sm"
+                              data-variant="ghost"
+                              disabled={recycleActionId === rLead.id}
+                              onClick={() => setConfirmPermanentDeleteId(rLead.id)}
                             >
-                              {lead.owner === "Unassigned" ? "?" : lead.owner.slice(0, 1)}
-                            </span>
-                            <span className="list-cell">{lead.owner}</span>
-                          </span>
-                          <span className="list-cell hide-sm" style={{ textAlign: "right" }}>
-                            {relativeTime(lead.updatedAt)}
-                          </span>
+                              <Icon name="trash" size={12} /> Delete Permanently
+                            </button>
+                          )}
                         </div>
-                      );
-                    })
-                  : null}
-              </div>
-            );
-          })}
-
-          {!rows.length ? (
-            <div className="empty">
-              <span className="empty-icon">
-                <Icon name="users" size={18} />
-              </span>
-              <h3>No contacts found</h3>
-              <p>Nothing matches the current search or status filter.</p>
-              <button
-                type="button"
-                className="btn"
-                onClick={() => {
-                  setQuery("");
-                  setStage("");
-                }}
-              >
-                Reset filters
-              </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          ) : null}
+          )}
         </div>
       )}
-
       {/* Stage Change Feedback Toast */}
       {toastMessage && (
         <div className="contact-stage-toast" role="status">

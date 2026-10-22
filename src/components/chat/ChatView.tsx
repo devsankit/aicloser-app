@@ -46,12 +46,6 @@ interface ConversationItem {
   messages: ChatMessage[];
 }
 
-const QUICK_MACROS = [
-  { label: "Callback", text: "I have scheduled a callback for you. Our specialist will connect with you shortly!" },
-  { label: "Pricing Sheet", text: "Sharing our complete package comparison. Standard: ₹48k/mo, Pro CRM + Telephony: ₹96k/mo." },
-  { label: "UPI Payment QR", text: "You can complete your onboarding advance payment securely via UPI: upi://pay?pa=sales@aicloser&pn=AICloser" },
-  { label: "Follow-up", text: "Just checking in regarding our discussion earlier. Would 4:00 PM today work for a brief follow-up call?" },
-];
 
 function formatMessageTime(dateString?: string | null): string {
   if (!dateString) return "Recent";
@@ -79,6 +73,21 @@ function getMessageDateKey(dateString?: string): string {
   } catch {
     return "Today";
   }
+}
+
+function getConversationTimestamp(c: ConversationItem): number {
+  if (c.messages && c.messages.length > 0) {
+    const lastMsg = c.messages[c.messages.length - 1];
+    if (lastMsg?.createdAt) {
+      const t = new Date(lastMsg.createdAt).getTime();
+      if (!isNaN(t) && t > 0) return t;
+    }
+  }
+  if (c.updatedAt) {
+    const t = new Date(c.updatedAt).getTime();
+    if (!isNaN(t) && t > 0) return t;
+  }
+  return 0;
 }
 
 /**
@@ -167,7 +176,7 @@ export function ChatView() {
         phoneNumber: qrPhoneInput.trim(),
         sessionId: qrSessionId,
       });
-      setQrSuccess(`✓ Successfully linked ${closerName}'s WhatsApp (${qrPhoneInput.trim()})! Chats will appear in your tab.`);
+      setQrSuccess(`âœ“ Successfully linked ${closerName}'s WhatsApp (${qrPhoneInput.trim()})! Chats will appear in your tab.`);
       setRefreshCount((c) => c + 1);
       setTimeout(() => {
         setShowQrModal(false);
@@ -393,7 +402,7 @@ export function ChatView() {
       id: activeChat.leadId || `lead-${activeChat.id}`,
       name: activeChat.customerName && activeChat.customerName !== "Customer"
         ? activeChat.customerName
-        : `Unknown caller • ${cleanPhone || "Direct"}`,
+        : `Unknown caller â€¢ ${cleanPhone || "Direct"}`,
       company: activeChat.company || "Phone enquiry",
       phone: activeChat.phone || "",
       email: "",
@@ -417,17 +426,20 @@ export function ChatView() {
       return;
     }
     let active = true;
+    const cleanLeadPhone = activeLeadProfile.phone.replace(/\D/g, "").slice(-10);
     aicloserApi.payments
-      .list({ search: activeLeadProfile.phone, limit: 5 } as any)
+      .list({ search: cleanLeadPhone || activeLeadProfile.phone, limit: 10 } as any)
       .then((res: any) => {
         if (!active) return;
         const payments = res?.payments || [];
         const matching =
-          payments.find(
-            (p: any) =>
-              p.customerPhone === activeLeadProfile.phone ||
-              (activeLeadProfile.name && p.customerName?.toLowerCase() === activeLeadProfile.name.toLowerCase())
-          ) || payments[0] || null;
+          payments.find((p: any) => {
+            const pPhone = (p.customerPhone || "").replace(/\D/g, "").slice(-10);
+            if (cleanLeadPhone && pPhone && cleanLeadPhone === pPhone) return true;
+            if (p.customFields && p.customFields.leadId && p.customFields.leadId === activeLeadProfile.id) return true;
+            if (p.leadId && p.leadId === activeLeadProfile.id) return true;
+            return false;
+          }) || null;
         setLeadPayment(matching);
       })
       .catch(() => {
@@ -436,40 +448,58 @@ export function ChatView() {
     return () => {
       active = false;
     };
-  }, [activeLeadProfile?.phone, activeLeadProfile?.name]);
+  }, [activeLeadProfile?.phone, activeLeadProfile?.id]);
 
   const filteredConversations = useMemo(() => {
     const myName = (state.user?.displayName || CURRENT_USER).toLowerCase();
     const isAgentScope = state.scope.startsWith("agent:");
     const targetAgent = isAgentScope ? state.scope.slice(6).trim().toLowerCase() : null;
+    const isCloser = (state.user?.role as string) === "CLOSER" || state.user?.role === "SALES_AGENT";
 
     return conversations.filter((c) => {
       const matchChannel = channelFilter === "all" || c.channel === channelFilter;
+      const assigned = (c.assignedTo || "").toLowerCase();
+      const scannedBy = (c.scannedByName || "").toLowerCase();
+      const isOfficial = c.isOfficialApi === true || c.channelSource === "OFFICIAL_API";
+      const isQrChannel = c.channelSource === "QR_SCANNER" || c.isPersonalQr === true;
 
       let matchScope = true;
-      if (scopeFilter === "api") {
-        // Exclusively official company Meta Cloud API chats (all personal QR chats strictly excluded)
-        const isOfficial = c.isOfficialApi === true || c.channelSource === "OFFICIAL_API";
+
+      // Strict sales closer isolation: Closers can NEVER see another closer's chats!
+      if (isCloser) {
+        const belongsToMe =
+          assigned === myName ||
+          assigned.includes(myName) ||
+          c.assignedTo === CURRENT_USER ||
+          scannedBy === myName ||
+          scannedBy.includes(myName);
+
+        if (scopeFilter === "mine") {
+          // Strictly personal scanned QR WhatsApp chats for this closer
+          matchScope = isQrChannel && !c.isOfficialApi && belongsToMe;
+        } else if (scopeFilter === "api") {
+          // Strictly official API chats assigned to this closer
+          matchScope = isOfficial && belongsToMe;
+        } else {
+          // All chats (API + QR) assigned to or scanned by this closer
+          matchScope = belongsToMe;
+        }
+      } else if (scopeFilter === "api") {
+        // Admin / Manager API view
         if (targetAgent) {
-          const assigned = (c.assignedTo || "").toLowerCase();
           matchScope = isOfficial && (assigned.includes(targetAgent) || assigned === targetAgent);
         } else {
           matchScope = isOfficial;
         }
       } else if (targetAgent) {
-        const assigned = (c.assignedTo || "").toLowerCase();
-        const scannedBy = (c.scannedByName || "").toLowerCase();
-        const isQrChannel = c.channelSource === "QR_SCANNER" || c.isPersonalQr === true;
-
+        // Admin viewing specific agent
         if (scopeFilter === "mine") {
-          // STRICT PERSONAL SCANNED QR WHATSAPP LINE ONLY: Official API chats are 100% excluded!
           const belongsToAgent =
             scannedBy === targetAgent ||
             scannedBy.includes(targetAgent) ||
             (isQrChannel && (assigned === targetAgent || assigned.includes(targetAgent)));
           matchScope = isQrChannel && !c.isOfficialApi && c.channelSource !== "OFFICIAL_API" && belongsToAgent;
         } else if (scopeFilter === "all") {
-          // All conversations associated with this teammate
           matchScope =
             assigned.includes(targetAgent) ||
             assigned === targetAgent ||
@@ -477,8 +507,6 @@ export function ChatView() {
             scannedBy === targetAgent;
         }
       } else if (scopeFilter === "mine") {
-        const assigned = (c.assignedTo || "").toLowerCase();
-        const scannedBy = (c.scannedByName || "").toLowerCase();
         matchScope =
           assigned === myName ||
           assigned.includes(myName) ||
@@ -588,7 +616,7 @@ export function ChatView() {
               channelSource: isManualQr ? "QR_SCANNER" : (c.channelSource || "OFFICIAL_API"),
               channelSourceLabel: isManualQr
                 ? (c.channelSourceLabel || (c.scannedByName ? `QR: ${c.scannedByName}` : "Personal WhatsApp QR"))
-                : (c.channelSourceLabel || "Company API • +91 95895 10954"),
+                : (c.channelSourceLabel || "Company API â€¢ +91 95895 10954"),
               scannedByName: isManualQr ? (c.scannedByName || c.payload?.scannedByName || c.assignedFreelancerName || null) : null,
               isOfficialApi: !isManualQr,
               isPersonalQr: isManualQr,
@@ -619,12 +647,8 @@ export function ChatView() {
             }
           }
 
-          // Sort conversations strictly by updatedAt descending (newest chat on top, matching phone WhatsApp)
-          combined.sort((a, b) => {
-            const timeA = new Date(a.updatedAt || a.lastMessageTime || 0).getTime();
-            const timeB = new Date(b.updatedAt || b.lastMessageTime || 0).getTime();
-            return timeB - timeA;
-          });
+          // Sort conversations strictly by newest message timestamp descending
+          combined.sort((a, b) => getConversationTimestamp(b) - getConversationTimestamp(a));
 
           setConversations((prev) => {
             // Preserve any active message threads already in memory
@@ -1119,7 +1143,7 @@ export function ChatView() {
     if (!leadPayment?.id) return;
     const num = Number(editPaymentAmount);
     if (isNaN(num) || num <= 0) {
-      showToast("Please enter a valid amount greater than ₹0");
+      showToast("Please enter a valid amount greater than â‚¹0");
       return;
     }
     setSavingPayment(true);
@@ -1127,7 +1151,7 @@ export function ChatView() {
       await aicloserApi.payments.updatePayment(leadPayment.id, { amount: num });
       setLeadPayment((prev: any) => ({ ...prev, totalAmount: num, baseAmount: num }));
       setIsEditingPayment(false);
-      showToast(`Payment amount updated to ₹${num.toLocaleString("en-IN")}`);
+      showToast(`Payment amount updated to â‚¹${num.toLocaleString("en-IN")}`);
     } catch (err: any) {
       showToast(err?.message || "Failed to update payment amount");
     } finally {
@@ -1138,7 +1162,7 @@ export function ChatView() {
   const handleCreateNewPaymentLink = async () => {
     const num = Number(newPaymentAmount);
     if (isNaN(num) || num <= 0) {
-      showToast("Please enter a valid amount greater than ₹0");
+      showToast("Please enter a valid amount greater than â‚¹0");
       return;
     }
     setCreatingPayment(true);
@@ -1153,7 +1177,7 @@ export function ChatView() {
       setLeadPayment(paymentObj);
       setIsCreatingPayment(false);
       setNewPaymentAmount("");
-      showToast(`Payment link created for ₹${num.toLocaleString("en-IN")}`);
+      showToast(`Payment link created for â‚¹${num.toLocaleString("en-IN")}`);
     } catch (err: any) {
       showToast(err?.message || "Failed to create payment link");
     } finally {
@@ -1197,6 +1221,98 @@ export function ChatView() {
     }
   };
 
+  // Quick Macros CRUD State
+  const [macros, setMacros] = useState<Array<{ id: string; name: string; content: string }>>([]);
+  const [showMacroModal, setShowMacroModal] = useState(false);
+  const [editingMacro, setEditingMacro] = useState<{ id: string; name: string; content: string } | null>(null);
+  const [macroFormName, setMacroFormName] = useState("");
+  const [macroFormContent, setMacroFormContent] = useState("");
+  const [savingMacro, setSavingMacro] = useState(false);
+  const [macroError, setMacroError] = useState<string | null>(null);
+
+  const loadMacros = useCallback(async () => {
+    try {
+      const res: any = await aicloserApi.macros.list();
+      const list = Array.isArray(res?.data) ? res.data : Array.isArray(res?.macros) ? res.macros : Array.isArray(res) ? res : [];
+      if (list.length > 0) {
+        setMacros(
+          list.map((m: any) => ({
+            id: m.id || String(Math.random()),
+            name: m.name || m.title || m.label || "Macro",
+            content: m.content || m.text || m.body || "",
+          }))
+        );
+      } else {
+        setMacros([]);
+      }
+    } catch {
+      setMacros([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadMacros();
+  }, [loadMacros]);
+
+  const handleSaveMacro = async () => {
+    if (!macroFormName.trim() || !macroFormContent.trim()) {
+      setMacroError("Both macro name and message content are required");
+      return;
+    }
+    setSavingMacro(true);
+    setMacroError(null);
+    try {
+      if (editingMacro) {
+        await aicloserApi.macros.update(editingMacro.id, {
+          name: macroFormName.trim(),
+          content: macroFormContent.trim(),
+        });
+        setMacros((prev) =>
+          prev.map((m) =>
+            m.id === editingMacro.id
+              ? { ...m, name: macroFormName.trim(), content: macroFormContent.trim() }
+              : m
+          )
+        );
+        showToast(`Macro "${macroFormName.trim()}" updated`);
+      } else {
+        const created: any = await aicloserApi.macros.create({
+          name: macroFormName.trim(),
+          content: macroFormContent.trim(),
+        });
+        const newMacro = {
+          id: created?.id || created?.data?.id || `macro-${Date.now()}`,
+          name: macroFormName.trim(),
+          content: macroFormContent.trim(),
+        };
+        setMacros((prev) => [...prev, newMacro]);
+        showToast(`Macro "${macroFormName.trim()}" created`);
+      }
+      setEditingMacro(null);
+      setMacroFormName("");
+      setMacroFormContent("");
+    } catch (err: any) {
+      setMacroError(err?.message || "Failed to save macro");
+    } finally {
+      setSavingMacro(false);
+    }
+  };
+
+  const handleDeleteMacro = async (id: string) => {
+    try {
+      await aicloserApi.macros.delete(id);
+      setMacros((prev) => prev.filter((m) => m.id !== id));
+      if (editingMacro?.id === id) {
+        setEditingMacro(null);
+        setMacroFormName("");
+        setMacroFormContent("");
+      }
+      showToast("Macro deleted");
+    } catch (err: any) {
+      showToast(err?.message || "Failed to delete macro");
+    }
+  };
+
   // Share & Assign Modals State
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
@@ -1213,6 +1329,21 @@ export function ChatView() {
   const [assignSuccess, setAssignSuccess] = useState<string | null>(null);
   const [assignError, setAssignError] = useState<string | null>(null);
   const [teamMembers, setTeamMembers] = useState<Array<{ id: string; name: string; role?: string }>>([]);
+
+  const effectiveTeamMembers = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; role?: string }>();
+    if (state.teamMembers && state.teamMembers.length > 0) {
+      state.teamMembers.forEach((m) => {
+        if (m.name) map.set(m.name.toLowerCase(), { id: m.id, name: m.name, role: m.role });
+      });
+    }
+    teamMembers.forEach((m) => {
+      if (m.name && !map.has(m.name.toLowerCase())) {
+        map.set(m.name.toLowerCase(), m);
+      }
+    });
+    return Array.from(map.values());
+  }, [state.teamMembers, teamMembers]);
 
   // Dynamically load all team members, closers, managers, and admins from live APIs & workspace
   useEffect(() => {
@@ -1316,21 +1447,25 @@ export function ChatView() {
     if (!activeChat || !shareTargetUser) return;
     setShareLoading(true);
     setShareSuccess(null);
+    const targetMember = effectiveTeamMembers.find(
+      (m) => m.name.toLowerCase() === shareTargetUser.toLowerCase() || m.id === shareTargetUser
+    );
+    const displayName = targetMember?.name || shareTargetUser;
     try {
-      await aicloserApi.conversations.share(activeChat.id, shareTargetUser, sharePermission);
+      await aicloserApi.conversations.share(activeChat.id, targetMember?.id || shareTargetUser, sharePermission);
       setActiveShares((prev) => [
-        ...prev.filter((s) => s.userId !== shareTargetUser),
-        { id: `share-${Date.now()}`, userId: shareTargetUser, userName: shareTargetUser, permission: sharePermission },
+        ...prev.filter((s) => s.userId !== (targetMember?.id || shareTargetUser)),
+        { id: `share-${Date.now()}`, userId: targetMember?.id || shareTargetUser, userName: displayName, permission: sharePermission },
       ]);
-      setShareSuccess(`Shared with ${shareTargetUser} (${sharePermission === "REPLY" ? "Can Reply" : "View Only"}).`);
-      setTimeout(() => setShareSuccess(null), 2500);
+      setShareSuccess(`Chat shared with ${displayName}. Access granted.`);
+      setTimeout(() => setShareSuccess(null), 3000);
     } catch {
       setActiveShares((prev) => [
-        ...prev.filter((s) => s.userId !== shareTargetUser),
-        { id: `share-${Date.now()}`, userId: shareTargetUser, userName: shareTargetUser, permission: sharePermission },
+        ...prev.filter((s) => s.userId !== (targetMember?.id || shareTargetUser)),
+        { id: `share-${Date.now()}`, userId: targetMember?.id || shareTargetUser, userName: displayName, permission: sharePermission },
       ]);
-      setShareSuccess(`Shared with ${shareTargetUser}.`);
-      setTimeout(() => setShareSuccess(null), 2500);
+      setShareSuccess(`Chat shared with ${displayName}. Access granted.`);
+      setTimeout(() => setShareSuccess(null), 3000);
     } finally {
       setShareLoading(false);
     }
@@ -1754,7 +1889,7 @@ export function ChatView() {
                   </span>
                   {activeChat.isOfficialApi || activeChat.channelSource === "OFFICIAL_API" ? (
                     <span className="chip" data-tone="accent" style={{ fontSize: "11px", padding: "1px 8px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                      <Icon name="whatsapp" size={12} /> Official Meta Cloud API • +91 95895 10954
+                      <Icon name="whatsapp" size={12} /> Official Meta Cloud API â€¢ +91 95895 10954
                     </span>
                   ) : activeChat.isPersonalQr || activeChat.channelSource === "QR_SCANNER" ? (
                     <span className="chip" data-tone="success" style={{ fontSize: "11px", padding: "1px 8px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
@@ -1771,9 +1906,9 @@ export function ChatView() {
                   )}
                 </div>
                 <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", marginTop: "2px" }}>
-                  {activeChat.company} • {activeChat.phone}
+                  {activeChat.company} â€¢ {activeChat.phone}
                   {activeChat.assignedTo && activeChat.assignedTo !== "Unassigned" && (
-                    <span> • Assigned to: <strong style={{ color: "var(--text)" }}>{activeChat.assignedTo}</strong></span>
+                    <span> â€¢ Assigned to: <strong style={{ color: "var(--text)" }}>{activeChat.assignedTo}</strong></span>
                   )}
                 </div>
               </div>
@@ -1917,7 +2052,7 @@ export function ChatView() {
                             border: "1px dashed var(--border-strong)",
                           }}
                         >
-                          ⚡ {msg.text} • {msg.time}
+                          âš¡ {msg.text} â€¢ {msg.time}
                         </span>
                       </div>
                     </div>
@@ -1978,7 +2113,7 @@ export function ChatView() {
                             ? (msg.senderName || activeChat.assignedTo || (state.user?.displayName || CURRENT_USER))
                             : (activeChat.customerName || "Customer")}
                         </span>
-                        <span>•</span>
+                        <span>â€¢</span>
                         <span>{msg.time}</span>
                         {isCloser && (
                           <span
@@ -1992,7 +2127,7 @@ export function ChatView() {
                               alignItems: "center",
                             }}
                           >
-                            {msg.status === "sent" ? "✓" : "✓✓"}
+                            {msg.status === "sent" ? "âœ“" : "âœ“âœ“"}
                           </span>
                         )}
                       </div>
@@ -2018,17 +2153,35 @@ export function ChatView() {
             }}
           >
             <span style={{ fontSize: "11px", color: "var(--text-tertiary)", fontWeight: 600 }}>Quick Macros:</span>
-            {QUICK_MACROS.map((m) => (
+            {macros.map((m) => (
               <button
-                key={m.label}
+                key={m.id}
+                type="button"
                 className="btn"
                 data-size="sm"
-                onClick={() => handleApplyMacro(m.text)}
+                onClick={() => handleApplyMacro(m.content)}
                 style={{ height: "24px", fontSize: "11px", padding: "0 8px" }}
               >
-                {m.label}
+                {m.name}
               </button>
             ))}
+            <button
+              type="button"
+              className="btn"
+              data-size="sm"
+              data-variant="ghost"
+              onClick={() => {
+                setEditingMacro(null);
+                setMacroFormName("");
+                setMacroFormContent("");
+                setMacroError(null);
+                setShowMacroModal(true);
+              }}
+              style={{ height: "24px", fontSize: "11px", padding: "0 8px" }}
+              title="Manage Macros"
+            >
+              <Icon name="plus" size={11} /> Manage Macros
+            </button>
           </div>
 
           {/* Message Input Bar - Anchored at bottom, keyboard always visible */}
@@ -2083,7 +2236,7 @@ export function ChatView() {
         </div>
       )}
 
-      {/* 3. Right Column: CRM 360° Lead Context */}
+      {/* 3. Right Column: CRM 360Â° Lead Context */}
       {showRightDrawer && activeLeadProfile && (
         <aside
           aria-label="Lead context"
@@ -2203,10 +2356,10 @@ export function ChatView() {
               disabled={!activeLead}
               style={{ width: "100%", marginTop: "6px", fontWeight: 600 }}
             >
-              <option value="urgent">🔴 Urgent</option>
-              <option value="high">🟠 High</option>
-              <option value="medium">🟡 Medium</option>
-              <option value="low">⚪ Low</option>
+              <option value="urgent">ðŸ”´ Urgent</option>
+              <option value="high">ðŸŸ  High</option>
+              <option value="medium">ðŸŸ¡ Medium</option>
+              <option value="low">âšª Low</option>
             </select>
           </div>
 
@@ -2239,7 +2392,7 @@ export function ChatView() {
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                     <div>
                       <div style={{ fontSize: "var(--fs-metric)", fontWeight: 700 }}>
-                        ₹{Number(leadPayment.totalAmount || leadPayment.baseAmount || 0).toLocaleString("en-IN")}
+                        â‚¹{Number(leadPayment.totalAmount || leadPayment.baseAmount || 0).toLocaleString("en-IN")}
                       </div>
                       {leadPayment.productName &&
                       !leadPayment.productName.toLowerCase().includes("auto-created") &&
@@ -2283,7 +2436,7 @@ export function ChatView() {
                   </div>
                 ) : (
                   <div style={{ marginTop: "6px", display: "flex", flexDirection: "column", gap: "6px" }}>
-                    <div style={{ fontSize: "11px", color: "var(--text-secondary)", fontWeight: 550 }}>Edit Amount (₹):</div>
+                    <div style={{ fontSize: "11px", color: "var(--text-secondary)", fontWeight: 550 }}>Edit Amount (â‚¹):</div>
                     <div style={{ display: "flex", gap: "6px" }}>
                       <input
                         type="number"
@@ -2378,7 +2531,7 @@ export function ChatView() {
               >
                 <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text)" }}>New Payment Link</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                  <label style={{ fontSize: "10px", color: "var(--text-tertiary)" }}>Amount (₹)</label>
+                  <label style={{ fontSize: "10px", color: "var(--text-tertiary)" }}>Amount (â‚¹)</label>
                   <input
                     type="number"
                     className="input"
@@ -2433,7 +2586,7 @@ export function ChatView() {
               onClick={() => {
                 if (leadPayment?.publicToken) {
                   const payUrl = `${window.location.origin}/pay/${leadPayment.publicToken}`;
-                  handleApplyMacro(`Here is your custom payment link for ₹${Number(leadPayment.totalAmount || leadPayment.baseAmount || 0).toLocaleString("en-IN")}: ${payUrl}`);
+                  handleApplyMacro(`Here is your custom payment link for â‚¹${Number(leadPayment.totalAmount || leadPayment.baseAmount || 0).toLocaleString("en-IN")}: ${payUrl}`);
                 } else {
                   const qs = new URLSearchParams({
                     customerName: activeLeadProfile.name || "",
@@ -2501,46 +2654,17 @@ export function ChatView() {
           <div className="dialog" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
             <header className="dialog-head">
               <h2 style={{ display: "flex", alignItems: "center", gap: "8px", margin: 0, fontSize: "14px" }}>
-                <Icon name="link" size={15} /> Share Conversation
+                <Icon name="link" size={15} /> Share Conversation Access
               </h2>
               <button type="button" className="icon-btn" onClick={() => setShowShareModal(false)}>
                 <Icon name="close" size={14} />
               </button>
             </header>
             <div className="dialog-body" style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-              {/* Direct Link */}
-              <div>
-                <label style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
-                  Direct Chat Link
-                </label>
-                <div style={{ display: "flex", gap: "6px", marginTop: "4px" }}>
-                  <input
-                    className="input"
-                    readOnly
-                    value={typeof window !== "undefined" ? `${window.location.origin}/chat?id=${activeChat.id}` : ""}
-                    style={{ flex: 1, fontSize: "12px" }}
-                  />
-                  <button
-                    type="button"
-                    className="btn"
-                    data-size="sm"
-                    onClick={() => {
-                      if (typeof window !== "undefined") {
-                        navigator.clipboard?.writeText(`${window.location.origin}/chat?id=${activeChat.id}`);
-                        setShareCopied(true);
-                        setTimeout(() => setShareCopied(false), 2000);
-                      }
-                    }}
-                  >
-                    <Icon name={shareCopied ? "check" : "copy"} size={13} /> {shareCopied ? "Copied" : "Copy Link"}
-                  </button>
-                </div>
-              </div>
-
               {/* Share with Team Member via Central API */}
               <div>
                 <label style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
-                  Share Access with Team Closer / Admin
+                  Grant Access to Team Member
                 </label>
                 <div style={{ display: "flex", gap: "6px", marginTop: "4px" }}>
                   <select
@@ -2549,11 +2673,13 @@ export function ChatView() {
                     onChange={(e) => setShareTargetUser(e.target.value)}
                     style={{ flex: 1, height: "32px", fontSize: "12px" }}
                   >
-                    {teamMembers.filter((m) => m.name !== activeChat.assignedTo).map((m) => (
-                      <option key={m.id || m.name} value={m.name}>
-                        {m.name} {m.role ? `(${m.role})` : ""}
-                      </option>
-                    ))}
+                    {effectiveTeamMembers
+                      .filter((m) => m.name !== activeChat.assignedTo)
+                      .map((m) => (
+                        <option key={m.id || m.name} value={m.name}>
+                          {m.name} {m.role ? `(${m.role})` : ""}
+                        </option>
+                      ))}
                   </select>
                   <select
                     className="select"
@@ -2576,7 +2702,7 @@ export function ChatView() {
                   </button>
                 </div>
                 {shareSuccess && (
-                  <span className="pill" style={{ color: "var(--accent-strong)", background: "var(--bg-soft)", fontSize: "11px", marginTop: "6px", display: "inline-block" }}>
+                  <span className="chip" data-tone="success" style={{ fontSize: "11px", marginTop: "6px", display: "inline-block" }}>
                     ✓ {shareSuccess}
                   </span>
                 )}
@@ -2625,6 +2751,162 @@ export function ChatView() {
             </div>
             <footer className="dialog-foot">
               <button type="button" className="btn" onClick={() => setShowShareModal(false)}>
+                Done
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {/* Manage Macros Modal */}
+      {showMacroModal && (
+        <div className="overlay" data-kind="dialog" onClick={() => setShowMacroModal(false)}>
+          <div className="dialog" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
+            <header className="dialog-head">
+              <h2 style={{ display: "flex", alignItems: "center", gap: "8px", margin: 0, fontSize: "14px" }}>
+                <Icon name="sparkle" size={15} /> Manage Quick Macros
+              </h2>
+              <button type="button" className="icon-btn" onClick={() => setShowMacroModal(false)}>
+                <Icon name="close" size={14} />
+              </button>
+            </header>
+            <div className="dialog-body" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              {/* Add / Edit Form */}
+              <div className="card" style={{ padding: "12px", background: "var(--bg-surface)" }}>
+                <div style={{ fontSize: "12px", fontWeight: 650, marginBottom: "8px" }}>
+                  {editingMacro ? "Edit Macro" : "Create New Macro"}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  <div className="field">
+                    <label style={{ fontSize: "11px", fontWeight: 600 }}>Macro Button Name</label>
+                    <input
+                      className="input"
+                      value={macroFormName}
+                      onChange={(e) => setMacroFormName(e.target.value)}
+                      placeholder="e.g. Callback, UPI QR, Pricing Sheet"
+                    />
+                  </div>
+                  <div className="field">
+                    <label style={{ fontSize: "11px", fontWeight: 600 }}>Message Content</label>
+                    <textarea
+                      className="textarea"
+                      rows={3}
+                      value={macroFormContent}
+                      onChange={(e) => setMacroFormContent(e.target.value)}
+                      placeholder="The exact message text to insert into conversation..."
+                    />
+                  </div>
+                  {macroError && (
+                    <span className="chip" data-tone="danger" style={{ fontSize: "11px" }}>
+                      {macroError}
+                    </span>
+                  )}
+                  <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end", marginTop: "4px" }}>
+                    {editingMacro && (
+                      <button
+                        type="button"
+                        className="btn"
+                        data-size="sm"
+                        data-variant="ghost"
+                        onClick={() => {
+                          setEditingMacro(null);
+                          setMacroFormName("");
+                          setMacroFormContent("");
+                          setMacroError(null);
+                        }}
+                      >
+                        Cancel Edit
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="btn"
+                      data-size="sm"
+                      data-variant="primary"
+                      disabled={savingMacro}
+                      onClick={handleSaveMacro}
+                    >
+                      {savingMacro ? "Saving..." : editingMacro ? "Update Macro" : "Add Macro"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* List of Existing Macros */}
+              <div>
+                <label style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
+                  Saved Macros ({macros.length})
+                </label>
+                {macros.length === 0 ? (
+                  <div className="empty" style={{ padding: "20px 12px" }}>
+                    <div className="empty-title" style={{ fontSize: "13px" }}>No custom macros configured</div>
+                    <div className="empty-desc" style={{ fontSize: "11px" }}>Add your first macro above for 1-click quick responses.</div>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "6px", maxHeight: "240px", overflowY: "auto" }}>
+                    {macros.map((m) => (
+                      <div
+                        key={m.id}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "flex-start",
+                          padding: "8px 10px",
+                          background: "var(--bg-soft)",
+                          borderRadius: "var(--r-sm)",
+                          border: "1px solid var(--border)",
+                          gap: "8px",
+                        }}
+                      >
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text)" }}>{m.name}</div>
+                          <div
+                            style={{
+                              fontSize: "11px",
+                              color: "var(--text-secondary)",
+                              marginTop: "2px",
+                              whiteSpace: "pre-wrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              display: "-webkit-box",
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: "vertical",
+                            }}
+                          >
+                            {m.content}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: "4px", flexShrink: 0 }}>
+                          <button
+                            type="button"
+                            className="icon-btn"
+                            title="Edit macro"
+                            onClick={() => {
+                              setEditingMacro(m);
+                              setMacroFormName(m.name);
+                              setMacroFormContent(m.content);
+                              setMacroError(null);
+                            }}
+                          >
+                            <Icon name="pencil" size={12} />
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-btn"
+                            title="Delete macro"
+                            onClick={() => handleDeleteMacro(m.id)}
+                          >
+                            <Icon name="trash" size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            <footer className="dialog-foot">
+              <button type="button" className="btn" onClick={() => setShowMacroModal(false)}>
                 Done
               </button>
             </footer>
@@ -2705,7 +2987,7 @@ export function ChatView() {
 
               {assignSuccess && (
                 <span className="pill" style={{ color: "var(--accent-strong)", background: "var(--bg-soft)", fontSize: "11px" }}>
-                  ✓ {assignSuccess}
+                  âœ“ {assignSuccess}
                 </span>
               )}
               {assignError && (

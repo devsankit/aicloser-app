@@ -8,7 +8,7 @@ import { ResizeHandle } from "@/components/ui/ResizeHandle";
 import { KeyboardProvider } from "@/components/keyboard/KeyboardProvider";
 import { Kbd } from "@/components/keyboard/Kbd";
 import { NAV } from "@/lib/nav";
-import { CURRENT_USER, LIMITS, useApp, type Scope } from "@/lib/store";
+import { CURRENT_USER, LIMITS, useApp, useScopedLeads, type Scope } from "@/lib/store";
 import { WorkspaceLoginDialog } from "@/components/auth/WorkspaceLoginDialog";
 import { aicloserApi } from "@/lib/api-client";
 
@@ -223,6 +223,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { state, toggleSidebar, setTheme, setScope, setLayout, setQuickAdd, setPalette, refreshLeads, logoutWorkspace, toggleGlobalAiBot } = useApp();
+  const scopedLeads = useScopedLeads();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [loginModalOpen, setLoginModalOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -527,7 +528,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                       <Icon name={item.icon} size={17} />
                       <span className="nav-item-label">{item.label}</span>
                       {item.href === "/pipeline" ? (
-                        <span className="nav-count">{state.leads.length}</span>
+                        <span className="nav-count">{scopedLeads.length}</span>
                       ) : null}
                     </Link>
                   );

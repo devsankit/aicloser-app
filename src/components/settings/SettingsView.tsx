@@ -110,6 +110,7 @@ const CONNECTIONS = [
 export function SettingsView() {
   const { state, setTheme, setDensity, setAccent, setFontScale, setNavSpacing } = useApp();
   const [exported, setExported] = useState(false);
+  const canExport = state.user?.role !== "CLOSER" && state.user?.role !== "SALES_AGENT";
 
   // Developer API & Webhook Hub State
   const [developerToken, setDeveloperToken] = useState<string>("");
@@ -1063,33 +1064,35 @@ export function SettingsView() {
       )}
 
       {/* Workspace Data & Records */}
-      <section className="card settings-card">
-        <div className="settings-head">
-          <div>
-            <h2 className="settings-title">Workspace Data & Records</h2>
-            <p className="settings-sub">
-              Manage workspace lead export, backup archives, and customer records.
-            </p>
-          </div>
-          <span className="chip" data-tone={state.isLiveCloud ? "success" : "neutral"}>
-            <span className="dot" style={{ background: state.isLiveCloud ? "var(--success)" : "var(--text-tertiary)" }} />
-            {state.isLiveCloud ? "Cloud Connected" : "Local Mode"}
-          </span>
-        </div>
-        <div className="settings-body">
-          <div className="setting-row">
+      {canExport && (
+        <section className="card settings-card">
+          <div className="settings-head">
             <div>
-              <div className="setting-name">Export leads</div>
-              <p className="setting-desc">
-                Download every lead in this workspace as JSON ({state.leads.length} leads).
+              <h2 className="settings-title">Workspace Data & Records</h2>
+              <p className="settings-sub">
+                Manage workspace lead export, backup archives, and customer records.
               </p>
             </div>
-            <button className="btn" onClick={exportJson}>
-              <Icon name="download" size={14} /> {exported ? "Downloaded" : "Export JSON"}
-            </button>
+            <span className="chip" data-tone={state.isLiveCloud ? "success" : "neutral"}>
+              <span className="dot" style={{ background: state.isLiveCloud ? "var(--success)" : "var(--text-tertiary)" }} />
+              {state.isLiveCloud ? "Cloud Connected" : "Local Mode"}
+            </span>
           </div>
-        </div>
-      </section>
+          <div className="settings-body">
+            <div className="setting-row">
+              <div>
+                <div className="setting-name">Export leads</div>
+                <p className="setting-desc">
+                  Download every lead in this workspace as JSON ({state.leads.length} leads).
+                </p>
+              </div>
+              <button className="btn" onClick={exportJson}>
+                <Icon name="download" size={14} /> {exported ? "Downloaded" : "Export JSON"}
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Developer API & Webhook Hub */}
       <section className="card settings-card">
