@@ -61,6 +61,7 @@ export function TeamView() {
   const [routingAlgorithm, setRoutingAlgorithm] = useState<"equal" | "performance" | "capacity">("equal");
   const [routingHoursOnly, setRoutingHoursOnly] = useState(true);
   const [unclaimedTimeout, setUnclaimedTimeout] = useState(15);
+  const [allowQrLeadsRoundRobin, setAllowQrLeadsRoundRobin] = useState<boolean>(false);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("ALL");
   const [tableViewMode, setTableViewMode] = useState<"standard" | "extended">("standard");
@@ -120,8 +121,17 @@ export function TeamView() {
     "/lead-import": false,
   });
 
-  // Load from LocalStorage for UI preferences only (routing & custom navigation pills)
+  // Load from LocalStorage and backend API for routing rules
   useEffect(() => {
+    aicloserApi.roundRobin.get().then((data: any) => {
+      if (data?.settings) {
+        if (data.settings.mode === "LOAD_BALANCED") setRoutingAlgorithm("capacity");
+        else setRoutingAlgorithm("equal");
+        if (typeof data.settings.workingHoursOnly === "boolean") setRoutingHoursOnly(data.settings.workingHoursOnly);
+        if (typeof data.settings.allowQrLeadsRoundRobin === "boolean") setAllowQrLeadsRoundRobin(data.settings.allowQrLeadsRoundRobin);
+      }
+    }).catch(() => null);
+
     try {
       const stored = localStorage.getItem("closer.team.v1");
       if (stored) {
@@ -1384,23 +1394,51 @@ export function TeamView() {
               </label>
             </div>
 
+            <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", marginTop: "12px", padding: "12px 14px", background: "var(--bg-soft)", border: "1px solid var(--border)", borderRadius: "var(--r-md)" }}>
+              <input
+                type="checkbox"
+                id="qr-round-robin-team"
+                checked={allowQrLeadsRoundRobin}
+                onChange={(e) => setAllowQrLeadsRoundRobin(e.target.checked)}
+                style={{ accentColor: "var(--accent)", width: "16px", height: "16px", marginTop: "2px" }}
+              />
+              <div>
+                <label htmlFor="qr-round-robin-team" style={{ fontSize: "var(--fs-meta)", fontWeight: 600, cursor: "pointer", display: "block" }}>
+                  Include Team Member Scanned WhatsApp Leads in Round-Robin
+                </label>
+                <span style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "2px", display: "block" }}>
+                  {allowQrLeadsRoundRobin
+                    ? "Enabled — Inbound leads arriving on a team member's personal scanned WhatsApp line will also be distributed across all sales reps."
+                    : "Disabled (Recommended) — Leads from a team member's personal scanned WhatsApp stay strictly assigned to that specific team member only."}
+                </span>
+              </div>
+            </div>
+
             <div style={{ marginTop: "16px" }}>
               <button
                 className="btn"
                 data-variant="primary"
-                onClick={() => {
+                onClick={async () => {
                   try {
+                    await aicloserApi.roundRobin.update({
+                      mode: routingAlgorithm === "capacity" ? "LOAD_BALANCED" : "STRICT_ROUND_ROBIN",
+                      workingHoursOnly: routingHoursOnly,
+                      allowQrLeadsRoundRobin,
+                    });
                     localStorage.setItem(
                       "closer.team.v1",
                       JSON.stringify({
                         routingAlgorithm,
                         routingHoursOnly,
                         unclaimedTimeout,
+                        allowQrLeadsRoundRobin,
                       })
                     );
-                  } catch {}
-                  setSavedBanner("Routing engine parameters saved!");
-                  setTimeout(() => setSavedBanner(null), 2500);
+                    setSavedBanner("Routing engine parameters saved to backend!");
+                  } catch (err: any) {
+                    setSavedBanner("Failed to save routing parameters: " + (err.message || String(err)));
+                  }
+                  setTimeout(() => setSavedBanner(null), 3000);
                 }}
               >
                 <Icon name="check" size={13} /> Save Routing Rules
