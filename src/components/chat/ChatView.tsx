@@ -1402,7 +1402,7 @@ export function ChatView() {
   // Share & Assign Modals State
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
-  const [shareTargetUser, setShareTargetUser] = useState("Admin");
+  const [shareTargetUser, setShareTargetUser] = useState("");
   const [sharePermission, setSharePermission] = useState<"VIEW" | "REPLY">("REPLY");
   const [shareLoading, setShareLoading] = useState(false);
   const [shareSuccess, setShareSuccess] = useState<string | null>(null);
@@ -1458,34 +1458,49 @@ export function ChatView() {
   }, []);
 
   const effectiveTeamMembers = useMemo(() => {
-    const adminNames = new Set<string>(["admin", "super admin"]);
-    if (state.user?.displayName) {
-      const uRole = (state.user.role || "").toUpperCase();
-      if (uRole === "SUPER_ADMIN" || uRole.includes("SUPER") || uRole === "ADMIN") {
-        adminNames.add(state.user.displayName.toLowerCase());
-      }
-    }
-
     const map = new Map<string, { id: string; name: string; role?: string; reportingManager?: string }>();
+
+    // 1. From store teamMembers
     if (state.teamMembers && state.teamMembers.length > 0) {
       state.teamMembers.forEach((m: any) => {
         const r = (m.role || "").toUpperCase();
-        if (r === "SUPER_ADMIN" || r.includes("SUPER") || r === "ADMIN") {
-          if (m.name) adminNames.add(m.name.toLowerCase());
-          return;
-        }
-        if (m.name && !adminNames.has(m.name.toLowerCase())) {
-          map.set(m.name.toLowerCase(), { id: m.id, name: m.name, role: m.role, reportingManager: m.reportingManager });
+        if (r === "SUPER_ADMIN" || r.includes("SUPER")) return;
+        const name = m.displayName || m.name;
+        if (name && !map.has(name.toLowerCase())) {
+          map.set(name.toLowerCase(), {
+            id: m.userId || m.id || name,
+            name,
+            role: m.role || "Closer",
+            reportingManager: m.reportingManager || "",
+          });
         }
       });
     }
+
+    // 2. From locally fetched teamMembers
     teamMembers.forEach((m) => {
       const r = (m.role || "").toUpperCase();
-      if (r === "SUPER_ADMIN" || r.includes("SUPER") || r === "ADMIN" || adminNames.has(m.name.toLowerCase())) return;
+      if (r === "SUPER_ADMIN" || r.includes("SUPER")) return;
       if (m.name && !map.has(m.name.toLowerCase())) {
         map.set(m.name.toLowerCase(), m);
       }
     });
+
+    // 3. Current user fallback
+    if (state.user?.displayName) {
+      const uRole = (state.user.role || "").toUpperCase();
+      if (uRole !== "SUPER_ADMIN" && !uRole.includes("SUPER")) {
+        const myName = state.user.displayName;
+        if (!map.has(myName.toLowerCase())) {
+          map.set(myName.toLowerCase(), {
+            id: state.user.userId || myName,
+            name: myName,
+            role: state.user.role || "User",
+          });
+        }
+      }
+    }
+
     return Array.from(map.values());
   }, [state.teamMembers, teamMembers, state.user]);
 
@@ -1502,10 +1517,18 @@ export function ChatView() {
   const currentCloserManager = (currentCloserMember?.reportingManager || "").toLowerCase();
 
   const shareableTeamMembers = useMemo(() => {
+    const myId = state.user?.userId;
+    const myName = (state.user?.displayName || "").toLowerCase();
+
+    // Shareable teammates: all active workspace members except the current user (cannot share with self)
     const list = effectiveTeamMembers.filter((m) => {
       const r = (m.role || "").toUpperCase();
-      return r !== "SUPER_ADMIN" && !r.includes("SUPER");
+      if (r === "SUPER_ADMIN" || r.includes("SUPER")) return false;
+      if (myId && m.id === myId) return false;
+      if (myName && m.name.toLowerCase() === myName) return false;
+      return true;
     });
+
     if (isSalesCloser && workspaceSettings.chatSharingScope === "REPORTING_TEAM_ONLY" && currentCloserManager) {
       return list.filter((m) => {
         const mManager = (m.reportingManager || "").toLowerCase();
@@ -1514,12 +1537,13 @@ export function ChatView() {
         return (
           mManager === currentCloserManager ||
           mName === currentCloserManager ||
-          mRole.includes("MANAGER")
+          mRole.includes("MANAGER") ||
+          mRole === "ADMIN"
         );
       });
     }
     return list;
-  }, [effectiveTeamMembers, isSalesCloser, workspaceSettings.chatSharingScope, currentCloserManager]);
+  }, [effectiveTeamMembers, isSalesCloser, workspaceSettings.chatSharingScope, currentCloserManager, state.user]);
 
   const assignableTeamMembers = useMemo(() => {
     const list = effectiveTeamMembers.filter((m) => {
@@ -1549,13 +1573,10 @@ export function ChatView() {
     async function loadTeam() {
       const found = new Map<string, { id: string; name: string; role?: string; reportingManager?: string }>();
 
-      // 1. Collect all admin / super admin names to strictly exclude them from closer assignment
-      const adminNames = new Set<string>(["admin", "super admin"]);
+      // 1. Current user
       if (state.user?.displayName) {
         const uRole = (state.user.role || "").toUpperCase();
-        if (uRole === "SUPER_ADMIN" || uRole.includes("SUPER") || uRole === "ADMIN") {
-          adminNames.add(state.user.displayName.toLowerCase());
-        } else {
+        if (uRole !== "SUPER_ADMIN" && !uRole.includes("SUPER")) {
           found.set(state.user.displayName.toLowerCase(), {
             id: state.user.userId || state.user.displayName,
             name: state.user.displayName,
@@ -1563,17 +1584,52 @@ export function ChatView() {
           });
         }
       }
-      if (state.teamMembers) {
+
+      // 2. From store teamMembers
+      if (state.teamMembers && state.teamMembers.length > 0) {
         state.teamMembers.forEach((m: any) => {
           const r = (m.role || "").toUpperCase();
-          if (r === "SUPER_ADMIN" || r.includes("SUPER") || r === "ADMIN") {
-            if (m.name) adminNames.add(m.name.toLowerCase());
-            if (m.displayName) adminNames.add(m.displayName.toLowerCase());
+          if (r === "SUPER_ADMIN" || r.includes("SUPER")) return;
+          const name = m.displayName || m.name;
+          if (name && !found.has(name.toLowerCase())) {
+            found.set(name.toLowerCase(), {
+              id: m.userId || m.id || name,
+              name,
+              role: m.role || "Closer",
+              reportingManager: m.reportingManager || "",
+            });
           }
         });
       }
+
+      // 3. Query Central Team API
+      try {
+        const teamData: any = await aicloserApi.team.list();
+        const members = Array.isArray(teamData)
+          ? teamData
+          : Array.isArray(teamData?.members)
+          ? teamData.members
+          : Array.isArray(teamData?.data?.members)
+          ? teamData.data.members
+          : [];
+        members.forEach((m: any) => {
+          const mRole = (m.role || m.workspaceRole || m.user?.role || "").toUpperCase();
+          if (mRole === "SUPER_ADMIN" || mRole.includes("SUPER")) return;
+          const name = m.displayName || m.name || m.user?.displayName || m.email;
+          if (name && !found.has(name.toLowerCase())) {
+            found.set(name.toLowerCase(), {
+              id: m.userId || m.id || name,
+              name,
+              role: m.role || m.workspaceRole || "Agent",
+              reportingManager: m.reportingManager?.name || m.reportingManager || m.manager?.displayName || m.manager?.name || "",
+            });
+          }
+        });
+      } catch {}
+
+      // 4. Leads owner fallback
       state.leads.forEach((l) => {
-        if (l.owner && l.owner !== "Unassigned" && !adminNames.has(l.owner.toLowerCase()) && !found.has(l.owner.toLowerCase())) {
+        if (l.owner && l.owner !== "Unassigned" && !found.has(l.owner.toLowerCase())) {
           found.set(l.owner.toLowerCase(), {
             id: l.owner,
             name: l.owner,
@@ -1581,44 +1637,6 @@ export function ChatView() {
           });
         }
       });
-
-      // 2. Query Central Team API
-      try {
-        const teamData = await aicloserApi.team.list();
-        const members = Array.isArray(teamData) ? teamData : (teamData?.members || teamData?.users || []);
-        members.forEach((m: any) => {
-          const mRole = (m.role || m.workspaceRole || "").toUpperCase();
-          if (mRole === "SUPER_ADMIN" || mRole.includes("SUPER") || mRole === "ADMIN") return;
-          const name = m.displayName || m.name || m.user?.displayName || m.email;
-          if (name && !found.has(name.toLowerCase())) {
-            found.set(name.toLowerCase(), {
-              id: m.id || m.userId || name,
-              name,
-              role: m.role || "Agent",
-              reportingManager: m.reportingManager || m.manager?.displayName || m.manager?.name || "",
-            });
-          }
-        });
-      } catch {}
-
-      // 3. Query modern live /api/v1/team endpoint
-      try {
-        const teamRes: any = await aicloserApi.team.list();
-        const members = Array.isArray(teamRes?.data) ? teamRes.data : Array.isArray(teamRes) ? teamRes : [];
-        members.forEach((m: any) => {
-          const mRole = (m.role || m.workspaceRole || "").toUpperCase();
-          if (mRole === "SUPER_ADMIN" || mRole.includes("SUPER") || mRole === "ADMIN") return;
-          const name = m.name || m.displayName || m.email;
-          if (name && !found.has(name.toLowerCase())) {
-            found.set(name.toLowerCase(), {
-              id: m.id || m.userId || name,
-              name,
-              role: m.role || "Sales Closer",
-              reportingManager: m.reportingManager || m.manager?.displayName || m.manager?.name || "",
-            });
-          }
-        });
-      } catch {}
 
       if (active && found.size > 0) {
         setTeamMembers(Array.from(found.values()));
@@ -1629,7 +1647,7 @@ export function ChatView() {
     return () => {
       active = false;
     };
-  }, [state.user, state.leads]);
+  }, [state.user, state.leads, state.teamMembers]);
 
   const availableClosers = useMemo(() => {
     if (teamMembers.length > 0) {
@@ -1660,26 +1678,42 @@ export function ChatView() {
     }
   }, [showShareModal, activeChat?.id, loadConversationShares]);
 
+  // Pre-select first eligible team member when Share modal opens or candidate list changes
+  useEffect(() => {
+    if (showShareModal && shareableTeamMembers.length > 0) {
+      const candidates = shareableTeamMembers.filter(
+        (m) => !activeChat?.assignedTo || m.name.toLowerCase() !== activeChat.assignedTo.toLowerCase()
+      );
+      if (candidates.length > 0) {
+        const currentValid = candidates.some((c) => (c.id && c.id === shareTargetUser) || c.name === shareTargetUser);
+        if (!currentValid) {
+          setShareTargetUser(candidates[0].id || candidates[0].name);
+        }
+      }
+    }
+  }, [showShareModal, shareableTeamMembers, activeChat?.assignedTo, shareTargetUser]);
+
   const handleShareChat = async () => {
     if (!activeChat || !shareTargetUser) return;
     setShareLoading(true);
     setShareSuccess(null);
     const targetMember = effectiveTeamMembers.find(
-      (m) => m.name.toLowerCase() === shareTargetUser.toLowerCase() || m.id === shareTargetUser
+      (m) => (m.id && m.id === shareTargetUser) || m.name.toLowerCase() === shareTargetUser.toLowerCase()
     );
     const displayName = targetMember?.name || shareTargetUser;
+    const targetParam = targetMember?.id || shareTargetUser;
     try {
-      await aicloserApi.conversations.share(activeChat.id, targetMember?.id || shareTargetUser, sharePermission);
+      await aicloserApi.conversations.share(activeChat.id, targetParam, sharePermission);
       setActiveShares((prev) => [
-        ...prev.filter((s) => s.userId !== (targetMember?.id || shareTargetUser)),
-        { id: `share-${Date.now()}`, userId: targetMember?.id || shareTargetUser, userName: displayName, permission: sharePermission },
+        ...prev.filter((s) => s.userId !== targetParam),
+        { id: `share-${Date.now()}`, userId: targetParam, userName: displayName, permission: sharePermission },
       ]);
       setShareSuccess(`Chat shared with ${displayName}. Access granted.`);
       setTimeout(() => setShareSuccess(null), 3000);
     } catch {
       setActiveShares((prev) => [
-        ...prev.filter((s) => s.userId !== (targetMember?.id || shareTargetUser)),
-        { id: `share-${Date.now()}`, userId: targetMember?.id || shareTargetUser, userName: displayName, permission: sharePermission },
+        ...prev.filter((s) => s.userId !== targetParam),
+        { id: `share-${Date.now()}`, userId: targetParam, userName: displayName, permission: sharePermission },
       ]);
       setShareSuccess(`Chat shared with ${displayName}. Access granted.`);
       setTimeout(() => setShareSuccess(null), 3000);
@@ -2880,13 +2914,19 @@ export function ChatView() {
                       onChange={(e) => setShareTargetUser(e.target.value)}
                       style={{ flex: 1, height: "32px", fontSize: "12px" }}
                     >
-                      {shareableTeamMembers
-                        .filter((m) => m.name !== activeChat.assignedTo)
-                        .map((m) => (
-                          <option key={m.id || m.name} value={m.name}>
+                      {(() => {
+                        const candidates = shareableTeamMembers.filter(
+                          (m) => !activeChat.assignedTo || m.name.toLowerCase() !== activeChat.assignedTo.toLowerCase()
+                        );
+                        if (candidates.length === 0) {
+                          return <option value="" disabled>No teammates available to share</option>;
+                        }
+                        return candidates.map((m) => (
+                          <option key={m.id || m.name} value={m.id || m.name}>
                             {m.name} {m.role ? `(${m.role})` : ""}
                           </option>
-                        ))}
+                        ));
+                      })()}
                     </select>
                     <select
                       className="select"
