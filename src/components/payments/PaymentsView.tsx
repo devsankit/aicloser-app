@@ -36,6 +36,7 @@ export function PaymentsView() {
   const [isLoading, setIsLoading] = useState(true);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedProofTx, setSelectedProofTx] = useState<PaymentTransaction | null>(null);
+  const [enlargedProofUrl, setEnlargedProofUrl] = useState<string | null>(null);
   const [editingTx, setEditingTx] = useState<PaymentTransaction | null>(null);
   const [editAmount, setEditAmount] = useState("");
   const [editNotes, setEditNotes] = useState("");
@@ -46,8 +47,8 @@ export function PaymentsView() {
   const [selectedLeadId, setSelectedLeadId] = useState("");
   const [linkCustomerName, setLinkCustomerName] = useState("");
   const [linkCustomerPhone, setLinkCustomerPhone] = useState("");
-  const [linkAmount, setLinkAmount] = useState("48000");
-  const [linkPurpose, setLinkPurpose] = useState("CRM Onboarding & Setup Package");
+  const [linkAmount, setLinkAmount] = useState("");
+  const [linkPurpose, setLinkPurpose] = useState("");
 
   // Gateway Settings State
   const [upiSettings, setUpiSettings] = useState<{
@@ -855,7 +856,7 @@ export function PaymentsView() {
                     className="input"
                     value={linkAmount}
                     onChange={(e) => setLinkAmount(e.target.value)}
-                    placeholder="e.g. 48000"
+                    placeholder="Enter amount (₹)"
                     required
                   />
                 </div>
@@ -912,7 +913,7 @@ export function PaymentsView() {
                     className="input"
                     value={editAmount}
                     onChange={(e) => setEditAmount(e.target.value)}
-                    placeholder="e.g. 54000"
+                    placeholder="Enter revised amount (₹)"
                     required
                   />
                 </div>
@@ -963,18 +964,14 @@ export function PaymentsView() {
               </div>
 
               {selectedProofTx.hasProof ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: "8px", alignItems: "center" }}>
+                <div className="proof-wrap">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={`/api/v1/payments/${selectedProofTx.id}/proof`}
                     alt={`Payment receipt for ${selectedProofTx.customerName}`}
-                    style={{
-                      maxHeight: "320px",
-                      maxWidth: "100%",
-                      borderRadius: "var(--r-md)",
-                      border: "1px solid var(--border)",
-                      objectFit: "contain",
-                      background: "var(--bg-soft)",
-                    }}
+                    className="proof-img"
+                    onClick={() => setEnlargedProofUrl(`/api/v1/payments/${selectedProofTx.id}/proof`)}
+                    title="Click to enlarge screenshot"
                     onError={(e) => {
                       const target = e.currentTarget as HTMLImageElement;
                       target.style.display = "none";
@@ -982,54 +979,28 @@ export function PaymentsView() {
                       if (fallback) fallback.style.display = "flex";
                     }}
                   />
-                  <div
-                    style={{
-                      display: "none",
-                      height: "140px",
-                      width: "100%",
-                      background: "var(--bg-soft)",
-                      borderRadius: "var(--r-md)",
-                      border: "1px dashed var(--border-strong)",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: "6px",
-                    }}
-                  >
+                  <div className="proof-fallback" style={{ display: "none" }}>
                     <Icon name="card" size={28} />
-                    <span style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)" }}>UPI Transfer Proof on Record</span>
-                    <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Ref #{selectedProofTx.utr || selectedProofTx.id.slice(-8)}</span>
+                    <span>UPI Transfer Proof on Record</span>
+                    <span className="cell-muted">Ref #{selectedProofTx.utr || selectedProofTx.id.slice(-8)}</span>
                   </div>
-                  <a
-                    href={`/api/v1/payments/${selectedProofTx.id}/proof`}
-                    target="_blank"
-                    rel="noreferrer"
+                  <button
+                    type="button"
                     className="btn"
                     data-variant="outline"
                     data-size="sm"
+                    onClick={() => setEnlargedProofUrl(`/api/v1/payments/${selectedProofTx.id}/proof`)}
                   >
-                    <Icon name="maximize" size={13} /> View Full Resolution
-                  </a>
+                    <Icon name="maximize" size={13} /> Enlarge Screenshot
+                  </button>
                 </div>
               ) : (
-                <div
-                  style={{
-                    height: "140px",
-                    background: "var(--bg-soft)",
-                    borderRadius: "var(--r-md)",
-                    border: "1px dashed var(--border-strong)",
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: "6px",
-                  }}
-                >
+                <div className="proof-fallback">
                   <Icon name="card" size={28} />
-                  <span style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)" }}>
+                  <span>
                     {selectedProofTx.utr ? `UTR: ${selectedProofTx.utr}` : "No Screenshot Attached"}
                   </span>
-                  <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Ref #{selectedProofTx.utr || selectedProofTx.id.slice(-8)}</span>
+                  <span className="cell-muted">Ref #{selectedProofTx.utr || selectedProofTx.id.slice(-8)}</span>
                 </div>
               )}
             </div>
@@ -1039,6 +1010,34 @@ export function PaymentsView() {
               </button>
               <button type="button" className="btn" data-variant="primary" onClick={() => handleApproveProof(selectedProofTx.id)} disabled={isPending}>
                 <Icon name="check" size={13} /> Approve &amp; Close Won
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4: Full-Screen Screenshot Lightbox Modal (ITEM-54) */}
+      {enlargedProofUrl && (
+        <div className="overlay" data-kind="dialog" onClick={() => setEnlargedProofUrl(null)} role="presentation">
+          <div className="dialog lightbox-dialog" role="dialog" aria-modal="true" aria-labelledby="lightbox-title" onClick={(e) => e.stopPropagation()}>
+            <div className="dialog-head">
+              <h2 id="lightbox-title" className="card-title">Full Resolution Screenshot Proof</h2>
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label="Close screenshot preview"
+                onClick={() => setEnlargedProofUrl(null)}
+              >
+                <Icon name="close" size={14} />
+              </button>
+            </div>
+            <div className="lightbox-body">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={enlargedProofUrl} alt="Full resolution payment receipt" className="lightbox-img" />
+            </div>
+            <div className="dialog-foot">
+              <button type="button" className="btn" data-variant="primary" onClick={() => setEnlargedProofUrl(null)}>
+                Close Preview
               </button>
             </div>
           </div>

@@ -254,13 +254,17 @@ export function LeadImportView() {
     setScannerErrorMsg(null);
     setScannerSuccessMsg(null);
     try {
-      const res: any = await aicloserApi.integrations.whatsapp.devices.pair();
-      if (res?.qrDataUrl || res?.qrCode) {
-        setScannerQrData(res.qrDataUrl || res.qrCode);
+      const res: any = await aicloserApi.integrations.whatsapp.devices.startPairing({
+        name: state.user?.displayName || "Admin WhatsApp Line",
+      });
+      if (res?.qrData || res?.qrDataUrl || res?.qrCode) {
+        setScannerQrData(res.qrData || res.qrDataUrl || res.qrCode);
       }
-      if (res?.pairingCode) setScannerPairingCode(res.pairingCode);
-    } catch {
-      setScannerPairingCode("7482-9104");
+      if (res?.pairingCode) {
+        setScannerPairingCode(res.pairingCode);
+      }
+    } catch (err: any) {
+      setScannerErrorMsg(err?.message || "Failed to initialize WhatsApp pairing session.");
     }
   };
 
@@ -272,11 +276,11 @@ export function LeadImportView() {
     setScannerIsLinking(true);
     setScannerErrorMsg(null);
     try {
-      const res: any = await aicloserApi.integrations.whatsapp.devices.confirmPair(
-        scannerPhoneInput.trim(),
-        state.user?.displayName || "Admin WhatsApp Line"
-      );
-      if (res?.success || res?.status === "connected") {
+      const res: any = await aicloserApi.integrations.whatsapp.devices.confirmPairing({
+        phoneNumber: scannerPhoneInput.trim(),
+        name: state.user?.displayName || "Admin WhatsApp Line",
+      });
+      if (res?.id || res?.status === "connected" || (res as any)?.success) {
         setScannerSuccessMsg(`✓ Linked WhatsApp number ${scannerPhoneInput.trim()} successfully!`);
         setTimeout(() => {
           setScannerQrModal(false);
@@ -452,7 +456,7 @@ export function LeadImportView() {
             Multi-Source Lead Import & Ingestion
           </h1>
           <p className="page-sub" style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
-            Ingest leads across 5 channels: CSV, Excel, Google Sheets, WhatsApp Linked Device QR chats, and Inbound Email.
+            Ingest leads across multi-channel sources: CSV, Excel, Google Sheets, WhatsApp QR Scanner, Inbound Email, IndiaMART, and JustDial.
           </p>
         </div>
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>

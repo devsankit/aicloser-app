@@ -52,7 +52,7 @@ export function UserWhatsAppSyncCard({
   const loadScanner = useCallback(async () => {
     try {
       const qs = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : "";
-      const res = await fetch(`/api/sales/whatsapp-scanner${qs}`, { cache: "no-store" });
+      const res = await fetch(`/api/v1/contacts/whatsapp/scanner${qs}`, { cache: "no-store" });
       const data = await res.json();
       if (data?.ok && data.scanner) {
         setScanner(data.scanner);
@@ -73,7 +73,7 @@ export function UserWhatsAppSyncCard({
     setFeedback(null);
     try {
       const qs = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : "";
-      const res = await fetch(`/api/sales/whatsapp-scanner${qs}`, {
+      const res = await fetch(`/api/v1/contacts/whatsapp/scanner${qs}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "complete_scan" }),
@@ -99,7 +99,7 @@ export function UserWhatsAppSyncCard({
       setSyncing(true);
       try {
         const qs = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : "";
-        const res = await fetch(`/api/sales/whatsapp-scanner${qs}`, {
+        const res = await fetch(`/api/v1/contacts/whatsapp/scanner${qs}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -574,7 +574,7 @@ function UserWhatsAppSyncModal({
     const interval = setInterval(async () => {
       try {
         const qs = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : "";
-        const res = await fetch(`/api/sales/whatsapp-scanner${qs}`, { cache: "no-store" });
+        const res = await fetch(`/api/v1/contacts/whatsapp/scanner${qs}`, { cache: "no-store" });
         const data = await res.json();
         if (data?.ok && data.scanner && active) {
           if (data.scanner.status === "CONNECTED" && scanner?.status !== "CONNECTED") {
@@ -594,7 +594,7 @@ function UserWhatsAppSyncModal({
     setRefreshing(true);
     try {
       const qs = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : "";
-      await fetch(`/api/sales/whatsapp-scanner${qs}`, {
+      await fetch(`/api/v1/contacts/whatsapp/scanner${qs}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -615,7 +615,7 @@ function UserWhatsAppSyncModal({
     setDisconnecting(true);
     try {
       const qs = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : "";
-      await fetch(`/api/sales/whatsapp-scanner${qs}`, {
+      await fetch(`/api/v1/contacts/whatsapp/scanner${qs}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "disconnect" }),

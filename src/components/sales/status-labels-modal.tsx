@@ -3,7 +3,13 @@
 import { useEffect, useState } from "react";
 import { Check, Edit2, Plus, RefreshCw, Tag, Trash2, X } from "lucide-react";
 import { aicloserApi } from "@/lib/api-client";
-import type { StatusLabel } from "@/lib/gigxomi/status-labels-store";
+
+export interface StatusLabel {
+  id: string;
+  name: string;
+  color: string;
+  description?: string;
+}
 
 const PRESET_COLORS = [
   "#ef4444", // Red (Hot)
@@ -54,15 +60,17 @@ export function StatusLabelsModal({
     setLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/sales/status-labels");
-      const data = await res.json();
-      if (data.ok) {
-        setLabels(data.labels || []);
-      } else {
-        setError(data.error || "Failed to load labels");
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load labels");
+      const res: any = await aicloserApi.labels.list();
+      const list = Array.isArray(res) ? res : res?.data || [];
+      const mapped: StatusLabel[] = list.map((l: any, idx: number) => ({
+        id: l.id || `lbl-${idx}`,
+        name: l.name,
+        color: l.color || PRESET_COLORS[idx % PRESET_COLORS.length],
+        description: l.description || "",
+      }));
+      setLabels(mapped);
+    } catch (err: any) {
+      setError(err?.message || "Failed to load labels");
     } finally {
       setLoading(false);
     }
@@ -74,25 +82,19 @@ export function StatusLabelsModal({
     setIsSubmitting(true);
     setError("");
     try {
-      const res = await fetch("/api/sales/status-labels", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newName.trim(), color: newColor, description: newDesc.trim() }),
+      await aicloserApi.labels.create({
+        name: newName.trim(),
+        color: newColor,
       });
-      const data = await res.json();
-      if (data.ok) {
-        setNewName("");
-        setNewDesc("");
-        setIsCreating(false);
-        setActionSuccess(`Label "${data.label.name}" created!`);
-        setTimeout(() => setActionSuccess(""), 3000);
-        await fetchLabels();
-        onLabelsUpdated?.();
-      } else {
-        setError(data.error || "Failed to create label");
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create label");
+      setNewName("");
+      setNewDesc("");
+      setIsCreating(false);
+      setActionSuccess(`Label "${newName.trim()}" created!`);
+      setTimeout(() => setActionSuccess(""), 3000);
+      await fetchLabels();
+      onLabelsUpdated?.();
+    } catch (err: any) {
+      setError(err?.message || "Failed to create label");
     } finally {
       setIsSubmitting(false);
     }
@@ -110,23 +112,19 @@ export function StatusLabelsModal({
     setIsSubmitting(true);
     setError("");
     try {
-      const res = await fetch("/api/sales/status-labels", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, name: editName.trim(), color: editColor, description: editDesc.trim() }),
+      const originalLabel = labels.find((l) => l.id === id);
+      const originalName = originalLabel?.name || editName.trim();
+      await aicloserApi.labels.update(originalName, {
+        newName: editName.trim(),
+        color: editColor,
       });
-      const data = await res.json();
-      if (data.ok) {
-        setEditingId(null);
-        setActionSuccess(`Label updated!`);
-        setTimeout(() => setActionSuccess(""), 3000);
-        await fetchLabels();
-        onLabelsUpdated?.();
-      } else {
-        setError(data.error || "Failed to update label");
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update label");
+      setEditingId(null);
+      setActionSuccess(`Label updated!`);
+      setTimeout(() => setActionSuccess(""), 3000);
+      await fetchLabels();
+      onLabelsUpdated?.();
+    } catch (err: any) {
+      setError(err?.message || "Failed to update label");
     } finally {
       setIsSubmitting(false);
     }
@@ -138,20 +136,13 @@ export function StatusLabelsModal({
     }
     setError("");
     try {
-      const res = await fetch(`/api/sales/status-labels?id=${encodeURIComponent(id)}`, {
-        method: "DELETE",
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setActionSuccess(`Deleted "${name}"`);
-        setTimeout(() => setActionSuccess(""), 3000);
-        await fetchLabels();
-        onLabelsUpdated?.();
-      } else {
-        setError(data.error || "Failed to delete label");
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete label");
+      await aicloserApi.labels.delete(name);
+      setActionSuccess(`Deleted "${name}"`);
+      setTimeout(() => setActionSuccess(""), 3000);
+      await fetchLabels();
+      onLabelsUpdated?.();
+    } catch (err: any) {
+      setError(err?.message || "Failed to delete label");
     }
   }
 

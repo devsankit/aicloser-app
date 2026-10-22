@@ -602,7 +602,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       };
     });
     if (state.apiConnected) {
-      aicloserApi.leads.updateKanbanPosition(id, stageIdToBackendStage(stage), 0).catch(() => {});
+      aicloserApi.leads.updateKanbanPosition(id, stageIdToBackendStage(stage), 0).catch((err) => {
+        console.error("Failed to update Kanban stage on API:", err);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("aicloser:toast", {
+              detail: { type: "error", message: `Failed to move lead stage: ${err?.message || "Server error"}` },
+            }),
+          );
+        }
+      });
     }
   }, [state.apiConnected]);
 
@@ -614,7 +623,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ),
     }));
     if (state.apiConnected) {
-      aicloserApi.leads.update(id, uiLeadToBackendPayload(patch)).catch(() => {});
+      aicloserApi.leads.update(id, uiLeadToBackendPayload(patch)).catch((err) => {
+        console.error("Failed to update lead on API:", err);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("aicloser:toast", {
+              detail: { type: "error", message: `Failed to save lead updates: ${err?.message || "Server error"}` },
+            }),
+          );
+        }
+      });
     }
   }, [state.apiConnected]);
 
@@ -870,16 +888,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const logoutWorkspace = useCallback(async () => {
     await aicloserApi.auth.logout().catch(() => {});
     if (typeof window !== "undefined") {
-      window.localStorage.removeItem("aicloser_token");
-      window.localStorage.removeItem("closer_token");
-      window.localStorage.removeItem("aicloser_auth_token");
-      window.localStorage.removeItem("token");
-      window.localStorage.removeItem("aicloser_user_session");
-      document.cookie = "aicloser_token=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-      document.cookie = "aicloser_auth_token=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-      document.cookie = "gx_session=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-      document.cookie = "gx_role=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-      document.cookie = "gx_tenant=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      const keysToRemove = [
+        "aicloser_token",
+        "closer_token",
+        "aicloser_auth_token",
+        "token",
+        "aicloser_user_session",
+        "aicloser_impersonation_parent",
+        "aicloser_active_conversation",
+        "closer.ui.v2",
+        "closer.active_tab",
+      ];
+      keysToRemove.forEach((k) => window.localStorage.removeItem(k));
+      try {
+        window.sessionStorage.clear();
+      } catch {}
+      const expired = "path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      document.cookie = `aicloser_token=; ${expired}`;
+      document.cookie = `aicloser_auth_token=; ${expired}`;
+      document.cookie = `closer_token=; ${expired}`;
+      document.cookie = `auth_token=; ${expired}`;
+      document.cookie = `token=; ${expired}`;
+      document.cookie = `gx_session=; ${expired}`;
+      document.cookie = `gx_role=; ${expired}`;
+      document.cookie = `gx_tenant=; ${expired}`;
       window.location.href = "/login";
     }
     setState((p) => ({ ...p, apiConnected: false, isLiveCloud: false, user: null, workspaceAuth: null }));

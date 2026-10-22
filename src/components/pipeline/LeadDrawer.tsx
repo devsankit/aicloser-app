@@ -31,9 +31,6 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
   const [phoneCopied, setPhoneCopied] = useState(false);
-  const [reassignModalOpen, setReassignModalOpen] = useState(false);
-  const [targetCloser, setTargetCloser] = useState("");
-  const [handoverNote, setHandoverNote] = useState("");
 
   // Transfer Lead Dialog State
   const [transferModalOpen, setTransferModalOpen] = useState(false);
@@ -284,6 +281,16 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
             >
               <Icon name="branch" size={14} />
             </a>
+            {draft.phone && (
+              <a
+                href={`/chat?leadId=${lead.id}&phone=${encodeURIComponent(draft.phone)}`}
+                className="icon-btn"
+                title="Open WhatsApp Chat in Closer"
+                aria-label="Open live chat thread"
+              >
+                <Icon name="message" size={14} />
+              </a>
+            )}
             <button
               className="icon-btn ml-auto"
               onClick={onClose}
@@ -313,7 +320,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
           </div>
 
           <div className="drawer-quick-actions">
-            {draft.owner === "Unassigned" && (
+            {draft.owner === "Unassigned" && !isAdmin && (
               <button
                 className="btn"
                 data-size="sm"

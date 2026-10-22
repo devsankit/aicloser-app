@@ -113,7 +113,13 @@ export function PipelineView() {
       const res = await aicloserApi.team.startBreak();
       setIsOnBreak(true);
       if (res?.breakExpiresAt) setBreakExpiresAt(res.breakExpiresAt);
-    } catch {}
+    } catch (err: any) {
+      setClaimFeedback({
+        status: "already_claimed",
+        message: err?.message || "Failed to start break mode. Please retry.",
+      });
+      setTimeout(() => setClaimFeedback(null), 4000);
+    }
     setBreakLoading(false);
   };
 
@@ -123,7 +129,13 @@ export function PipelineView() {
       await aicloserApi.team.endBreak();
       setIsOnBreak(false);
       setBreakExpiresAt(null);
-    } catch {}
+    } catch (err: any) {
+      setClaimFeedback({
+        status: "already_claimed",
+        message: err?.message || "Failed to end break mode. Please retry.",
+      });
+      setTimeout(() => setClaimFeedback(null), 4000);
+    }
     setBreakLoading(false);
   };
 
@@ -491,8 +503,16 @@ export function PipelineView() {
         if (aCallbackScore !== bCallbackScore) {
           return bCallbackScore - aCallbackScore;
         }
+        const getPrioWeight = (p?: string): number => {
+          const norm = String(p || "").toLowerCase();
+          if (norm === "urgent") return 0;
+          if (norm === "high") return 1;
+          if (norm === "medium") return 2;
+          if (norm === "low") return 3;
+          return 4;
+        };
         return (
-          PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority] ||
+          getPrioWeight(a.priority) - getPrioWeight(b.priority) ||
           b.value - a.value ||
           a.id.localeCompare(b.id)
         );
@@ -1327,7 +1347,7 @@ export function PipelineView() {
                     <span className="col-count">{cards.length}</span>
                     {cards.reduce((sum, c) => sum + (Number(c.value) || 0), 0) > 0 && (
                       <span className="chip" data-tone="accent" style={{ fontSize: "11px", fontWeight: 650, padding: "2px 6px" }}>
-                        ₹{cards.reduce((sum, c) => sum + (Number(c.value) || 0), 0).toLocaleString("en-IN")}
+                        {money(cards.reduce((sum, c) => sum + (Number(c.value) || 0), 0))}
                       </span>
                     )}
                     <button
@@ -1428,7 +1448,7 @@ export function PipelineView() {
                               {slaLabel(lead.followUp)}
                             </span>
                           </div>
-                          {lead.owner === "Unassigned" && (
+                          {lead.owner === "Unassigned" && !isAdmin && (
                             <div className="lead-sla-claim">
                               <button
                                 className="btn lead-sla-btn"

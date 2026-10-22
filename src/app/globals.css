@@ -6061,3 +6061,119 @@ button.list-prio:hover {
   border-top: 1px solid var(--border);
 }
 
+/* ---------- Autocomplete tag selector (ITEM-47) ---------- */
+.tags-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tag-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.locked-owner-chip {
+  padding: 8px 12px;
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.owner-locked-tag {
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+/* ---------- Payment proof viewer & modal (ITEM-53, ITEM-54) ---------- */
+.proof-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+
+.proof-img {
+  max-height: 320px;
+  max-width: 100%;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  object-fit: contain;
+  background: var(--bg-soft);
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.proof-img:hover {
+  transform: scale(1.02);
+}
+
+.proof-fallback {
+  height: 140px;
+  width: 100%;
+  background: var(--bg-soft);
+  border-radius: var(--r-md);
+  border: 1px dashed var(--border-strong);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.lightbox-dialog {
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  background: var(--bg-surface);
+}
+
+.lightbox-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: #000;
+  overflow: auto;
+}
+
+.lightbox-img {
+  max-width: 100%;
+  max-height: 78vh;
+  object-fit: contain;
+  border-radius: var(--r-sm);
+}
+
+/* ---------- Telephony & Calls (ITEM-60, ITEM-63) ---------- */
+.tel-link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+}
+
+.tel-link:hover {
+  color: var(--accent);
+}
+
+.audio-waveform-wrap {
+  width: 90px;
+  height: 16px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+}
+
+.audio-waveform-bar {
+  width: 4px;
+  border-radius: 1px;
+}
+
+

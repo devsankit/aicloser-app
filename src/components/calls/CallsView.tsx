@@ -616,7 +616,13 @@ export function CallsView() {
                       <td>
                         <div style={{ fontWeight: 600, color: "var(--text)" }}>{c.customerName}</div>
                         <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)" }}>
-                          {c.company} • {c.phone}
+                          {c.company} • {c.phone ? (
+                            <a href={`tel:${c.phone}`} className="tel-link">
+                              {c.phone}
+                            </a>
+                          ) : (
+                            "Direct Line"
+                          )}
                         </div>
                       </td>
                       <td>
@@ -666,25 +672,18 @@ export function CallsView() {
                               <Icon name={isCurrentPlaying ? "pause" : "play"} size={12} />
                             </button>
                             <div
+                              className="audio-waveform-wrap"
                               style={{
-                                width: "90px",
-                                height: "16px",
                                 background: isCurrentPlaying ? "var(--accent-soft)" : "var(--bg-hover)",
-                                borderRadius: "3px",
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "2px",
-                                padding: "0 4px",
                               }}
                             >
                               {[4, 10, 14, 8, 12, 16, 7, 11, 15, 6, 9].map((h, i) => (
                                 <span
                                   key={i}
+                                  className="audio-waveform-bar"
                                   style={{
-                                    width: "4px",
                                     height: `${isCurrentPlaying ? Math.max(3, (h * (i % 2 === 0 ? 1 : 0.6))) : 4}px`,
                                     background: isCurrentPlaying ? "var(--accent)" : "var(--border-strong)",
-                                    borderRadius: "1px",
                                   }}
                                 />
                               ))}

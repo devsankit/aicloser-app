@@ -24,10 +24,15 @@ export function AddLeadDialog({
 }) {
   const { addLead, state } = useApp();
   const currentUserName = state.user?.displayName || "Admin";
+  const isCloserRole = state.user?.role === "SALES_AGENT" || (state.user?.role as any) === "CLOSER";
 
   const [submitting, setSubmitting] = useState(false);
   const [owners, setOwners] = useState<string[]>([currentUserName, "Unassigned"]);
   const [ownerAgentMap, setOwnerAgentMap] = useState<Record<string, string>>({});
+
+  const [workspaceLabels, setWorkspaceLabels] = useState<any[]>([]);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
 
   const [form, setForm] = useState({
     name: "",
@@ -70,6 +75,16 @@ export function AddLeadDialog({
       })
       .catch(() => {});
 
+    // Fetch existing workspace labels for autocomplete
+    aicloserApi.labels
+      .list()
+      .then((res: any) => {
+        if (!mounted) return;
+        const list = res?.data || res || [];
+        if (Array.isArray(list)) setWorkspaceLabels(list);
+      })
+      .catch(() => {});
+
     return () => {
       mounted = false;
     };
@@ -82,6 +97,17 @@ export function AddLeadDialog({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  const handleAddTag = (tagToAdd: string) => {
+    const trimmed = tagToAdd.trim().replace(/^#/, "");
+    if (!trimmed || selectedTags.includes(trimmed)) return;
+    setSelectedTags((prev) => [...prev, trimmed]);
+    setTagInput("");
+  };
+
+  const handleRemoveTag = (tagToRemove: string) => {
+    setSelectedTags((prev) => prev.filter((t) => t !== tagToRemove));
+  };
 
   const submit = async () => {
     if (submitting) return;
@@ -108,7 +134,10 @@ export function AddLeadDialog({
       ? parsedFollowUp.toISOString()
       : undefined;
 
-    const assignedAgentId = ownerAgentMap[form.owner];
+    const finalOwner = isCloserRole ? currentUserName : form.owner;
+    const assignedAgentId = isCloserRole
+      ? (state.user?.id || ownerAgentMap[currentUserName])
+      : ownerAgentMap[form.owner];
 
     try {
       await addLead({
@@ -120,11 +149,11 @@ export function AddLeadDialog({
         source: form.source,
         segment: form.segment,
         stage: form.stage,
-        owner: form.owner,
+        owner: finalOwner,
         assignedAgentId,
         priority: form.priority,
         followUp: followUpIso,
-        tags: [],
+        tags: selectedTags,
         notes: "",
       });
       onClose();
@@ -248,9 +277,9 @@ export function AddLeadDialog({
             <div className="field">
               <label htmlFor="a-owner">Assigned Closer / Owner</label>
               {state.user?.role === "SALES_AGENT" || (state.user?.role as any) === "CLOSER" ? (
-                <div className="chip" data-tone="accent" style={{ padding: "8px 12px", width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div className="chip locked-owner-chip" data-tone="accent">
                   <span><Icon name="user" size={12} /> {currentUserName} (You)</span>
-                  <span style={{ fontSize: "11px", opacity: 0.8 }}>Auto-locked to Creator</span>
+                  <span className="owner-locked-tag">Auto-locked to Creator</span>
                 </div>
               ) : (
                 <select
@@ -291,6 +320,62 @@ export function AddLeadDialog({
                 value={form.followUp}
                 onChange={(e) => setForm({ ...form, followUp: e.target.value })}
               />
+            </div>
+          </div>
+
+          <div className="field">
+            <label htmlFor="a-tags">Labels &amp; Tags</label>
+            <div className="tags-selector">
+              {selectedTags.length > 0 && (
+                <div className="chip-row">
+                  {selectedTags.map((tag) => (
+                    <span key={tag} className="chip-x">
+                      <b>{tag}</b>
+                      <button
+                        type="button"
+                        className="x"
+                        onClick={() => handleRemoveTag(tag)}
+                        aria-label={`Remove ${tag}`}
+                      >
+                        <Icon name="close" size={10} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="tag-input-row">
+                <input
+                  id="a-tags"
+                  className="input"
+                  list="available-labels"
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === ",") {
+                      e.preventDefault();
+                      handleAddTag(tagInput);
+                    }
+                  }}
+                  placeholder="Select label from suggestions or type and press Enter..."
+                />
+                <datalist id="available-labels">
+                  {workspaceLabels.map((lbl: any) => (
+                    <option key={lbl.id || lbl.name} value={lbl.name}>
+                      {lbl.name}
+                    </option>
+                  ))}
+                </datalist>
+                <button
+                  type="button"
+                  className="btn"
+                  data-size="sm"
+                  data-variant="outline"
+                  onClick={() => handleAddTag(tagInput)}
+                  disabled={!tagInput.trim()}
+                >
+                  <Icon name="plus" size={12} /> Add
+                </button>
+              </div>
             </div>
           </div>
 

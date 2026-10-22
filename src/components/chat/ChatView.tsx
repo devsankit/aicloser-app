@@ -234,6 +234,19 @@ export function ChatView() {
   const [inputText, setInputText] = useState("");
   const [showRightDrawer, setShowRightDrawer] = useState(true);
 
+  // Lazy Notification Permission State (ITEM-51)
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission>(() => {
+    return typeof Notification !== "undefined" ? Notification.permission : "default";
+  });
+  const handleRequestNotifPermission = async () => {
+    if (typeof Notification !== "undefined") {
+      try {
+        const res = await Notification.requestPermission();
+        setNotifPermission(res);
+      } catch {}
+    }
+  };
+
   // Adjustable panel widths with localStorage persistence
   const [inboxWidth, setInboxWidth] = useState<number>(() => {
     if (typeof window !== "undefined") {
@@ -701,7 +714,7 @@ export function ChatView() {
               channelSource: isQrScanner ? "QR_SCANNER" : (c.channelSource || "OFFICIAL_API"),
               channelSourceLabel: isQrScanner
                 ? (c.channelSourceLabel || (c.scannedByName ? `QR: ${c.scannedByName}` : "Personal WhatsApp QR"))
-                : (c.channelSourceLabel || "Company API • +91 95895 10954"),
+                : (c.channelSourceLabel || (c.displayPhoneNumber ? `Cloud API • ${c.displayPhoneNumber}` : "Official WhatsApp Cloud API")),
               scannedByName: isQrScanner ? (c.scannedByName || c.payload?.scannedByName || c.assignedFreelancerName || null) : null,
               isOfficialApi: !isQrScanner,
               isPersonalQr: isQrScanner,
@@ -1056,101 +1069,122 @@ export function ChatView() {
     };
   }, [activeChat?.id, activeChat?.phone, activeChat?.leadId, activeChat?.customerName, scrollToBottom]);
 
-  // Periodic active chat message polling (every 6 seconds if document is visible)
+  // Periodic active chat message polling with exponential backoff & SSE sync (ITEM-06)
   useEffect(() => {
     if (!activeChat?.id) return;
 
-    const interval = setInterval(() => {
-      if (document.hidden) return;
-      aicloserApi.conversations
-        .getMessages(activeChat.id)
-        .then((res: any) => {
+    let timeoutId: NodeJS.Timeout;
+    let delay = 6000;
+    let cancelled = false;
+
+    const resetDelay = () => {
+      delay = 6000;
+    };
+
+    window.addEventListener("focus", resetDelay);
+    window.addEventListener("aicloser:realtime", resetDelay);
+
+    const poll = async () => {
+      if (cancelled) return;
+      if (!document.hidden) {
+        try {
+          const res: any = await aicloserApi.conversations.getMessages(activeChat.id);
           const apiMessages = res?.messages || res?.data?.messages || [];
-          if (!Array.isArray(apiMessages) || apiMessages.length === 0) return;
+          if (Array.isArray(apiMessages) && apiMessages.length > 0) {
+            const mappedMessages: ChatMessage[] = apiMessages
+              .filter((m: any) => Boolean((m.body && m.body.trim()) || (m.text && m.text.trim()) || m.attachments?.length))
+              .map((m: any) => {
+                const isOutbound =
+                  m.fromMe === true ||
+                  m.direction === "OUTBOUND" ||
+                  m.senderRole === "sales" ||
+                  m.senderRole === "admin" ||
+                  m.senderRole === "closer" ||
+                  m.senderRole === "agent" ||
+                  m.senderRole === "CLOSER" ||
+                  m.senderRole === "ADMIN" ||
+                  m.senderRole === "ai" ||
+                  m.sender === "closer" ||
+                  m.sender === "admin" ||
+                  (typeof m.senderLabel === "string" &&
+                    (m.senderLabel.toLowerCase() === "admin" ||
+                      m.senderLabel.toLowerCase() === "sales closer"));
 
-          const mappedMessages: ChatMessage[] = apiMessages
-            .filter((m: any) => Boolean((m.body && m.body.trim()) || (m.text && m.text.trim()) || m.attachments?.length))
-            .map((m: any) => {
-              const isOutbound =
-                m.fromMe === true ||
-                m.direction === "OUTBOUND" ||
-                m.senderRole === "sales" ||
-                m.senderRole === "admin" ||
-                m.senderRole === "closer" ||
-                m.senderRole === "agent" ||
-                m.senderRole === "CLOSER" ||
-                m.senderRole === "ADMIN" ||
-                m.senderRole === "ai" ||
-                m.sender === "closer" ||
-                m.sender === "admin" ||
-                (typeof m.senderLabel === "string" &&
-                  (m.senderLabel.toLowerCase() === "admin" ||
-                    m.senderLabel.toLowerCase() === "sales closer"));
+                const isSystem = m.senderRole === "system" || m.sender === "system";
 
-              const isSystem = m.senderRole === "system" || m.sender === "system";
+                return {
+                  id: m.id || `msg-${Math.random()}`,
+                  sender: isOutbound ? "closer" : isSystem ? "system" : "customer",
+                  senderName: isOutbound
+                    ? (m.senderName || m.senderLabel || m.authorName || (activeChat.assignedTo !== "Unassigned" ? activeChat.assignedTo : "You"))
+                    : (activeChat.customerName || "Customer"),
+                  text: m.body || m.text || "",
+                  createdAt: m.createdAt,
+                  time: formatMessageTime(m.createdAt),
+                  channel: activeChat.channel,
+                  status: (m.status || m.deliveryStatus || "read") as "sent" | "delivered" | "read",
+                  externalMessageId: m.externalMessageId || m.wamid || undefined,
+                };
+              });
 
-              return {
-                id: m.id || `msg-${Math.random()}`,
-                sender: isOutbound ? "closer" : isSystem ? "system" : "customer",
-                senderName: isOutbound
-                  ? (m.senderName || m.senderLabel || m.authorName || (activeChat.assignedTo !== "Unassigned" ? activeChat.assignedTo : "You"))
-                  : (activeChat.customerName || "Customer"),
-                text: m.body || m.text || "",
-                createdAt: m.createdAt,
-                time: formatMessageTime(m.createdAt),
-                channel: activeChat.channel,
-                status: (m.status || m.deliveryStatus || "read") as "sent" | "delivered" | "read",
-                externalMessageId: m.externalMessageId || m.wamid || undefined,
-              };
+            mappedMessages.sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+
+            const initialCustomerMsg = activeChat.messages.find((m) => m.sender === "customer");
+            const serverHasCustomerMsg = mappedMessages.some((m) => m.sender === "customer");
+            const finalMessages = (!serverHasCustomerMsg && initialCustomerMsg)
+              ? [initialCustomerMsg, ...mappedMessages].sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime())
+              : mappedMessages;
+
+            setMessagesCache((prev) => {
+              const prevMsgs = prev[activeChat.id] || [];
+              if (
+                prevMsgs.length === finalMessages.length &&
+                prevMsgs[prevMsgs.length - 1]?.id === finalMessages[finalMessages.length - 1]?.id
+              ) {
+                delay = Math.min(30000, Math.round(delay * 1.5));
+                return prev;
+              }
+              delay = 6000;
+              return { ...prev, [activeChat.id]: finalMessages };
             });
 
-          // Sort messages chronologically (oldest at top, newest at bottom, exactly like WhatsApp on phone)
-          mappedMessages.sort((a, b) => {
-            const timeA = new Date(a.createdAt || 0).getTime();
-            const timeB = new Date(b.createdAt || 0).getTime();
-            return timeA - timeB;
-          });
-
-          // Preserve initial customer message if server only returns outbound messages
-          const initialCustomerMsg = activeChat.messages.find((m) => m.sender === "customer");
-          const serverHasCustomerMsg = mappedMessages.some((m) => m.sender === "customer");
-          const finalMessages = (!serverHasCustomerMsg && initialCustomerMsg)
-            ? [initialCustomerMsg, ...mappedMessages].sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime())
-            : mappedMessages;
-
-          setMessagesCache((prev) => {
-            const prevMsgs = prev[activeChat.id] || [];
-            if (
-              prevMsgs.length === finalMessages.length &&
-              prevMsgs[prevMsgs.length - 1]?.id === finalMessages[finalMessages.length - 1]?.id
-            ) {
-              return prev;
-            }
-            return { ...prev, [activeChat.id]: finalMessages };
-          });
-
-          setConversations((prev) =>
-            prev.map((c) => {
-              if (c.id !== activeChat.id) return c;
-              if (
-                c.messages.length === finalMessages.length &&
-                c.messages[c.messages.length - 1]?.id === finalMessages[finalMessages.length - 1]?.id
-              ) {
-                return c;
-              }
-              return { ...c, messages: finalMessages };
-            })
-          );
-        })
-        .catch((err: any) => {
-          if (err?.status === 403 || err?.response?.status === 403 || String(err?.message || "").includes("403")) {
-            clearInterval(interval);
+            setConversations((prev) =>
+              prev.map((c) => {
+                if (c.id !== activeChat.id) return c;
+                if (
+                  c.messages.length === finalMessages.length &&
+                  c.messages[c.messages.length - 1]?.id === finalMessages[finalMessages.length - 1]?.id
+                ) {
+                  return c;
+                }
+                return { ...c, messages: finalMessages };
+              })
+            );
+          } else {
+            delay = Math.min(30000, Math.round(delay * 1.5));
           }
-        });
-    }, 25000);
+        } catch (err: any) {
+          if (err?.status === 403 || err?.response?.status === 403 || String(err?.message || "").includes("403")) {
+            cancelled = true;
+            return;
+          }
+          delay = Math.min(30000, Math.round(delay * 1.5));
+        }
+      }
+      if (!cancelled) {
+        timeoutId = setTimeout(poll, delay);
+      }
+    };
 
-    return () => clearInterval(interval);
-  }, [activeChat?.id]);
+    timeoutId = setTimeout(poll, delay);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+      window.removeEventListener("focus", resetDelay);
+      window.removeEventListener("aicloser:realtime", resetDelay);
+    };
+  }, [activeChat?.id, activeChat?.messages, activeChat?.assignedTo, activeChat?.channel, activeChat?.customerName]);
 
   // Scroll to bottom when conversation or message length changes
   useEffect(() => {
@@ -2168,7 +2202,7 @@ export function ChatView() {
                   </span>
                   {activeChat.isOfficialApi || activeChat.channelSource === "OFFICIAL_API" ? (
                     <span className="chip" data-tone="accent" style={{ fontSize: "11px", padding: "1px 8px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                      <Icon name="whatsapp" size={12} /> Official Meta Cloud API • +91 95895 10954
+                      <Icon name="whatsapp" size={12} /> {activeChat.channelSourceLabel || "Official Meta Cloud API"}
                     </span>
                   ) : activeChat.isPersonalQr || activeChat.channelSource === "QR_SCANNER" ? (
                     <span className="chip" data-tone="success" style={{ fontSize: "11px", padding: "1px 8px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
@@ -2194,6 +2228,19 @@ export function ChatView() {
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              {typeof Notification !== "undefined" && notifPermission === "default" && (
+                <button
+                  type="button"
+                  className="btn"
+                  data-size="sm"
+                  data-variant="ghost"
+                  onClick={handleRequestNotifPermission}
+                  title="Enable desktop notifications for incoming messages"
+                >
+                  <Icon name="bell" size={12} /> Enable Alerts
+                </button>
+              )}
+
               {/* WhatsApp AI Thread Toggle */}
               <button
                 className="btn"

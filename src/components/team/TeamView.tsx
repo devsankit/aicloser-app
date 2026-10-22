@@ -719,7 +719,15 @@ export function TeamView() {
       setSavedBanner("Role capabilities & matrix permissions saved to live API!");
     } catch (err: any) {
       console.warn("Failed to save permissions matrix to API:", err);
-      setSavedBanner("Permissions matrix saved locally");
+      const errorMsg = "Failed to save permissions matrix to API: " + (err?.message || "Server error");
+      setSavedBanner(errorMsg);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("aicloser:toast", {
+            detail: { type: "error", message: errorMsg },
+          }),
+        );
+      }
     }
 
     try {

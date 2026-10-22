@@ -153,7 +153,7 @@ export function LeadCommandHistory({
     let leadFollowUp: string | null = null;
 
     // 1. Fetch from Central API if valid leadId
-    if (leadId && !leadId.startsWith("ld-") && !leadId.startsWith("lead-")) {
+    if (leadId && !leadId.startsWith("ld-")) {
       try {
         const [notesRes, detailsRes] = await Promise.allSettled([
           aicloserApi.leads.getNotes(leadId),
@@ -344,7 +344,7 @@ export function LeadCommandHistory({
 
     const text = noteBody.trim();
     try {
-      if (leadId && !leadId.startsWith("ld-") && !leadId.startsWith("lead-")) {
+      if (leadId && !leadId.startsWith("ld-")) {
         await aicloserApi.leads.addNote(leadId, text);
       }
       if (conversationId) {
@@ -399,7 +399,7 @@ export function LeadCommandHistory({
 
     try {
       const iso = new Date(callbackAt).toISOString();
-      if (leadId && !leadId.startsWith("ld-") && !leadId.startsWith("lead-")) {
+      if (leadId && !leadId.startsWith("ld-")) {
         await Promise.allSettled([
           aicloserApi.leads.update(leadId, { followUpAt: iso }),
           aicloserApi.leads.addTask(leadId, {
@@ -455,7 +455,7 @@ export function LeadCommandHistory({
     setSaving(true);
     setError(null);
     try {
-      if (leadId && !leadId.startsWith("ld-") && !leadId.startsWith("lead-")) {
+      if (leadId && !leadId.startsWith("ld-")) {
         await aicloserApi.leads.update(leadId, { followUpAt: null });
       }
       if (conversationId) {
