@@ -536,9 +536,19 @@ export function ChatView() {
     let active = true;
 
     const fetchAllConversations = () => {
-      // Build scanned WhatsApp conversations from state.leads
+      // Build scanned WhatsApp conversations from state.leads (Strictly isolated by closer role)
       const scannedList: ConversationItem[] = state.leads
-        .filter((l) => isScannedWhatsAppLead(l))
+        .filter((l) => {
+          if (!isScannedWhatsAppLead(l)) return false;
+          // Sales Agents can ONLY see personal scanned leads that they personally scanned or own
+          if (state.user?.role === "SALES_AGENT" || (state.user?.role as any) === "CLOSER") {
+            const myName = state.user?.displayName || "";
+            if (l.owner && l.owner !== "Unassigned" && l.owner !== myName) {
+              return false;
+            }
+          }
+          return true;
+        })
         .map((l) => {
           const cleanPhone = l.phone || "";
           const rawNote = l.notes || "";
@@ -600,7 +610,20 @@ export function ChatView() {
         .list(apiParams)
         .then((res) => {
           if (!active) return;
-          const apiMapped: ConversationItem[] = (res?.conversations || []).map((c: any) => {
+          const apiMapped: ConversationItem[] = (res?.conversations || [])
+            .filter((c: any) => {
+              const isManualQr = c.serviceSlug === "manual-chat" || c.channelSource === "QR_SCANNER" || c.isPersonalQr === true;
+              if (isManualQr && (state.user?.role === "SALES_AGENT" || (state.user?.role as any) === "CLOSER")) {
+                const scannerName = c.scannedByName || c.payload?.scannedByName || c.assignedFreelancerName;
+                const myName = state.user?.displayName;
+                const isSharedWithMe = Array.isArray(c.payload?.sharedUserIds) && c.payload.sharedUserIds.includes(state.user?.id);
+                if (scannerName && myName && scannerName !== myName && !isSharedWithMe) {
+                  return false;
+                }
+              }
+              return true;
+            })
+            .map((c: any) => {
             const isManualQr = c.serviceSlug === "manual-chat" || c.channelSource === "QR_SCANNER" || c.isPersonalQr === true;
             return {
               id: c.id,
