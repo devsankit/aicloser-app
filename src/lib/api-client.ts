@@ -20,7 +20,12 @@ function handleCentralAuthFailure(status: number, message: string) {
   if (status === 401) {
     const isImpersonating = Boolean(
       localStorage.getItem('aicloser_impersonating_tenant') ||
-      localStorage.getItem('aicloser_impersonating_name')
+      localStorage.getItem('aicloser_impersonating_name') ||
+      (typeof document !== 'undefined' && (
+        document.cookie.includes('gx_impersonating_name') ||
+        document.cookie.includes('gx_super_admin_return') ||
+        document.cookie.includes('gx_impersonating_agency')
+      ))
     );
 
     // If currently impersonating, do not wipe tokens and do not trap user on /login
@@ -41,7 +46,7 @@ function handleCentralAuthFailure(status: number, message: string) {
     const isPublicPage =
       pathname === '/login' ||
       pathname === '/signup' ||
-      pathname.startsWith('/super-admin/login') ||
+      pathname.startsWith('/super-admin') ||
       pathname.startsWith('/pay/') ||
       pathname.startsWith('/forms/public/');
 
@@ -767,6 +772,32 @@ export const aicloserApi = {
       const res = await requestConversation(`/leads/pool/${encodeURIComponent(poolItemId)}/claim`, {
         method: 'POST',
         body: JSON.stringify(assignedAgentId ? { assignedAgentId } : {}),
+      });
+      return res.data;
+    },
+
+    async getMissed() {
+      const res = await requestConversation<{
+        totalMissed: number;
+        myMissed: number;
+        items: Array<{
+          id: string;
+          leadId: string;
+          poolItemId: string;
+          agentId: string;
+          customerName?: string;
+          customerPhone?: string;
+          missedAt: string;
+          reason: string;
+        }>;
+      }>('/leads/missed');
+      return res.data;
+    },
+
+    async transfer(id: string, targetAgentId: string, note?: string) {
+      const res = await requestConversation<{ success: boolean; lead: any }>(`/leads/${encodeURIComponent(id)}/transfer`, {
+        method: 'POST',
+        body: JSON.stringify({ targetAgentId, note }),
       });
       return res.data;
     },

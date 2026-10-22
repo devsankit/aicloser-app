@@ -127,6 +127,8 @@ export function TeamView() {
   const [routingHoursOnly, setRoutingHoursOnly] = useState(true);
   const [unclaimedTimeout, setUnclaimedTimeout] = useState(15);
   const [allowQrLeadsRoundRobin, setAllowQrLeadsRoundRobin] = useState<boolean>(false);
+  const [maxVisibleToCloser, setMaxVisibleToCloser] = useState<number>(5);
+  const [breakDurationMinutes, setBreakDurationMinutes] = useState<number>(30);
   const [allowManagerLeadDeletion, setAllowManagerLeadDeletion] = useState<boolean>(false);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("ALL");
@@ -218,6 +220,8 @@ export function TeamView() {
         if (typeof data.settings.workingHoursOnly === "boolean") setRoutingHoursOnly(data.settings.workingHoursOnly);
         if (typeof data.settings.allowQrLeadsRoundRobin === "boolean") setAllowQrLeadsRoundRobin(data.settings.allowQrLeadsRoundRobin);
         if (typeof data.settings.allowManagerLeadDeletion === "boolean") setAllowManagerLeadDeletion(data.settings.allowManagerLeadDeletion);
+        if (data.settings.maxVisibleToCloser) setMaxVisibleToCloser(Number(data.settings.maxVisibleToCloser));
+        if (data.settings.breakDurationMinutes) setBreakDurationMinutes(Number(data.settings.breakDurationMinutes));
       }
     }).catch(() => null);
 
@@ -230,6 +234,8 @@ export function TeamView() {
         if (parsed.unclaimedTimeout) setUnclaimedTimeout(parsed.unclaimedTimeout);
         if (parsed.allowQrLeadsRoundRobin !== undefined) setAllowQrLeadsRoundRobin(parsed.allowQrLeadsRoundRobin);
         if (parsed.allowManagerLeadDeletion !== undefined) setAllowManagerLeadDeletion(parsed.allowManagerLeadDeletion);
+        if (parsed.maxVisibleToCloser) setMaxVisibleToCloser(Number(parsed.maxVisibleToCloser));
+        if (parsed.breakDurationMinutes) setBreakDurationMinutes(Number(parsed.breakDurationMinutes));
       }
       const storedNav = localStorage.getItem("closer.manager.nav.v1");
       if (storedNav) {
@@ -1626,6 +1632,36 @@ export function TeamView() {
             </div>
 
             <div className="field">
+              <label>Grab Lead Capacity per Closer (Visible in Kanban Pool)</label>
+              <input
+                className="input"
+                type="number"
+                min={1}
+                max={50}
+                value={maxVisibleToCloser}
+                onChange={(e) => setMaxVisibleToCloser(Number(e.target.value))}
+              />
+              <span className="card-sub">
+                Maximum number of grab-pool leads concurrently displayed on each closer's Kanban board. Rotates every 10 minutes.
+              </span>
+            </div>
+
+            <div className="field">
+              <label>Closer Break Duration (Minutes)</label>
+              <input
+                className="input"
+                type="number"
+                min={5}
+                max={180}
+                value={breakDurationMinutes}
+                onChange={(e) => setBreakDurationMinutes(Number(e.target.value))}
+              />
+              <span className="card-sub">
+                Authorized break duration. Pauses missed lead counts. If a closer exceeds this duration without resuming, missed leads resume counting.
+              </span>
+            </div>
+
+            <div className="field">
               <label>Unclaimed Lead Timeout (Minutes before escalating to Grab Pool)</label>
               <input
                 className="input"
@@ -1704,6 +1740,8 @@ export function TeamView() {
                       workingHoursOnly: routingHoursOnly,
                       allowQrLeadsRoundRobin,
                       allowManagerLeadDeletion,
+                      maxVisibleToCloser,
+                      breakDurationMinutes,
                     });
                     localStorage.setItem(
                       "closer.team.v1",
@@ -1713,6 +1751,8 @@ export function TeamView() {
                         unclaimedTimeout,
                         allowQrLeadsRoundRobin,
                         allowManagerLeadDeletion,
+                        maxVisibleToCloser,
+                        breakDurationMinutes,
                       })
                     );
                     setSavedBanner("Routing engine parameters saved to backend!");

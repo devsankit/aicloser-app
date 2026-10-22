@@ -1,11 +1,13 @@
 import "server-only";
 
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 
 import { SUPER_ADMIN_LOGIN_ROUTE } from "@/lib/auth/super-admin-config";
 import { getSessionContext } from "@/lib/auth/session";
 import type { AppRole } from "@/lib/auth/types";
 import { getWorkspacePaymentState } from "@/lib/billing/workspace-access";
+import { SUPER_ADMIN_RETURN_COOKIE_NAME, IMPERSONATION_MARKER_COOKIE_NAME } from "@/lib/auth/impersonation";
 
 export async function requirePageRole(allowedRoles: AppRole[], path: string) {
   const session = await getSessionContext();
@@ -25,9 +27,17 @@ export async function requirePageRole(allowedRoles: AppRole[], path: string) {
   }
 
   if (session.userId && session.role !== "SUPER_ADMIN") {
-    const paymentState = await getWorkspacePaymentState(session.userId);
-    if (paymentState.locked && path !== "/activate-plan") {
-      redirect("/activate-plan");
+    const cookieStore = await cookies();
+    const isImpersonating = Boolean(
+      cookieStore.get(SUPER_ADMIN_RETURN_COOKIE_NAME)?.value ||
+      cookieStore.get(IMPERSONATION_MARKER_COOKIE_NAME)?.value ||
+      cookieStore.get("gx_impersonating_name")?.value
+    );
+    if (!isImpersonating) {
+      const paymentState = await getWorkspacePaymentState(session.userId);
+      if (paymentState.locked && path !== "/activate-plan") {
+        redirect("/activate-plan");
+      }
     }
   }
 

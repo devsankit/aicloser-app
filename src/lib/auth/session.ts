@@ -325,7 +325,7 @@ export async function applySessionCookie(response: NextResponse, session: Sessio
   });
   response.cookies.set("aicloser_token", token, {
     path: "/",
-    httpOnly: true,
+    httpOnly: false,
     sameSite: "lax",
     secure: shouldUseSecureCookies(),
     expires,

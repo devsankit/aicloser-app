@@ -53,6 +53,80 @@ export function PipelineView() {
   const [addStage, setAddStage] = useState<StageId | null>(null);
   const boardRef = useRef<HTMLDivElement | null>(null);
 
+  // Missed Leads & Break Mode State
+  const [missedLeads, setMissedLeads] = useState<any[]>([]);
+  const [showMissedModal, setShowMissedModal] = useState(false);
+  const [apiMissedCount, setApiMissedCount] = useState<number | null>(null);
+
+  const [isOnBreak, setIsOnBreak] = useState(false);
+  const [breakExpiresAt, setBreakExpiresAt] = useState<string | null>(null);
+  const [breakLoading, setBreakLoading] = useState(false);
+  const [breakCountdown, setBreakCountdown] = useState<string>("00:00");
+
+  const fetchMissedAndBreak = async () => {
+    try {
+      const [missedRes, breakRes] = await Promise.all([
+        aicloserApi.leads.getMissed().catch(() => null),
+        aicloserApi.team.getBreakStatus().catch(() => null),
+      ]);
+      if (missedRes) {
+        setMissedLeads(Array.isArray(missedRes.items) ? missedRes.items : []);
+        setApiMissedCount(typeof missedRes.myMissed === 'number' ? missedRes.myMissed : (missedRes.totalMissed || 0));
+      }
+      if (breakRes) {
+        setIsOnBreak(Boolean(breakRes.isOnBreak));
+        setBreakExpiresAt(breakRes.breakExpiresAt || null);
+      }
+    } catch {}
+  };
+
+  useEffect(() => {
+    fetchMissedAndBreak();
+    const interval = setInterval(fetchMissedAndBreak, 15000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!isOnBreak || !breakExpiresAt) {
+      setBreakCountdown("00:00");
+      return;
+    }
+    const updateCd = () => {
+      const remainingMs = new Date(breakExpiresAt).getTime() - Date.now();
+      if (remainingMs <= 0) {
+        setIsOnBreak(false);
+        setBreakCountdown("00:00");
+      } else {
+        const m = Math.floor(remainingMs / 60000);
+        const s = Math.floor((remainingMs % 60000) / 1000);
+        setBreakCountdown(`${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`);
+      }
+    };
+    updateCd();
+    const t = setInterval(updateCd, 1000);
+    return () => clearInterval(t);
+  }, [isOnBreak, breakExpiresAt]);
+
+  const handleTakeBreak = async () => {
+    setBreakLoading(true);
+    try {
+      const res = await aicloserApi.team.startBreak();
+      setIsOnBreak(true);
+      if (res?.breakExpiresAt) setBreakExpiresAt(res.breakExpiresAt);
+    } catch {}
+    setBreakLoading(false);
+  };
+
+  const handleEndBreak = async () => {
+    setBreakLoading(true);
+    try {
+      await aicloserApi.team.endBreak();
+      setIsOnBreak(false);
+      setBreakExpiresAt(null);
+    } catch {}
+    setBreakLoading(false);
+  };
+
   // Lead Grab Pool State
   const [poolQuery, setPoolQuery] = useState("");
   const [poolSource, setPoolSource] = useState<string>("");
@@ -324,8 +398,9 @@ export function PipelineView() {
   }, [now, openPoolList, refreshLeads, fetchPoolLeads]);
 
   const missedCount = useMemo(() => {
+    if (apiMissedCount !== null) return apiMissedCount;
     return openPoolList.filter((lead) => getRemainingSeconds(lead.createdAt) <= 0).length;
-  }, [openPoolList, now]);
+  }, [apiMissedCount, openPoolList, now]);
 
   const handleClaimLead = async (item: LeadPoolItem) => {
     if (claimingId || isAtQuota) return;
@@ -702,13 +777,28 @@ export function PipelineView() {
             <span className="col-w-label">
               Showing {openPoolList.length} leads
             </span>
-            <span
+            <button
+              type="button"
               className="chip"
               data-tone={missedCount > 0 ? "danger" : "neutral"}
-              title="Leads exceeding 10-minute SLA countdown"
+              title="Click to view missed pool leads"
+              onClick={() => setShowMissedModal(true)}
+              style={{ cursor: "pointer" }}
             >
               Missed: {missedCount} leads
-            </span>
+            </button>
+            <button
+              type="button"
+              className="btn"
+              data-size="sm"
+              data-variant={isOnBreak ? "accent" : "ghost"}
+              onClick={isOnBreak ? handleEndBreak : handleTakeBreak}
+              disabled={breakLoading}
+              title={isOnBreak ? "Click to resume receiving leads" : "Take a break (pauses missed leads)"}
+            >
+              <Icon name={isOnBreak ? "check" : "clock"} size={12} />
+              {isOnBreak ? `☕ On Break (${breakCountdown}) - Resume` : "☕ Take Break"}
+            </button>
 
             {isAdmin ? (
               <div className="seg" role="group" aria-label="Pool display limit">

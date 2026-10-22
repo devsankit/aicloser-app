@@ -72,7 +72,8 @@ export async function POST(request: Request) {
     const redirectTo = String(input.redirectTo ?? "").trim();
     const scope = getLoginScope(String(input.loginScope ?? "").trim());
     const clientType: ClientType = String(input.clientType ?? "").trim().toUpperCase() === "MOBILE" ? "MOBILE" : "DESKTOP";
-    const forceReplace = String(input.forceReplace ?? "").trim() === "1";
+    const forceReplace =
+      String(input.forceReplace ?? "").trim() === "1" || clientType === "DESKTOP" || scope === "super-admin";
     const requestCookies = await cookies();
     const installationId =
       String(input.installationId ?? "").trim() ||
@@ -174,7 +175,7 @@ export async function POST(request: Request) {
     });
     nextResponse.cookies.set("aicloser_token", token, {
       path: "/",
-      httpOnly: true,
+      httpOnly: false,
       sameSite: "lax",
       secure: shouldUseSecureCookies(),
       maxAge: 60 * 60 * 24 * 30,

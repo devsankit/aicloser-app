@@ -459,10 +459,13 @@ export function ChatView() {
       .then((res: any) => {
         if (!active) return;
         const payments = res?.payments || [];
+        const phoneDigits = activeLeadProfile?.phone?.replace(/\D/g, '').slice(-10) || activeChat?.phone?.replace(/\D/g, '').slice(-10) || '';
         const matching =
-          payments.find((p: any) => p.leadId === targetLeadId || p.customFields?.leadId === targetLeadId) ||
-          payments[0] ||
-          null;
+          payments.find((p: any) =>
+            p.leadId === targetLeadId ||
+            p.customFields?.leadId === targetLeadId ||
+            (phoneDigits && p.customerPhone && p.customerPhone.replace(/\D/g, '').slice(-10) === phoneDigits)
+          ) || null;
         setLeadPayment(matching);
       })
       .catch(() => {
@@ -490,6 +493,16 @@ export function ChatView() {
 
       // Strict sales closer isolation: Closers can NEVER see another closer's chats!
       if (isCloser) {
+        const currentUserId = state.user?.userId || (state.user as any)?.id;
+        const currentDisplayName = state.user?.displayName || CURRENT_USER;
+        const isSharedWithMe = Array.isArray(c.payload?.sharedUserIds) && (
+          (currentUserId && c.payload.sharedUserIds.includes(currentUserId)) ||
+          (currentDisplayName && c.payload.sharedUserIds.includes(currentDisplayName)) ||
+          (Array.isArray(c.payload?.shares) && c.payload.shares.some((s: any) =>
+            (s.userId === currentUserId || s.userId === currentDisplayName) && !s.revokedAt
+          ))
+        );
+
         const belongsToMe =
           assigned === myName ||
           assigned.includes(myName) ||
@@ -497,7 +510,8 @@ export function ChatView() {
           scannedBy === myName ||
           scannedBy.includes(myName) ||
           Boolean(c.assignedFreelancerName && c.assignedFreelancerName.toLowerCase() === myName) ||
-          Boolean(c.assignedFreelancerId && c.assignedFreelancerId === state.user?.id);
+          Boolean(c.assignedFreelancerId && currentUserId && (c.assignedFreelancerId === currentUserId || c.assignedFreelancerId === state.user?.userId)) ||
+          isSharedWithMe;
 
         if (scopeFilter === "mine") {
           // Strictly personal scanned QR WhatsApp chats for this closer
@@ -657,7 +671,14 @@ export function ChatView() {
               if (isQrScanner && (state.user?.role === "SALES_AGENT" || (state.user?.role as any) === "CLOSER")) {
                 const scannerName = c.scannedByName || c.payload?.scannedByName || c.assignedFreelancerName;
                 const myName = state.user?.displayName;
-                const isSharedWithMe = Array.isArray(c.payload?.sharedUserIds) && c.payload.sharedUserIds.includes(state.user?.id);
+                const currentUserId = state.user?.userId || (state.user as any)?.id;
+                const isSharedWithMe = Array.isArray(c.payload?.sharedUserIds) && (
+                  (currentUserId && c.payload.sharedUserIds.includes(currentUserId)) ||
+                  (myName && c.payload.sharedUserIds.includes(myName)) ||
+                  (Array.isArray(c.payload?.shares) && c.payload.shares.some((s: any) =>
+                    (s.userId === currentUserId || s.userId === myName) && !s.revokedAt
+                  ))
+                );
                 if (scannerName && myName && scannerName !== myName && !isSharedWithMe) {
                   return false;
                 }
@@ -2902,7 +2923,7 @@ export function ChatView() {
                 <label style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
                   Grant Access to Team Member
                 </label>
-                {isSalesCloser && !workspaceSettings.closerChatSharingEnabled ? (
+                {isSalesCloser && workspaceSettings.closerChatSharingEnabled === false ? (
                   <div className="chip" data-tone="warning" style={{ width: "100%", height: "auto", padding: "8px 10px", whiteSpace: "normal", marginTop: "4px" }}>
                     Chat sharing by sales closers is restricted by workspace governance. Contact your administrator to request sharing capabilities.
                   </div>
@@ -2915,9 +2936,22 @@ export function ChatView() {
                       style={{ flex: 1, height: "32px", fontSize: "12px" }}
                     >
                       {(() => {
-                        const candidates = shareableTeamMembers.filter(
+                        const myId = state.user?.userId || (state.user as any)?.id;
+                        const myName = (state.user?.displayName || "").toLowerCase();
+                        let candidates = shareableTeamMembers.filter(
                           (m) => !activeChat.assignedTo || m.name.toLowerCase() !== activeChat.assignedTo.toLowerCase()
                         );
+                        if (candidates.length === 0 && state.teamMembers && state.teamMembers.length > 0) {
+                          candidates = state.teamMembers
+                            .filter((m) => {
+                              const r = (m.role || "").toUpperCase();
+                              if (r === "SUPER_ADMIN" || r.includes("SUPER")) return false;
+                              if (myId && (m.id === myId || (m as any).userId === myId)) return false;
+                              if (myName && m.name.toLowerCase() === myName) return false;
+                              return true;
+                            })
+                            .map((m) => ({ id: m.id, name: m.name, role: m.role }));
+                        }
                         if (candidates.length === 0) {
                           return <option value="" disabled>No teammates available to share</option>;
                         }
