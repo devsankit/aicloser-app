@@ -130,6 +130,7 @@ export function ContactsView() {
   const [recycleLeads, setRecycleLeads] = useState<Lead[]>([]);
   const [loadingRecycle, setLoadingRecycle] = useState(false);
   const [recycleActionId, setRecycleActionId] = useState<string | null>(null);
+  const [openStageDropdownLeadId, setOpenStageDropdownLeadId] = useState<string | null>(null);
   const [confirmPermanentDeleteId, setConfirmPermanentDeleteId] = useState<string | null>(null);
 
   const [query, setQuery] = useState("");
@@ -791,30 +792,63 @@ export function ContactsView() {
                     {/* Quick Inline Stage / Status Dropdown */}
                     {isColVisible("stage") && (
                       <td onClick={(e) => e.stopPropagation()}>
-                        <label
-                          className="stage-badge-select"
-                          data-tone={stageMeta(lead.stage).tone}
-                          title={`Stage: ${stageMeta(lead.stage).label} (Click to change)`}
-                        >
-                          <span className="stage-badge-dot" />
-                          <select
-                            value={lead.stage}
-                            onChange={(e) => {
-                              const nextStage = e.target.value as StageId;
-                              handleStageChange(lead.id, nextStage, lead.name);
+                        <div style={{ position: "relative", display: "inline-block" }}>
+                          <button
+                            type="button"
+                            className="stage-badge-select"
+                            data-tone={stageMeta(lead.stage).tone}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenStageDropdownLeadId(openStageDropdownLeadId === lead.id ? null : lead.id);
                             }}
-                            aria-label={`Change stage for ${lead.name}`}
+                            title={`Stage: ${stageMeta(lead.stage).label} (Click to change)`}
                           >
-                            {STAGES.map((s) => (
-                              <option key={s.id} value={s.id}>
-                                {s.label}
-                              </option>
-                            ))}
-                          </select>
-                          <span className="stage-badge-chevron">
-                            <Icon name="chevron-down" size={10} />
-                          </span>
-                        </label>
+                            <span className="stage-badge-dot" />
+                            <span>{stageMeta(lead.stage).label}</span>
+                            <span className="stage-badge-chevron">
+                              <Icon name="chevron-down" size={10} />
+                            </span>
+                          </button>
+
+                          {openStageDropdownLeadId === lead.id && (
+                            <div className="stage-dropdown-menu" onClick={(e) => e.stopPropagation()}>
+                              {STAGES.map((s) => {
+                                const meta = stageMeta(s.id);
+                                const isActive = s.id === lead.stage;
+                                return (
+                                  <button
+                                    key={s.id}
+                                    type="button"
+                                    className="stage-dropdown-item"
+                                    data-active={isActive}
+                                    onClick={() => {
+                                      handleStageChange(lead.id, s.id, lead.name);
+                                      setOpenStageDropdownLeadId(null);
+                                    }}
+                                  >
+                                    <span
+                                      className="stage-badge-dot"
+                                      style={{
+                                        background:
+                                          meta.tone === "accent"
+                                            ? "var(--accent)"
+                                            : meta.tone === "success"
+                                            ? "var(--success)"
+                                            : meta.tone === "warning"
+                                            ? "var(--warning)"
+                                            : meta.tone === "danger"
+                                            ? "var(--danger)"
+                                            : "var(--text-tertiary)",
+                                      }}
+                                    />
+                                    <span style={{ flex: 1 }}>{s.label}</span>
+                                    {isActive && <Icon name="check" size={12} />}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
                       </td>
                     )}
 
@@ -832,14 +866,22 @@ export function ContactsView() {
                               {lead.phone}
                             </a>
                             <a
+                              href={`tel:${lead.phone}`}
+                              className="icon-btn"
+                              style={{ width: 22, height: 22 }}
+                              title={`Dial call to ${lead.phone}`}
+                            >
+                              <Icon name="phone" size={12} />
+                            </a>
+                            <a
                               href={`https://wa.me/${lead.phone.replace(/\D/g, "")}`}
                               target="_blank"
                               rel="noreferrer"
                               className="icon-btn"
-                              style={{ width: 20, height: 20 }}
-                              title="Chat on WhatsApp"
+                              style={{ width: 22, height: 22, color: "var(--success)" }}
+                              title={`Chat on WhatsApp with ${lead.phone}`}
                             >
-                              <Icon name="whatsapp" size={11} />
+                              <Icon name="whatsapp" size={12} />
                             </a>
                           </div>
                         ) : (

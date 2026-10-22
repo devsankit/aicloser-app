@@ -620,71 +620,45 @@ export function PipelineView() {
             </div>
           )}
 
-          {/* Admin vs Closer Banner Card */}
-          <div className="pool-banner-card">
-            <div className="pool-banner-info">
-              <div className="pool-banner-tag-row">
-                <span className="chip" data-tone="accent">
-                  <Icon name={isAdmin ? "users" : "zap"} size={12} /> {isAdmin ? "Admin Distribution Pool" : "First-Come, First-Served Pool"}
-                </span>
-                <span className="hint">
-                  {isAdmin ? "Team Lead Routing" : "Realtime Atomic Claiming"}
-                </span>
-              </div>
-              <h2 className="pool-banner-title">
-                {openPoolList.length} Unassigned Leads Ready for {isAdmin ? "Distribution" : "Grabbing"}
-              </h2>
-              <p className="pool-banner-desc">
-                {isAdmin
-                  ? "Incoming leads imported via Google Sheets, WhatsApp relays, CSV files, and Inbound Webhooks. You can assign each lead directly to a specific closer or auto-distribute them to the team via Round-Robin."
-                  : "Leads imported via Google Sheets, WhatsApp relays, CSV files, and Inbound Webhooks wait here. When you click Grab Lead Now, it is atomically assigned to your CRM pipeline in the New Lead stage."}
-              </p>
+          {/* Sleek Compact Linear-style Pool Bar */}
+          <div className="pool-banner-card" style={{ marginBottom: "12px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+              <span className="chip" data-tone="accent" style={{ fontWeight: 600 }}>
+                <Icon name={isAdmin ? "users" : "zap"} size={13} />
+                {isAdmin ? "Admin Distribution Pool" : "Lead Grab Pool"}
+              </span>
+              <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text)" }}>
+                {openPoolList.length} Unassigned Leads
+              </span>
+              <span className="chip" data-tone="neutral" style={{ fontSize: "11px", gap: "4px" }}>
+                <Icon name="clock" size={11} /> 10-Min Rotation Active
+              </span>
             </div>
 
-            {isAdmin ? (
-              <div className="pool-quota-card">
-                <div className="pool-quota-header">
-                  <span className="pool-quota-title">TEAM DISTRIBUTION</span>
-                  <span className="chip" data-tone="success">Active Routing</span>
-                </div>
-                <p className="pool-quota-desc">
-                  Assign leads individually below or auto-distribute across all active closers evenly.
-                </p>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              {isAdmin ? (
                 <button
                   type="button"
                   className="btn"
                   data-variant="primary"
+                  data-size="sm"
                   onClick={handleAutoDistributeAll}
                   disabled={isDistributing || openPoolList.length === 0}
                 >
-                  <Icon name={isDistributing ? "refresh" : "zap"} size={13} className={isDistributing ? "spin" : ""} />
-                  {isDistributing ? "Distributing leads..." : "Auto-Distribute (Round-Robin)"}
+                  <Icon name={isDistributing ? "refresh" : "zap"} size={12} className={isDistributing ? "spin" : ""} />
+                  {isDistributing ? "Distributing..." : "Auto-Distribute (Round-Robin)"}
                 </button>
-              </div>
-            ) : (
-              <div className="pool-quota-card">
-                <div className="pool-quota-header">
-                  <span className="pool-quota-title">YOUR ACTIVE CAPACITY</span>
-                  <span className="chip" data-tone={isAtQuota ? "danger" : "success"}>
-                    {isAtQuota ? "Quota Full" : `Claim Available (${Math.max(0, myCap - myActiveLeads)} left)`}
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <span className="hint" style={{ fontSize: "12px" }}>
+                    Capacity: <strong style={{ color: "var(--text)" }}>{myActiveLeads}</strong> / {myCap}
+                  </span>
+                  <span className="chip" data-tone={isAtQuota ? "danger" : "success"} data-size="sm">
+                    {isAtQuota ? "Quota Full" : `${Math.max(0, myCap - myActiveLeads)} slots left`}
                   </span>
                 </div>
-                <div className="pool-quota-stat">
-                  <span className="pool-quota-num">{myActiveLeads}</span>
-                  <span className="pool-quota-max">/ {myCap} max active leads</span>
-                </div>
-                <div className="pool-progress-track">
-                  <div
-                    className="pool-progress-fill"
-                    data-quota={isAtQuota}
-                    style={{ width: `${Math.min(100, (myActiveLeads / myCap) * 100)}%` }}
-                  />
-                </div>
-                <div className="pool-quota-caption">
-                  Admin controlled: {closerName} (Cap: {myCap} leads)
-                </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
 
           {/* Filter Toolbar for Pool */}

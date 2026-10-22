@@ -35,15 +35,6 @@ export default function LoginPage() {
     }
   };
 
-  const handleContinueAsDemo = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      await loginWorkspace({ identifier: "anshitasales@gmail.com", password: "Anshita@12345" });
-    } catch {}
-    setLoading(false);
-    router.push("/dashboard");
-  };
 
   const googleAuthUrl = "/api/auth/google/start?redirectTo=/dashboard";
 
@@ -168,17 +159,6 @@ export default function LoginPage() {
           <Link href="/signup">Create Workspace →</Link>
         </div>
 
-        <div style={{ textAlign: "center", marginTop: "-6px" }}>
-          <button
-            type="button"
-            className="btn"
-            data-variant="ghost"
-            data-size="sm"
-            onClick={handleContinueAsDemo}
-          >
-            Continue in Local Demo Mode &rarr;
-          </button>
-        </div>
       </div>
     </div>
   );

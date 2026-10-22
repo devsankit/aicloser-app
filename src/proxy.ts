@@ -26,6 +26,7 @@ export async function proxy(request: NextRequest) {
   if (
     pathname.startsWith("/login") ||
     pathname.startsWith("/signup") ||
+    pathname.startsWith("/super-admin/login") ||
     pathname.startsWith("/pay") ||
     pathname.startsWith("/payment-links") ||
     pathname.startsWith("/forms") ||
@@ -52,6 +53,11 @@ export async function proxy(request: NextRequest) {
   const session = await verifySessionToken(token);
 
   if (!session) {
+    if (pathname.startsWith("/super-admin")) {
+      const saLoginUrl = new URL("/super-admin/login", request.url);
+      saLoginUrl.searchParams.set("redirectTo", pathname);
+      return NextResponse.redirect(saLoginUrl);
+    }
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("redirectTo", pathname);
     return NextResponse.redirect(loginUrl);
@@ -59,7 +65,9 @@ export async function proxy(request: NextRequest) {
 
   // 5. Super Admin routes strict role check
   if (pathname.startsWith("/super-admin") && session.role !== "SUPER_ADMIN") {
-    return NextResponse.redirect(new URL("/unauthorized", request.url));
+    const saLoginUrl = new URL("/super-admin/login", request.url);
+    saLoginUrl.searchParams.set("error", "Unauthorized: Super Admin credentials required");
+    return NextResponse.redirect(saLoginUrl);
   }
 
   return NextResponse.next();
