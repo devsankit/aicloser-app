@@ -89,20 +89,21 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
   }, [allOwners, draft.owner]);
 
   const availableWorkspaceLabels = useMemo(() => {
-    const currentTags = new Set(draft.tags.map((t) => t.toLowerCase()));
-    return workspaceLabels.filter((l) => !currentTags.has(l.name.toLowerCase()));
+    const currentTags = new Set((draft.tags || []).filter(Boolean).map((t) => String(t).toLowerCase()));
+    return workspaceLabels.filter((l) => l?.name && !currentTags.has(l.name.toLowerCase()));
   }, [workspaceLabels, draft.tags]);
 
   const addTag = (tagName: string, color?: string) => {
     const trimmed = tagName.trim();
     if (!trimmed) return;
     const finalColor = color || selectedTagColor;
-    if (!draft.tags.some((t) => t.toLowerCase() === trimmed.toLowerCase())) {
-      const nextTags = [...draft.tags, trimmed];
+    const safeTags = draft.tags || [];
+    if (!safeTags.some((t) => String(t || "").toLowerCase() === trimmed.toLowerCase())) {
+      const nextTags = [...safeTags, trimmed];
       setDraft((d) => ({ ...d, tags: nextTags }));
       setRawTagsInput(nextTags.join(", "));
       updateLead(lead.id, { tags: nextTags });
-      if (!workspaceLabels.some((l) => l.name.toLowerCase() === trimmed.toLowerCase())) {
+      if (!workspaceLabels.some((l) => (l?.name || "").toLowerCase() === trimmed.toLowerCase())) {
         aicloserApi.labels.create({ name: trimmed, color: finalColor }).then(() => {
           loadWorkspaceLabels();
         }).catch(() => {});

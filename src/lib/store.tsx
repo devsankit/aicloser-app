@@ -1050,7 +1050,7 @@ export function useScopedLeads() {
     if (state.scope.startsWith("agent:")) {
       const targetAgent = state.scope.slice(6).trim().toLowerCase();
       return state.leads.filter(
-        (l) => l.owner.toLowerCase() === targetAgent || l.owner.toLowerCase().includes(targetAgent)
+        (l) => (l.owner || "").toLowerCase() === targetAgent || (l.owner || "").toLowerCase().includes(targetAgent)
       );
     }
     // Default "all" scope (All team leads):

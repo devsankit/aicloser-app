@@ -312,26 +312,30 @@ export function ContactsView() {
     const q = query.trim().toLowerCase();
     const qDigits = q.replace(/\D/g, "");
     const filtered = leads.filter((l) => {
+      if (!l) return false;
       if (stage && l.stage !== stage) return false;
       if (!q) return true;
-      const leadPhoneDigits = (l.phone || "").replace(/\D/g, "");
+      const leadPhone = l.phone || "";
+      const leadPhoneDigits = leadPhone.replace(/\D/g, "");
       const phoneMatches =
-        l.phone.includes(q) ||
+        leadPhone.includes(q) ||
         (qDigits.length >= 4 && leadPhoneDigits.includes(qDigits));
       return (
-        l.name.toLowerCase().includes(q) ||
-        l.company.toLowerCase().includes(q) ||
-        l.code.toLowerCase().includes(q) ||
-        l.email.toLowerCase().includes(q) ||
+        (l.name || "").toLowerCase().includes(q) ||
+        (l.company || "").toLowerCase().includes(q) ||
+        (l.code || "").toLowerCase().includes(q) ||
+        (l.email || "").toLowerCase().includes(q) ||
         phoneMatches ||
-        l.owner.toLowerCase().includes(q) ||
-        (l.notes && l.notes.toLowerCase().includes(q))
+        (l.owner || "").toLowerCase().includes(q) ||
+        ((l.notes || "").toLowerCase().includes(q))
       );
     });
     return filtered.sort((a, b) => {
-      if (sort === "name") return a.name.localeCompare(b.name);
-      if (sort === "value") return b.value - a.value;
-      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      if (sort === "name") return (a.name || "").localeCompare(b.name || "");
+      if (sort === "value") return (Number(b.value) || 0) - (Number(a.value) || 0);
+      const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+      const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+      return bTime - aTime;
     });
   }, [leads, query, stage, sort]);
 
@@ -385,7 +389,7 @@ export function ContactsView() {
       ?.scrollIntoView({ block: "nearest" });
   }, [cursor]);
 
-  const total = rows.reduce((s, l) => s + l.value, 0);
+  const total = rows.reduce((s, l) => s + (Number(l.value) || 0), 0);
   const active = leads.find((l) => l.id === selected) ?? null;
 
   const bulkMove = (to: StageId) => {
@@ -494,7 +498,7 @@ export function ContactsView() {
       </header>
 
       {/* Toolbar with Search, Filter & Flexible Column Selector */}
-      <div className="pipe-toolbar" className="pipe-toolbar">
+      <div className="pipe-toolbar">
         <div className="pipe-search">
           <Icon name="search" size={14} />
           <input
@@ -605,7 +609,7 @@ export function ContactsView() {
       </div>
 
       {/* Filter summary chips */}
-      <div className="chip-row" className="pipe-toolbar">
+      <div className="chip-row">
         {stage ? (
           <span className="chip-x">
             Status <b>{stageMeta(stage).label}</b>
@@ -741,26 +745,33 @@ export function ContactsView() {
 
                     {/* Priority */}
                     <td style={{ width: 34, textAlign: "center" }}>
-                      <button
-                        type="button"
-                        className="list-prio"
-                        aria-label={`Change priority from ${PRIORITY_LABEL[lead.priority]}`}
-                        title={`Priority: ${PRIORITY_LABEL[lead.priority]} • Click to change`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const nextPrio = PRIO_CYCLE[lead.priority] || "medium";
-                          updateLead(lead.id, { priority: nextPrio });
-                          setToastMessage(`Updated ${lead.name} priority to ${PRIORITY_LABEL[nextPrio]}`);
-                        }}
-                      >
-                        <Icon
-                          name={PRIORITY_ICON[lead.priority] as never}
-                          size={14}
-                          className="prio"
-                          data-priority={lead.priority}
-                          aria-label={PRIORITY_LABEL[lead.priority]}
-                        />
-                      </button>
+                      {(() => {
+                        const prio = ((lead.priority || "medium").toLowerCase()) as Priority;
+                        const prioLabel = PRIORITY_LABEL[prio] || "Medium";
+                        const prioIcon = (PRIORITY_ICON[prio] || "priority-medium") as never;
+                        const nextPrio = PRIO_CYCLE[prio] || "medium";
+                        return (
+                          <button
+                            type="button"
+                            className="list-prio"
+                            aria-label={`Change priority from ${prioLabel}`}
+                            title={`Priority: ${prioLabel} • Click to change`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              updateLead(lead.id, { priority: nextPrio });
+                              setToastMessage(`Updated ${lead.name || "lead"} priority to ${PRIORITY_LABEL[nextPrio] || "Medium"}`);
+                            }}
+                          >
+                            <Icon
+                              name={prioIcon}
+                              size={14}
+                              className="prio"
+                              data-priority={prio}
+                              aria-label={prioLabel}
+                            />
+                          </button>
+                        );
+                      })()}
                     </td>
 
                     {/* Lead / Contact */}
@@ -875,11 +886,11 @@ export function ContactsView() {
                       <td>
                         <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                           <span
-                            className={`mini-avatar ${lead.owner === "Unassigned" ? "is-empty" : ""}`}
+                            className={`mini-avatar ${!lead.owner || lead.owner === "Unassigned" ? "is-empty" : ""}`}
                           >
-                            {lead.owner === "Unassigned" ? "?" : lead.owner.slice(0, 1)}
+                            {!lead.owner || lead.owner === "Unassigned" ? "?" : lead.owner.slice(0, 1)}
                           </span>
-                          <span className="cell-muted">{lead.owner}</span>
+                          <span className="cell-muted">{lead.owner || "Unassigned"}</span>
                         </div>
                       </td>
                     )}
@@ -888,7 +899,7 @@ export function ContactsView() {
                     {isColVisible("value") && (
                       <td className="cell-mono">
                         <div className="chip-row">
-                          <span>{money(lead.value)}</span>
+                          <span>{money(Number(lead.value) || 0)}</span>
                           {((lead as any).paymentStatus === "PENDING" || (lead as any).paymentStatus === "PAYMENT_PENDING") && (
                             <span className="chip" data-tone="warning">
                               Pending
