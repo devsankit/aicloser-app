@@ -137,6 +137,7 @@ export function CrmSettingsPanel({
     allowNonAdminImportData: true,
     allowNonAdminExportData: false,
     allowNonAdminBulkCampaigns: false,
+    allowQrLeadsRoundRobin: false,
     fallbackAgentId: null,
     updatedAt: new Date().toISOString(),
   });
@@ -170,6 +171,7 @@ export function CrmSettingsPanel({
       enabled: Boolean(settings.enabled),
       strategy,
       maxActiveLeadsPerAgent: Number(settings.maxActiveLeadsPerCloser ?? rrSettings.maxActiveLeadsPerAgent),
+      allowQrLeadsRoundRobin: Boolean(settings.allowQrLeadsRoundRobin ?? false),
       lastAssignedIndex: -1,
       participatingAgentIds: currentAgentIds.length > 0 ? currentAgentIds : centralAgentIds,
       updatedAt: new Date().toISOString(),
@@ -252,6 +254,7 @@ export function CrmSettingsPanel({
           enabled: rrSettings.enabled,
           mode: rrSettings.strategy === "CAPACITY_WEIGHTED" ? "LOAD_BALANCED" : "STRICT_ROUND_ROBIN",
           maxActiveLeadsPerCloser: rrSettings.maxActiveLeadsPerAgent,
+          allowQrLeadsRoundRobin: Boolean(rrSettings.allowQrLeadsRoundRobin),
         }),
         // Sync with central API and legacy /api/sales/chat-visibility
         aicloserApi.conversations.updateChatVisibility({
@@ -732,6 +735,39 @@ export function CrmSettingsPanel({
                   disabled={!isAdmin}
                   onChange={(event) => setShowOnlyAssignedChats(event.target.checked)}
                   aria-label="Show only assigned chats to sales users"
+                  style={{ width: 20, height: 20, flex: "0 0 auto" }}
+                />
+              </div>
+
+              {/* Team Member Scanned WhatsApp Lead Distribution Policy */}
+              <div
+                style={{
+                  padding: 16,
+                  borderRadius: 14,
+                  background: rrSettings.allowQrLeadsRoundRobin ? "rgba(16, 185, 129, 0.1)" : "var(--closer-surface-soft)",
+                  border: rrSettings.allowQrLeadsRoundRobin ? "1px solid rgba(16, 185, 129, 0.35)" : "1px solid var(--closer-line, rgba(148, 163, 184, 0.25))",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 16,
+                }}
+              >
+                <div>
+                  <strong style={{ fontSize: "0.95rem", display: "block" }}>
+                    Include Team Member Scanned WhatsApp Leads in Round-Robin
+                  </strong>
+                  <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4, lineHeight: 1.5 }}>
+                    {rrSettings.allowQrLeadsRoundRobin
+                      ? "Enabled — Inbound leads arriving on any team member's scanned WhatsApp QR line will rotate to other sales reps via round-robin."
+                      : "Disabled (Recommended) — Leads from a team member's personal scanned WhatsApp stay strictly assigned to that specific team member only."}
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={Boolean(rrSettings.allowQrLeadsRoundRobin)}
+                  disabled={!isAdmin}
+                  onChange={(event) => setRrSettings({ ...rrSettings, allowQrLeadsRoundRobin: event.target.checked })}
+                  aria-label="Include Team Member Scanned WhatsApp Leads in Round-Robin"
                   style={{ width: 20, height: 20, flex: "0 0 auto" }}
                 />
               </div>

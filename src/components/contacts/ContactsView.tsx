@@ -607,10 +607,10 @@ export function ContactsView() {
       {/* View 1: Customizable Table View */}
       {viewMode === "table" ? (
         <div className="table-wrap" ref={listRef}>
-          <table className="table" style={{ width: "100%", textAlign: "left" }}>
+          <table className="table table-full">
             <thead>
               <tr>
-                <th style={{ width: 38, textAlign: "center" }}>
+                <th className="table-col-check">
                   <input
                     type="checkbox"
                     aria-label="Select all contacts"
@@ -621,14 +621,14 @@ export function ContactsView() {
                     }}
                   />
                 </th>
-                <th style={{ width: 34, textAlign: "center" }}>Prio</th>
-                {isColVisible("contact") && <th style={{ minWidth: 200 }}>Lead / Contact</th>}
-                {isColVisible("stage") && <th style={{ minWidth: 155 }}>Stage / Status</th>}
-                {isColVisible("phone") && <th style={{ minWidth: 130 }}>Phone</th>}
+                <th className="table-col-prio">Prio</th>
+                {isColVisible("contact") && <th className="table-col-contact">Lead / Contact</th>}
+                {isColVisible("stage") && <th className="table-col-stage">Stage / Status</th>}
+                {isColVisible("phone") && <th className="table-col-phone">Phone</th>}
                 {isColVisible("notes") && <th style={{ minWidth: 190 }}>Notes</th>}
                 {isColVisible("callback") && <th style={{ minWidth: 140 }}>Next Callback</th>}
-                {isColVisible("owner") && <th style={{ minWidth: 130 }}>Assigned Closer</th>}
-                {isColVisible("value") && <th style={{ minWidth: 90 }}>Deal Value</th>}
+                {isColVisible("owner") && <th className="table-col-owner">Assigned Closer</th>}
+                {isColVisible("value") && <th className="table-col-value">Deal Value</th>}
                 {isColVisible("source") && <th style={{ minWidth: 110 }}>Source</th>}
                 {isColVisible("email") && <th style={{ minWidth: 150 }}>Email</th>}
                 {isColVisible("tags") && <th style={{ minWidth: 120 }}>Tags</th>}

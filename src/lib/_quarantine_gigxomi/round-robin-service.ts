@@ -15,6 +15,7 @@ export type RoundRobinSettings = {
   allowNonAdminImportData: boolean;
   allowNonAdminExportData: boolean;
   allowNonAdminBulkCampaigns: boolean;
+  allowQrLeadsRoundRobin?: boolean;
   fallbackAgentId?: string | null;
   updatedAt: string;
 };
@@ -38,6 +39,7 @@ export function getDefaultRoundRobinSettings(tenantId: string): RoundRobinSettin
     allowNonAdminImportData: true,
     allowNonAdminExportData: false,
     allowNonAdminBulkCampaigns: false,
+    allowQrLeadsRoundRobin: false,
     fallbackAgentId: null,
     updatedAt: new Date().toISOString(),
   };

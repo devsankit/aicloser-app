@@ -158,15 +158,13 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
               className="icon-btn"
               title="Activity & 360 View"
               aria-label="Lead activity"
-              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}
             >
               <Icon name="branch" size={14} />
             </a>
             <button
-              className="icon-btn"
+              className="icon-btn ml-auto"
               onClick={onClose}
               aria-label="Close lead"
-              style={{ marginLeft: "auto" }}
             >
               <Icon name="close" size={15} />
             </button>
@@ -191,7 +189,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
             />
           </div>
 
-          <div style={{ display: "flex", gap: "8px", margin: "12px 0 16px 0", flexWrap: "wrap" }}>
+          <div className="drawer-quick-actions">
             {draft.owner === "Unassigned" && (
               <button
                 className="btn"
@@ -251,52 +249,42 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
           </div>
 
           {reassignModalOpen && (
-            <div
-              className="card"
-              style={{
-                margin: "0 0 16px 0",
-                padding: "12px 14px",
-                background: "var(--bg-soft)",
-                border: "1px solid var(--accent)",
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                <span style={{ fontWeight: 600, fontSize: "var(--fs-caption)", color: "var(--accent)", display: "flex", alignItems: "center", gap: "6px" }}>
+            <div className="drawer-reassign-card">
+              <div className="drawer-reassign-head">
+                <span className="drawer-reassign-title">
                   <Icon name="branch" size={13} /> Closer-to-Closer Handover
                 </span>
                 <button
                   className="icon-btn"
                   onClick={() => setReassignModalOpen(false)}
-                  style={{ padding: "2px" }}
+                  aria-label="Close handover panel"
                 >
                   <Icon name="close" size={12} />
                 </button>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                <div>
-                  <label style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Target Closer</label>
+              <div className="drawer-reassign-body">
+                <div className="field">
+                  <label className="field-label">Target Closer</label>
                   <select
                     className="select"
                     value={targetCloser}
                     onChange={(e) => setTargetCloser(e.target.value)}
-                    style={{ width: "100%", height: "28px", marginTop: "2px" }}
                   >
                     {availableOwners.map((o) => (
                       <option key={o} value={o}>{o}</option>
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Handover Context / Reason</label>
+                <div className="field">
+                  <label className="field-label">Handover Context / Reason</label>
                   <input
                     className="input"
                     value={handoverNote}
                     onChange={(e) => setHandoverNote(e.target.value)}
                     placeholder="e.g. Lead requested product demo callback; price negotiation approved"
-                    style={{ marginTop: "2px" }}
                   />
                 </div>
-                <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end", marginTop: "4px" }}>
+                <div className="drawer-reassign-actions">
                   <button className="btn" data-size="sm" onClick={() => setReassignModalOpen(false)}>Cancel</button>
                   <button
                     className="btn"
@@ -544,7 +532,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
               >
                 <Icon name="trash" size={14} /> Delete
               </button>
-              <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+              <div className="drawer-foot-end">
                 <button className="btn" onClick={onClose}>
                   Close
                 </button>

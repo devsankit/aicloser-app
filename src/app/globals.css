@@ -5723,3 +5723,95 @@ button.list-prio:hover {
 
 
 
+
+/* Drawer & Modal Utilities */
+.drawer-quick-actions {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0 16px 0;
+  flex-wrap: wrap;
+}
+
+.drawer-reassign-card {
+  margin: 0 0 16px 0;
+  padding: 12px 14px;
+  background: var(--bg-soft);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-md);
+}
+
+.drawer-reassign-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.drawer-reassign-title {
+  font-weight: 600;
+  font-size: var(--fs-caption);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.drawer-reassign-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.drawer-reassign-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.drawer-foot-end {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.table-col-check {
+  width: 38px;
+  text-align: center;
+}
+
+.table-col-prio {
+  width: 34px;
+  text-align: center;
+}
+
+.table-col-contact {
+  min-width: 200px;
+}
+
+.table-col-stage {
+  min-width: 155px;
+}
+
+.table-col-phone {
+  min-width: 130px;
+}
+
+.table-col-owner {
+  min-width: 130px;
+}
+
+.table-col-value {
+  min-width: 110px;
+  text-align: right;
+}
+
+.table-col-date {
+  min-width: 115px;
+}
+
+.table-col-actions {
+  width: 80px;
+  text-align: right;
+}
