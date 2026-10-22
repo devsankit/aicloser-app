@@ -479,12 +479,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
           : Array.isArray((teamData as any)?.data?.members)
           ? (teamData as any).data.members
           : [];
-        const teamMembers = rawTeam.map((m: any) => ({
-          id: String(m.id || m.userId),
-          name: m.displayName || m.user?.displayName || m.name || "Sales Agent",
-          displayName: m.displayName || m.user?.displayName || m.name || "Sales Agent",
-          role: m.role || m.workspaceRole || "SALES_AGENT",
-        }));
+        const teamMembers = rawTeam
+          .filter((m: any) => {
+            const role = (m.role || m.workspaceRole || m.user?.role || "").toUpperCase();
+            return role !== "SUPER_ADMIN" && !role.includes("SUPER");
+          })
+          .map((m: any) => ({
+            id: String(m.id || m.userId),
+            name: m.displayName || m.user?.displayName || m.name || "Sales Agent",
+            displayName: m.displayName || m.user?.displayName || m.name || "Sales Agent",
+            role: m.role || m.workspaceRole || "SALES_AGENT",
+          }));
         const userTheme: Theme | undefined = me.user?.themePreference
           ? (String(me.user.themePreference).toLowerCase() === "dark" ? "dark" : "light")
           : undefined;
@@ -867,6 +872,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (typeof window !== "undefined") {
       window.localStorage.removeItem("aicloser_token");
       window.localStorage.removeItem("closer_token");
+      window.localStorage.removeItem("aicloser_auth_token");
+      window.localStorage.removeItem("token");
+      window.localStorage.removeItem("aicloser_user_session");
+      document.cookie = "aicloser_token=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      document.cookie = "aicloser_auth_token=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      document.cookie = "gx_session=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      document.cookie = "gx_role=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      document.cookie = "gx_tenant=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT";
       window.location.href = "/login";
     }
     setState((p) => ({ ...p, apiConnected: false, isLiveCloud: false, user: null, workspaceAuth: null }));

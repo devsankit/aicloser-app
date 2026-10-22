@@ -962,23 +962,76 @@ export function PaymentsView() {
                 UTR / Reference: <b style={{ fontFamily: "var(--mono)", color: "var(--text)" }}>{selectedProofTx.utr || "Attached"}</b>
               </div>
 
-              <div
-                style={{
-                  height: "140px",
-                  background: "var(--bg-soft)",
-                  borderRadius: "var(--r-md)",
-                  border: "1px dashed var(--border-strong)",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "6px",
-                }}
-              >
-                <Icon name="card" size={28} />
-                <span style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)" }}>UPI Transfer Screenshot Verified</span>
-                <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Ref #{selectedProofTx.utr || selectedProofTx.id.slice(-8)}</span>
-              </div>
+              {selectedProofTx.hasProof ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px", alignItems: "center" }}>
+                  <img
+                    src={`/api/v1/payments/${selectedProofTx.id}/proof`}
+                    alt={`Payment receipt for ${selectedProofTx.customerName}`}
+                    style={{
+                      maxHeight: "320px",
+                      maxWidth: "100%",
+                      borderRadius: "var(--r-md)",
+                      border: "1px solid var(--border)",
+                      objectFit: "contain",
+                      background: "var(--bg-soft)",
+                    }}
+                    onError={(e) => {
+                      const target = e.currentTarget as HTMLImageElement;
+                      target.style.display = "none";
+                      const fallback = target.nextElementSibling as HTMLElement;
+                      if (fallback) fallback.style.display = "flex";
+                    }}
+                  />
+                  <div
+                    style={{
+                      display: "none",
+                      height: "140px",
+                      width: "100%",
+                      background: "var(--bg-soft)",
+                      borderRadius: "var(--r-md)",
+                      border: "1px dashed var(--border-strong)",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "6px",
+                    }}
+                  >
+                    <Icon name="card" size={28} />
+                    <span style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)" }}>UPI Transfer Proof on Record</span>
+                    <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Ref #{selectedProofTx.utr || selectedProofTx.id.slice(-8)}</span>
+                  </div>
+                  <a
+                    href={`/api/v1/payments/${selectedProofTx.id}/proof`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn"
+                    data-variant="outline"
+                    data-size="sm"
+                  >
+                    <Icon name="maximize" size={13} /> View Full Resolution
+                  </a>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    height: "140px",
+                    background: "var(--bg-soft)",
+                    borderRadius: "var(--r-md)",
+                    border: "1px dashed var(--border-strong)",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "6px",
+                  }}
+                >
+                  <Icon name="card" size={28} />
+                  <span style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)" }}>
+                    {selectedProofTx.utr ? `UTR: ${selectedProofTx.utr}` : "No Screenshot Attached"}
+                  </span>
+                  <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Ref #{selectedProofTx.utr || selectedProofTx.id.slice(-8)}</span>
+                </div>
+              )}
             </div>
             <div className="dialog-foot">
               <button type="button" className="btn" data-variant="ghost" onClick={() => handleRejectProof(selectedProofTx.id)} disabled={isPending}>

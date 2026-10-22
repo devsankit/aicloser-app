@@ -1068,7 +1068,7 @@ function BuilderInner({
   runs,
   fullScreen = false,
   initialFlowId,
-  apiPath = "/api/sales/whatsapp-flows",
+  apiPath = "/api/v1/whatsapp-flows",
   fullViewBasePath = "/super-admin/whatsapp-flows",
   backHref = "/super-admin/whatsapp-flows",
 }: Props) {

@@ -112,7 +112,7 @@ export function ChannelsView() {
     try {
       const [waRes, scannerRes, igRes, driveRes, tokenRes] = await Promise.allSettled([
         aicloserApi.integrations.whatsapp.listChannels(),
-        fetch("/api/sales/whatsapp-scanner").then((r) => (r.ok ? r.json() : null)),
+        fetch("/api/v1/integrations/whatsapp/devices").then((r) => (r.ok ? r.json() : null)),
         fetch("/api/v1/integrations/instagram/status").then((r) => (r.ok ? r.json() : null)),
         fetch("/api/v1/integrations/google-drive/status").then((r) => (r.ok ? r.json() : null)),
         fetch("/api/v1/developer/token").then((r) => (r.ok ? r.json() : null)),

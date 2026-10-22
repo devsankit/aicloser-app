@@ -228,10 +228,15 @@ export function LeadImportView() {
 
   const loadScannerState = async () => {
     try {
-      const res = await fetch("/api/sales/whatsapp-scanner", { cache: "no-store" });
-      const data = await res.json();
-      if (data?.ok && data.scanner) {
-        setScannerState(data.scanner);
+      const res = await aicloserApi.integrations.whatsapp.devices.list();
+      const firstConnected = (res?.data || []).find((d: any) => d.status === "connected");
+      if (firstConnected) {
+        setScannerState({
+          connectedPhone: firstConnected.phoneNumber || firstConnected.name,
+          platform: "MULTI_DEVICE",
+          lastSync: new Date().toISOString(),
+          discoveredChats: [],
+        } as any);
       }
     } catch {
       // ignore
@@ -249,17 +254,11 @@ export function LeadImportView() {
     setScannerErrorMsg(null);
     setScannerSuccessMsg(null);
     try {
-      const res = await fetch("/api/sales/whatsapp-scanner", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "start_scan", accountType: "WHATSAPP_BUSINESS", syncMode: "FULL_INBOX_SYNC" }),
-      });
-      const data = await res.json();
-      if (data?.scanner) {
-        setScannerState(data.scanner);
-        if (data.scanner.qrCodeDataUrl) setScannerQrData(data.scanner.qrCodeDataUrl);
-        if (data.scanner.pairingCode) setScannerPairingCode(data.scanner.pairingCode);
+      const res: any = await aicloserApi.integrations.whatsapp.devices.pair();
+      if (res?.qrDataUrl || res?.qrCode) {
+        setScannerQrData(res.qrDataUrl || res.qrCode);
       }
+      if (res?.pairingCode) setScannerPairingCode(res.pairingCode);
     } catch {
       setScannerPairingCode("7482-9104");
     }
@@ -273,19 +272,11 @@ export function LeadImportView() {
     setScannerIsLinking(true);
     setScannerErrorMsg(null);
     try {
-      const res = await fetch("/api/sales/whatsapp-scanner", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "confirm_pair",
-          phoneNumber: scannerPhoneInput.trim(),
-          name: state.user?.displayName || "Admin WhatsApp Line",
-          sessionId: scannerState?.sessionId || `wa_${Date.now()}`,
-        }),
-      });
-      const data = await res.json();
-      if (data?.scanner) {
-        setScannerState(data.scanner);
+      const res: any = await aicloserApi.integrations.whatsapp.devices.confirmPair(
+        scannerPhoneInput.trim(),
+        state.user?.displayName || "Admin WhatsApp Line"
+      );
+      if (res?.success || res?.status === "connected") {
         setScannerSuccessMsg(`✓ Linked WhatsApp number ${scannerPhoneInput.trim()} successfully!`);
         setTimeout(() => {
           setScannerQrModal(false);
@@ -304,9 +295,8 @@ export function LeadImportView() {
   const handleExtractWhatsAppChats = async () => {
     setIsProcessing(true);
     try {
-      const res = await fetch("/api/sales/whatsapp-scanner", { cache: "no-store" });
-      const data = await res.json();
-      const discovered = data?.scanner?.discoveredChats || [];
+      const res: any = await aicloserApi.integrations.whatsapp.devices.importAll().catch(() => null);
+      const discovered = res?.leads || [];
       if (discovered.length > 0) {
         const headers = ["Contact Name", "Phone", "Last Message", "Labels"];
         const rows = discovered.map((c: any) => ({

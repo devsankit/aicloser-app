@@ -95,11 +95,16 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
     }
     if (state.teamMembers && state.teamMembers.length > 0) {
       state.teamMembers.forEach((m) => {
+        const r = (m.role || "").toUpperCase();
+        if (r === "SUPER_ADMIN" || r.includes("SUPER") || r === "ADMIN") return;
         if (m.name && !list.includes(m.name)) list.push(m.name);
       });
     } else {
       if (state.user?.displayName && !list.includes(state.user.displayName)) {
-        list.push(state.user.displayName);
+        const uRole = (state.user?.role || "").toUpperCase();
+        if (uRole !== "SUPER_ADMIN" && !uRole.includes("SUPER") && uRole !== "ADMIN") {
+          list.push(state.user.displayName);
+        }
       }
       state.leads.forEach((l) => {
         if (l.owner && l.owner !== "Unassigned" && !list.includes(l.owner)) {
@@ -325,13 +330,12 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
             {draft.phone && (
               <>
                 <a
-                  href={`https://wa.me/${draft.phone.replace(/\D/g, "")}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  href={`/chat?leadId=${lead.id}&phone=${encodeURIComponent(draft.phone)}`}
                   className="btn"
                   data-size="sm"
                   data-variant="accent"
                   style={{ textDecoration: "none" }}
+                  title="Open live chat thread for this lead"
                 >
                   <Icon name="whatsapp" size={13} /> WhatsApp
                 </a>
@@ -371,74 +375,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
             >
               <Icon name="handshake" size={13} /> Transfer Lead
             </button>
-            <button
-              className="btn"
-              data-size="sm"
-              data-variant="ghost"
-              onClick={() => setReassignModalOpen((v) => !v)}
-              title="Transfer or reassign to another closer with context notes"
-            >
-              <Icon name="branch" size={13} /> Reassign Closer
-            </button>
           </div>
-
-          {reassignModalOpen && (
-            <div className="drawer-reassign-card">
-              <div className="drawer-reassign-head">
-                <span className="drawer-reassign-title">
-                  <Icon name="branch" size={13} /> Closer-to-Closer Handover
-                </span>
-                <button
-                  className="icon-btn"
-                  onClick={() => setReassignModalOpen(false)}
-                  aria-label="Close handover panel"
-                >
-                  <Icon name="close" size={12} />
-                </button>
-              </div>
-              <div className="drawer-reassign-body">
-                <div className="field">
-                  <label className="field-label">Target Closer</label>
-                  <select
-                    className="select"
-                    value={targetCloser}
-                    onChange={(e) => setTargetCloser(e.target.value)}
-                  >
-                    {availableOwners.map((o) => (
-                      <option key={o} value={o}>{o}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="field">
-                  <label className="field-label">Handover Context / Reason</label>
-                  <input
-                    className="input"
-                    value={handoverNote}
-                    onChange={(e) => setHandoverNote(e.target.value)}
-                    placeholder="e.g. Lead requested product demo callback; price negotiation approved"
-                  />
-                </div>
-                <div className="drawer-reassign-actions">
-                  <button className="btn" data-size="sm" onClick={() => setReassignModalOpen(false)}>Cancel</button>
-                  <button
-                    className="btn"
-                    data-size="sm"
-                    data-variant="accent"
-                    onClick={() => {
-                      reassignLead(lead.id, targetCloser, handoverNote);
-                      set("owner", targetCloser);
-                      if (handoverNote) {
-                        set("notes", `${draft.notes ? draft.notes + "\n\n" : ""}[Reassigned to ${targetCloser}]: ${handoverNote}`);
-                      }
-                      setReassignModalOpen(false);
-                    }}
-                  >
-                    Confirm Reassignment
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
 
           <div className="field-rows">
             <div className="field-row">
@@ -511,18 +448,27 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
               <span className="field-label">
                 <Icon name="users" size={14} /> Assignee
               </span>
-              <select
-                className="select"
-                value={draft.owner}
-                onChange={(e) => set("owner", e.target.value)}
-                aria-label="Assignee"
-              >
-                {allOwners.map((o) => (
-                  <option key={o} value={o}>
-                    {o}
-                  </option>
-                ))}
-              </select>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", gap: "8px" }}>
+                <span className="chip" data-tone="accent" style={{ fontWeight: 600 }}>
+                  <Icon name="users" size={12} /> {draft.owner || "Unassigned"}
+                </span>
+                <button
+                  type="button"
+                  className="btn"
+                  data-size="sm"
+                  data-variant="outline"
+                  onClick={() => {
+                    if (state.teamMembers?.length) {
+                      const firstOther = state.teamMembers.find((m) => m.id !== state.user?.id);
+                      if (firstOther) setTransferTargetAgentId(firstOther.id);
+                    }
+                    setTransferModalOpen(true);
+                  }}
+                  title="Transfer lead to another closer"
+                >
+                  <Icon name="handshake" size={12} /> Transfer
+                </button>
+              </div>
             </div>
 
 
@@ -829,11 +775,16 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                 >
                   <option value="" disabled>Choose teammate...</option>
                   {state.teamMembers && state.teamMembers.length > 0 ? (
-                    state.teamMembers.map((m) => (
-                      <option key={m.id} value={m.id} disabled={m.id === state.user?.id}>
-                        {m.name} {m.role ? `(${m.role})` : ""} {m.id === state.user?.id ? "— You" : ""}
-                      </option>
-                    ))
+                    state.teamMembers
+                      .filter((m) => {
+                        const r = (m.role || "").toUpperCase();
+                        return r !== "SUPER_ADMIN" && !r.includes("SUPER") && r !== "ADMIN";
+                      })
+                      .map((m) => (
+                        <option key={m.id} value={m.id} disabled={m.id === state.user?.id}>
+                          {m.name} {m.role ? `(${m.role})` : ""} {m.id === state.user?.id ? "— You" : ""}
+                        </option>
+                      ))
                   ) : (
                     <option value="round_robin">Available Team Closers</option>
                   )}

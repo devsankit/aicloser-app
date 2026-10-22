@@ -58,6 +58,33 @@ function formatMessageTime(dateString?: string | null): string {
   }
 }
 
+function playNotificationChime() {
+  if (typeof window === "undefined") return;
+  try {
+    const audio = new Audio("/sounds/chat-notification.mp3");
+    audio.volume = 0.6;
+    audio.play().catch(() => {
+      // AudioContext fallback for instant synthesized chime
+      try {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        osc.frequency.setValueAtTime(1174, ctx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.35);
+      } catch {}
+    });
+  } catch {}
+}
+
 function getMessageDateKey(dateString?: string): string {
   if (!dateString) return "Today";
   try {
@@ -613,8 +640,8 @@ export function ChatView() {
           if (!active) return;
           const apiMapped: ConversationItem[] = (res?.conversations || [])
             .filter((c: any) => {
-              const isManualQr = c.serviceSlug === "manual-chat" || c.channelSource === "QR_SCANNER" || c.isPersonalQr === true;
-              if (isManualQr && (state.user?.role === "SALES_AGENT" || (state.user?.role as any) === "CLOSER")) {
+              const isQrScanner = c.channelSource === "QR_SCANNER" || c.serviceSlug === "whatsapp-companion" || c.isPersonalQr === true;
+              if (isQrScanner && (state.user?.role === "SALES_AGENT" || (state.user?.role as any) === "CLOSER")) {
                 const scannerName = c.scannedByName || c.payload?.scannedByName || c.assignedFreelancerName;
                 const myName = state.user?.displayName;
                 const isSharedWithMe = Array.isArray(c.payload?.sharedUserIds) && c.payload.sharedUserIds.includes(state.user?.id);
@@ -625,7 +652,7 @@ export function ChatView() {
               return true;
             })
             .map((c: any) => {
-            const isManualQr = c.serviceSlug === "manual-chat" || c.channelSource === "QR_SCANNER" || c.isPersonalQr === true;
+            const isQrScanner = c.channelSource === "QR_SCANNER" || c.serviceSlug === "whatsapp-companion" || c.isPersonalQr === true;
             return {
               id: c.id,
               leadId: c.leadId || `ld-${c.id.slice(-4)}`,
@@ -637,13 +664,13 @@ export function ChatView() {
                 : c.channel === "website"
                 ? "website"
                 : "whatsapp") as "whatsapp" | "instagram" | "website",
-              channelSource: isManualQr ? "QR_SCANNER" : (c.channelSource || "OFFICIAL_API"),
-              channelSourceLabel: isManualQr
+              channelSource: isQrScanner ? "QR_SCANNER" : (c.channelSource || "OFFICIAL_API"),
+              channelSourceLabel: isQrScanner
                 ? (c.channelSourceLabel || (c.scannedByName ? `QR: ${c.scannedByName}` : "Personal WhatsApp QR"))
                 : (c.channelSourceLabel || "Company API • +91 95895 10954"),
-              scannedByName: isManualQr ? (c.scannedByName || c.payload?.scannedByName || c.assignedFreelancerName || null) : null,
-              isOfficialApi: !isManualQr,
-              isPersonalQr: isManualQr,
+              scannedByName: isQrScanner ? (c.scannedByName || c.payload?.scannedByName || c.assignedFreelancerName || null) : null,
+              isOfficialApi: !isQrScanner,
+              isPersonalQr: isQrScanner,
               isReassignable: c.isReassignable !== false,
               lastMessage: c.lastMessageSnippet || c.lastMessage?.body || "Conversation active",
               lastMessageTime: formatMessageTime(c.updatedAt || c.lastMessageTime),
@@ -874,6 +901,19 @@ export function ChatView() {
         const textBody = rawMsg.body || rawMsg.text || "";
         if (!textBody && !rawMsg.attachments?.length) return;
 
+        // Inbound WhatsApp notification: Audio Chime + Desktop Notification
+        if (!isOutbound && !isSystem) {
+          playNotificationChime();
+          if (typeof Notification !== "undefined" && Notification.permission === "granted" && document.hidden) {
+            try {
+              new Notification(`New WhatsApp from ${payload.customerName || "Customer"}`, {
+                body: (textBody || "New message received").slice(0, 100),
+                icon: "/favicon.ico",
+              });
+            } catch {}
+          }
+        }
+
         const newChatMessage: ChatMessage = {
           id: rawMsg.id || `realtime-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           sender: isOutbound ? "closer" : isSystem ? "system" : "customer",
@@ -1064,8 +1104,12 @@ export function ChatView() {
             })
           );
         })
-        .catch(() => {});
-    }, 6000);
+        .catch((err: any) => {
+          if (err?.status === 403 || err?.response?.status === 403 || String(err?.message || "").includes("403")) {
+            clearInterval(interval);
+          }
+        });
+    }, 25000);
 
     return () => clearInterval(interval);
   }, [activeChat?.id]);
@@ -1348,7 +1392,7 @@ export function ChatView() {
   const [activeShares, setActiveShares] = useState<Array<{ id: string; userId: string; userName?: string; permission: string }>>([]);
 
   const [showAssignModal, setShowAssignModal] = useState(false);
-  const [assignTargetCloser, setAssignTargetCloser] = useState("Admin");
+  const [assignTargetCloser, setAssignTargetCloser] = useState("");
   const [assignHandoverNote, setAssignHandoverNote] = useState("");
   const [assignLoading, setAssignLoading] = useState(false);
   const [assignSuccess, setAssignSuccess] = useState<string | null>(null);
@@ -1397,19 +1441,36 @@ export function ChatView() {
   }, []);
 
   const effectiveTeamMembers = useMemo(() => {
+    const adminNames = new Set<string>(["admin", "super admin"]);
+    if (state.user?.displayName) {
+      const uRole = (state.user.role || "").toUpperCase();
+      if (uRole === "SUPER_ADMIN" || uRole.includes("SUPER") || uRole === "ADMIN") {
+        adminNames.add(state.user.displayName.toLowerCase());
+      }
+    }
+
     const map = new Map<string, { id: string; name: string; role?: string; reportingManager?: string }>();
     if (state.teamMembers && state.teamMembers.length > 0) {
       state.teamMembers.forEach((m: any) => {
-        if (m.name) map.set(m.name.toLowerCase(), { id: m.id, name: m.name, role: m.role, reportingManager: m.reportingManager });
+        const r = (m.role || "").toUpperCase();
+        if (r === "SUPER_ADMIN" || r.includes("SUPER") || r === "ADMIN") {
+          if (m.name) adminNames.add(m.name.toLowerCase());
+          return;
+        }
+        if (m.name && !adminNames.has(m.name.toLowerCase())) {
+          map.set(m.name.toLowerCase(), { id: m.id, name: m.name, role: m.role, reportingManager: m.reportingManager });
+        }
       });
     }
     teamMembers.forEach((m) => {
+      const r = (m.role || "").toUpperCase();
+      if (r === "SUPER_ADMIN" || r.includes("SUPER") || r === "ADMIN" || adminNames.has(m.name.toLowerCase())) return;
       if (m.name && !map.has(m.name.toLowerCase())) {
         map.set(m.name.toLowerCase(), m);
       }
     });
     return Array.from(map.values());
-  }, [state.teamMembers, teamMembers]);
+  }, [state.teamMembers, teamMembers, state.user]);
 
   const isSalesCloser = (state.user?.role as string) === "CLOSER" || state.user?.role === "SALES_AGENT";
   const myCloserName = (state.user?.displayName || CURRENT_USER).toLowerCase();
@@ -1424,55 +1485,78 @@ export function ChatView() {
   const currentCloserManager = (currentCloserMember?.reportingManager || "").toLowerCase();
 
   const shareableTeamMembers = useMemo(() => {
+    const list = effectiveTeamMembers.filter((m) => {
+      const r = (m.role || "").toUpperCase();
+      return r !== "SUPER_ADMIN" && !r.includes("SUPER");
+    });
     if (isSalesCloser && workspaceSettings.chatSharingScope === "REPORTING_TEAM_ONLY" && currentCloserManager) {
-      return effectiveTeamMembers.filter((m) => {
+      return list.filter((m) => {
         const mManager = (m.reportingManager || "").toLowerCase();
         const mName = m.name.toLowerCase();
-        const mRole = (m.role || "").toLowerCase();
+        const mRole = (m.role || "").toUpperCase();
         return (
           mManager === currentCloserManager ||
           mName === currentCloserManager ||
-          mRole.includes("admin")
+          mRole.includes("MANAGER")
         );
       });
     }
-    return effectiveTeamMembers;
+    return list;
   }, [effectiveTeamMembers, isSalesCloser, workspaceSettings.chatSharingScope, currentCloserManager]);
 
   const assignableTeamMembers = useMemo(() => {
+    const list = effectiveTeamMembers.filter((m) => {
+      const r = (m.role || "").toUpperCase().replace(/\s+/g, "_");
+      // Mandatory B2B SaaS rule: Platform Super Admin & Workspace Admins are STRICTLY excluded from assignment
+      if (r === "SUPER_ADMIN" || r.includes("SUPER") || r === "ADMIN") return false;
+      return true;
+    });
+
     if (isSalesCloser && workspaceSettings.leadAssignmentScope === "REPORTING_TEAM_ONLY" && currentCloserManager) {
-      return effectiveTeamMembers.filter((m) => {
+      return list.filter((m) => {
         const mManager = (m.reportingManager || "").toLowerCase();
         const mName = m.name.toLowerCase();
-        const mRole = (m.role || "").toLowerCase();
         return (
           mManager === currentCloserManager ||
-          mName === currentCloserManager ||
-          mRole.includes("admin")
+          mName === currentCloserManager
         );
       });
     }
-    return effectiveTeamMembers;
+    return list;
   }, [effectiveTeamMembers, isSalesCloser, workspaceSettings.leadAssignmentScope, currentCloserManager]);
 
-  // Dynamically load all team members, closers, managers, and admins from live APIs & workspace
+  // Dynamically load all team members, closers, and managers from live APIs & workspace
   useEffect(() => {
     let active = true;
 
     async function loadTeam() {
       const found = new Map<string, { id: string; name: string; role?: string; reportingManager?: string }>();
 
-      // 1. Prepopulate from current user and distinct lead owners
-      found.set("admin", { id: "admin", name: "Admin", role: "Super Admin" });
+      // 1. Collect all admin / super admin names to strictly exclude them from closer assignment
+      const adminNames = new Set<string>(["admin", "super admin"]);
       if (state.user?.displayName) {
-        found.set(state.user.displayName.toLowerCase(), {
-          id: state.user.userId || state.user.displayName,
-          name: state.user.displayName,
-          role: state.user.role || "User",
+        const uRole = (state.user.role || "").toUpperCase();
+        if (uRole === "SUPER_ADMIN" || uRole.includes("SUPER") || uRole === "ADMIN") {
+          adminNames.add(state.user.displayName.toLowerCase());
+        } else {
+          found.set(state.user.displayName.toLowerCase(), {
+            id: state.user.userId || state.user.displayName,
+            name: state.user.displayName,
+            role: state.user.role || "User",
+          });
+        }
+      }
+      if (state.teamMembers) {
+        state.teamMembers.forEach((m: any) => {
+          const r = (m.role || "").toUpperCase();
+          if (r === "SUPER_ADMIN" || r.includes("SUPER") || r === "ADMIN") {
+            if (m.name) adminNames.add(m.name.toLowerCase());
+            if (m.displayName) adminNames.add(m.displayName.toLowerCase());
+          }
         });
       }
       state.leads.forEach((l) => {
-        if (l.owner && l.owner !== "Unassigned" && !found.has(l.owner.toLowerCase())) {
+        if (l.owner && l.owner !== "Unassigned" && !adminNames.has(l.owner.toLowerCase()) && !found.has(l.owner.toLowerCase())) {
           found.set(l.owner.toLowerCase(), {
             id: l.owner,
             name: l.owner,
@@ -1486,6 +1570,8 @@ export function ChatView() {
         const teamData = await aicloserApi.team.list();
         const members = Array.isArray(teamData) ? teamData : (teamData?.members || teamData?.users || []);
         members.forEach((m: any) => {
+          const mRole = (m.role || m.workspaceRole || "").toUpperCase();
+          if (mRole === "SUPER_ADMIN" || mRole.includes("SUPER") || mRole === "ADMIN") return;
           const name = m.displayName || m.name || m.user?.displayName || m.email;
           if (name && !found.has(name.toLowerCase())) {
             found.set(name.toLowerCase(), {
@@ -1503,6 +1589,8 @@ export function ChatView() {
         const teamRes: any = await aicloserApi.team.list();
         const members = Array.isArray(teamRes?.data) ? teamRes.data : Array.isArray(teamRes) ? teamRes : [];
         members.forEach((m: any) => {
+          const mRole = (m.role || m.workspaceRole || "").toUpperCase();
+          if (mRole === "SUPER_ADMIN" || mRole.includes("SUPER") || mRole === "ADMIN") return;
           const name = m.name || m.displayName || m.email;
           if (name && !found.has(name.toLowerCase())) {
             found.set(name.toLowerCase(), {
@@ -1594,18 +1682,13 @@ export function ChatView() {
   const handleAssignChat = async () => {
     if (!activeChat || !assignTargetCloser) return;
 
-    if (activeChat.isPersonalQr && state.user?.role !== "ADMIN" && state.user?.role !== "SUPER_ADMIN") {
-      setAssignError("Personal QR scanned chats cannot be reassigned by sales agents. Only workspace Admin can rotate or reassign QR chats.");
-      return;
-    }
-
     setAssignLoading(true);
     setAssignError(null);
     setAssignSuccess(null);
 
     try {
-      // 1. Live API: assign conversation on Central API
-      const res: any = await aicloserApi.conversations.assign(activeChat.id, assignTargetCloser);
+      // 1. Live API: assign conversation on Central API with handover note
+      const res: any = await aicloserApi.conversations.assign(activeChat.id, assignTargetCloser, assignHandoverNote);
       if (res && res.success === false) {
         throw new Error(res.message || "Failed to assign conversation");
       }
@@ -1619,13 +1702,13 @@ export function ChatView() {
         targetMember?.name ||
         assignTargetCloser;
 
-      // 2. If lead is linked in state, transfer lead and update owner symmetrically
-      if (activeLead) {
-        await aicloserApi.leads.transfer(activeLead.id, targetMember?.id || assignTargetCloser, assignHandoverNote).catch(() => undefined);
-        reassignLead(activeLead.id, assignedDisplayName, assignHandoverNote);
+      // 2. If lead is linked in state, update owner symmetrically
+      const linkedLeadId = activeLead?.id || activeChat.leadId;
+      if (linkedLeadId) {
+        reassignLead(linkedLeadId, assignedDisplayName, assignHandoverNote);
       }
 
-      // 3. Add system message in conversation thread
+      // 3. Add system message in conversation thread and messagesCache
       const sysMsg: ChatMessage = {
         id: `sys-assign-${Date.now()}`,
         sender: "system",
@@ -1633,6 +1716,11 @@ export function ChatView() {
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         createdAt: new Date().toISOString(),
       };
+
+      setMessagesCache((prev) => ({
+        ...prev,
+        [activeChat.id]: [...(prev[activeChat.id] || []), sysMsg],
+      }));
 
       setConversations((prev) =>
         prev.map((c) =>
@@ -2061,7 +2149,7 @@ export function ChatView() {
                 onClick={() => {
                   setAssignError(null);
                   setAssignSuccess(null);
-                  const pool = assignableTeamMembers.length > 0 ? assignableTeamMembers : effectiveTeamMembers;
+                  const pool = assignableTeamMembers;
                   const currentAssigned = (activeChat.assignedTo || "").toLowerCase();
                   const other = pool.find(
                     (m) => (m.name || "").toLowerCase() !== currentAssigned && (m.id || "").toLowerCase() !== currentAssigned
@@ -3030,10 +3118,7 @@ export function ChatView() {
                     <Icon name="smartphone" size={13} /> Personal QR Scanned Line
                   </div>
                   <div style={{ fontSize: "11px", color: "var(--text-secondary)", marginTop: "2px" }}>
-                    This lead originated from {activeChat.scannedByName ? `${activeChat.scannedByName}'s` : "a closer's"} personal WhatsApp line.
-                    {state.user?.role === "ADMIN" || state.user?.role === "SUPER_ADMIN"
-                      ? " As Admin, you have full authority to rotate or reassign this lead."
-                      : " Personal QR scanned leads are strictly isolated to the closer and cannot be reassigned by sales agents."}
+                    This conversation is linked to a customer WhatsApp line. Assigning it will transfer the full lead, history, and active chat to the selected sales closer.
                   </div>
                 </div>
               )}
@@ -3066,6 +3151,7 @@ export function ChatView() {
                   onChange={(e) => setAssignTargetCloser(e.target.value)}
                   style={{ width: "100%", marginTop: "4px", height: "32px", fontSize: "12px" }}
                 >
+                  <option value="" disabled>Choose closer / agent...</option>
                   {assignableTeamMembers
                     .filter((member) => (member.name || "").toLowerCase() !== (activeChat.assignedTo || "").toLowerCase() && (member.id || "").toLowerCase() !== (activeChat.assignedTo || "").toLowerCase())
                     .map((member) => (
@@ -3110,8 +3196,7 @@ export function ChatView() {
                 disabled={
                   assignLoading ||
                   !assignTargetCloser ||
-                  (assignableTeamMembers.find((m) => m.id === assignTargetCloser || m.name === assignTargetCloser)?.name.toLowerCase() === (activeChat.assignedTo || "").toLowerCase()) ||
-                  (Boolean(activeChat.isPersonalQr) && state.user?.role !== "ADMIN" && state.user?.role !== "SUPER_ADMIN")
+                  (assignableTeamMembers.find((m) => m.id === assignTargetCloser || m.name === assignTargetCloser)?.name.toLowerCase() === (activeChat.assignedTo || "").toLowerCase())
                 }
                 onClick={handleAssignChat}
               >

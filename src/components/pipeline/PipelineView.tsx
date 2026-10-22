@@ -1261,6 +1261,11 @@ export function PipelineView() {
                       {stage.label}
                     </h2>
                     <span className="col-count">{cards.length}</span>
+                    {cards.reduce((sum, c) => sum + (Number(c.value) || 0), 0) > 0 && (
+                      <span className="chip" data-tone="accent" style={{ fontSize: "11px", fontWeight: 650, padding: "2px 6px" }}>
+                        ₹{cards.reduce((sum, c) => sum + (Number(c.value) || 0), 0).toLocaleString("en-IN")}
+                      </span>
+                    )}
                     <button
                       className="icon-btn col-add"
                       onClick={() => setAddStage(stage.id)}

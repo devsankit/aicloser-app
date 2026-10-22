@@ -1684,8 +1684,15 @@ svg {
    a readable 220px minimum, allowing horizontal scrolling on compact viewports
    without hiding lead values or owner avatars. */
 .board[data-fit="true"] .col {
-  flex: 1 1 240px;
-  min-width: 220px;
+  flex: 1 1 0px;
+  width: auto !important;
+  min-width: 0;
+}
+
+.board[data-fit="true"] .col:has(.col-count:empty),
+.board[data-fit="true"] .col[data-count="0"] {
+  flex: 0 0 64px;
+  min-width: 56px;
 }
 
 .col[data-over="true"] {

@@ -1096,10 +1096,10 @@ export const aicloserApi = {
       return res.data;
     },
 
-    async assign(conversationId: string, assignedAgentId: string) {
+    async assign(conversationId: string, assignedAgentId: string, note?: string) {
       const res = await request('/conversations/' + encodeURIComponent(conversationId) + '/assign', {
         method: 'POST',
-        body: JSON.stringify({ assignedAgentId }),
+        body: JSON.stringify({ assignedAgentId, note }),
       });
       return res.data;
     },
@@ -2032,7 +2032,8 @@ export const aicloserApi = {
 
   // 11b. Team and permission-scoped workspace data
   team: {
-    async savePermissionsMatrix(roles: Record<string, Record<string, boolean>>) {
+    async savePermissionsMatrix(rolesOrPayload: any) {
+      const roles = (rolesOrPayload && typeof rolesOrPayload === 'object' && 'roles' in rolesOrPayload) ? rolesOrPayload.roles : rolesOrPayload;
       const res = await request('/team/permissions/matrix', { method: 'PUT', body: JSON.stringify({ roles }) });
       return res.data;
     },
@@ -2139,6 +2140,17 @@ export const aicloserApi = {
         return res.data;
       } catch {
         return null;
+      }
+    },
+    async getTeamBreaks() {
+      try {
+        const res = await request<any>('/team/break/team');
+        return {
+          activeBreaks: Array.isArray(res?.activeBreaks) ? res.activeBreaks : [],
+          totalOnBreak: Number(res?.totalOnBreak || 0),
+        };
+      } catch {
+        return { activeBreaks: [], totalOnBreak: 0 };
       }
     },
   },

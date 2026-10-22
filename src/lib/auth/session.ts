@@ -198,7 +198,12 @@ export function createSessionPayload(session: SessionInput): SessionUser {
 
 export async function getSessionContext(): Promise<SessionContext> {
   const store = await cookies();
-  const token = (await getBearerSessionToken()) ?? store.get(SESSION_COOKIE_NAME)?.value ?? null;
+  const token =
+    (await getBearerSessionToken()) ??
+    store.get("aicloser_token")?.value ??
+    store.get("aicloser_auth_token")?.value ??
+    store.get(SESSION_COOKIE_NAME)?.value ??
+    null;
   const verified = await verifySessionToken(token);
 
   if (verified) {
@@ -318,6 +323,14 @@ export async function applySessionCookie(response: NextResponse, session: Sessio
     expires,
     maxAge,
   });
+  response.cookies.set("aicloser_token", token, {
+    path: "/",
+    httpOnly: true,
+    sameSite: "lax",
+    secure: shouldUseSecureCookies(),
+    expires,
+    maxAge,
+  });
   response.cookies.set("gx_role", payload.role, {
     path: "/",
     sameSite: "lax",
@@ -340,6 +353,8 @@ export async function applySessionCookie(response: NextResponse, session: Sessio
 
 export function clearSessionCookie(response: NextResponse) {
   response.cookies.set(SESSION_COOKIE_NAME, "", { path: "/", maxAge: 0 });
+  response.cookies.set("aicloser_token", "", { path: "/", maxAge: 0 });
+  response.cookies.set("aicloser_auth_token", "", { path: "/", maxAge: 0 });
   response.cookies.set("gx_role", "", { path: "/", maxAge: 0 });
   response.cookies.set("gx_tenant", "", { path: "/", maxAge: 0 });
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Fragment } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { aicloserApi } from "@/lib/api-client";
 import { useApp } from "@/lib/store";
@@ -54,6 +54,12 @@ export function CallsView() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [selectedTranscriptCall, setSelectedTranscriptCall] = useState<CallRecord | null>(null);
+  const [viewMode, setViewMode] = useState<"log" | "grouped">("log");
+  const [expandedContacts, setExpandedContacts] = useState<Record<string, boolean>>({});
+
+  const toggleContactExpand = (key: string) => {
+    setExpandedContacts((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
 
   useEffect(() => {
     if (!isAdmin && !isManager) {
@@ -65,80 +71,35 @@ export function CallsView() {
 
   const loadData = useCallback(async () => {
     try {
-      const r = await fetch("/api/sales/call-reports?limit=100");
-      const res = await r.json();
-      if (res.totals) setTotals(res.totals);
-      const sourceCalls = res.calls || [];
-      if (sourceCalls.length > 0) {
-        const mapped: CallRecord[] = sourceCalls.map((c: any) => {
-          const rawPhone = c.phoneNumber || c.assignment?.customerPhone || "";
-          const displayName = c.assignment?.customerName || rawPhone || "Direct Caller";
-          return {
-            id: c.id,
-            leadCode: c.assignment?.id ? `CLO-${c.assignment.id.slice(-4).toUpperCase()}` : "CLO-LIVE",
-            customerName: displayName,
-            company: c.assignment?.stage ? `${c.assignment.stage}` : "Direct Telephony Call",
-            phone: rawPhone,
-            closerName: c.agent?.user?.displayName || "Assigned Closer",
-            simSlot: c.device?.deviceName || c.device?.model || "SIM Relay Desk",
-            direction:
-              String(c.direction).toUpperCase() === "INBOUND"
-                ? "inbound"
-                : c.durationSeconds === 0 || String(c.status).toUpperCase() === "MISSED"
-                ? "missed"
-                : "outbound",
-            durationSeconds: Number(c.durationSeconds ?? c.durationSec ?? 0),
-            timestamp: c.startedAt
-              ? new Date(c.startedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })
-              : "Today",
-            disposition: c.outcome || c.status || "Completed",
-            sentiment: "neutral",
-            aiSummary: c.note || (c.durationSeconds > 0 ? "Direct call recording logged." : "Unanswered missed call."),
-            transcript: [],
-            audioUrl: c.recordingUrl || (c.recordingStatus === "UPLOADED" ? `/api/sales/mobile/calls/${c.id}/recording` : undefined),
-            callbackPending: String(c.status).toUpperCase() === "MISSED" || c.durationSeconds === 0,
-          };
-        });
+      const cRes: any = await aicloserApi.calls.list({ limit: 100 }).catch(() => null);
+      if (cRes?.calls?.length) {
+        const mapped: CallRecord[] = cRes.calls.map((c: any) => ({
+          id: c.id,
+          leadCode: c.assignment?.id ? `CLO-${c.assignment.id.slice(-4).toUpperCase()}` : "CLO-LIVE",
+          customerName: c.assignment?.customerName || c.phoneNumber || "Direct Caller",
+          company: c.assignment?.stage || "Direct Line",
+          phone: c.phoneNumber || c.assignment?.customerPhone || "",
+          closerName: c.agent?.user?.displayName || "Closer Agent",
+          simSlot: c.device?.deviceName || "SIM Relay",
+          direction:
+            c.direction === "INBOUND"
+              ? "inbound"
+              : c.durationSeconds === 0
+              ? "missed"
+              : "outbound",
+          durationSeconds: c.durationSeconds || 0,
+          timestamp: new Date(c.startedAt).toLocaleTimeString("en-IN", {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          disposition: c.outcome || c.status || "Completed",
+          sentiment: "neutral",
+          aiSummary: c.note || (c.durationSeconds > 0 ? "Direct call recording logged." : "Unanswered missed call."),
+          transcript: [],
+          audioUrl: c.recordingUrl || (c.recordingStatus === "UPLOADED" ? `/api/v1/calls/${c.id}/recording` : undefined),
+          callbackPending: c.direction === "MISSED" || c.durationSeconds === 0,
+        }));
         setCalls(mapped);
-      } else {
-        const cRes: any = await aicloserApi.calls.list({ limit: 100 }).catch(() => null);
-        if (cRes?.calls?.length) {
-          const mapped: CallRecord[] = cRes.calls.map((c: any) => ({
-            id: c.id,
-            leadCode: c.assignment?.id ? `CLO-${c.assignment.id.slice(-4).toUpperCase()}` : "CLO-LIVE",
-            customerName: c.assignment?.customerName || c.phoneNumber || "Direct Caller",
-            company: c.assignment?.stage || "Direct Line",
-            phone: c.phoneNumber || c.assignment?.customerPhone || "",
-            closerName: c.agent?.user?.displayName || "Closer Agent",
-            simSlot: c.device?.deviceName || "SIM Relay",
-            direction:
-              c.direction === "INBOUND"
-                ? "inbound"
-                : c.durationSeconds === 0
-                ? "missed"
-                : "outbound",
-            durationSeconds: c.durationSeconds || 0,
-            timestamp: new Date(c.startedAt).toLocaleTimeString("en-IN", {
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
-            disposition: c.outcome || c.status || "Completed",
-            sentiment: "neutral",
-            aiSummary: c.note || "Direct call record.",
-            transcript: [],
-            audioUrl: c.recordingUrl,
-            callbackPending: c.direction === "MISSED" || c.durationSeconds === 0,
-          }));
-          setCalls(mapped);
-        }
-      }
-
-      const devRes = await fetch("/api/sales/devices").catch(() => null);
-      if (devRes && devRes.ok) {
-        const dJson = await devRes.json();
-        if (Array.isArray(dJson.devices)) {
-          setDevices(dJson.devices);
-        }
       }
     } catch {
       // Non-blocking
@@ -276,6 +237,42 @@ export function CallsView() {
       return matchDir && matchScope && matchSearch;
     });
   }, [calls, directionFilter, search, callerScope, state.user]);
+
+  const groupedCalls = useMemo(() => {
+    const groups: Record<
+      string,
+      {
+        contactKey: string;
+        customerName: string;
+        phone: string;
+        company: string;
+        closerName: string;
+        totalDurationSeconds: number;
+        calls: CallRecord[];
+        latestCall: CallRecord;
+      }
+    > = {};
+
+    for (const call of filteredCalls) {
+      const key = (call.phone || call.customerName || call.id).trim();
+      if (!groups[key]) {
+        groups[key] = {
+          contactKey: key,
+          customerName: call.customerName,
+          phone: call.phone,
+          company: call.company,
+          closerName: call.closerName,
+          totalDurationSeconds: 0,
+          calls: [],
+          latestCall: call,
+        };
+      }
+      groups[key].calls.push(call);
+      groups[key].totalDurationSeconds += call.durationSeconds;
+    }
+
+    return Object.values(groups);
+  }, [filteredCalls]);
 
   const missedCalls = calls.filter((c) => c.direction === "missed" && c.callbackPending);
   const totalDurationSum = calls.reduce((acc, c) => acc + c.durationSeconds, 0);
@@ -415,6 +412,14 @@ export function CallsView() {
                 </button>
               </div>
             )}
+            <div className="seg">
+              <button data-on={viewMode === "log"} onClick={() => setViewMode("log")}>
+                <Icon name="clock" size={12} /> Chronological Log
+              </button>
+              <button data-on={viewMode === "grouped"} onClick={() => setViewMode("grouped")}>
+                <Icon name="users" size={12} /> Grouped by Contact ({groupedCalls.length})
+              </button>
+            </div>
             <div style={{ marginLeft: "auto", fontSize: "var(--fs-caption)", color: "var(--text-tertiary)" }}>
               {filteredCalls.length} recorded calls
             </div>
@@ -434,7 +439,164 @@ export function CallsView() {
                 </tr>
               </thead>
               <tbody>
-                {filteredCalls.length === 0 ? (
+                {viewMode === "grouped" ? (
+                  groupedCalls.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} style={{ textAlign: "center", padding: "48px 20px", color: "var(--text-secondary)" }}>
+                        <div style={{ display: "inline-flex", padding: 12, borderRadius: "50%", background: "var(--bg-soft)", marginBottom: 8 }}>
+                          <Icon name="phone" size={20} />
+                        </div>
+                        <div style={{ fontWeight: 600, color: "var(--text)" }}>No grouped call records found</div>
+                      </td>
+                    </tr>
+                  ) : (
+                    groupedCalls.map((g) => {
+                      const isExpanded = Boolean(expandedContacts[g.contactKey]);
+                      return (
+                        <Fragment key={g.contactKey}>
+                          <tr style={{ background: isExpanded ? "var(--bg-soft)" : undefined, cursor: "pointer" }} onClick={() => toggleContactExpand(g.contactKey)}>
+                            <td>
+                              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                <button
+                                  type="button"
+                                  className="btn"
+                                  data-size="sm"
+                                  data-variant="ghost"
+                                  style={{ width: "24px", height: "24px", padding: 0 }}
+                                  aria-label={isExpanded ? "Collapse" : "Expand"}
+                                >
+                                  <Icon name={isExpanded ? "chevron-down" : "chevron-right"} size={13} />
+                                </button>
+                                <div>
+                                  <div style={{ fontWeight: 600, color: "var(--text)" }}>{g.customerName}</div>
+                                  <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)" }}>
+                                    {g.company} • {g.phone}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                            <td>
+                              <div style={{ fontWeight: 550, color: "var(--text)" }}>{g.closerName}</div>
+                              <div style={{ fontSize: "11px", color: "var(--text-secondary)" }}>{g.calls.length} interaction(s)</div>
+                            </td>
+                            <td>
+                              <span className="chip" data-tone="accent" style={{ fontSize: "11px" }}>
+                                {g.calls.length} calls
+                              </span>
+                            </td>
+                            <td>
+                              <span style={{ fontWeight: 550, fontFamily: "var(--mono)" }}>
+                                {formatDuration(g.totalDurationSeconds)}
+                              </span>
+                              <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Total Talk Time</div>
+                            </td>
+                            <td>
+                              <div style={{ fontWeight: 600, fontSize: "var(--fs-caption)" }}>Latest: {g.latestCall.disposition}</div>
+                              <p style={{ fontSize: "11px", color: "var(--text-tertiary)", margin: "3px 0 0 0", maxWidth: "340px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                {g.latestCall.aiSummary}
+                              </p>
+                            </td>
+                            <td>
+                              <button
+                                type="button"
+                                className="btn"
+                                data-size="sm"
+                                data-variant="outline"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleContactExpand(g.contactKey);
+                                }}
+                              >
+                                {isExpanded ? "Hide Logs" : `View ${g.calls.length} Call(s)`}
+                              </button>
+                            </td>
+                            <td style={{ textAlign: "right" }}>
+                              <a
+                                href={`tel:${g.phone}`}
+                                className="btn"
+                                data-size="sm"
+                                data-variant="primary"
+                                onClick={(e) => e.stopPropagation()}
+                                title={`Call ${g.customerName}`}
+                              >
+                                <Icon name="phone" size={11} /> Call
+                              </a>
+                            </td>
+                          </tr>
+                          {isExpanded &&
+                            g.calls.map((c) => {
+                              const isCurrentPlaying = activeAudioId === c.id && isPlaying;
+                              return (
+                                <tr key={c.id} style={{ background: "var(--bg-soft)" }}>
+                                  <td style={{ paddingLeft: "42px" }}>
+                                    <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)" }}>
+                                      {c.timestamp}
+                                    </div>
+                                    <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>{c.simSlot}</div>
+                                  </td>
+                                  <td>
+                                    <div style={{ fontSize: "var(--fs-caption)", color: "var(--text)" }}>{c.closerName}</div>
+                                  </td>
+                                  <td>
+                                    <span
+                                      className="chip"
+                                      data-tone={c.direction === "inbound" ? "info" : c.direction === "outbound" ? "accent" : "warning"}
+                                      style={{ fontSize: "11px" }}
+                                    >
+                                      {c.direction === "inbound" ? "↙ Inbound" : c.direction === "outbound" ? "↗ Outbound" : "✕ Missed"}
+                                    </span>
+                                  </td>
+                                  <td>
+                                    <span style={{ fontWeight: 550, fontFamily: "var(--mono)", fontSize: "var(--fs-caption)" }}>
+                                      {formatDuration(c.durationSeconds)}
+                                    </span>
+                                  </td>
+                                  <td>
+                                    <span style={{ fontWeight: 600, fontSize: "12px" }}>{c.disposition}</span>
+                                    <p style={{ fontSize: "11px", color: "var(--text-tertiary)", margin: "2px 0 0 0", maxWidth: "300px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                      {c.aiSummary}
+                                    </p>
+                                  </td>
+                                  <td>
+                                    {c.durationSeconds > 0 ? (
+                                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                        <button
+                                          className="btn"
+                                          data-size="sm"
+                                          data-variant={isCurrentPlaying ? "accent" : "ghost"}
+                                          onClick={() => handleTogglePlay(c.id)}
+                                          aria-label={isCurrentPlaying ? "Pause recording" : "Play recording"}
+                                          title={isCurrentPlaying ? "Pause recording" : "Play recording"}
+                                          style={{ width: "26px", height: "26px", padding: 0, borderRadius: "50%" }}
+                                        >
+                                          <Icon name={isCurrentPlaying ? "pause" : "play"} size={11} />
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>No recording</span>
+                                    )}
+                                  </td>
+                                  <td style={{ textAlign: "right" }}>
+                                    {c.transcript.length > 0 && (
+                                      <button
+                                        className="btn"
+                                        data-size="sm"
+                                        data-variant="ghost"
+                                        onClick={() => setSelectedTranscriptCall(c)}
+                                        title="View AI Speech Transcript"
+                                      >
+                                        <Icon name="sparkle" size={12} />
+                                      </button>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </Fragment>
+                      );
+                    })
+                  )
+                ) : filteredCalls.length === 0 ? (
                   <tr>
                     <td colSpan={7} style={{ textAlign: "center", padding: "48px 20px", color: "var(--text-secondary)" }}>
                       <div style={{ display: "inline-flex", padding: 12, borderRadius: "50%", background: "var(--bg-soft)", marginBottom: 8 }}>

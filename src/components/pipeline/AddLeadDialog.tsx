@@ -247,18 +247,25 @@ export function AddLeadDialog({
           <div className="drawer-grid">
             <div className="field">
               <label htmlFor="a-owner">Assigned Closer / Owner</label>
-              <select
-                id="a-owner"
-                className="select"
-                value={form.owner}
-                onChange={(e) => setForm({ ...form, owner: e.target.value })}
-              >
-                {owners.map((o) => (
-                  <option key={o} value={o}>
-                    {o}
-                  </option>
-                ))}
-              </select>
+              {state.user?.role === "SALES_AGENT" || (state.user?.role as any) === "CLOSER" ? (
+                <div className="chip" data-tone="accent" style={{ padding: "8px 12px", width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span><Icon name="user" size={12} /> {currentUserName} (You)</span>
+                  <span style={{ fontSize: "11px", opacity: 0.8 }}>Auto-locked to Creator</span>
+                </div>
+              ) : (
+                <select
+                  id="a-owner"
+                  className="select"
+                  value={form.owner}
+                  onChange={(e) => setForm({ ...form, owner: e.target.value })}
+                >
+                  {owners.map((o) => (
+                    <option key={o} value={o}>
+                      {o}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
             <div className="field">
               <label htmlFor="a-priority">Priority</label>

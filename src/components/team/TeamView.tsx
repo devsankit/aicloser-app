@@ -38,16 +38,38 @@ export interface PermissionRow {
 }
 
 const DEFAULT_PERMISSIONS: PermissionRow[] = [
-  { id: "leads_view", category: "Leads & Contacts", label: "View Leads & Contacts", desc: "Access the CRM contacts hub and lead directory", admin: true, manager: true, closer: true },
-  { id: "leads_claim", category: "Leads & Contacts", label: "Claim from Lead Grab Pool", desc: "Pick unassigned leads from the live pool", admin: true, manager: true, closer: true },
-  { id: "leads_export", category: "Leads & Contacts", label: "Export Leads to Excel/CSV", desc: "Download full contact database", admin: true, manager: true, closer: false },
-  { id: "telephony_calling", category: "Telephony & SIM", label: "Make SIM-Based Outbound Calls", desc: "Use closer desk SIM relays to call leads", admin: true, manager: true, closer: true },
-  { id: "call_recordings_listen", category: "Telephony & SIM", label: "Listen to Call Recordings", desc: "Access full call audio vault and AI transcripts", admin: true, manager: true, closer: false },
-  { id: "whatsapp_chat", category: "Omnichannel Chat", label: "Two-Way WhatsApp & Instagram Chat", desc: "Send direct replies to client messages", admin: true, manager: true, closer: true },
-  { id: "whatsapp_bulk_marketing", category: "Omnichannel Chat", label: "Broadcast Bulk Marketing Campaigns", desc: "Send marketing templates to lead lists", admin: true, manager: true, closer: false },
-  { id: "payment_links_create", category: "Payments & Revenue", label: "Generate UPI QR Payment Links", desc: "Create dynamic payment requests", admin: true, manager: true, closer: true },
-  { id: "payment_settlement", category: "Payments & Revenue", label: "Settle & Confirm Payments", desc: "Mark payments as settled or manual approval", admin: true, manager: true, closer: false },
-  { id: "team_management", category: "Workspace Governance", label: "Invite & Manage Team Members", desc: "Assign seats, edit roles and passwords", admin: true, manager: false, closer: false },
+  // CRM & Leads
+  { id: "leads:view", category: "Leads & Pipeline", label: "View Leads & Pipeline", desc: "Access workspace leads and Kanban stages", admin: true, manager: true, closer: true },
+  { id: "contacts:view", category: "Leads & Pipeline", label: "View Contacts Directory", desc: "Access contacts list with deduplication", admin: true, manager: true, closer: true },
+  { id: "leads:create", category: "Leads & Pipeline", label: "Create Manual Leads", desc: "Add new prospective leads into pipeline", admin: true, manager: true, closer: true },
+  { id: "leads:claim", category: "Leads & Pipeline", label: "Claim Pool Leads", desc: "Grab unassigned leads within 10-minute rotation slot", admin: true, manager: true, closer: true },
+  { id: "leads:reassign", category: "Leads & Pipeline", label: "Reassign & Transfer Leads", desc: "Transfer lead ownership and thread context", admin: true, manager: true, closer: false },
+  { id: "leads:export", category: "Leads & Pipeline", label: "Export Leads (.xlsx)", desc: "Download client contact spreadsheets", admin: true, manager: true, closer: false },
+  { id: "leads:delete", category: "Leads & Pipeline", label: "Soft-Delete to Recycle Bin", desc: "Move inactive leads into recycle bin", admin: true, manager: true, closer: false },
+  { id: "leads:permanent_delete", category: "Leads & Pipeline", label: "Permanently Purge Leads", desc: "Permanently remove leads from database", admin: true, manager: false, closer: false },
+
+  // Telephony & SIM Relays
+  { id: "calls:view", category: "Telephony & SIM", label: "View Calls & Logs", desc: "Inspect telephony call duration and timestamps", admin: true, manager: true, closer: true },
+  { id: "calls:playback", category: "Telephony & SIM", label: "Play Audio Recordings", desc: "Stream recorded phone calls and AI transcripts", admin: true, manager: true, closer: false },
+  { id: "telephony:make_call", category: "Telephony & SIM", label: "Trigger SIM Phone Calls", desc: "Initiate outbound calls via Android companion relay", admin: true, manager: true, closer: true },
+
+  // Omnichannel Chat & WhatsApp
+  { id: "chat:view", category: "Omnichannel Chat", label: "View Conversations", desc: "Read live customer WhatsApp and Instagram threads", admin: true, manager: true, closer: true },
+  { id: "chat:send", category: "Omnichannel Chat", label: "Send WhatsApp Messages", desc: "Reply to client messages and send attachments", admin: true, manager: true, closer: true },
+  { id: "chat:share", category: "Omnichannel Chat", label: "Share Chat with Teammates", desc: "Grant internal chat visibility to teammates", admin: true, manager: true, closer: true },
+  { id: "whatsapp:marketing", category: "Omnichannel Chat", label: "Broadcast Bulk Campaigns", desc: "Send approved WhatsApp marketing templates", admin: true, manager: true, closer: false },
+
+  // Finance & Payments
+  { id: "payments:create", category: "Payments & Revenue", label: "Generate UPI Payment Links", desc: "Create dynamic QR payment links for leads", admin: true, manager: true, closer: true },
+  { id: "payments:settle", category: "Payments & Revenue", label: "Approve & Settle Payments", desc: "Verify payment proofs and close deals won", admin: true, manager: true, closer: false },
+  { id: "payouts:view", category: "Payments & Revenue", label: "View Own Commissions", desc: "Inspect earned commissions and payout status", admin: true, manager: true, closer: true },
+  { id: "payouts:approve", category: "Payments & Revenue", label: "Approve Team Payouts", desc: "Authorize sales commission payouts", admin: true, manager: true, closer: false },
+
+  // Workspace Governance & Integrations
+  { id: "team:view", category: "Workspace Governance", label: "View Team Directory", desc: "View teammates, online status and availability", admin: true, manager: true, closer: true },
+  { id: "team:manage", category: "Workspace Governance", label: "Manage Team & Roles", desc: "Invite team members and adjust permissions", admin: true, manager: false, closer: false },
+  { id: "integrations:manage", category: "Workspace Governance", label: "Manage Ingestion Gateways", desc: "Configure IndiaMART, JustDial and webhooks", admin: true, manager: false, closer: false },
+  { id: "customer:unmask_phone", category: "Workspace Governance", label: "Unmask Customer Numbers", desc: "View raw unmasked customer phone numbers", admin: true, manager: true, closer: false },
 ];
 
 export type TeamTab = "members" | "matrix" | "routing" | "audit" | "control" | "labels";

@@ -239,6 +239,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [workspaceInactive, setWorkspaceInactive] = useState<boolean>(false);
   const [impersonatingName, setImpersonatingName] = useState<string | null>(null);
   const [teamMembers, setTeamMembers] = useState<Array<{ id: string; name: string; count: number }>>([]);
+  const [teamBreaks, setTeamBreaks] = useState<Array<{ userId: string; name: string; remainingSeconds: number; breakExpiresAt: string }>>([]);
+  const [teamBreakOpen, setTeamBreakOpen] = useState(false);
 
   // Agent Break Mode State & Countdown
   const [isOnBreak, setIsOnBreak] = useState<boolean>(() => {
@@ -271,6 +273,20 @@ export function AppShell({ children }: { children: ReactNode }) {
       }
     }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!isAdmin && !isManager) return;
+    const fetchBreaks = () => {
+      aicloserApi.team.getTeamBreaks().then((res: any) => {
+        if (Array.isArray(res?.activeBreaks)) {
+          setTeamBreaks(res.activeBreaks);
+        }
+      }).catch(() => {});
+    };
+    fetchBreaks();
+    const interval = setInterval(fetchBreaks, 25000);
+    return () => clearInterval(interval);
+  }, [isAdmin, isManager]);
 
   useEffect(() => {
     if (!isOnBreak) return;
@@ -1056,18 +1072,93 @@ export function AppShell({ children }: { children: ReactNode }) {
             </label>
           )}
 
-                    {/* Agent Break Mode Header Toggle */}
-          <button
-            type="button"
-            className="break-badge"
-            data-active={isOnBreak}
-            onClick={handleToggleBreak}
-            title={isOnBreak ? "Currently on 30-min break. Click to resume receiving leads." : "Take a 30-minute break (pauses inbound lead routing)"}
-            aria-label="Toggle Break Mode"
-          >
-            <Icon name="coffee" size={13} />
-            <span>{isOnBreak ? `On Break (${formattedBreakRemaining})` : "Take Break"}</span>
-          </button>
+          {/* Break Mode: Role-Aware Logic */}
+          {state.user?.role === "SUPER_ADMIN" ? null : (isAdmin || isManager) ? (
+            <div style={{ position: "relative" }}>
+              <button
+                type="button"
+                className="break-badge"
+                data-active={teamBreaks.length > 0}
+                onClick={() => setTeamBreakOpen((prev) => !prev)}
+                title={
+                  teamBreaks.length > 0
+                    ? `${teamBreaks.length} closer(s) currently on break`
+                    : "All closers active (0 on break)"
+                }
+                aria-label="Team Break Monitoring"
+              >
+                <Icon name="coffee" size={13} />
+                <span>
+                  {teamBreaks.length > 0 ? `${teamBreaks.length} on break` : "Team breaks"}
+                </span>
+              </button>
+              {teamBreakOpen && (
+                <div
+                  className="card"
+                  style={{
+                    position: "absolute",
+                    top: "100%",
+                    right: 0,
+                    marginTop: "6px",
+                    width: "280px",
+                    zIndex: 200,
+                    padding: "12px",
+                    boxShadow: "0 8px 24px rgba(0,0,0,0.2)",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                    <span style={{ fontWeight: 650, fontSize: "var(--fs-caption)" }}>Active Closer Breaks</span>
+                    <span className="chip" data-size="sm" data-tone={teamBreaks.length > 0 ? "warning" : "success"}>
+                      {teamBreaks.length} active
+                    </span>
+                  </div>
+                  {teamBreaks.length === 0 ? (
+                    <p style={{ fontSize: "12px", color: "var(--text-tertiary)", margin: 0 }}>
+                      No closers on break. Entire team is active in lead distribution.
+                    </p>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                      {teamBreaks.map((b) => {
+                        const mins = Math.floor(b.remainingSeconds / 60);
+                        const secs = b.remainingSeconds % 60;
+                        return (
+                          <div
+                            key={b.userId}
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                              fontSize: "12px",
+                              padding: "6px 8px",
+                              borderRadius: "var(--r-sm)",
+                              background: "var(--bg-soft)",
+                            }}
+                          >
+                            <span style={{ fontWeight: 600, color: "var(--text)" }}>{b.name}</span>
+                            <span style={{ fontFamily: "var(--mono)", color: "var(--text-secondary)", fontSize: "11px" }}>
+                              {mins}m {secs}s left
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="break-badge"
+              data-active={isOnBreak}
+              onClick={handleToggleBreak}
+              title={isOnBreak ? "Currently on 30-min break. Click to resume receiving leads." : "Take a 30-minute break (pauses inbound lead routing)"}
+              aria-label="Toggle Break Mode"
+            >
+              <Icon name="coffee" size={13} />
+              <span>{isOnBreak ? `On Break (${formattedBreakRemaining})` : "Take Break"}</span>
+            </button>
+          )}
 
           {/* Master Global AI Bot Switch */}
           <button

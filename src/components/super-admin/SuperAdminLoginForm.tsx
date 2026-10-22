@@ -42,6 +42,39 @@ export function SuperAdminLoginForm({
     setLoginMessage("");
 
     try {
+      // 1. Authenticate against central API /api/v1/auth/login
+      const centralRes = await fetch("/api/v1/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          identifier: loginIdentifier.trim(),
+          password: loginPassword,
+        }),
+      });
+
+      const centralData = await centralRes.json().catch(() => null);
+
+      if (centralRes.ok && centralData?.success && centralData.data?.token) {
+        const authUser = centralData.data.user;
+        if (authUser.role !== "SUPER_ADMIN") {
+          setLoginNotice("Access Denied: Account (" + authUser.role + ") is not authorized for SaaS Command Center.");
+          setIsSubmitting(false);
+          return;
+        }
+        setStoredToken(centralData.data.token);
+        localStorage.setItem("aicloser_token", centralData.data.token);
+        localStorage.setItem("aicloser_auth_token", centralData.data.token);
+        localStorage.setItem("aicloser_user_session", JSON.stringify(authUser));
+        document.cookie = `aicloser_token=${centralData.data.token}; path=/; max-age=2592000; SameSite=Lax`;
+        document.cookie = `gx_session=${centralData.data.token}; path=/; max-age=2592000; SameSite=Lax`;
+        window.location.assign(redirectTo || "/super-admin");
+        return;
+      }
+
+      // 2. Legacy fallback
       const response = await fetch("/api/auth/login/password", {
         method: "POST",
         headers: {
@@ -63,6 +96,8 @@ export function SuperAdminLoginForm({
       if (response.ok && data?.ok) {
         if (data.token) {
           setStoredToken(data.token);
+          document.cookie = `aicloser_token=${data.token}; path=/; max-age=2592000; SameSite=Lax`;
+          document.cookie = `gx_session=${data.token}; path=/; max-age=2592000; SameSite=Lax`;
         }
         window.location.assign(data.redirectTo || redirectTo || "/super-admin");
         return;
