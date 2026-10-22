@@ -495,7 +495,9 @@ export function ChatView() {
           assigned.includes(myName) ||
           c.assignedTo === CURRENT_USER ||
           scannedBy === myName ||
-          scannedBy.includes(myName);
+          scannedBy.includes(myName) ||
+          Boolean(c.assignedFreelancerName && c.assignedFreelancerName.toLowerCase() === myName) ||
+          Boolean(c.assignedFreelancerId && c.assignedFreelancerId === state.user?.id);
 
         if (scopeFilter === "mine") {
           // Strictly personal scanned QR WhatsApp chats for this closer
@@ -553,6 +555,17 @@ export function ChatView() {
       return matchChannel && matchScope && matchSearch;
     });
   }, [conversations, channelFilter, scopeFilter, search, state.user, state.scope]);
+
+  // Synchronize selectedChatId with active filteredConversations to prevent ghost chats from other scopes
+  useEffect(() => {
+    if (filteredConversations.length > 0) {
+      if (!selectedChatId || !filteredConversations.some((c) => c.id === selectedChatId)) {
+        setSelectedChatId(filteredConversations[0].id);
+      }
+    } else if (filteredConversations.length === 0 && selectedChatId) {
+      setSelectedChatId(null);
+    }
+  }, [filteredConversations, selectedChatId]);
 
   // Load conversations from live backend API + merge scanned WhatsApp conversations
   useEffect(() => {
@@ -676,7 +689,11 @@ export function ChatView() {
               lastMessageTime: formatMessageTime(c.updatedAt || c.lastMessageTime),
               updatedAt: c.updatedAt,
               unreadCount: c.id === selectedChatId ? 0 : (c.unreadCount || 0),
-              assignedTo: c.assignedAgent?.displayName || c.assignedFreelancerName || (isManualQr ? c.scannedByName : "Unassigned") || "Unassigned",
+              assignedTo:
+                c.assignedFreelancerName ||
+                c.assignedAgent?.displayName ||
+                (isQrScanner ? (c.scannedByName || c.payload?.scannedByName) : null) ||
+                "Unassigned",
               aiAutoReplyDisabled: Boolean(c.aiAutoReplyDisabled ?? c.payload?.aiAutoReplyDisabled),
               messages: [],
             };
@@ -1508,7 +1525,7 @@ export function ChatView() {
     const list = effectiveTeamMembers.filter((m) => {
       const r = (m.role || "").toUpperCase().replace(/\s+/g, "_");
       // Mandatory B2B SaaS rule: Platform Super Admin & Workspace Admins are STRICTLY excluded from assignment
-      if (r === "SUPER_ADMIN" || r.includes("SUPER") || r === "ADMIN") return false;
+      if (r === "SUPER_ADMIN" || r.includes("SUPER") || r === "ADMIN" || r === "WORKSPACE_ADMIN" || r === "OWNER") return false;
       return true;
     });
 
@@ -1725,7 +1742,13 @@ export function ChatView() {
       setConversations((prev) =>
         prev.map((c) =>
           c.id === activeChat.id
-            ? { ...c, assignedTo: assignedDisplayName, messages: [...c.messages, sysMsg] }
+            ? {
+                ...c,
+                assignedTo: assignedDisplayName,
+                assignedFreelancerName: assignedDisplayName,
+                assignedFreelancerId: targetMember?.id || assignTargetCloser,
+                messages: [...c.messages, sysMsg],
+              }
             : c
         )
       );
