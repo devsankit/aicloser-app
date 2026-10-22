@@ -341,123 +341,54 @@ export function TeamView() {
         });
         setMembers(mapped);
       } else {
-        // Fallback hydration from active workspace leads and user session
-        const synthesized: TeamMember[] = [];
-        const ownerMap = new Map<string, { count: number; value: number }>();
-        for (const l of state.leads) {
-          const o = (l.owner || "").trim();
-          if (o && o !== "Unassigned") {
-            const cur = ownerMap.get(o) || { count: 0, value: 0 };
-            cur.count += 1;
-            cur.value += Number(l.value || 0);
-            ownerMap.set(o, cur);
-          }
+        // Real workspace owner fallback if team API roster is empty
+        if (state.user) {
+          setMembers([{
+            id: state.user.userId || "owner",
+            name: state.user.displayName || "Workspace Owner",
+            email: state.user.email || "",
+            phone: state.user.phone || "",
+            role: (state.user.role as TeamRole) || "ADMIN",
+            status: "active",
+            simConnected: true,
+            maxCapacity: 100,
+            assignedLeads: 0,
+            pipelineValue: 0,
+            dealsWon: 0,
+            inRoundRobin: false,
+            onLeave: false,
+            numberMasking: false,
+            reportingManager: "Founder & Owner",
+            joinedAt: "Active",
+          }]);
+        } else {
+          setMembers([]);
         }
-
-        const adminName = state.user?.displayName || "Ankit rathore";
-        const adminEmail = state.user?.email || "theankit.storage@gmail.com";
-        const adminLeads = ownerMap.get(adminName) || { count: 0, value: 0 };
-        synthesized.push({
-          id: state.user?.userId || "admin-owner-storage",
-          name: adminName,
-          email: adminEmail,
-          phone: state.user?.phone || "+91 98765 43210",
-          role: "ADMIN",
+      }
+    } catch (err) {
+      console.warn("Failed to load team from API:", err);
+      if (state.user) {
+        setMembers([{
+          id: state.user.userId || "owner",
+          name: state.user.displayName || "Workspace Owner",
+          email: state.user.email || "",
+          phone: state.user.phone || "",
+          role: (state.user.role as TeamRole) || "ADMIN",
           status: "active",
           simConnected: true,
           maxCapacity: 100,
-          assignedLeads: adminLeads.count,
-          pipelineValue: adminLeads.value,
+          assignedLeads: 0,
+          pipelineValue: 0,
           dealsWon: 0,
           inRoundRobin: false,
           onLeave: false,
           numberMasking: false,
           reportingManager: "Founder & Owner",
           joinedAt: "Active",
-        });
-
-        for (const [name, data] of ownerMap.entries()) {
-          if (name.toLowerCase() === adminName.toLowerCase() || name.toLowerCase() === "admin") continue;
-          synthesized.push({
-            id: `agent-${name.toLowerCase().replace(/\s+/g, "-")}`,
-            name,
-            email: `${name.toLowerCase().replace(/\s+/g, "")}@example.com`,
-            phone: "+91 ••••• •••••",
-            role: "CLOSER",
-            status: "active",
-            simConnected: true,
-            maxCapacity: 25,
-            assignedLeads: data.count,
-            pipelineValue: data.value,
-            dealsWon: 0,
-            inRoundRobin: true,
-            onLeave: false,
-            numberMasking: true,
-            reportingManager: adminName,
-            joinedAt: "Active",
-          });
-        }
-        setMembers(synthesized);
+        }]);
+      } else {
+        setMembers([]);
       }
-    } catch (err) {
-      console.warn("Failed to load team from API:", err);
-      // Fallback hydration on error
-      const synthesized: TeamMember[] = [];
-      const ownerMap = new Map<string, { count: number; value: number }>();
-      for (const l of state.leads) {
-        const o = (l.owner || "").trim();
-        if (o && o !== "Unassigned") {
-          const cur = ownerMap.get(o) || { count: 0, value: 0 };
-          cur.count += 1;
-          cur.value += Number(l.value || 0);
-          ownerMap.set(o, cur);
-        }
-      }
-
-      const adminName = state.user?.displayName || "Ankit rathore";
-      const adminEmail = state.user?.email || "theankit.storage@gmail.com";
-      const adminLeads = ownerMap.get(adminName) || { count: 0, value: 0 };
-      synthesized.push({
-        id: state.user?.userId || "admin-owner-storage",
-        name: adminName,
-        email: adminEmail,
-        phone: state.user?.phone || "+91 98765 43210",
-        role: "ADMIN",
-        status: "active",
-        simConnected: true,
-        maxCapacity: 100,
-        assignedLeads: adminLeads.count,
-        pipelineValue: adminLeads.value,
-        dealsWon: 0,
-        inRoundRobin: false,
-        onLeave: false,
-        numberMasking: false,
-        reportingManager: "Founder & Owner",
-        joinedAt: "Active",
-      });
-
-      for (const [name, data] of ownerMap.entries()) {
-        if (name.toLowerCase() === adminName.toLowerCase() || name.toLowerCase() === "admin") continue;
-        synthesized.push({
-          id: `agent-${name.toLowerCase().replace(/\s+/g, "-")}`,
-          name,
-          email: `${name.toLowerCase().replace(/\s+/g, "")}@example.com`,
-          phone: "+91 ••••• •••••",
-          role: "CLOSER",
-          status: "active",
-          simConnected: true,
-          maxCapacity: 25,
-          assignedLeads: data.count,
-          pipelineValue: data.value,
-          dealsWon: 0,
-          inRoundRobin: true,
-          onLeave: false,
-          numberMasking: true,
-          reportingManager: adminName,
-          joinedAt: "Active",
-        });
-      }
-      setMembers(synthesized);
     } finally {
       setLoading(false);
     }

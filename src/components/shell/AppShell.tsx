@@ -703,7 +703,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                       textOverflow: "ellipsis",
                     }}
                   >
-                    {state.user?.email || "admin@aicloser.in"}
+                    {state.user?.email || state.user?.phone || state.user?.role || "Workspace User"}
                   </div>
                 </div>
                 <span

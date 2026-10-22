@@ -15,9 +15,15 @@ async function proxy(request: Request, context: { params: Promise<{ path: string
   const authorization = request.headers.get("authorization");
   const bearerToken = authorization?.startsWith("Bearer ") ? authorization.slice(7) : null;
   const cookieToken = cookieStore.get("aicloser_token")?.value || cookieStore.get("gx_session")?.value;
-  const token = bearerToken || cookieToken;
+  let token = bearerToken || cookieToken;
 
-  const sessionUser = token ? await verifySessionToken(token) : null;
+  let sessionUser = token ? await verifySessionToken(token) : null;
+  // If bearer token failed verification (e.g. stale client token), fallback to valid session cookie
+  if (!sessionUser && cookieToken && cookieToken !== token) {
+    token = cookieToken;
+    sessionUser = await verifySessionToken(cookieToken);
+  }
+
   const isSuperAdmin = sessionUser?.role === "SUPER_ADMIN";
 
   const headers = new Headers();
@@ -26,14 +32,19 @@ async function proxy(request: Request, context: { params: Promise<{ path: string
     if (value) headers.set(name, value);
   }
 
-  // Only allow x-target-tenant-id header override if verified as SUPER_ADMIN
-  if (isSuperAdmin) {
-    const targetTenant = request.headers.get("x-target-tenant-id");
-    if (targetTenant) headers.set("x-target-tenant-id", targetTenant);
+  // Cross-tenant impersonation override: forward target tenant to central API
+  const cookieTenant = cookieStore.get("gx_tenant")?.value;
+  const targetTenant =
+    request.headers.get("x-target-tenant-id") ||
+    (isSuperAdmin && cookieTenant ? cookieTenant : undefined);
+
+  if (targetTenant) {
+    headers.set("x-target-tenant-id", targetTenant);
   }
 
-  if (authorization?.startsWith("Bearer ")) headers.set("authorization", authorization);
-  else if (token) headers.set("authorization", `Bearer ${token}`);
+  if (token) {
+    headers.set("authorization", `Bearer ${token}`);
+  }
 
   const query = new URL(request.url).search;
   try {

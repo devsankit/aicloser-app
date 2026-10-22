@@ -76,6 +76,9 @@ async function handleReturn(request: Request) {
   // Clear impersonation markers
   clearImpersonationCookies(response);
   response.cookies.set("gx_impersonating_name", "", { path: "/", maxAge: 0 });
+  response.cookies.set("gx_user_name", "", { path: "/", maxAge: 0 });
+  response.cookies.set("gx_user_email", "", { path: "/", maxAge: 0 });
+  response.cookies.set("gx_role", "SUPER_ADMIN", { path: "/", maxAge: 7200 });
 
   return response;
 }

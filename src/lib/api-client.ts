@@ -468,6 +468,16 @@ async function request<T>(
     headers.set('Authorization', `Bearer ${token}`);
   }
 
+  // Cross-tenant impersonation override: propagate target tenant if impersonating
+  if (typeof document !== 'undefined' && !headers.has('x-target-tenant-id')) {
+    const impersonatedTenant =
+      localStorage.getItem('aicloser_impersonating_tenant') ||
+      document.cookie.match(/(?:^|;\s*)gx_tenant=([^;]+)/)?.[1];
+    if (impersonatedTenant) {
+      headers.set('x-target-tenant-id', decodeURIComponent(impersonatedTenant));
+    }
+  }
+
   const url = `${getCentralApiBaseUrl()}${path.startsWith('/') ? path : `/${path}`}`;
 
   const response = await fetch(url, {
@@ -507,6 +517,16 @@ async function requestConversation<T>(
   headers.set('Accept', 'application/json');
   if (token && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  // Cross-tenant impersonation override: propagate target tenant if impersonating
+  if (typeof document !== 'undefined' && !headers.has('x-target-tenant-id')) {
+    const impersonatedTenant =
+      localStorage.getItem('aicloser_impersonating_tenant') ||
+      document.cookie.match(/(?:^|;\s*)gx_tenant=([^;]+)/)?.[1];
+    if (impersonatedTenant) {
+      headers.set('x-target-tenant-id', decodeURIComponent(impersonatedTenant));
+    }
   }
   const response = await fetch(`/api/v1${path.startsWith('/') ? path : `/${path}`}`, {
     ...options,

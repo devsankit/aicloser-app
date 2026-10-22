@@ -22,7 +22,13 @@ import {
 
 export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void }) {
   const { moveLead, updateLead, deleteLead, state, setLayout, claimLead, reassignLead } = useApp();
-  const isAdmin = state.user?.role === "ADMIN" || state.user?.role === "SUPER_ADMIN";
+  const userRole = (
+    state.user?.role ||
+    state.workspaceAuth?.user?.role ||
+    (typeof document !== "undefined" && document.cookie.match(/(?:^|;\s*)gx_role=([^;]+)/)?.[1]) ||
+    ""
+  ).toUpperCase();
+  const isAdmin = userRole === "ADMIN" || userRole === "SUPER_ADMIN" || userRole === "MANAGER";
   const [draft, setDraft] = useState(lead);
   const [rawTagsInput, setRawTagsInput] = useState(lead.tags.join(", "));
   const [confirmDelete, setConfirmDelete] = useState(false);

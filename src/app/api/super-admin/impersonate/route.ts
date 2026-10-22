@@ -155,6 +155,32 @@ export async function POST(request: Request) {
       sameSite: "lax",
       maxAge: 7200,
     });
+    response.cookies.set("gx_tenant", resolvedTenantId, {
+      path: "/",
+      httpOnly: false,
+      sameSite: "lax",
+      maxAge: 7200,
+    });
+    response.cookies.set("gx_role", impersonatedRole, {
+      path: "/",
+      httpOnly: false,
+      sameSite: "lax",
+      maxAge: 7200,
+    });
+    response.cookies.set("gx_user_name", encodeURIComponent(resolvedDisplayName), {
+      path: "/",
+      httpOnly: false,
+      sameSite: "lax",
+      maxAge: 7200,
+    });
+    if (targetUser.email) {
+      response.cookies.set("gx_user_email", encodeURIComponent(targetUser.email), {
+        path: "/",
+        httpOnly: false,
+        sameSite: "lax",
+        maxAge: 7200,
+      });
+    }
 
     // Apply target user session cookies (gx_session, aicloser_token, gx_role, gx_tenant)
     await applySessionCookie(response, {

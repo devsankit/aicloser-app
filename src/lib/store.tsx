@@ -359,9 +359,8 @@ function readStorage(): Partial<Persisted> | null {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<Persisted>;
-    if (parsed.leads && Array.isArray(parsed.leads)) {
-      parsed.leads = parsed.leads.filter((l) => !l.id?.startsWith("ld-"));
-    }
+    // IMPORTANT: Never load cached leads from localStorage! Leads must strictly load from the tenant's live database.
+    delete parsed.leads;
     return parsed;
   } catch {
     return null;
@@ -463,7 +462,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const refreshLeads = useCallback(async () => {
     try {
       setState((p) => ({ ...p, isLoadingApi: true }));
-      const me = await aicloserApi.auth.me().catch(() => null);
+      let me = await aicloserApi.auth.me().catch(() => null);
+
+      // Fallback hydration from session cookies if me() fails or is slow
+      if (!me?.user && typeof document !== "undefined") {
+        const cookies = document.cookie;
+        const tenantIdMatch = cookies.match(/(?:^|;\s*)gx_tenant=([^;]+)/)?.[1];
+        const roleMatch = cookies.match(/(?:^|;\s*)gx_role=([^;]+)/)?.[1];
+        const nameMatch = cookies.match(/(?:^|;\s*)gx_user_name=([^;]+)/)?.[1];
+        const emailMatch = cookies.match(/(?:^|;\s*)gx_user_email=([^;]+)/)?.[1];
+        const impNameMatch = cookies.match(/(?:^|;\s*)gx_impersonating_name=([^;]+)/)?.[1];
+        if (roleMatch || tenantIdMatch || impNameMatch) {
+          me = {
+            user: {
+              userId: "session-user",
+              displayName: nameMatch ? decodeURIComponent(nameMatch) : (impNameMatch ? `${decodeURIComponent(impNameMatch)} Admin` : "Workspace Admin"),
+              email: emailMatch ? decodeURIComponent(emailMatch) : "",
+              role: ((roleMatch ? decodeURIComponent(roleMatch) : "ADMIN") as any),
+              tenantId: tenantIdMatch ? decodeURIComponent(tenantIdMatch) : "workspace",
+            },
+            tenant: {
+              id: tenantIdMatch ? decodeURIComponent(tenantIdMatch) : "workspace",
+              name: impNameMatch ? decodeURIComponent(impNameMatch) : "Workspace",
+            },
+          } as any;
+        }
+      }
+
       if (me?.user) {
         const [{ leads: apiLeads }, poolItems, teamData] = await Promise.all([
           aicloserApi.leads.list({ limit: 1000 }).catch(() => ({ leads: [] })),
@@ -493,27 +518,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const userTheme: Theme | undefined = me.user?.themePreference
           ? (String(me.user.themePreference).toLowerCase() === "dark" ? "dark" : "light")
           : undefined;
-        if (apiLeads && apiLeads.length > 0) {
-          const mapped = apiLeads.map(backendLeadToUiLead);
-          setState((p) => ({
-            ...p,
-            leads: mapped,
-            poolLeads: poolList,
-            poolCount,
-            teamMembers: teamMembers.length > 0 ? teamMembers : p.teamMembers,
-            theme: userTheme || p.theme,
-            apiConnected: true,
-            isLiveCloud: true,
-            user: me.user,
-            workspaceAuth: { user: me.user },
-            isLoadingApi: false,
-          }));
-          return;
-        }
+
+        // Cleanly map leads and ALWAYS update state.leads (even if [] for a fresh workspace)
+        const mapped = (apiLeads || []).map(backendLeadToUiLead);
         setState((p) => ({
           ...p,
+          leads: mapped,
           poolLeads: poolList,
-          poolCount: poolList.length,
+          poolCount,
           teamMembers: teamMembers.length > 0 ? teamMembers : p.teamMembers,
           theme: userTheme || p.theme,
           apiConnected: true,
