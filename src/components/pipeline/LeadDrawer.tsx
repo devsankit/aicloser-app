@@ -38,27 +38,24 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
   const [copied, setCopied] = useState(false);
   const [phoneCopied, setPhoneCopied] = useState(false);
 
-  // Transfer Lead Dialog State
-  const [transferModalOpen, setTransferModalOpen] = useState(false);
-  const [transferTargetAgentId, setTransferTargetAgentId] = useState("");
-  const [transferNote, setTransferNote] = useState("");
+  // Direct Dropdown Lead Transfer State
   const [isTransferring, setIsTransferring] = useState(false);
   const [transferToast, setTransferToast] = useState<string | null>(null);
 
-  const handleConfirmTransfer = async () => {
-    if (!transferTargetAgentId) return;
+  const handleDirectTransfer = async (targetAgentId: string) => {
+    if (!targetAgentId) return;
     setIsTransferring(true);
     setTransferToast(null);
     try {
-      const selectedMember = state.teamMembers?.find((m) => m.id === transferTargetAgentId);
-      const targetName = selectedMember?.name || transferTargetAgentId;
-      await aicloserApi.leads.transfer(lead.id, transferTargetAgentId, transferNote);
-      reassignLead(lead.id, targetName, transferNote);
-      setTransferToast(`✓ Lead successfully transferred to ${targetName}. Closing drawer...`);
+      const selectedMember = state.teamMembers?.find((m) => m.id === targetAgentId);
+      const targetName = selectedMember?.name || selectedMember?.displayName || targetAgentId;
+      set("owner", targetName);
+      reassignLead(lead.id, targetName, "Lead transferred from drawer");
+      await aicloserApi.leads.transfer(lead.id, targetAgentId, "Lead transferred from drawer");
+      setTransferToast(`✓ Transferred to ${targetName}`);
       setTimeout(() => {
-        setTransferModalOpen(false);
-        onClose();
-      }, 1200);
+        setTransferToast(null);
+      }, 2500);
     } catch (err: any) {
       setTransferToast(err?.message || "Failed to transfer lead. Please try again.");
       setTimeout(() => setTransferToast(null), 3000);
@@ -347,7 +344,6 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                   className="btn"
                   data-size="sm"
                   data-variant="accent"
-                  style={{ textDecoration: "none" }}
                   title="Open live chat thread for this lead"
                 >
                   <Icon name="whatsapp" size={13} /> WhatsApp
@@ -357,7 +353,6 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                   className="btn"
                   data-size="sm"
                   data-variant="ghost"
-                  style={{ textDecoration: "none" }}
                 >
                   <Icon name="phone" size={13} /> Call
                 </a>
@@ -368,26 +363,48 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
               className="btn"
               data-size="sm"
               data-variant="ghost"
-              style={{ textDecoration: "none" }}
             >
               <Icon name="card" size={13} /> Collect Payment
             </a>
-            <button
-              type="button"
-              className="btn"
-              data-size="sm"
-              data-variant="accent"
-              onClick={() => {
-                if (state.teamMembers && state.teamMembers.length > 0 && !transferTargetAgentId) {
-                  const firstOther = state.teamMembers.find((m) => m.id !== state.user?.id);
-                  if (firstOther) setTransferTargetAgentId(firstOther.id);
-                }
-                setTransferModalOpen(true);
-              }}
-              title="Transfer lead ownership to a teammate"
-            >
-              <Icon name="handshake" size={13} /> Transfer Lead
-            </button>
+
+            <div className="drawer-transfer-picker">
+              <select
+                className="select drawer-transfer-select"
+                value=""
+                onChange={(e) => handleDirectTransfer(e.target.value)}
+                disabled={isTransferring}
+                aria-label="Transfer lead to teammate"
+                title="Transfer lead ownership to a teammate"
+              >
+                <option value="" disabled>
+                  {isTransferring ? "Transferring..." : "⇄ Transfer Lead..."}
+                </option>
+                {state.teamMembers && state.teamMembers.length > 0 ? (
+                  state.teamMembers
+                    .filter((m) => {
+                      const r = (m.role || "").toUpperCase();
+                      return r !== "SUPER_ADMIN" && !r.includes("SUPER");
+                    })
+                    .filter((m) => m.name !== draft.owner && m.displayName !== draft.owner)
+                    .map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name || m.displayName} {m.role ? `(${m.role})` : ""}
+                      </option>
+                    ))
+                ) : (
+                  <option value="" disabled>No teammates available</option>
+                )}
+              </select>
+            </div>
+
+            {transferToast && (
+              <span
+                className="chip"
+                data-tone={transferToast.startsWith("✓") ? "success" : "danger"}
+              >
+                {transferToast}
+              </span>
+            )}
           </div>
 
           <div className="field-rows">
@@ -461,27 +478,44 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
               <span className="field-label">
                 <Icon name="users" size={14} /> Assignee
               </span>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", gap: "8px" }}>
-                <span className="chip" data-tone="accent" style={{ fontWeight: 600 }}>
-                  <Icon name="users" size={12} /> {draft.owner || "Unassigned"}
-                </span>
-                <button
-                  type="button"
-                  className="btn"
-                  data-size="sm"
-                  data-variant="outline"
-                  onClick={() => {
-                    if (state.teamMembers?.length) {
-                      const firstOther = state.teamMembers.find((m) => m.id !== state.user?.id);
-                      if (firstOther) setTransferTargetAgentId(firstOther.id);
-                    }
-                    setTransferModalOpen(true);
-                  }}
-                  title="Transfer lead to another closer"
-                >
-                  <Icon name="handshake" size={12} /> Transfer
-                </button>
-              </div>
+              <select
+                className="select"
+                value={draft.owner || "Unassigned"}
+                onChange={async (e) => {
+                  const targetVal = e.target.value;
+                  if (!targetVal || targetVal === draft.owner) return;
+                  const member = state.teamMembers?.find(
+                    (m) => m.name === targetVal || m.displayName === targetVal || m.id === targetVal
+                  );
+                  const targetId = member?.id || targetVal;
+                  const targetName = member?.name || member?.displayName || targetVal;
+                  set("owner", targetName);
+                  reassignLead(lead.id, targetName, "Reassigned via Assignee dropdown");
+                  try {
+                    await aicloserApi.leads.transfer(lead.id, targetId, "Reassigned via Assignee dropdown");
+                  } catch (err: any) {
+                    console.warn("Transfer failed:", err);
+                  }
+                }}
+                aria-label="Assignee"
+              >
+                <option value={draft.owner || "Unassigned"} disabled={!draft.owner}>
+                  {draft.owner || "Unassigned"}
+                </option>
+                {state.teamMembers && state.teamMembers.length > 0 ? (
+                  state.teamMembers
+                    .filter((m) => {
+                      const r = (m.role || "").toUpperCase();
+                      return r !== "SUPER_ADMIN" && !r.includes("SUPER");
+                    })
+                    .filter((m) => m.name !== draft.owner && m.displayName !== draft.owner)
+                    .map((m) => (
+                      <option key={m.id} value={m.name || m.displayName}>
+                        {m.name || m.displayName} {m.role ? `(${m.role})` : ""}
+                      </option>
+                    ))
+                ) : null}
+              </select>
             </div>
 
 
@@ -749,95 +783,6 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
           setWidth={(drawerWidth) => setLayout({ drawerWidth })}
         />
       </aside>
-
-      {/* Dedicated Lead Transfer Modal */}
-      {transferModalOpen && (
-        <div className="dialog-overlay" onClick={() => !isTransferring && setTransferModalOpen(false)}>
-          <div className="dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
-            <div className="dialog-head">
-              <h2 className="dialog-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <Icon name="handshake" size={16} /> Transfer Lead Ownership
-              </h2>
-              <button
-                className="icon-btn"
-                onClick={() => !isTransferring && setTransferModalOpen(false)}
-                aria-label="Close transfer dialog"
-              >
-                <Icon name="close" size={13} />
-              </button>
-            </div>
-
-            <div className="dialog-body" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              <p style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", margin: 0 }}>
-                Transfer <strong>{draft.name || "this lead"}</strong> ({draft.company || draft.phone}) to another sales agent. The lead will be atomically assigned to their pipeline.
-              </p>
-
-              {transferToast && (
-                <div className="chip" data-tone={transferToast.startsWith("✓") ? "success" : "danger"} style={{ width: "100%", justifyContent: "center" }}>
-                  {transferToast}
-                </div>
-              )}
-
-              <div className="field">
-                <label className="field-label">Select Target Teammate</label>
-                <select
-                  className="select"
-                  value={transferTargetAgentId}
-                  onChange={(e) => setTransferTargetAgentId(e.target.value)}
-                  disabled={isTransferring}
-                >
-                  <option value="" disabled>Choose teammate...</option>
-                  {state.teamMembers && state.teamMembers.length > 0 ? (
-                    state.teamMembers
-                      .filter((m) => {
-                        const r = (m.role || "").toUpperCase();
-                        return r !== "SUPER_ADMIN" && !r.includes("SUPER") && r !== "ADMIN";
-                      })
-                      .map((m) => (
-                        <option key={m.id} value={m.id} disabled={m.id === state.user?.id}>
-                          {m.name} {m.role ? `(${m.role})` : ""} {m.id === state.user?.id ? "— You" : ""}
-                        </option>
-                      ))
-                  ) : (
-                    <option value="round_robin">Available Team Closers</option>
-                  )}
-                </select>
-              </div>
-
-              <div className="field">
-                <label className="field-label">Handover Note / Context for Teammate</label>
-                <textarea
-                  className="textarea"
-                  rows={3}
-                  value={transferNote}
-                  onChange={(e) => setTransferNote(e.target.value)}
-                  placeholder="Explain why this lead is being transferred (e.g. requested enterprise demo, spoke in regional language, price pre-negotiated)..."
-                  disabled={isTransferring}
-                />
-              </div>
-            </div>
-
-            <div className="dialog-foot">
-              <button
-                className="btn"
-                onClick={() => setTransferModalOpen(false)}
-                disabled={isTransferring}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn"
-                data-variant="accent"
-                onClick={handleConfirmTransfer}
-                disabled={!transferTargetAgentId || isTransferring}
-              >
-                <Icon name={isTransferring ? "refresh" : "check"} size={13} className={isTransferring ? "spin" : ""} />
-                {isTransferring ? "Transferring Lead..." : "Confirm Transfer"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

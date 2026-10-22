@@ -5783,6 +5783,35 @@ button.list-prio:hover {
   gap: 8px;
   margin: 12px 0 16px 0;
   flex-wrap: wrap;
+  align-items: center;
+}
+
+.drawer-quick-actions a {
+  text-decoration: none;
+}
+
+.drawer-transfer-picker {
+  display: inline-flex;
+  align-items: center;
+}
+
+.drawer-transfer-select {
+  height: 28px;
+  width: auto;
+  min-width: 148px;
+  font-size: var(--fs-caption);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-input);
+  border-radius: var(--r-sm);
+  padding: 0 24px 0 9px;
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.drawer-transfer-select:hover {
+  border-color: var(--accent);
+  background-color: var(--bg-hover);
 }
 
 .drawer-reassign-card {
