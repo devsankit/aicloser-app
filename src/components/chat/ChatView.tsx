@@ -503,12 +503,12 @@ export function ChatView() {
             scannedBy === targetAgent;
         }
       } else if (scopeFilter === "mine") {
-        matchScope =
-          assigned === myName ||
-          assigned.includes(myName) ||
-          c.assignedTo === CURRENT_USER ||
+        // Strictly personal QR WhatsApp chats (scanned by or linked to logged-in user)
+        const belongsToMe =
           scannedBy === myName ||
-          scannedBy.includes(myName);
+          scannedBy.includes(myName) ||
+          (isQrChannel && (assigned === myName || assigned.includes(myName)));
+        matchScope = isQrChannel && !isOfficial && belongsToMe;
       } else if (scopeFilter === "unassigned") {
         matchScope = c.assignedTo === "Unassigned";
       }
@@ -597,6 +597,11 @@ export function ChatView() {
           apiParams.agentName = targetAgent;
         } else {
           apiParams.agentName = targetAgent;
+        }
+      } else if (scopeFilter === "mine") {
+        apiParams.sourceType = "QR_SCANNER";
+        if (state.user?.displayName) {
+          apiParams.scannerName = state.user.displayName;
         }
       } else if (scopeFilter === "api") {
         apiParams.sourceType = "OFFICIAL_API";
@@ -1359,7 +1364,7 @@ export function ChatView() {
   }>({
     chatSharingScope: "WORKSPACE_WIDE",
     leadAssignmentScope: "WORKSPACE_WIDE",
-    closerLeadReassignmentEnabled: false,
+    closerLeadReassignmentEnabled: true,
     closerChatSharingEnabled: true,
   });
 
@@ -1605,7 +1610,7 @@ export function ChatView() {
         throw new Error(res.message || "Failed to assign conversation");
       }
 
-      const targetMember = teamMembers.find(
+      const targetMember = effectiveTeamMembers.find(
         (m) => m.id === assignTargetCloser || m.name.toLowerCase() === assignTargetCloser.toLowerCase()
       );
       const assignedDisplayName =
@@ -1614,8 +1619,9 @@ export function ChatView() {
         targetMember?.name ||
         assignTargetCloser;
 
-      // 2. If lead is linked in state, update lead owner
+      // 2. If lead is linked in state, transfer lead and update owner symmetrically
       if (activeLead) {
+        await aicloserApi.leads.transfer(activeLead.id, targetMember?.id || assignTargetCloser, assignHandoverNote).catch(() => undefined);
         reassignLead(activeLead.id, assignedDisplayName, assignHandoverNote);
       }
 
@@ -2055,12 +2061,12 @@ export function ChatView() {
                 onClick={() => {
                   setAssignError(null);
                   setAssignSuccess(null);
-                  if (teamMembers.length > 0) {
-                    const other = teamMembers.find(
-                      (m) => m.name.toLowerCase() !== (activeChat.assignedTo || "").toLowerCase()
-                    );
-                    setAssignTargetCloser(other?.id || other?.name || teamMembers[0]?.id || teamMembers[0]?.name || "");
-                  }
+                  const pool = assignableTeamMembers.length > 0 ? assignableTeamMembers : effectiveTeamMembers;
+                  const currentAssigned = (activeChat.assignedTo || "").toLowerCase();
+                  const other = pool.find(
+                    (m) => (m.name || "").toLowerCase() !== currentAssigned && (m.id || "").toLowerCase() !== currentAssigned
+                  );
+                  setAssignTargetCloser(other?.id || other?.name || (pool[0]?.id || pool[0]?.name || ""));
                   setShowAssignModal(true);
                 }}
                 title="Assign conversation to a team closer"
@@ -3058,14 +3064,15 @@ export function ChatView() {
                   className="select"
                   value={assignTargetCloser}
                   onChange={(e) => setAssignTargetCloser(e.target.value)}
-                  disabled={isSalesCloser && !workspaceSettings.closerLeadReassignmentEnabled}
                   style={{ width: "100%", marginTop: "4px", height: "32px", fontSize: "12px" }}
                 >
-                  {assignableTeamMembers.map((member) => (
-                    <option key={member.id || member.name} value={member.id || member.name}>
-                      {member.name} {member.role ? `(${member.role})` : ""}
-                    </option>
-                  ))}
+                  {assignableTeamMembers
+                    .filter((member) => (member.name || "").toLowerCase() !== (activeChat.assignedTo || "").toLowerCase() && (member.id || "").toLowerCase() !== (activeChat.assignedTo || "").toLowerCase())
+                    .map((member) => (
+                      <option key={member.id || member.name} value={member.id || member.name}>
+                        {member.name} {member.role ? `(${member.role})` : ""}
+                      </option>
+                    ))}
                 </select>
               </div>
 
@@ -3079,7 +3086,6 @@ export function ChatView() {
                   value={assignHandoverNote}
                   onChange={(e) => setAssignHandoverNote(e.target.value)}
                   placeholder="e.g. Lead interested in CRM pro plan; callback requested for 4 PM"
-                  disabled={isSalesCloser && !workspaceSettings.closerLeadReassignmentEnabled}
                   style={{ marginTop: "4px", fontSize: "12px" }}
                 />
               </div>
@@ -3103,7 +3109,7 @@ export function ChatView() {
                 data-variant="primary"
                 disabled={
                   assignLoading ||
-                  (isSalesCloser && !workspaceSettings.closerLeadReassignmentEnabled) ||
+                  !assignTargetCloser ||
                   (assignableTeamMembers.find((m) => m.id === assignTargetCloser || m.name === assignTargetCloser)?.name.toLowerCase() === (activeChat.assignedTo || "").toLowerCase()) ||
                   (Boolean(activeChat.isPersonalQr) && state.user?.role !== "ADMIN" && state.user?.role !== "SUPER_ADMIN")
                 }

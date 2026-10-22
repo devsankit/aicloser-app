@@ -1128,106 +1128,108 @@ export function PipelineView() {
           </div>
 
           <div className="board" data-fit={fit} role="list" aria-label="Lead pipeline board" ref={boardRef}>
-            {/* Grab Pool Column ("Lead Grab") */}
-            <div
-              className="col"
-              aria-label={`Lead Grab Pool, ${openPoolList.length} leads`}
-              role="listitem"
-            >
-              <header className="col-head">
-                <h2 className="col-title">
-                  <span className="stage-icon-badge" data-tone="accent">
-                    <Icon name="zap" size={15} />
+            {/* Grab Pool Column ("Lead Grab") - Strictly for Sales Closers, NOT for Admin/Manager who imports leads */}
+            {!isAdmin && (
+              <div
+                className="col"
+                aria-label={`Lead Grab Pool, ${openPoolList.length} leads`}
+                role="listitem"
+              >
+                <header className="col-head">
+                  <h2 className="col-title">
+                    <span className="stage-icon-badge" data-tone="accent">
+                      <Icon name="zap" size={15} />
+                    </span>
+                    Lead Grab
+                  </h2>
+                  <span className="col-count">{openPoolList.length}</span>
+                  <span
+                    className="chip"
+                    data-tone={missedCount > 0 ? "danger" : "neutral"}
+                    title={missedCount > 0 ? `${missedCount} leads missed SLA` : "No missed leads"}
+                  >
+                    Missed: {missedCount}
                   </span>
-                  Lead Grab
-                </h2>
-                <span className="col-count">{openPoolList.length}</span>
-                <span
-                  className="chip"
-                  data-tone={missedCount > 0 ? "danger" : "neutral"}
-                  title={missedCount > 0 ? `${missedCount} leads missed SLA` : "No missed leads"}
-                >
-                  Missed: {missedCount}
-                </span>
-                <button
-                  className="icon-btn col-add"
-                  onClick={() => {
-                    setViewMode("pool");
-                    fetchPoolLeads().catch(() => {});
-                  }}
-                  aria-label="Open full Lead Grab Pool"
-                  title="Open full Lead Grab Pool"
-                >
-                  <Icon name="external" size={13} />
-                </button>
-              </header>
+                  <button
+                    className="icon-btn col-add"
+                    onClick={() => {
+                      setViewMode("pool");
+                      fetchPoolLeads().catch(() => {});
+                    }}
+                    aria-label="Open full Lead Grab Pool"
+                    title="Open full Lead Grab Pool"
+                  >
+                    <Icon name="external" size={13} />
+                  </button>
+                </header>
 
-              <div className="col-cards">
-                {openPoolList.map((item) => {
-                  const remainingSec = getRemainingSeconds(item.createdAt);
-                  const isUrgent = remainingSec > 0 && remainingSec < 120;
-                  const isClaiming = claimingId === item.id;
-                  const src = sourceMeta(item.source || "Website");
+                <div className="col-cards">
+                  {openPoolList.map((item) => {
+                    const remainingSec = getRemainingSeconds(item.createdAt);
+                    const isUrgent = remainingSec > 0 && remainingSec < 120;
+                    const isClaiming = claimingId === item.id;
+                    const src = sourceMeta(item.source || "Website");
 
-                  return (
-                    <div
-                      key={item.id}
-                      className="card lead"
-                    >
-                      <div className="lead-top">
-                        <span className="stage-icon-badge" data-tone={src.tone} title={`Lead source: ${src.label}`}>
-                          <Icon name={src.icon} size={15} />
-                        </span>
-                        <div className="pool-timer" data-urgent={isUrgent}>
-                          <Icon name="clock" size={11} />
-                          <span>{remainingSec > 0 ? `⏱️ ${formatCountdown(remainingSec)}` : "Missed"}</span>
+                    return (
+                      <div
+                        key={item.id}
+                        className="card lead"
+                      >
+                        <div className="lead-top">
+                          <span className="stage-icon-badge" data-tone={src.tone} title={`Lead source: ${src.label}`}>
+                            <Icon name={src.icon} size={15} />
+                          </span>
+                          <div className="pool-timer" data-urgent={isUrgent}>
+                            <Icon name="clock" size={11} />
+                            <span>{remainingSec > 0 ? `⏱️ ${formatCountdown(remainingSec)}` : "Missed"}</span>
+                          </div>
+                        </div>
+                        <h3 className="lead-name" style={{ fontSize: "13px", fontWeight: 650, marginTop: "4px" }}>
+                          {item.customerName || "Customer Lead"}
+                        </h3>
+                        <p className="lead-company">
+                          <Icon name="phone" size={12} /> {item.customerPhone || "No phone"}
+                        </p>
+                        {item.serviceInterest && (
+                          <div style={{ fontSize: "11px", color: "var(--text-secondary)", marginTop: "4px", lineHeight: 1.3 }}>
+                            {item.serviceInterest}
+                          </div>
+                        )}
+                        <div className="lead-sla-claim" style={{ marginTop: "8px" }}>
+                          <button
+                            className="btn"
+                            data-variant="accent"
+                            data-size="sm"
+                            disabled={isClaiming || isAtQuota}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleClaimLead(item);
+                            }}
+                            style={{ width: "100%", justifyContent: "center" }}
+                          >
+                            {isClaiming ? (
+                              <>
+                                <Icon name="refresh" size={12} className="spin" /> Grabbing...
+                              </>
+                            ) : (
+                              <>
+                                <Icon name="zap" size={12} /> Grab Lead (SLA)
+                              </>
+                            )}
+                          </button>
                         </div>
                       </div>
-                      <h3 className="lead-name" style={{ fontSize: "13px", fontWeight: 650, marginTop: "4px" }}>
-                        {item.customerName || "Customer Lead"}
-                      </h3>
-                      <p className="lead-company">
-                        <Icon name="phone" size={12} /> {item.customerPhone || "No phone"}
-                      </p>
-                      {item.serviceInterest && (
-                        <div style={{ fontSize: "11px", color: "var(--text-secondary)", marginTop: "4px", lineHeight: 1.3 }}>
-                          {item.serviceInterest}
-                        </div>
-                      )}
-                      <div className="lead-sla-claim" style={{ marginTop: "8px" }}>
-                        <button
-                          className="btn"
-                          data-variant="accent"
-                          data-size="sm"
-                          disabled={isClaiming || isAtQuota}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleClaimLead(item);
-                          }}
-                          style={{ width: "100%", justifyContent: "center" }}
-                        >
-                          {isClaiming ? (
-                            <>
-                              <Icon name="refresh" size={12} className="spin" /> Grabbing...
-                            </>
-                          ) : (
-                            <>
-                              <Icon name="zap" size={12} /> Grab Lead (SLA)
-                            </>
-                          )}
-                        </button>
-                      </div>
+                    );
+                  })}
+
+                  {!openPoolList.length && (
+                    <div className="col-empty" style={{ cursor: "default" }}>
+                      <span>Pool empty</span>
                     </div>
-                  );
-                })}
-
-                {!openPoolList.length && (
-                  <div className="col-empty" style={{ cursor: "default" }}>
-                    <span>Pool empty</span>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
             {STAGES.map((stage, stageIndex) => {
               const cards = byStage.get(stage.id) ?? [];
