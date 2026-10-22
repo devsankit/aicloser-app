@@ -36,19 +36,13 @@ export function ImpersonationBanner() {
     setIsReturning(true);
 
     try {
-      // 1. Attempt central API return
-      const res = await aicloserApi.superAdmin.returnFromImpersonation().catch(() => null) as { token?: string } | null;
-      if (res?.token) {
-        setStoredToken(res.token);
-        if (typeof window !== "undefined") {
-          window.localStorage.removeItem("aicloser_impersonating_tenant");
-          window.localStorage.removeItem("aicloser_impersonating_name");
-        }
-        window.location.assign("/super-admin");
-        return;
+      // 1. Central API return to clean up server session
+      await aicloserApi.superAdmin.returnFromImpersonation().catch(() => null);
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem("aicloser_impersonating_tenant");
+        window.localStorage.removeItem("aicloser_impersonating_name");
       }
-
-      // 2. Fallback to legacy cookie return endpoint
+      // 2. Return via Next.js server return route to restore HttpOnly Super Admin session cookies
       window.location.assign("/api/super-admin/impersonate/return");
     } catch {
       window.location.assign("/api/super-admin/impersonate/return");

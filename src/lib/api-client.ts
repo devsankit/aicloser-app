@@ -18,6 +18,20 @@ function handleCentralAuthFailure(status: number, message: string) {
   if (typeof window === 'undefined') return;
 
   if (status === 401) {
+    const isImpersonating = Boolean(
+      localStorage.getItem('aicloser_impersonating_tenant') ||
+      localStorage.getItem('aicloser_impersonating_name')
+    );
+
+    // If currently impersonating, do not wipe tokens and do not trap user on /login
+    if (isImpersonating) {
+      console.warn('[AI Closer Impersonation Auth Warning]:', message);
+      window.dispatchEvent(new CustomEvent('aicloser:auth-unauthorized', {
+        detail: { status, message: message || 'Session context refreshed' },
+      }));
+      return;
+    }
+
     setStoredToken(null);
     window.dispatchEvent(new CustomEvent('aicloser:auth-unauthorized', {
       detail: { status, message: message || 'Authentication token missing or expired. Redirecting to login.' },

@@ -686,18 +686,30 @@ export function SuperAdminView() {
   const handleImpersonateWorkspace = async (ws: TenantWorkspace) => {
     setImpersonatingTenant(ws.name);
     try {
-      const res = await aicloserApi.superAdmin.impersonateTenant(ws.id).catch(() => null) as any;
-      if (res?.token) {
-        setStoredToken(res.token);
+      showToast(`Connecting to workspace ${ws.name}...`);
+      // 1. Next.js server-side impersonation (sets HttpOnly session cookies & return cookie)
+      const serverRes = await fetch("/api/super-admin/impersonate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId: ws.id, workspaceName: ws.name }),
+      });
+      const serverData = await serverRes.json().catch(() => null);
+
+      // 2. Central API audited impersonation
+      const centralRes = await aicloserApi.superAdmin.impersonateTenant(ws.id).catch(() => null) as any;
+
+      const token = centralRes?.token || serverData?.token;
+      if (token) {
+        setStoredToken(token);
       }
+
       if (typeof window !== "undefined") {
         window.localStorage.setItem("aicloser_impersonating_tenant", ws.id);
         window.localStorage.setItem("aicloser_impersonating_name", ws.name);
         window.location.href = "/pipeline";
       }
-      showToast(`Switching context: Impersonating ${ws.name}...`);
-    } catch {
-      showToast(`Impersonating ${ws.name} in preview mode.`);
+    } catch (e: any) {
+      showToast(`Impersonation failed: ${e?.message || "Unknown error"}`, "error");
     }
   };
 
@@ -706,9 +718,8 @@ export function SuperAdminView() {
     if (typeof window !== "undefined") {
       window.localStorage.removeItem("aicloser_impersonating_tenant");
       window.localStorage.removeItem("aicloser_impersonating_name");
+      window.location.href = "/api/super-admin/impersonate/return";
     }
-    await aicloserApi.superAdmin.returnFromImpersonation().catch(() => null);
-    showToast("Returned to Super Admin Command Center.");
   };
 
   // Provision Workspace with live central API dispatch

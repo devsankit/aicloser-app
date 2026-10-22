@@ -406,15 +406,25 @@ export function SuperAdminCloserControl({ adminUser, initialUsers, initialStats 
 
     try {
       if (!user.tenantId) throw new Error("This user is missing a workspace mapping.");
-      const data = await aicloserApi.superAdmin.impersonateTenant(user.tenantId) as { token?: string };
-      if (!data?.token) throw new Error("Central impersonation did not return a session token.");
-      // The central API returns an audited, tenant-scoped token. Keep it in
-      // the shared API client before opening the workspace dashboard.
+      // 1. Next.js server-side impersonation (sets HttpOnly session cookies & return cookie)
+      const serverRes = await fetch("/api/super-admin/impersonate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, tenantId: user.tenantId, workspaceName: user.companyName }),
+      });
+      const serverData = await serverRes.json().catch(() => null);
+
+      // 2. Central API audited impersonation
+      const data = await aicloserApi.superAdmin.impersonateTenant(user.tenantId).catch(() => null) as { token?: string } | null;
+      const token = data?.token || serverData?.token;
+      if (!token) throw new Error("Impersonation did not return a session token.");
+
       window.localStorage.setItem("aicloser_impersonating_tenant", user.tenantId);
-      setStoredToken(data.token);
-      window.location.assign("/");
+      window.localStorage.setItem("aicloser_impersonating_name", user.companyName || user.displayName);
+      setStoredToken(token);
+      window.location.assign("/pipeline");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "Central API impersonation failed", "error");
+      showToast(error instanceof Error ? error.message : "Impersonation failed", "error");
       setImpersonatingUserId(null);
     }
   };

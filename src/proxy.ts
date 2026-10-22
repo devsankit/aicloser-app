@@ -54,6 +54,13 @@ export async function proxy(request: NextRequest) {
 
   if (!session) {
     if (pathname.startsWith("/super-admin")) {
+      const returnToken = request.cookies.get("gx_super_admin_return")?.value;
+      if (returnToken) {
+        const returnSession = await verifySessionToken(returnToken);
+        if (returnSession && returnSession.role === "SUPER_ADMIN") {
+          return NextResponse.redirect(new URL("/api/super-admin/impersonate/return", request.url));
+        }
+      }
       const saLoginUrl = new URL("/super-admin/login", request.url);
       saLoginUrl.searchParams.set("redirectTo", pathname);
       return NextResponse.redirect(saLoginUrl);
@@ -65,6 +72,15 @@ export async function proxy(request: NextRequest) {
 
   // 5. Super Admin routes strict role check
   if (pathname.startsWith("/super-admin") && session.role !== "SUPER_ADMIN") {
+    // If the user was impersonating and has a Super Admin return cookie, auto-return smoothly!
+    const returnToken = request.cookies.get("gx_super_admin_return")?.value;
+    if (returnToken) {
+      const returnSession = await verifySessionToken(returnToken);
+      if (returnSession && returnSession.role === "SUPER_ADMIN") {
+        return NextResponse.redirect(new URL("/api/super-admin/impersonate/return", request.url));
+      }
+    }
+
     const saLoginUrl = new URL("/super-admin/login", request.url);
     saLoginUrl.searchParams.set("error", "Unauthorized: Super Admin credentials required");
     return NextResponse.redirect(saLoginUrl);

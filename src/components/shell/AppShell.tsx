@@ -1003,14 +1003,14 @@ export function AppShell({ children }: { children: ReactNode }) {
             <button
               type="button"
               className="btn btn-sm"
-              style={{ background: "#ffffff", color: "#111827", height: 24, fontSize: 11, padding: "0 10px", fontWeight: 700 }}
+              data-variant="primary"
               onClick={async () => {
                 if (typeof window !== "undefined") {
                   window.localStorage.removeItem("aicloser_impersonating_tenant");
                   window.localStorage.removeItem("aicloser_impersonating_name");
                 }
                 await aicloserApi.superAdmin.returnFromImpersonation().catch(() => null);
-                window.location.href = "/super-admin";
+                window.location.href = "/api/super-admin/impersonate/return";
               }}
             >
               Exit to Super Admin
