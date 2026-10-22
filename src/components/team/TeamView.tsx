@@ -50,11 +50,54 @@ const DEFAULT_PERMISSIONS: PermissionRow[] = [
   { id: "team_management", category: "Workspace Governance", label: "Invite & Manage Team Members", desc: "Assign seats, edit roles and passwords", admin: true, manager: false, closer: false },
 ];
 
+export type TeamTab = "members" | "matrix" | "routing" | "audit" | "control" | "labels";
+
+export interface WorkspaceControlSettings {
+  chatSharingScope: "REPORTING_TEAM_ONLY" | "WORKSPACE_WIDE";
+  leadAssignmentScope: "REPORTING_TEAM_ONLY" | "WORKSPACE_WIDE";
+  closerLeadReassignmentEnabled: boolean;
+  closerChatSharingEnabled: boolean;
+  managerLeadDeletionEnabled: boolean;
+  phoneMaskingPolicy: "MASK_ALL" | "LAST_4" | "UNMASKED";
+  companionScannerRouting: "DEDICATED" | "ROUND_ROBIN";
+  leadExportProtection: boolean;
+}
+
+const DEFAULT_WORKSPACE_SETTINGS: WorkspaceControlSettings = {
+  chatSharingScope: "WORKSPACE_WIDE",
+  leadAssignmentScope: "WORKSPACE_WIDE",
+  closerLeadReassignmentEnabled: false,
+  closerChatSharingEnabled: true,
+  managerLeadDeletionEnabled: false,
+  phoneMaskingPolicy: "LAST_4",
+  companionScannerRouting: "DEDICATED",
+  leadExportProtection: true,
+};
+
+export interface WorkspaceLabelItem {
+  id?: string;
+  name: string;
+  color?: string;
+  count?: number;
+  createdAt?: string;
+}
+
+const LABEL_COLOR_OPTIONS = [
+  "#F97316",
+  "#10B981",
+  "#3B82F6",
+  "#F59E0B",
+  "#8B5CF6",
+  "#EC4899",
+  "#EF4444",
+  "#6B7280",
+];
+
 export function TeamView() {
   const { state, setScope } = useApp();
   const router = useRouter();
 
-  const [tab, setTab] = useState<"members" | "matrix" | "routing" | "audit">("members");
+  const [tab, setTab] = useState<TeamTab>("members");
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [permissions, setPermissions] = useState<PermissionRow[]>(DEFAULT_PERMISSIONS);
@@ -72,6 +115,28 @@ export function TeamView() {
   // Live Audit Logs State
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [isAuditLoading, setIsAuditLoading] = useState(false);
+
+  // Workspace Control Governance State
+  const [workspaceSettings, setWorkspaceSettings] = useState<WorkspaceControlSettings>(DEFAULT_WORKSPACE_SETTINGS);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+
+  // Labels & Taxonomy State
+  const [labelsList, setLabelsList] = useState<WorkspaceLabelItem[]>([]);
+  const [isLoadingLabels, setIsLoadingLabels] = useState(false);
+  const [isAddLabelOpen, setIsAddLabelOpen] = useState(false);
+  const [newLabelName, setNewLabelName] = useState("");
+  const [newLabelColor, setNewLabelColor] = useState("#F97316");
+  const [addLabelError, setAddLabelError] = useState<string | null>(null);
+  const [isSubmittingLabel, setIsSubmittingLabel] = useState(false);
+
+  const [editingLabel, setEditingLabel] = useState<WorkspaceLabelItem | null>(null);
+  const [editLabelName, setEditLabelName] = useState("");
+  const [editLabelColor, setEditLabelColor] = useState("#F97316");
+  const [editLabelError, setEditLabelError] = useState<string | null>(null);
+  const [isSavingEditLabel, setIsSavingEditLabel] = useState(false);
+
+  const [deletingLabel, setDeletingLabel] = useState<WorkspaceLabelItem | null>(null);
+  const [isDeletingLabel, setIsDeletingLabel] = useState(false);
 
   // Invite Form State
   const [inviteName, setInviteName] = useState("");
@@ -165,9 +230,26 @@ export function TeamView() {
           if (parsedOps.leadRoutingAccess !== undefined) setManagerLeadRoutingAccess(parsedOps.leadRoutingAccess);
         } catch {}
       }
+      const storedSettings = localStorage.getItem("closer.workspace.settings.v1");
+      if (storedSettings) {
+        try {
+          setWorkspaceSettings((prev) => ({ ...prev, ...JSON.parse(storedSettings) }));
+        } catch {}
+      }
     } catch {
       // Ignore
     }
+
+    aicloserApi.workspace
+      .getSettings()
+      .then((res: any) => {
+        if (res?.settings) {
+          setWorkspaceSettings((prev) => ({ ...prev, ...res.settings }));
+        } else if (res && typeof res === "object") {
+          setWorkspaceSettings((prev) => ({ ...prev, ...res }));
+        }
+      })
+      .catch(() => undefined);
   }, []);
 
   // Live API Fetch for Team Members
@@ -747,6 +829,141 @@ export function TeamView() {
     }
   };
 
+  const handleSaveWorkspaceSettings = async () => {
+    setIsSavingSettings(true);
+    try {
+      await aicloserApi.workspace.updateSettings(workspaceSettings);
+      localStorage.setItem("closer.workspace.settings.v1", JSON.stringify(workspaceSettings));
+      window.dispatchEvent(new Event("aicloser:workspace_settings_updated"));
+      setSavedBanner("Workspace governance controls saved successfully!");
+    } catch (err: any) {
+      localStorage.setItem("closer.workspace.settings.v1", JSON.stringify(workspaceSettings));
+      window.dispatchEvent(new Event("aicloser:workspace_settings_updated"));
+      setSavedBanner("Workspace governance controls saved locally.");
+    } finally {
+      setIsSavingSettings(false);
+      setTimeout(() => setSavedBanner(null), 3500);
+    }
+  };
+
+  const loadWorkspaceLabels = useCallback(async () => {
+    setIsLoadingLabels(true);
+    try {
+      const res: any = await aicloserApi.labels.list();
+      const raw: any[] = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
+      if (raw.length > 0) {
+        setLabelsList(
+          raw.map((l: any) => ({
+            id: l.id || `lbl-${l.name}`,
+            name: l.name,
+            color: l.color || "#F97316",
+            count: l.count,
+            createdAt: l.createdAt,
+          }))
+        );
+      } else {
+        const tagMap = new Map<string, number>();
+        state.leads.forEach((lead) => {
+          if (Array.isArray(lead.tags)) {
+            lead.tags.forEach((tag) => {
+              tagMap.set(tag, (tagMap.get(tag) || 0) + 1);
+            });
+          }
+        });
+        const inferred: WorkspaceLabelItem[] = Array.from(tagMap.entries()).map(([name, count]) => ({
+          id: `lbl-${name}`,
+          name,
+          color: "#F97316",
+          count,
+        }));
+        setLabelsList(inferred);
+      }
+    } catch (err) {
+      console.warn("Failed to load labels:", err);
+    } finally {
+      setIsLoadingLabels(false);
+    }
+  }, [state.leads]);
+
+  useEffect(() => {
+    loadWorkspaceLabels();
+  }, [loadWorkspaceLabels]);
+
+  const handleAddLabel = async () => {
+    const name = newLabelName.trim();
+    if (!name) {
+      setAddLabelError("Label name is required.");
+      return;
+    }
+    if (labelsList.some((l) => l.name.toLowerCase() === name.toLowerCase())) {
+      setAddLabelError("A label with this name already exists.");
+      return;
+    }
+    setIsSubmittingLabel(true);
+    setAddLabelError(null);
+    try {
+      await aicloserApi.labels.create({ name, color: newLabelColor });
+      setSavedBanner(`Tag "${name}" created.`);
+      setTimeout(() => setSavedBanner(null), 3000);
+      setIsAddLabelOpen(false);
+      setNewLabelName("");
+      await loadWorkspaceLabels();
+    } catch (err: any) {
+      setAddLabelError(err?.message || "Failed to create tag.");
+    } finally {
+      setIsSubmittingLabel(false);
+    }
+  };
+
+  const handleStartEditLabel = (label: WorkspaceLabelItem) => {
+    setEditingLabel(label);
+    setEditLabelName(label.name);
+    setEditLabelColor(label.color || "#F97316");
+    setEditLabelError(null);
+  };
+
+  const handleSaveEditLabel = async () => {
+    if (!editingLabel) return;
+    const name = editLabelName.trim();
+    if (!name) {
+      setEditLabelError("Label name cannot be empty.");
+      return;
+    }
+    setIsSavingEditLabel(true);
+    setEditLabelError(null);
+    try {
+      await aicloserApi.labels.update(editingLabel.name, {
+        newName: name !== editingLabel.name ? name : undefined,
+        color: editLabelColor,
+      });
+      setSavedBanner(`Tag "${name}" updated.`);
+      setTimeout(() => setSavedBanner(null), 3000);
+      setEditingLabel(null);
+      await loadWorkspaceLabels();
+    } catch (err: any) {
+      setEditLabelError(err?.message || "Failed to update tag.");
+    } finally {
+      setIsSavingEditLabel(false);
+    }
+  };
+
+  const handleDeleteLabel = async () => {
+    if (!deletingLabel) return;
+    setIsDeletingLabel(true);
+    try {
+      await aicloserApi.labels.delete(deletingLabel.name);
+      setSavedBanner(`Tag "${deletingLabel.name}" deleted.`);
+      setTimeout(() => setSavedBanner(null), 3000);
+      setDeletingLabel(null);
+      await loadWorkspaceLabels();
+    } catch (err: any) {
+      setSavedBanner("Failed to delete tag: " + (err?.message || String(err)));
+      setTimeout(() => setSavedBanner(null), 3500);
+    } finally {
+      setIsDeletingLabel(false);
+    }
+  };
+
   const filteredMembers = useMemo(() => {
     const q = search.trim().toLowerCase();
     return members.filter((m) => {
@@ -885,6 +1102,22 @@ export function TeamView() {
           onClick={() => setTab("audit")}
         >
           Security Audit Trail
+        </button>
+        <button
+          role="tab"
+          aria-selected={tab === "control"}
+          data-on={tab === "control"}
+          onClick={() => setTab("control")}
+        >
+          Workspace Governance
+        </button>
+        <button
+          role="tab"
+          aria-selected={tab === "labels"}
+          data-on={tab === "labels"}
+          onClick={() => setTab("labels")}
+        >
+          Tags & Taxonomy
         </button>
       </div>
 
@@ -1570,6 +1803,492 @@ export function TeamView() {
         </section>
       )}
 
+      {/* Tab 5: Workspace Control & Governance */}
+      {tab === "control" && (
+        <section className="settings">
+          <div className="card settings-card">
+            <div className="settings-head">
+              <div>
+                <h2 className="settings-title">Workspace Governance & Closer Safeguards</h2>
+                <p className="settings-sub">
+                  Enforce operational boundaries, conversation sharing scopes, lead reassignment limits, and customer data masking policies across your sales force.
+                </p>
+              </div>
+              <span className="chip" data-tone="accent">
+                Enterprise Policy
+              </span>
+            </div>
+
+            <div className="settings-body">
+              {/* 1. Chat Sharing Scope */}
+              <div className="setting-row">
+                <div>
+                  <div className="setting-name">Chat Sharing Scope</div>
+                  <div className="setting-desc">
+                    {workspaceSettings.chatSharingScope === "REPORTING_TEAM_ONLY"
+                      ? "Reporting Team Only — Closers can only share chat threads with colleagues under their direct Sales Manager."
+                      : "Workspace-Wide — Closers can share conversation access with any active team member across the workspace."}
+                  </div>
+                </div>
+                <div className="seg">
+                  <button
+                    type="button"
+                    data-on={workspaceSettings.chatSharingScope === "REPORTING_TEAM_ONLY"}
+                    onClick={() =>
+                      setWorkspaceSettings((prev) => ({
+                        ...prev,
+                        chatSharingScope: "REPORTING_TEAM_ONLY",
+                      }))
+                    }
+                  >
+                    Reporting Team Only
+                  </button>
+                  <button
+                    type="button"
+                    data-on={workspaceSettings.chatSharingScope === "WORKSPACE_WIDE"}
+                    onClick={() =>
+                      setWorkspaceSettings((prev) => ({
+                        ...prev,
+                        chatSharingScope: "WORKSPACE_WIDE",
+                      }))
+                    }
+                  >
+                    Workspace-Wide
+                  </button>
+                </div>
+              </div>
+
+              {/* 2. Lead Assignment Scope */}
+              <div className="setting-row">
+                <div>
+                  <div className="setting-name">Lead Assignment Scope</div>
+                  <div className="setting-desc">
+                    {workspaceSettings.leadAssignmentScope === "REPORTING_TEAM_ONLY"
+                      ? "Reporting Team Only — Leads may only be reassigned to closers reporting to the same manager."
+                      : "Workspace-Wide — Leads can be reassigned to any active sales agent across the organization."}
+                  </div>
+                </div>
+                <div className="seg">
+                  <button
+                    type="button"
+                    data-on={workspaceSettings.leadAssignmentScope === "REPORTING_TEAM_ONLY"}
+                    onClick={() =>
+                      setWorkspaceSettings((prev) => ({
+                        ...prev,
+                        leadAssignmentScope: "REPORTING_TEAM_ONLY",
+                      }))
+                    }
+                  >
+                    Reporting Team Only
+                  </button>
+                  <button
+                    type="button"
+                    data-on={workspaceSettings.leadAssignmentScope === "WORKSPACE_WIDE"}
+                    onClick={() =>
+                      setWorkspaceSettings((prev) => ({
+                        ...prev,
+                        leadAssignmentScope: "WORKSPACE_WIDE",
+                      }))
+                    }
+                  >
+                    Workspace-Wide
+                  </button>
+                </div>
+              </div>
+
+              {/* 3. Closer Lead Reassignment Permission */}
+              <div className="setting-row">
+                <div>
+                  <div className="setting-name">Closer Lead Reassignment</div>
+                  <div className="setting-desc">
+                    {workspaceSettings.closerLeadReassignmentEnabled
+                      ? "Permitted — Sales Closers have permission to transfer their leads to other team members."
+                      : "Blocked — Only Workspace Admins and Sales Managers can reassign leads between closers."}
+                  </div>
+                </div>
+                <div className="seg">
+                  <button
+                    type="button"
+                    data-on={workspaceSettings.closerLeadReassignmentEnabled}
+                    onClick={() =>
+                      setWorkspaceSettings((prev) => ({
+                        ...prev,
+                        closerLeadReassignmentEnabled: true,
+                      }))
+                    }
+                  >
+                    Permitted
+                  </button>
+                  <button
+                    type="button"
+                    data-on={!workspaceSettings.closerLeadReassignmentEnabled}
+                    onClick={() =>
+                      setWorkspaceSettings((prev) => ({
+                        ...prev,
+                        closerLeadReassignmentEnabled: false,
+                      }))
+                    }
+                  >
+                    Blocked
+                  </button>
+                </div>
+              </div>
+
+              {/* 4. Closer Chat Sharing Permission */}
+              <div className="setting-row">
+                <div>
+                  <div className="setting-name">Closer Chat Sharing</div>
+                  <div className="setting-desc">
+                    {workspaceSettings.closerChatSharingEnabled
+                      ? "Permitted — Sales Closers can share customer conversation access with team members."
+                      : "Restricted — Chat sharing is restricted strictly to Admins and Managers."}
+                  </div>
+                </div>
+                <div className="seg">
+                  <button
+                    type="button"
+                    data-on={workspaceSettings.closerChatSharingEnabled}
+                    onClick={() =>
+                      setWorkspaceSettings((prev) => ({
+                        ...prev,
+                        closerChatSharingEnabled: true,
+                      }))
+                    }
+                  >
+                    Permitted
+                  </button>
+                  <button
+                    type="button"
+                    data-on={!workspaceSettings.closerChatSharingEnabled}
+                    onClick={() =>
+                      setWorkspaceSettings((prev) => ({
+                        ...prev,
+                        closerChatSharingEnabled: false,
+                      }))
+                    }
+                  >
+                    Restricted
+                  </button>
+                </div>
+              </div>
+
+              {/* 5. Manager Lead Deletion Governance */}
+              <div className="setting-row">
+                <div>
+                  <div className="setting-name">Manager Lead Deletion Governance</div>
+                  <div className="setting-desc">
+                    {workspaceSettings.managerLeadDeletionEnabled
+                      ? "Authorized — Sales Managers can delete leads assigned to closers in their reporting team."
+                      : "Admins Only — Lead deletion is blocked for Sales Managers and restricted to Super Admins."}
+                  </div>
+                </div>
+                <div className="seg">
+                  <button
+                    type="button"
+                    data-on={workspaceSettings.managerLeadDeletionEnabled}
+                    onClick={() =>
+                      setWorkspaceSettings((prev) => ({
+                        ...prev,
+                        managerLeadDeletionEnabled: true,
+                      }))
+                    }
+                  >
+                    Authorized
+                  </button>
+                  <button
+                    type="button"
+                    data-on={!workspaceSettings.managerLeadDeletionEnabled}
+                    onClick={() =>
+                      setWorkspaceSettings((prev) => ({
+                        ...prev,
+                        managerLeadDeletionEnabled: false,
+                      }))
+                    }
+                  >
+                    Admins Only
+                  </button>
+                </div>
+              </div>
+
+              {/* 6. Phone Number Masking Policy */}
+              <div className="setting-row">
+                <div>
+                  <div className="setting-name">Phone Number Masking Policy</div>
+                  <div className="setting-desc">
+                    {workspaceSettings.phoneMaskingPolicy === "LAST_4"
+                      ? "Show Last 4 Digits (••••••1234) — Verification visible while preventing off-platform poaching."
+                      : workspaceSettings.phoneMaskingPolicy === "MASK_ALL"
+                      ? "Mask All Digits (••••••••••) — Complete privacy, outbound calls strictly through SIM relays."
+                      : "Unmasked (Full Visibility) — Full 10-digit phone numbers displayed to sales team."}
+                  </div>
+                </div>
+                <div style={{ width: "230px" }}>
+                  <select
+                    className="select"
+                    value={workspaceSettings.phoneMaskingPolicy}
+                    onChange={(e) =>
+                      setWorkspaceSettings((prev) => ({
+                        ...prev,
+                        phoneMaskingPolicy: e.target.value as any,
+                      }))
+                    }
+                  >
+                    <option value="LAST_4">Show Last 4 Digits</option>
+                    <option value="MASK_ALL">Mask All Digits</option>
+                    <option value="UNMASKED">Unmasked (Full Visibility)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* 7. Companion WhatsApp Scanner Lead Routing */}
+              <div className="setting-row">
+                <div>
+                  <div className="setting-name">Companion WhatsApp Scanner Routing</div>
+                  <div className="setting-desc">
+                    {workspaceSettings.companionScannerRouting === "DEDICATED"
+                      ? "Strictly Dedicated to Scanner Closer — Inbound chats on a personal linked line remain with that closer."
+                      : "Distribute to Round-Robin Pool — Inbound chats on linked lines are auto-distributed across all closers."}
+                  </div>
+                </div>
+                <div style={{ width: "260px" }}>
+                  <select
+                    className="select"
+                    value={workspaceSettings.companionScannerRouting}
+                    onChange={(e) =>
+                      setWorkspaceSettings((prev) => ({
+                        ...prev,
+                        companionScannerRouting: e.target.value as any,
+                      }))
+                    }
+                  >
+                    <option value="DEDICATED">Dedicated to Scanner Closer</option>
+                    <option value="ROUND_ROBIN">Distribute to Round-Robin Pool</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* 8. Lead Export Protection */}
+              <div className="setting-row">
+                <div>
+                  <div className="setting-name">Lead Export Protection</div>
+                  <div className="setting-desc">
+                    {workspaceSettings.leadExportProtection
+                      ? "Protected (Admins Only) — Restricts CSV/Excel contact export downloads strictly to Workspace Admins."
+                      : "Standard — Allows Sales Managers to export contact records."}
+                  </div>
+                </div>
+                <div className="seg">
+                  <button
+                    type="button"
+                    data-on={workspaceSettings.leadExportProtection}
+                    onClick={() =>
+                      setWorkspaceSettings((prev) => ({
+                        ...prev,
+                        leadExportProtection: true,
+                      }))
+                    }
+                  >
+                    Admins Only
+                  </button>
+                  <button
+                    type="button"
+                    data-on={!workspaceSettings.leadExportProtection}
+                    onClick={() =>
+                      setWorkspaceSettings((prev) => ({
+                        ...prev,
+                        leadExportProtection: false,
+                      }))
+                    }
+                  >
+                    Managers Allowed
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="card-foot" style={{ display: "flex", justifyContent: "flex-end", padding: "14px 16px" }}>
+              <button
+                type="button"
+                className="btn"
+                data-variant="primary"
+                onClick={handleSaveWorkspaceSettings}
+                disabled={isSavingSettings}
+              >
+                <Icon name="check" size={13} />
+                {isSavingSettings ? "Saving Settings..." : "Save Workspace Governance"}
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Tab 6: Tags & Taxonomy */}
+      {tab === "labels" && (
+        <section className="card" style={{ overflow: "hidden" }}>
+          <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <h2 style={{ fontSize: "var(--fs-body)", fontWeight: 600 }}>Workspace Tags & Taxonomy</h2>
+              <p style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "2px" }}>
+                Manage workspace-wide label tags used across pipeline deals, contact directories, and chat threads.
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button
+                type="button"
+                className="btn"
+                data-variant="ghost"
+                data-size="sm"
+                onClick={loadWorkspaceLabels}
+                disabled={isLoadingLabels}
+              >
+                <Icon name="refresh" size={13} /> {isLoadingLabels ? "Refreshing..." : "Refresh"}
+              </button>
+              <button
+                type="button"
+                className="btn"
+                data-variant="primary"
+                data-size="sm"
+                onClick={() => {
+                  setNewLabelName("");
+                  setNewLabelColor("#F97316");
+                  setAddLabelError(null);
+                  setIsAddLabelOpen(true);
+                }}
+              >
+                <Icon name="plus" size={13} /> New Workspace Tag
+              </button>
+            </div>
+          </div>
+
+          <div className="table-wrap">
+            <table className="table" style={{ width: "100%", textAlign: "left" }}>
+              <thead>
+                <tr>
+                  <th style={{ minWidth: "200px" }}>Tag Name</th>
+                  <th style={{ width: "140px" }}>Color Swatch</th>
+                  <th style={{ width: "160px" }}>Active Leads Using Tag</th>
+                  <th style={{ width: "160px" }}>Scope</th>
+                  <th style={{ width: "130px", textAlign: "right" }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {isLoadingLabels ? (
+                  <tr>
+                    <td colSpan={5} style={{ textAlign: "center", padding: "32px 16px" }}>
+                      <p style={{ color: "var(--text-secondary)" }}>Loading workspace tags...</p>
+                    </td>
+                  </tr>
+                ) : labelsList.length === 0 ? (
+                  <tr>
+                    <td colSpan={5}>
+                      <div className="empty">
+                        <div className="empty-icon">
+                          <Icon name="tag" size={20} />
+                        </div>
+                        <h3>No Workspace Tags Defined</h3>
+                        <p>
+                          Create tags to categorize leads, deals, and communication stages across your sales pipeline.
+                        </p>
+                        <button
+                          type="button"
+                          className="btn"
+                          data-variant="primary"
+                          onClick={() => {
+                            setNewLabelName("");
+                            setNewLabelColor("#F97316");
+                            setAddLabelError(null);
+                            setIsAddLabelOpen(true);
+                          }}
+                        >
+                          <Icon name="plus" size={13} /> Create First Tag
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  labelsList.map((lbl, idx) => {
+                    const tagUsage =
+                      lbl.count !== undefined
+                        ? lbl.count
+                        : state.leads.filter((l) => Array.isArray(l.tags) && l.tags.includes(lbl.name)).length;
+
+                    return (
+                      <tr key={lbl.id || `lbl-${idx}`}>
+                        <td>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <span
+                              className="dot"
+                              style={{
+                                width: "9px",
+                                height: "9px",
+                                borderRadius: "50%",
+                                background: lbl.color || "var(--accent)",
+                              }}
+                            />
+                            <span style={{ fontWeight: 600, color: "var(--text)" }}>{lbl.name}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            <span
+                              style={{
+                                width: "14px",
+                                height: "14px",
+                                borderRadius: "3px",
+                                background: lbl.color || "#F97316",
+                                border: "1px solid var(--border-strong)",
+                                display: "inline-block",
+                              }}
+                            />
+                            <span style={{ fontSize: "11px", color: "var(--text-secondary)", fontFamily: "monospace" }}>
+                              {lbl.color || "#F97316"}
+                            </span>
+                          </div>
+                        </td>
+                        <td>
+                          <span className="chip" data-tone={tagUsage > 0 ? "accent" : "ghost"}>
+                            {tagUsage} {tagUsage === 1 ? "lead" : "leads"}
+                          </span>
+                        </td>
+                        <td>
+                          <span style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)" }}>
+                            Workspace Global
+                          </span>
+                        </td>
+                        <td style={{ textAlign: "right" }}>
+                          <div style={{ display: "flex", justifyContent: "flex-end", gap: "6px" }}>
+                            <button
+                              type="button"
+                              className="btn"
+                              data-variant="ghost"
+                              data-size="sm"
+                              onClick={() => handleStartEditLabel(lbl)}
+                              title="Edit tag"
+                            >
+                              <Icon name="pencil" size={12} /> Edit
+                            </button>
+                            <button
+                              type="button"
+                              className="btn"
+                              data-variant="danger"
+                              data-size="sm"
+                              onClick={() => setDeletingLabel(lbl)}
+                              title="Delete tag"
+                            >
+                              <Icon name="trash" size={12} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       {/* Edit Member Modal */}
       {isEditOpen && editingMember && (
         <div
@@ -1885,6 +2604,253 @@ export function TeamView() {
                 disabled={isSubmitting}
               >
                 {isSubmitting ? "Creating Member..." : "Create Team Member"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Label Modal */}
+      {isAddLabelOpen && (
+        <div
+          className="overlay dialog-backdrop"
+          data-kind="dialog"
+          onClick={() => !isSubmittingLabel && setIsAddLabelOpen(false)}
+          role="presentation"
+        >
+          <div
+            className="dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-label-dialog-title"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "420px", width: "100%" }}
+          >
+            <div className="dialog-head card-head">
+              <h2 id="add-label-dialog-title" className="card-title">New Workspace Tag</h2>
+              <button
+                type="button"
+                className="btn"
+                data-variant="ghost"
+                data-size="sm"
+                aria-label="Close dialog"
+                onClick={() => !isSubmittingLabel && setIsAddLabelOpen(false)}
+              >
+                <Icon name="close" size={14} />
+              </button>
+            </div>
+            <div className="dialog-body card-body">
+              {addLabelError && (
+                <div
+                  className="chip"
+                  data-tone="danger"
+                  style={{ width: "100%", justifyContent: "flex-start", height: "auto", padding: "8px 10px", whiteSpace: "normal" }}
+                >
+                  {addLabelError}
+                </div>
+              )}
+              <div className="field">
+                <label htmlFor="new-label-name">Tag Name *</label>
+                <input
+                  className="input"
+                  id="new-label-name"
+                  placeholder="e.g. VIP Enterprise, Callback Req, High Budget"
+                  value={newLabelName}
+                  onChange={(e) => setNewLabelName(e.target.value)}
+                  disabled={isSubmittingLabel}
+                  autoFocus
+                />
+              </div>
+
+              <div className="field" style={{ marginTop: "12px" }}>
+                <label>Select Swatch Color</label>
+                <div className="swatches" style={{ marginLeft: 0, marginTop: "6px" }}>
+                  {LABEL_COLOR_OPTIONS.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      className="swatch"
+                      aria-pressed={newLabelColor === c}
+                      style={{ background: c }}
+                      onClick={() => setNewLabelColor(c)}
+                    >
+                      {newLabelColor === c && <Icon name="check" size={12} />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="dialog-foot card-foot">
+              <button
+                type="button"
+                className="btn"
+                data-variant="ghost"
+                onClick={() => !isSubmittingLabel && setIsAddLabelOpen(false)}
+                disabled={isSubmittingLabel}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn"
+                data-variant="primary"
+                onClick={handleAddLabel}
+                disabled={isSubmittingLabel || !newLabelName.trim()}
+              >
+                {isSubmittingLabel ? "Creating..." : "Create Tag"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Label Modal */}
+      {editingLabel && (
+        <div
+          className="overlay dialog-backdrop"
+          data-kind="dialog"
+          onClick={() => !isSavingEditLabel && setEditingLabel(null)}
+          role="presentation"
+        >
+          <div
+            className="dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-label-dialog-title"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "420px", width: "100%" }}
+          >
+            <div className="dialog-head card-head">
+              <h2 id="edit-label-dialog-title" className="card-title">Edit Tag: {editingLabel.name}</h2>
+              <button
+                type="button"
+                className="btn"
+                data-variant="ghost"
+                data-size="sm"
+                aria-label="Close dialog"
+                onClick={() => !isSavingEditLabel && setEditingLabel(null)}
+              >
+                <Icon name="close" size={14} />
+              </button>
+            </div>
+            <div className="dialog-body card-body">
+              {editLabelError && (
+                <div
+                  className="chip"
+                  data-tone="danger"
+                  style={{ width: "100%", justifyContent: "flex-start", height: "auto", padding: "8px 10px", whiteSpace: "normal" }}
+                >
+                  {editLabelError}
+                </div>
+              )}
+              <div className="field">
+                <label htmlFor="edit-label-name">Tag Name *</label>
+                <input
+                  className="input"
+                  id="edit-label-name"
+                  value={editLabelName}
+                  onChange={(e) => setEditLabelName(e.target.value)}
+                  disabled={isSavingEditLabel}
+                />
+              </div>
+
+              <div className="field" style={{ marginTop: "12px" }}>
+                <label>Select Swatch Color</label>
+                <div className="swatches" style={{ marginLeft: 0, marginTop: "6px" }}>
+                  {LABEL_COLOR_OPTIONS.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      className="swatch"
+                      aria-pressed={editLabelColor === c}
+                      style={{ background: c }}
+                      onClick={() => setEditLabelColor(c)}
+                    >
+                      {editLabelColor === c && <Icon name="check" size={12} />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="dialog-foot card-foot">
+              <button
+                type="button"
+                className="btn"
+                data-variant="ghost"
+                onClick={() => !isSavingEditLabel && setEditingLabel(null)}
+                disabled={isSavingEditLabel}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn"
+                data-variant="primary"
+                onClick={handleSaveEditLabel}
+                disabled={isSavingEditLabel || !editLabelName.trim()}
+              >
+                {isSavingEditLabel ? "Saving..." : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Label Confirmation Dialog */}
+      {deletingLabel && (
+        <div
+          className="overlay dialog-backdrop"
+          data-kind="dialog"
+          onClick={() => !isDeletingLabel && setDeletingLabel(null)}
+          role="presentation"
+        >
+          <div
+            className="dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-label-dialog-title"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "420px", width: "100%" }}
+          >
+            <div className="dialog-head card-head">
+              <h2 id="delete-label-dialog-title" className="card-title">Delete Workspace Tag</h2>
+              <button
+                type="button"
+                className="btn"
+                data-variant="ghost"
+                data-size="sm"
+                aria-label="Close dialog"
+                onClick={() => !isDeletingLabel && setDeletingLabel(null)}
+              >
+                <Icon name="close" size={14} />
+              </button>
+            </div>
+            <div className="dialog-body card-body">
+              <p style={{ fontSize: "var(--fs-meta)", lineHeight: 1.5, color: "var(--text)" }}>
+                Are you sure you want to permanently delete the workspace tag <strong>&quot;{deletingLabel.name}&quot;</strong>?
+              </p>
+              <p style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "8px" }}>
+                This tag will no longer be available in autocomplete suggestions. Existing lead tags will remain unchanged.
+              </p>
+            </div>
+            <div className="dialog-foot card-foot">
+              <button
+                type="button"
+                className="btn"
+                data-variant="ghost"
+                onClick={() => !isDeletingLabel && setDeletingLabel(null)}
+                disabled={isDeletingLabel}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn"
+                data-variant="danger"
+                onClick={handleDeleteLabel}
+                disabled={isDeletingLabel}
+              >
+                {isDeletingLabel ? "Deleting..." : "Delete Tag"}
               </button>
             </div>
           </div>

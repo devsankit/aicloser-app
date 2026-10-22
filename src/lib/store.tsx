@@ -66,7 +66,7 @@ interface AppApi {
   moveLead: (id: string, stage: StageId) => void;
   updateLead: (id: string, patch: Partial<Lead>) => void;
   addLead: (lead: Omit<Lead, "id" | "updatedAt" | "code">) => Promise<Lead>;
-  deleteLead: (id: string) => void;
+  deleteLead: (id: string) => Promise<void> | void;
   claimLead: (id: string, closerName?: string) => void;
   claimFromPool: (
     poolItemId: string,
@@ -652,9 +652,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return optimisticLead!;
   }, [state.apiConnected]);
 
-  const deleteLead = useCallback((id: string) => {
+  const deleteLead = useCallback(async (id: string) => {
     setState((prev) => ({ ...prev, leads: prev.leads.filter((l) => l.id !== id) }));
-  }, []);
+    try {
+      await aicloserApi.leads.delete(id);
+      void refreshLeads();
+    } catch (err: any) {
+      console.error("Failed to delete lead from API:", err);
+      void refreshLeads();
+      throw err;
+    }
+  }, [refreshLeads]);
 
   const claimLead = useCallback((id: string, closerName?: string) => {
     const finalCloser = closerName || state.user?.displayName || "Admin";

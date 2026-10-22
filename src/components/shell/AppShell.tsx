@@ -224,6 +224,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { state, toggleSidebar, setTheme, setScope, setLayout, setQuickAdd, setPalette, refreshLeads, logoutWorkspace, toggleGlobalAiBot } = useApp();
   const scopedLeads = useScopedLeads();
+  const isAdmin = state.user?.role === "ADMIN" || state.user?.role === "SUPER_ADMIN" || state.user?.role === "OWNER";
+  const isManager = state.user?.role === "MANAGER";
   const [mobileOpen, setMobileOpen] = useState(false);
   const [loginModalOpen, setLoginModalOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -533,6 +535,16 @@ export function AppShell({ children }: { children: ReactNode }) {
                     </Link>
                   );
                 })}
+                {group.label === "CRM & Telephony" && (isAdmin || isManager) && (
+                  <Link
+                    href="/pipeline?tab=recycle"
+                    className="nav-item"
+                    title={state.sidebarCollapsed ? "Recycle Bin" : undefined}
+                  >
+                    <Icon name="trash" size={17} />
+                    <span className="nav-item-label">Recycle Bin</span>
+                  </Link>
+                )}
               </div>
             );
           })}

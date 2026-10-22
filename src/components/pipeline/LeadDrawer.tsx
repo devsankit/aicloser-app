@@ -26,27 +26,38 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
   const [draft, setDraft] = useState(lead);
   const [rawTagsInput, setRawTagsInput] = useState(lead.tags.join(", "));
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
   const [phoneCopied, setPhoneCopied] = useState(false);
   const [reassignModalOpen, setReassignModalOpen] = useState(false);
   const [targetCloser, setTargetCloser] = useState("");
   const [handoverNote, setHandoverNote] = useState("");
-  const [workspaceLabels, setWorkspaceLabels] = useState<Array<{ id: string; name: string }>>([]);
+  const [workspaceLabels, setWorkspaceLabels] = useState<Array<{ id: string; name: string; color?: string }>>([]);
   const [showAddLabel, setShowAddLabel] = useState(false);
   const [newLabelInput, setNewLabelInput] = useState("");
+  const [selectedTagColor, setSelectedTagColor] = useState("#F97316");
+
+  const loadWorkspaceLabels = useCallback(async () => {
+    try {
+      const res: any = await aicloserApi.labels.list();
+      const items = Array.isArray(res)
+        ? res
+        : Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res?.labels)
+        ? res.labels
+        : [];
+      setWorkspaceLabels(items);
+    } catch {
+      setWorkspaceLabels([]);
+    }
+  }, []);
 
   useEffect(() => {
-    let active = true;
-    aicloserApi.labels.list().then((items) => {
-      if (active && Array.isArray(items)) {
-        setWorkspaceLabels(items);
-      }
-    }).catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, []);
+    loadWorkspaceLabels();
+  }, [loadWorkspaceLabels]);
 
   const allOwners = useMemo(() => {
     const list: string[] = [];
@@ -82,13 +93,20 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
     return workspaceLabels.filter((l) => !currentTags.has(l.name.toLowerCase()));
   }, [workspaceLabels, draft.tags]);
 
-  const addTag = (tagName: string) => {
+  const addTag = (tagName: string, color?: string) => {
     const trimmed = tagName.trim();
     if (!trimmed) return;
+    const finalColor = color || selectedTagColor;
     if (!draft.tags.some((t) => t.toLowerCase() === trimmed.toLowerCase())) {
       const nextTags = [...draft.tags, trimmed];
       setDraft((d) => ({ ...d, tags: nextTags }));
       setRawTagsInput(nextTags.join(", "));
+      updateLead(lead.id, { tags: nextTags });
+      if (!workspaceLabels.some((l) => l.name.toLowerCase() === trimmed.toLowerCase())) {
+        aicloserApi.labels.create({ name: trimmed, color: finalColor }).then(() => {
+          loadWorkspaceLabels();
+        }).catch(() => {});
+      }
     }
     setNewLabelInput("");
     setShowAddLabel(false);
@@ -98,6 +116,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
     const nextTags = draft.tags.filter((t) => t !== tagToRemove);
     setDraft((d) => ({ ...d, tags: nextTags }));
     setRawTagsInput(nextTags.join(", "));
+    updateLead(lead.id, { tags: nextTags });
   };
 
   useEffect(() => {
@@ -147,6 +166,20 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onClose, draft, lead.id]);
+
+  const handleDelete = async () => {
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteLead(lead.id);
+      onClose();
+    } catch (err: any) {
+      console.error("Failed to delete lead:", err);
+      setDeleteError(err?.message || "Failed to delete lead. Check permissions.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const set = <K extends keyof Lead>(key: K, value: Lead[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));
@@ -463,73 +496,110 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
               <span className="field-label">
                 <Icon name="tag" size={14} /> Labels
               </span>
-              <div className="chip-row">
-                {draft.tags.map((tag) => (
-                  <span key={tag} className="chip-x">
-                    <b>{tag}</b>
-                    <button
-                      type="button"
-                      className="x"
-                      onClick={() => removeTag(tag)}
-                      aria-label={`Remove label ${tag}`}
-                      title={`Remove ${tag}`}
-                    >
-                      <Icon name="close" size={10} />
-                    </button>
-                  </span>
-                ))}
-                {showAddLabel ? (
-                  <div className="chip-row">
-                    <input
-                      className="input"
-                      value={newLabelInput}
-                      onChange={(e) => setNewLabelInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          addTag(newLabelInput);
-                        } else if (e.key === "Escape") {
-                          setShowAddLabel(false);
-                        }
-                      }}
-                      placeholder="Label name (press ↵)"
-                      autoFocus
-                    />
-                    {availableWorkspaceLabels.length > 0 && (
-                      <select
-                        className="select"
-                        value=""
-                        onChange={(e) => {
-                          if (e.target.value) addTag(e.target.value);
-                        }}
-                        aria-label="Pick existing workspace label"
+              <div className="chip-row" style={{ flexWrap: "wrap", gap: "6px" }}>
+                {draft.tags.map((tag) => {
+                  const match = workspaceLabels.find((l) => l.name.toLowerCase() === tag.toLowerCase());
+                  const dotColor = match?.color || "var(--accent)";
+                  return (
+                    <span key={tag} className="chip" style={{ display: "inline-flex", alignItems: "center", gap: "5px", padding: "2px 8px" }}>
+                      <span className="dot" style={{ background: dotColor }} />
+                      <span>{tag}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeTag(tag)}
+                        aria-label={`Remove label ${tag}`}
+                        title={`Remove ${tag}`}
+                        style={{ background: "transparent", border: "none", cursor: "pointer", display: "inline-flex", padding: 0, color: "var(--text-tertiary)" }}
                       >
-                        <option value="">Or pick existing…</option>
-                        {availableWorkspaceLabels.map((l) => (
-                          <option key={l.id || l.name} value={l.name}>
-                            {l.name}
-                          </option>
+                        <Icon name="close" size={10} />
+                      </button>
+                    </span>
+                  );
+                })}
+                {showAddLabel ? (
+                  <div className="card" style={{ padding: "8px 10px", display: "flex", flexDirection: "column", gap: "8px", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--r-sm)", marginTop: "4px" }}>
+                    <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                      <input
+                        className="input"
+                        value={newLabelInput}
+                        onChange={(e) => setNewLabelInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            addTag(newLabelInput, selectedTagColor);
+                          } else if (e.key === "Escape") {
+                            setShowAddLabel(false);
+                          }
+                        }}
+                        placeholder="Label name..."
+                        style={{ height: "28px", fontSize: "12px", flex: 1 }}
+                        autoFocus
+                      />
+                      {availableWorkspaceLabels.length > 0 && (
+                        <select
+                          className="select"
+                          value=""
+                          onChange={(e) => {
+                            if (e.target.value) {
+                              const found = availableWorkspaceLabels.find((l) => l.name === e.target.value);
+                              addTag(e.target.value, found?.color);
+                            }
+                          }}
+                          aria-label="Pick existing workspace label"
+                          style={{ height: "28px", fontSize: "11px", maxWidth: "120px" }}
+                        >
+                          <option value="">Existing…</option>
+                          {availableWorkspaceLabels.map((l) => (
+                            <option key={l.id || l.name} value={l.name}>
+                              {l.name}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+                        {["#F97316", "#10B981", "#3B82F6", "#8B5CF6", "#EC4899", "#EAB308", "#64748B"].map((c) => (
+                          <button
+                            key={c}
+                            type="button"
+                            onClick={() => setSelectedTagColor(c)}
+                            title={`Select color ${c}`}
+                            style={{
+                              width: "16px",
+                              height: "16px",
+                              borderRadius: "50%",
+                              background: c,
+                              border: selectedTagColor === c ? "2px solid var(--text)" : "1px solid transparent",
+                              cursor: "pointer",
+                              padding: 0,
+                            }}
+                          />
                         ))}
-                      </select>
-                    )}
-                    <button
-                      type="button"
-                      className="btn"
-                      data-size="sm"
-                      data-variant="accent"
-                      onClick={() => addTag(newLabelInput)}
-                    >
-                      Add
-                    </button>
-                    <button
-                      type="button"
-                      className="icon-btn"
-                      onClick={() => setShowAddLabel(false)}
-                      title="Cancel"
-                      aria-label="Cancel"
-                    >
-                      <Icon name="close" size={12} />
-                    </button>
+                      </div>
+                      <div style={{ display: "flex", gap: "4px" }}>
+                        <button
+                          type="button"
+                          className="btn"
+                          data-size="sm"
+                          data-variant="ghost"
+                          onClick={() => setShowAddLabel(false)}
+                          style={{ height: "24px", fontSize: "11px", padding: "0 6px" }}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          className="btn"
+                          data-size="sm"
+                          data-variant="primary"
+                          onClick={() => addTag(newLabelInput, selectedTagColor)}
+                          style={{ height: "24px", fontSize: "11px", padding: "0 8px" }}
+                        >
+                          Add
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 ) : (
                   <button
@@ -538,8 +608,9 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                     data-size="sm"
                     data-variant="ghost"
                     onClick={() => setShowAddLabel(true)}
+                    style={{ height: "24px", fontSize: "11px", padding: "0 6px" }}
                   >
-                    <Icon name="plus" size={12} /> Add label
+                    <Icon name="plus" size={11} /> Add label
                   </button>
                 )}
               </div>
@@ -604,25 +675,40 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
 
         <footer className="drawer-foot">
           {confirmDelete ? (
-            <>
-              <span className="hint" style={{ marginRight: "auto" }}>
-                Delete {lead.code} permanently?
-              </span>
-              <button className="btn" data-size="sm" onClick={() => setConfirmDelete(false)}>
-                Cancel
-              </button>
-              <button
-                className="btn"
-                data-variant="danger"
-                data-size="sm"
-                onClick={() => {
-                  deleteLead(lead.id);
-                  onClose();
-                }}
-              >
-                Delete
-              </button>
-            </>
+            <div style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                <span className="hint">
+                  Delete {lead.code} permanently?
+                </span>
+                {deleteError && (
+                  <span className="chip" data-tone="danger" style={{ fontSize: "11px" }}>
+                    {deleteError}
+                  </span>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: "6px" }}>
+                <button
+                  className="btn"
+                  data-size="sm"
+                  disabled={isDeleting}
+                  onClick={() => {
+                    setConfirmDelete(false);
+                    setDeleteError(null);
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn"
+                  data-variant="danger"
+                  data-size="sm"
+                  disabled={isDeleting}
+                  onClick={handleDelete}
+                >
+                  {isDeleting ? "Deleting..." : "Confirm Delete"}
+                </button>
+              </div>
+            </div>
           ) : (
             <>
               <button

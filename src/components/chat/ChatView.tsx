@@ -1328,13 +1328,54 @@ export function ChatView() {
   const [assignLoading, setAssignLoading] = useState(false);
   const [assignSuccess, setAssignSuccess] = useState<string | null>(null);
   const [assignError, setAssignError] = useState<string | null>(null);
-  const [teamMembers, setTeamMembers] = useState<Array<{ id: string; name: string; role?: string }>>([]);
+  const [teamMembers, setTeamMembers] = useState<Array<{ id: string; name: string; role?: string; reportingManager?: string }>>([]);
+
+  // Workspace Governance Controls
+  const [workspaceSettings, setWorkspaceSettings] = useState<{
+    chatSharingScope: "REPORTING_TEAM_ONLY" | "WORKSPACE_WIDE";
+    leadAssignmentScope: "REPORTING_TEAM_ONLY" | "WORKSPACE_WIDE";
+    closerLeadReassignmentEnabled: boolean;
+    closerChatSharingEnabled: boolean;
+  }>({
+    chatSharingScope: "WORKSPACE_WIDE",
+    leadAssignmentScope: "WORKSPACE_WIDE",
+    closerLeadReassignmentEnabled: false,
+    closerChatSharingEnabled: true,
+  });
+
+  useEffect(() => {
+    const readSettings = () => {
+      try {
+        const stored = localStorage.getItem("closer.workspace.settings.v1");
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          setWorkspaceSettings((prev) => ({ ...prev, ...parsed }));
+        }
+      } catch {}
+      aicloserApi.workspace
+        .getSettings()
+        .then((res: any) => {
+          if (res?.settings) {
+            setWorkspaceSettings((prev) => ({ ...prev, ...res.settings }));
+          } else if (res && typeof res === "object") {
+            setWorkspaceSettings((prev) => ({ ...prev, ...res }));
+          }
+        })
+        .catch(() => undefined);
+    };
+
+    readSettings();
+    window.addEventListener("aicloser:workspace_settings_updated", readSettings);
+    return () => {
+      window.removeEventListener("aicloser:workspace_settings_updated", readSettings);
+    };
+  }, []);
 
   const effectiveTeamMembers = useMemo(() => {
-    const map = new Map<string, { id: string; name: string; role?: string }>();
+    const map = new Map<string, { id: string; name: string; role?: string; reportingManager?: string }>();
     if (state.teamMembers && state.teamMembers.length > 0) {
-      state.teamMembers.forEach((m) => {
-        if (m.name) map.set(m.name.toLowerCase(), { id: m.id, name: m.name, role: m.role });
+      state.teamMembers.forEach((m: any) => {
+        if (m.name) map.set(m.name.toLowerCase(), { id: m.id, name: m.name, role: m.role, reportingManager: m.reportingManager });
       });
     }
     teamMembers.forEach((m) => {
@@ -1345,12 +1386,56 @@ export function ChatView() {
     return Array.from(map.values());
   }, [state.teamMembers, teamMembers]);
 
+  const isSalesCloser = (state.user?.role as string) === "CLOSER" || state.user?.role === "SALES_AGENT";
+  const myCloserName = (state.user?.displayName || CURRENT_USER).toLowerCase();
+  const currentCloserMember = useMemo(() => {
+    return (
+      effectiveTeamMembers.find(
+        (m) => m.name.toLowerCase() === myCloserName || m.id === state.user?.userId
+      ) || null
+    );
+  }, [effectiveTeamMembers, myCloserName, state.user?.userId]);
+
+  const currentCloserManager = (currentCloserMember?.reportingManager || "").toLowerCase();
+
+  const shareableTeamMembers = useMemo(() => {
+    if (isSalesCloser && workspaceSettings.chatSharingScope === "REPORTING_TEAM_ONLY" && currentCloserManager) {
+      return effectiveTeamMembers.filter((m) => {
+        const mManager = (m.reportingManager || "").toLowerCase();
+        const mName = m.name.toLowerCase();
+        const mRole = (m.role || "").toLowerCase();
+        return (
+          mManager === currentCloserManager ||
+          mName === currentCloserManager ||
+          mRole.includes("admin")
+        );
+      });
+    }
+    return effectiveTeamMembers;
+  }, [effectiveTeamMembers, isSalesCloser, workspaceSettings.chatSharingScope, currentCloserManager]);
+
+  const assignableTeamMembers = useMemo(() => {
+    if (isSalesCloser && workspaceSettings.leadAssignmentScope === "REPORTING_TEAM_ONLY" && currentCloserManager) {
+      return effectiveTeamMembers.filter((m) => {
+        const mManager = (m.reportingManager || "").toLowerCase();
+        const mName = m.name.toLowerCase();
+        const mRole = (m.role || "").toLowerCase();
+        return (
+          mManager === currentCloserManager ||
+          mName === currentCloserManager ||
+          mRole.includes("admin")
+        );
+      });
+    }
+    return effectiveTeamMembers;
+  }, [effectiveTeamMembers, isSalesCloser, workspaceSettings.leadAssignmentScope, currentCloserManager]);
+
   // Dynamically load all team members, closers, managers, and admins from live APIs & workspace
   useEffect(() => {
     let active = true;
 
     async function loadTeam() {
-      const found = new Map<string, { id: string; name: string; role?: string }>();
+      const found = new Map<string, { id: string; name: string; role?: string; reportingManager?: string }>();
 
       // 1. Prepopulate from current user and distinct lead owners
       found.set("admin", { id: "admin", name: "Admin", role: "Super Admin" });
@@ -1382,6 +1467,7 @@ export function ChatView() {
               id: m.id || m.userId || name,
               name,
               role: m.role || "Agent",
+              reportingManager: m.reportingManager || m.manager?.displayName || m.manager?.name || "",
             });
           }
         });
@@ -1398,6 +1484,7 @@ export function ChatView() {
               id: m.id || m.userId || name,
               name,
               role: m.role || "Sales Closer",
+              reportingManager: m.reportingManager || m.manager?.displayName || m.manager?.name || "",
             });
           }
         });
@@ -2666,41 +2753,47 @@ export function ChatView() {
                 <label style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
                   Grant Access to Team Member
                 </label>
-                <div style={{ display: "flex", gap: "6px", marginTop: "4px" }}>
-                  <select
-                    className="select"
-                    value={shareTargetUser}
-                    onChange={(e) => setShareTargetUser(e.target.value)}
-                    style={{ flex: 1, height: "32px", fontSize: "12px" }}
-                  >
-                    {effectiveTeamMembers
-                      .filter((m) => m.name !== activeChat.assignedTo)
-                      .map((m) => (
-                        <option key={m.id || m.name} value={m.name}>
-                          {m.name} {m.role ? `(${m.role})` : ""}
-                        </option>
-                      ))}
-                  </select>
-                  <select
-                    className="select"
-                    value={sharePermission}
-                    onChange={(e) => setSharePermission(e.target.value as "VIEW" | "REPLY")}
-                    style={{ width: "95px", height: "32px", fontSize: "12px" }}
-                  >
-                    <option value="VIEW">View Only</option>
-                    <option value="REPLY">Can Reply</option>
-                  </select>
-                  <button
-                    type="button"
-                    className="btn"
-                    data-variant="accent"
-                    data-size="sm"
-                    disabled={shareLoading}
-                    onClick={handleShareChat}
-                  >
-                    {shareLoading ? "Sharing..." : "Share"}
-                  </button>
-                </div>
+                {isSalesCloser && !workspaceSettings.closerChatSharingEnabled ? (
+                  <div className="chip" data-tone="warning" style={{ width: "100%", height: "auto", padding: "8px 10px", whiteSpace: "normal", marginTop: "4px" }}>
+                    Chat sharing by sales closers is restricted by workspace governance. Contact your administrator to request sharing capabilities.
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", gap: "6px", marginTop: "4px" }}>
+                    <select
+                      className="select"
+                      value={shareTargetUser}
+                      onChange={(e) => setShareTargetUser(e.target.value)}
+                      style={{ flex: 1, height: "32px", fontSize: "12px" }}
+                    >
+                      {shareableTeamMembers
+                        .filter((m) => m.name !== activeChat.assignedTo)
+                        .map((m) => (
+                          <option key={m.id || m.name} value={m.name}>
+                            {m.name} {m.role ? `(${m.role})` : ""}
+                          </option>
+                        ))}
+                    </select>
+                    <select
+                      className="select"
+                      value={sharePermission}
+                      onChange={(e) => setSharePermission(e.target.value as "VIEW" | "REPLY")}
+                      style={{ width: "95px", height: "32px", fontSize: "12px" }}
+                    >
+                      <option value="VIEW">View Only</option>
+                      <option value="REPLY">Can Reply</option>
+                    </select>
+                    <button
+                      type="button"
+                      className="btn"
+                      data-variant="accent"
+                      data-size="sm"
+                      disabled={shareLoading}
+                      onClick={handleShareChat}
+                    >
+                      {shareLoading ? "Sharing..." : "Share"}
+                    </button>
+                  </div>
+                )}
                 {shareSuccess && (
                   <span className="chip" data-tone="success" style={{ fontSize: "11px", marginTop: "6px", display: "inline-block" }}>
                     ✓ {shareSuccess}
@@ -2941,6 +3034,12 @@ export function ChatView() {
                 </div>
               )}
 
+              {isSalesCloser && !workspaceSettings.closerLeadReassignmentEnabled && (
+                <div className="chip" data-tone="warning" style={{ width: "100%", height: "auto", padding: "8px 10px", whiteSpace: "normal" }}>
+                  Lead reassignment by sales closers is restricted by workspace governance policy. Contact your sales manager or workspace admin.
+                </div>
+              )}
+
               <div>
                 <label style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
                   Current Assignee
@@ -2961,9 +3060,10 @@ export function ChatView() {
                   className="select"
                   value={assignTargetCloser}
                   onChange={(e) => setAssignTargetCloser(e.target.value)}
+                  disabled={isSalesCloser && !workspaceSettings.closerLeadReassignmentEnabled}
                   style={{ width: "100%", marginTop: "4px", height: "32px", fontSize: "12px" }}
                 >
-                  {teamMembers.map((member) => (
+                  {assignableTeamMembers.map((member) => (
                     <option key={member.id || member.name} value={member.id || member.name}>
                       {member.name} {member.role ? `(${member.role})` : ""}
                     </option>
@@ -2981,13 +3081,14 @@ export function ChatView() {
                   value={assignHandoverNote}
                   onChange={(e) => setAssignHandoverNote(e.target.value)}
                   placeholder="e.g. Lead interested in CRM pro plan; callback requested for 4 PM"
+                  disabled={isSalesCloser && !workspaceSettings.closerLeadReassignmentEnabled}
                   style={{ marginTop: "4px", fontSize: "12px" }}
                 />
               </div>
 
               {assignSuccess && (
                 <span className="pill" style={{ color: "var(--accent-strong)", background: "var(--bg-soft)", fontSize: "11px" }}>
-                  âœ“ {assignSuccess}
+                  ✓ {assignSuccess}
                 </span>
               )}
               {assignError && (
@@ -3004,7 +3105,8 @@ export function ChatView() {
                 data-variant="primary"
                 disabled={
                   assignLoading ||
-                  (teamMembers.find((m) => m.id === assignTargetCloser || m.name === assignTargetCloser)?.name.toLowerCase() === (activeChat.assignedTo || "").toLowerCase()) ||
+                  (isSalesCloser && !workspaceSettings.closerLeadReassignmentEnabled) ||
+                  (assignableTeamMembers.find((m) => m.id === assignTargetCloser || m.name === assignTargetCloser)?.name.toLowerCase() === (activeChat.assignedTo || "").toLowerCase()) ||
                   (Boolean(activeChat.isPersonalQr) && state.user?.role !== "ADMIN" && state.user?.role !== "SUPER_ADMIN")
                 }
                 onClick={handleAssignChat}

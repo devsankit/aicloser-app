@@ -39,6 +39,9 @@ export function PipelineView() {
       const sp = new URLSearchParams(window.location.search);
       const urlQ = sp.get("search") || sp.get("q");
       if (urlQ) setQuery(urlQ);
+      const tab = sp.get("tab");
+      if (tab === "recycle") setViewMode("recycle");
+      else if (tab === "pool") setViewMode("pool");
     }
   }, []);
   const [source, setSource] = useState<Source | "">("");

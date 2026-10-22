@@ -215,17 +215,32 @@ export function LeadCommandHistory({
     loadData();
   }, [loadData]);
 
-  // Unified Chronological Stream
+  // Unified Chronological Stream with Composite Signature Deduplication
   const unifiedEvents = useMemo<UnifiedEvent[]>(() => {
     const list: UnifiedEvent[] = [];
-    const seen = new Set<string>();
+    const seenIds = new Set<string>();
+    const seenSignatures = new Set<string>();
+
+    const tryAddEvent = (entry: UnifiedEvent) => {
+      if (seenIds.has(entry.id)) return false;
+
+      const timeMs = new Date(entry.createdAt).getTime() || 0;
+      const minuteBucket = Math.floor(timeMs / 60000);
+      const cleanTitle = (entry.title || "").trim().toLowerCase();
+      const cleanBody = (entry.body || "").trim().toLowerCase().slice(0, 50);
+      const signature = `${entry.kind}:${cleanTitle}:${cleanBody}:${minuteBucket}`;
+
+      if (seenSignatures.has(signature)) return false;
+
+      seenIds.add(entry.id);
+      seenSignatures.add(signature);
+      list.push(entry);
+      return true;
+    };
 
     // 1. Process History Entries
     rawHistory.forEach((h) => {
       const id = `h-${h.id}`;
-      if (seen.has(id)) return;
-      seen.add(id);
-
       const k = (h.kind || "").toUpperCase();
       let kind: UnifiedEvent["kind"] = "SYSTEM";
       if (k.includes("NOTE")) kind = "NOTE";
@@ -236,7 +251,7 @@ export function LeadCommandHistory({
       else if (k.includes("ASSIGN") || k.includes("REASSIGN")) kind = "REASSIGN";
       else if (k.includes("TASK")) kind = "TASK";
 
-      list.push({
+      tryAddEvent({
         id,
         kind,
         title: h.title || "Activity logged",
@@ -248,13 +263,13 @@ export function LeadCommandHistory({
       });
     });
 
-    // 2. Process Notes
+    // 2. Process Notes (only if not already present in history)
     rawNotes.forEach((n) => {
-      const id = `n-${n.id}`;
-      if (seen.has(id)) return;
-      seen.add(id);
-      list.push({
-        id,
+      const existsInHistory = rawHistory.some((h) => h.id === n.id || (h as any).noteId === n.id);
+      if (existsInHistory) return;
+
+      tryAddEvent({
+        id: `n-${n.id}`,
         kind: "NOTE",
         title: "Internal Note",
         body: n.body,
@@ -263,15 +278,15 @@ export function LeadCommandHistory({
       });
     });
 
-    // 3. Process Calls
+    // 3. Process Calls (only if not already present in history)
     rawCalls.forEach((c) => {
-      const id = `c-${c.id}`;
-      if (seen.has(id)) return;
-      seen.add(id);
+      const existsInHistory = rawHistory.some((h) => h.id === c.id || (h as any).callId === c.id);
+      if (existsInHistory) return;
+
       const isOutbound = c.direction === "OUTBOUND";
       const recUrl = c.recordingUrl || (c as any).audioUrl || (c as any).url || null;
-      list.push({
-        id,
+      tryAddEvent({
+        id: `c-${c.id}`,
         kind: "CALL",
         title: `${isOutbound ? "Outbound" : "Inbound"} Call (${formatDuration(c.durationSeconds)})`,
         body: c.note || c.outcome || (c.hasRecording ? "Recording saved" : undefined),
@@ -285,11 +300,11 @@ export function LeadCommandHistory({
 
     // 4. Process Payments
     rawPayments.forEach((p) => {
-      const id = `p-${p.id}`;
-      if (seen.has(id)) return;
-      seen.add(id);
-      list.push({
-        id,
+      const existsInHistory = rawHistory.some((h) => h.id === p.id || (h as any).paymentId === p.id);
+      if (existsInHistory) return;
+
+      tryAddEvent({
+        id: `p-${p.id}`,
         kind: "PAYMENT",
         title: `Payment ${p.status || "Record"}`,
         body: p.utrReference ? `UTR: ${p.utrReference}` : undefined,
@@ -302,7 +317,7 @@ export function LeadCommandHistory({
 
     // 5. Fallback Initial Note if list is empty but initialNotes exists
     if (list.length === 0 && initialNotes) {
-      list.push({
+      tryAddEvent({
         id: "init-note",
         kind: "NOTE",
         title: "Initial Note",

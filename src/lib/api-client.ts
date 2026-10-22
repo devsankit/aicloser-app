@@ -832,6 +832,12 @@ export const aicloserApi = {
         return aicloserApi.leads.update(leadId, { stage: 'NEW' });
       }
     },
+    async delete(leadId: string): Promise<any> {
+      const res = await request(`/leads/${encodeURIComponent(leadId)}`, {
+        method: 'DELETE',
+      });
+      return res.data;
+    },
     async permanentDelete(leadId: string): Promise<any> {
       const res = await request(`/leads/${encodeURIComponent(leadId)}`, {
         method: 'DELETE',
@@ -842,23 +848,44 @@ export const aicloserApi = {
 
   // Labels & Tags
   labels: {
-    async list(): Promise<Array<{ id: string; name: string; color?: string }>> {
+    async list(): Promise<any> {
       try {
-        const res = await request<Array<{ id: string; name: string; color?: string }>>('/labels');
+        const res = await request<any>('/labels');
         return res.data || [];
       } catch {
         return [];
       }
     },
-    async create(label: { name: string; color?: string }): Promise<{ id: string; name: string; color?: string }> {
+    async create(label: { name: string; color?: string }): Promise<any> {
       try {
-        const res = await request<{ id: string; name: string; color?: string }>('/labels', {
+        const res = await request<any>('/labels', {
           method: 'POST',
           body: JSON.stringify(label),
         });
         return res.data;
       } catch {
         return { id: `lbl-${Date.now()}`, name: label.name, color: label.color };
+      }
+    },
+    async update(name: string, patch: { newName?: string; color?: string }): Promise<any> {
+      try {
+        const res = await request<any>(`/labels/${encodeURIComponent(name)}`, {
+          method: 'PUT',
+          body: JSON.stringify(patch),
+        });
+        return res.data;
+      } catch {
+        return { success: true };
+      }
+    },
+    async delete(name: string): Promise<any> {
+      try {
+        const res = await request<any>(`/labels/${encodeURIComponent(name)}`, {
+          method: 'DELETE',
+        });
+        return res.data;
+      } catch {
+        return { success: true };
       }
     },
   },
@@ -1913,6 +1940,29 @@ export const aicloserApi = {
     async getUsage() {
       const res = await request('/workspace/usage');
       return res.data;
+    },
+    async getSettings() {
+      try {
+        const res = await request<any>('/workspace/settings');
+        return res.data;
+      } catch {
+        return null;
+      }
+    },
+    async updateSettings(settings: any) {
+      try {
+        const res = await request<any>('/workspace/settings', {
+          method: 'PATCH',
+          body: JSON.stringify(settings),
+        });
+        return res.data;
+      } catch {
+        const res = await request<any>('/workspace/settings', {
+          method: 'POST',
+          body: JSON.stringify(settings),
+        });
+        return res.data;
+      }
     },
   },
 
