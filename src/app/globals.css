@@ -5815,3 +5815,56 @@ button.list-prio:hover {
   width: 80px;
   text-align: right;
 }
+
+
+/* Chat Inbox Header & Scope Utilities */
+.chat-link-qr-btn {
+  height: 22px;
+  padding: 0 6px;
+  font-size: 11px;
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.chat-scope-banner {
+  font-size: 11px;
+  color: var(--accent);
+  margin-top: 2px;
+  font-weight: 550;
+}
+
+.chat-search-wrap {
+  width: 100%;
+}
+
+.chat-search-input {
+  font-size: var(--fs-caption);
+}
+
+.chat-inbox-head {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-inbox-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chat-inbox-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chat-inbox-title {
+  font-size: var(--fs-body);
+  font-weight: 650;
+  margin: 0;
+}

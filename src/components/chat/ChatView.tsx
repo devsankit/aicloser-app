@@ -448,13 +448,34 @@ export function ChatView() {
 
       let matchScope = true;
       if (scopeFilter === "api") {
-        // Exclusively official company Meta Cloud API chats (all personal QR chats excluded)
-        matchScope = c.isOfficialApi === true || c.channelSource === "OFFICIAL_API" || (!c.isPersonalQr && c.channelSource !== "QR_SCANNER");
+        // Exclusively official company Meta Cloud API chats (all personal QR chats strictly excluded)
+        const isOfficial = c.isOfficialApi === true || c.channelSource === "OFFICIAL_API";
+        if (targetAgent) {
+          const assigned = (c.assignedTo || "").toLowerCase();
+          matchScope = isOfficial && (assigned.includes(targetAgent) || assigned === targetAgent);
+        } else {
+          matchScope = isOfficial;
+        }
       } else if (targetAgent) {
-        // Scoped to a specific teammate selected in topbar: show that teammate's chats!
         const assigned = (c.assignedTo || "").toLowerCase();
         const scannedBy = (c.scannedByName || "").toLowerCase();
-        matchScope = assigned.includes(targetAgent) || assigned === targetAgent || scannedBy.includes(targetAgent) || scannedBy === targetAgent;
+        const isQrChannel = c.channelSource === "QR_SCANNER" || c.isPersonalQr === true;
+
+        if (scopeFilter === "mine") {
+          // STRICT PERSONAL SCANNED QR WHATSAPP LINE ONLY: Official API chats are 100% excluded!
+          const belongsToAgent =
+            scannedBy === targetAgent ||
+            scannedBy.includes(targetAgent) ||
+            (isQrChannel && (assigned === targetAgent || assigned.includes(targetAgent)));
+          matchScope = isQrChannel && !c.isOfficialApi && c.channelSource !== "OFFICIAL_API" && belongsToAgent;
+        } else if (scopeFilter === "all") {
+          // All conversations associated with this teammate
+          matchScope =
+            assigned.includes(targetAgent) ||
+            assigned === targetAgent ||
+            scannedBy.includes(targetAgent) ||
+            scannedBy === targetAgent;
+        }
       } else if (scopeFilter === "mine") {
         const assigned = (c.assignedTo || "").toLowerCase();
         const scannedBy = (c.scannedByName || "").toLowerCase();
@@ -531,35 +552,56 @@ export function ChatView() {
           };
         });
 
+      const apiParams: any = { limit: 200 };
+      if (state.scope.startsWith("agent:")) {
+        const targetAgent = state.scope.slice(6).trim();
+        if (scopeFilter === "mine") {
+          apiParams.sourceType = "QR_SCANNER";
+          apiParams.scannerName = targetAgent;
+        } else if (scopeFilter === "api") {
+          apiParams.sourceType = "OFFICIAL_API";
+          apiParams.agentName = targetAgent;
+        } else {
+          apiParams.agentName = targetAgent;
+        }
+      } else if (scopeFilter === "api") {
+        apiParams.sourceType = "OFFICIAL_API";
+      }
+
       aicloserApi.conversations
-        .list({ limit: 200 })
+        .list(apiParams)
         .then((res) => {
           if (!active) return;
-          const apiMapped: ConversationItem[] = (res?.conversations || []).map((c: any) => ({
-            id: c.id,
-            leadId: c.leadId || `ld-${c.id.slice(-4)}`,
-            customerName: c.customerName || "Customer",
-            company: c.lead?.company || "Direct Account",
-            phone: c.customerPhone || "",
-            channel: (c.channel === "instagram"
-              ? "instagram"
-              : c.channel === "website"
-              ? "website"
-              : "whatsapp") as "whatsapp" | "instagram" | "website",
-            channelSource: c.channelSource || (c.serviceSlug === "manual-chat" ? "QR_SCANNER" : "OFFICIAL_API"),
-            channelSourceLabel: c.channelSourceLabel || (c.serviceSlug === "manual-chat" ? "Personal WhatsApp QR" : "Company API • +91 95895 10954"),
-            scannedByName: c.scannedByName || c.payload?.scannedByName || c.assignedFreelancerName || null,
-            isOfficialApi: Boolean(c.isOfficialApi ?? (c.serviceSlug !== "manual-chat")),
-            isPersonalQr: Boolean(c.isPersonalQr ?? (c.serviceSlug === "manual-chat")),
-            isReassignable: c.isReassignable !== false,
-            lastMessage: c.lastMessageSnippet || c.lastMessage?.body || "Conversation active",
-            lastMessageTime: formatMessageTime(c.updatedAt || c.lastMessageTime),
-            updatedAt: c.updatedAt,
-            unreadCount: c.id === selectedChatId ? 0 : (c.unreadCount || 0),
-            assignedTo: c.assignedAgent?.displayName || c.assignedFreelancerName || (c.scannedByName || "Unassigned"),
-            aiAutoReplyDisabled: Boolean(c.aiAutoReplyDisabled ?? c.payload?.aiAutoReplyDisabled),
-            messages: [],
-          }));
+          const apiMapped: ConversationItem[] = (res?.conversations || []).map((c: any) => {
+            const isManualQr = c.serviceSlug === "manual-chat" || c.channelSource === "QR_SCANNER" || c.isPersonalQr === true;
+            return {
+              id: c.id,
+              leadId: c.leadId || `ld-${c.id.slice(-4)}`,
+              customerName: c.customerName || "Customer",
+              company: c.lead?.company || "Direct Account",
+              phone: c.customerPhone || "",
+              channel: (c.channel === "instagram"
+                ? "instagram"
+                : c.channel === "website"
+                ? "website"
+                : "whatsapp") as "whatsapp" | "instagram" | "website",
+              channelSource: isManualQr ? "QR_SCANNER" : (c.channelSource || "OFFICIAL_API"),
+              channelSourceLabel: isManualQr
+                ? (c.channelSourceLabel || (c.scannedByName ? `QR: ${c.scannedByName}` : "Personal WhatsApp QR"))
+                : (c.channelSourceLabel || "Company API • +91 95895 10954"),
+              scannedByName: isManualQr ? (c.scannedByName || c.payload?.scannedByName || c.assignedFreelancerName || null) : null,
+              isOfficialApi: !isManualQr,
+              isPersonalQr: isManualQr,
+              isReassignable: c.isReassignable !== false,
+              lastMessage: c.lastMessageSnippet || c.lastMessage?.body || "Conversation active",
+              lastMessageTime: formatMessageTime(c.updatedAt || c.lastMessageTime),
+              updatedAt: c.updatedAt,
+              unreadCount: c.id === selectedChatId ? 0 : (c.unreadCount || 0),
+              assignedTo: c.assignedAgent?.displayName || c.assignedFreelancerName || (isManualQr ? c.scannedByName : "Unassigned") || "Unassigned",
+              aiAutoReplyDisabled: Boolean(c.aiAutoReplyDisabled ?? c.payload?.aiAutoReplyDisabled),
+              messages: [],
+            };
+          });
 
           const combined = [...apiMapped];
           const seenPhones = new Set<string>();
@@ -614,7 +656,7 @@ export function ChatView() {
       active = false;
       clearInterval(refreshInterval);
     };
-  }, [state.leads, refreshCount]);
+  }, [state.leads, refreshCount, state.scope, scopeFilter]);
 
   // Load Universal Bot Master Status
   useEffect(() => {
@@ -1401,25 +1443,24 @@ export function ChatView() {
           setWidth={handleSetInboxWidth}
         />
         {/* Header with Search */}
-        <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: "10px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div className="chat-inbox-head">
+          <div className="chat-inbox-top">
             <div>
-              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <h2 style={{ fontSize: "var(--fs-body)", fontWeight: 650, margin: 0 }}>Inbox</h2>
+              <div className="chat-inbox-title-wrap">
+                <h2 className="chat-inbox-title">Inbox</h2>
                 <button
                   type="button"
-                  className="btn"
+                  className="btn chat-link-qr-btn"
                   data-size="sm"
                   data-variant="ghost"
                   onClick={handleOpenQrModal}
-                  style={{ height: "22px", padding: "0 6px", fontSize: "11px", color: "var(--accent)", display: "inline-flex", alignItems: "center", gap: "3px" }}
                   title="Link personal WhatsApp via QR code or pairing code"
                 >
                   <Icon name="smartphone" size={12} /> Link QR
                 </button>
               </div>
               {state.scope.startsWith("agent:") && (
-                <div style={{ fontSize: "11px", color: "var(--accent)", marginTop: "2px", fontWeight: 550 }}>
+                <div className="chat-scope-banner">
                   Viewing: {state.scope.slice(6)}&apos;s Chats
                 </div>
               )}
@@ -1431,7 +1472,7 @@ export function ChatView() {
                   setScopeFilter("all");
                   if (state.scope.startsWith("agent:")) setScope("all");
                 }}
-                title="All accessible conversations"
+                title={state.scope.startsWith("agent:") ? `All conversations for ${state.scope.slice(6)}` : "All accessible conversations"}
               >
                 All
               </button>
@@ -1440,7 +1481,7 @@ export function ChatView() {
                 onClick={() => {
                   setScopeFilter("mine");
                 }}
-                title={state.scope.startsWith("agent:") ? `${state.scope.slice(6)}'s conversations` : "My assigned & personal QR chats"}
+                title={state.scope.startsWith("agent:") ? `${state.scope.slice(6)}'s scanned WhatsApp QR chats` : "My assigned & personal QR chats"}
               >
                 {state.scope.startsWith("agent:") ? state.scope.slice(6) : "Mine"}
               </button>
@@ -1449,20 +1490,20 @@ export function ChatView() {
                 onClick={() => {
                   setScopeFilter("api");
                 }}
-                title="Official Meta WhatsApp Cloud API conversations"
+                title={state.scope.startsWith("agent:") ? `${state.scope.slice(6)}'s Official Meta WhatsApp Cloud API conversations` : "Official Meta WhatsApp Cloud API conversations"}
               >
                 API
               </button>
             </div>
           </div>
 
-          <div className="search" style={{ width: "100%" }}>
+          <div className="search chat-search-wrap">
             <Icon name="search" size={13} />
             <input
               placeholder="Search chat or phone..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              style={{ fontSize: "var(--fs-caption)" }}
+              className="chat-search-input"
             />
           </div>
 

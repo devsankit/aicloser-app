@@ -896,12 +896,29 @@ export const aicloserApi = {
       const res = await requestConversation<Lead360Response>(`/conversations/${encodeURIComponent(conversationId)}/360`);
       return res.data;
     },
-    async list(params?: { page?: number; limit?: number; search?: string; status?: string }) {
+    async list(params?: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      status?: string;
+      channel?: string;
+      sourceType?: 'ALL' | 'OFFICIAL_API' | 'QR_SCANNER';
+      agentId?: string;
+      agentName?: string;
+      scannerName?: string;
+      scannerUserId?: string;
+    }) {
       const searchParams = new URLSearchParams();
       if (params?.page) searchParams.set('page', params.page.toString());
       if (params?.limit) searchParams.set('limit', params.limit.toString());
       if (params?.search) searchParams.set('search', params.search);
       if (params?.status) searchParams.set('status', params.status);
+      if (params?.channel) searchParams.set('channel', params.channel);
+      if (params?.sourceType) searchParams.set('sourceType', params.sourceType);
+      if (params?.agentId) searchParams.set('agentId', params.agentId);
+      if (params?.agentName) searchParams.set('agentName', params.agentName);
+      if (params?.scannerName) searchParams.set('scannerName', params.scannerName);
+      if (params?.scannerUserId) searchParams.set('scannerUserId', params.scannerUserId);
 
       const query = searchParams.toString();
       const res = await request<Conversation[]>(`/conversations${query ? `?${query}` : ''}`);
