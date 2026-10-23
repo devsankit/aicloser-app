@@ -174,8 +174,8 @@ export function LeadCommandHistory({
       } catch {}
     }
 
-    // 2. Fetch from conversation 360 if conversationId provided
-    if (conversationId) {
+    // 2. Fetch from conversation 360 if valid conversationId provided
+    if (conversationId && !conversationId.startsWith("draft-")) {
       try {
         const c360 = await aicloserApi.conversations.get360(conversationId);
         if (c360) {

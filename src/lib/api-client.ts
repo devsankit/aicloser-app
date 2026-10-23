@@ -156,6 +156,7 @@ export interface LeadPoolItem {
   budgetAmount?: number | string | null;
   status: 'OPEN' | 'CLAIMED' | 'ARCHIVED';
   notes?: string | null;
+  followUpAt?: string | null;
   claimedAt?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -954,17 +955,6 @@ export const aicloserApi = {
       });
       return res.data;
     },
-    async transfer(leadId: string, targetAgentId: string, note?: string): Promise<any> {
-      try {
-        const res = await request(`/leads/${encodeURIComponent(leadId)}/transfer`, {
-          method: 'POST',
-          body: JSON.stringify({ targetAgentId, note }),
-        });
-        return res.data;
-      } catch {
-        return aicloserApi.leads.update(leadId, { assignedAgentId: targetAgentId } as any);
-      }
-    },
   },
 
   // Labels & Tags
@@ -1201,11 +1191,17 @@ export const aicloserApi = {
       conversationId: string,
       body: string,
       attachments?: any[],
-      dispatchChannel?: 'OFFICIAL_API' | 'PERSONAL' | 'AUTO'
+      dispatchChannel?: 'OFFICIAL_API' | 'PERSONAL' | 'AUTO',
+      templateOptions?: { templateName?: string; templateLanguage?: string }
     ) {
+      const payload: Record<string, any> = { body, attachments, dispatchChannel };
+      if (templateOptions?.templateName) {
+        payload.templateName = templateOptions.templateName;
+        payload.templateLanguage = templateOptions.templateLanguage || 'en_US';
+      }
       const res = await requestConversation(`/conversations/${encodeURIComponent(conversationId)}/messages`, {
         method: 'POST',
-        body: JSON.stringify({ body, attachments, dispatchChannel }),
+        body: JSON.stringify(payload),
       });
       return res.data;
     },

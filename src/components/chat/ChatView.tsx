@@ -51,6 +51,10 @@ interface ConversationItem {
   isSharedWithMe?: boolean;
   assignedFreelancerId?: string | null;
   assignedFreelancerName?: string | null;
+  isDraft?: boolean;
+  is24HourWindowOpen?: boolean;
+  lastInboundAt?: string | null;
+  windowExpiresAt?: string | null;
 }
 
 
@@ -205,6 +209,17 @@ export function ChatView() {
   const [refreshCount, setRefreshCount] = useState(0);
   const [selectedDispatchChannel, setSelectedDispatchChannel] = useState<"AUTO" | "OFFICIAL_API" | "PERSONAL">("AUTO");
   const urlResolvedRef = useRef<boolean>(false);
+
+  // Virtual Draft Conversation (Prevents blank/ghost conversations in DB until first message)
+  const [draftChat, setDraftChat] = useState<ConversationItem | null>(null);
+
+  // Meta 24-Hour WhatsApp Template Selection Modal
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [templateSearch, setTemplateSearch] = useState("");
+  const [selectedTemplate, setSelectedTemplate] = useState<any | null>(null);
+  const [isSendingTemplate, setIsSendingTemplate] = useState(false);
 
   const handleOpenQrModal = async () => {
     setShowQrModal(true);
@@ -535,9 +550,13 @@ export function ChatView() {
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
 
   const activeChat = useMemo(() => {
-    if (!conversations.length) return null;
+    if (draftChat && (!selectedChatId || selectedChatId === draftChat.id)) {
+      return draftChat;
+    }
+    if (!conversations.length) return draftChat || null;
     const match = conversations.find((c) => c.id === selectedChatId);
     if (match) return match;
+    if (draftChat && selectedChatId === draftChat.id) return draftChat;
     // Check if ID changed between lead- and conv- by phone digits
     if (selectedChatId) {
       const targetPhone = selectedChatId.replace(/\D/g, "").slice(-10);
@@ -546,8 +565,141 @@ export function ChatView() {
         if (phoneMatch) return phoneMatch;
       }
     }
-    return conversations[0] || null;
-  }, [conversations, selectedChatId]);
+    return draftChat || conversations[0] || null;
+  }, [conversations, selectedChatId, draftChat]);
+
+  const isOfficialChat = Boolean(
+    activeChat &&
+      (activeChat.isOfficialApi || activeChat.channelSource === "OFFICIAL_API") &&
+      activeChat.channel === "whatsapp"
+  );
+
+  const is24HourWindowOpen = useMemo(() => {
+    if (!activeChat) return true;
+    if (!isOfficialChat) return true;
+    if (typeof activeChat.is24HourWindowOpen === "boolean") {
+      return activeChat.is24HourWindowOpen;
+    }
+    // Inspect messages for last customer inbound
+    const msgs = activeChat.messages || [];
+    const inboundMsgs = msgs.filter(
+      (m: any) => m.sender === "customer" || m.sender === "user" || m.senderRole === "CUSTOMER"
+    );
+    if (inboundMsgs.length === 0) {
+      return false;
+    }
+    const lastInbound = inboundMsgs[inboundMsgs.length - 1];
+    if (!lastInbound?.createdAt) return false;
+    const elapsed = Date.now() - new Date(lastInbound.createdAt).getTime();
+    return elapsed < 24 * 60 * 60 * 1000;
+  }, [activeChat, isOfficialChat]);
+
+  const fetchTemplates = useCallback(async () => {
+    setLoadingTemplates(true);
+    try {
+      const res: any = await aicloserApi.marketing.getTemplates();
+      const list = Array.isArray(res)
+        ? res
+        : Array.isArray(res?.templates)
+        ? res.templates
+        : Array.isArray(res?.data)
+        ? res.data
+        : [];
+      const mapped = list.map((t: any, idx: number) => ({
+        id: t.id || `tmpl-${idx}`,
+        name: t.name || t.templateName || "template",
+        category: t.category || "UTILITY",
+        language: t.language || "en_US",
+        status: t.status || "APPROVED",
+        bodyText: t.bodyText || t.body || t.components?.find((c: any) => c.type === "BODY")?.text || "",
+      }));
+      setTemplates(mapped);
+      if (mapped.length > 0 && !selectedTemplate) {
+        setSelectedTemplate(mapped[0]);
+      }
+    } catch {
+      setTemplates([]);
+    } finally {
+      setLoadingTemplates(false);
+    }
+  }, [selectedTemplate]);
+
+  const handleSendTemplate = async () => {
+    if (!selectedTemplate || !activeChat || isSendingTemplate) return;
+    setIsSendingTemplate(true);
+    try {
+      let targetConvId = activeChat.id;
+
+      // 1. If currently in DRAFT mode, create conversation in database first!
+      if (activeChat.isDraft) {
+        const createRes = await aicloserApi.conversations.getOrCreate({
+          leadId: activeChat.leadId || undefined,
+          customerPhone: activeChat.phone,
+          customerName: activeChat.customerName || undefined,
+          channelSource: "OFFICIAL_API",
+        });
+        const createdConv = (createRes as any)?.data?.conversation || (createRes as any)?.conversation;
+        if (!createdConv?.id) {
+          throw new Error("Failed to initialize conversation for template dispatch.");
+        }
+        targetConvId = createdConv.id;
+        setDraftChat(null);
+        setSelectedChatId(targetConvId);
+      }
+
+      // 2. Dispatch template via API
+      const res: any = await aicloserApi.conversations.sendMessage(
+        targetConvId,
+        selectedTemplate.bodyText || `[Template: ${selectedTemplate.name}]`,
+        undefined,
+        "OFFICIAL_API",
+        {
+          templateName: selectedTemplate.name,
+          templateLanguage: selectedTemplate.language || "en_US",
+        }
+      );
+
+      const newMsg: ChatMessage = {
+        id: `msg-${Date.now()}`,
+        sender: "closer",
+        senderName: state.user?.displayName || CURRENT_USER,
+        text: selectedTemplate.bodyText || `[Template: ${selectedTemplate.name}]`,
+        createdAt: new Date().toISOString(),
+        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        channel: "whatsapp",
+        status: "sent",
+        externalMessageId: res?.data?.externalMessageId || res?.externalMessageId,
+      };
+
+      setMessagesCache((prev) => ({
+        ...prev,
+        [targetConvId]: [...(prev[targetConvId] || []), newMsg],
+      }));
+
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === targetConvId
+            ? {
+                ...c,
+                messages: [...(c.messages || []), newMsg],
+                lastMessage: newMsg.text,
+                lastMessageTime: "Just now",
+                isDraft: false,
+              }
+            : c
+        )
+      );
+
+      setShowTemplateModal(false);
+      showToast(`Template "${selectedTemplate.name}" sent to customer!`);
+      setTimeout(() => scrollToBottom("smooth"), 50);
+      setRefreshCount((rc) => rc + 1);
+    } catch (err: any) {
+      showToast(err?.message || "Failed to send template");
+    } finally {
+      setIsSendingTemplate(false);
+    }
+  };
 
   const activeLead = useMemo(() => {
     if (!activeChat) return null;
@@ -585,7 +737,7 @@ export function ChatView() {
 
   // Automatically mark opened/active chat as read
   useEffect(() => {
-    if (!activeChat) return;
+    if (!activeChat || activeChat.isDraft) return;
     if ((activeChat.unreadCount || 0) > 0) {
       setConversations((prev) =>
         prev.map((c) => (c.id === activeChat.id ? { ...c, unreadCount: 0 } : c))
@@ -986,12 +1138,18 @@ export function ChatView() {
   };
 
   const filteredConversations = useMemo(() => {
+    const userRole = state.user?.role || "ADMIN";
+    const isAdmin = userRole === "ADMIN" || userRole === "SUPER_ADMIN" || userRole === "MANAGER";
     const myName = (state.user?.displayName || CURRENT_USER).toLowerCase();
     const isAgentScope = state.scope.startsWith("agent:");
     const targetAgent = isAgentScope ? state.scope.slice(6).trim().toLowerCase() : null;
     const isCloser = (state.user?.role as string) === "CLOSER" || state.user?.role === "SALES_AGENT";
 
-    return conversations.filter((c) => {
+    const baseList = draftChat
+      ? [draftChat, ...conversations.filter((c) => c.id !== draftChat.id)]
+      : conversations;
+
+    return baseList.filter((c) => {
       const matchChannel = channelFilter === "all" || c.channel === channelFilter;
       const assigned = (c.assignedTo || "").toLowerCase();
       const scannedBy = (c.scannedByName || "").toLowerCase();
@@ -1000,8 +1158,15 @@ export function ChatView() {
 
       let matchScope = true;
 
-      // Strict sales closer isolation: Closers can NEVER see another closer's chats unless assigned or shared!
-      if (isCloser) {
+      if (c.isDraft) {
+        if (scopeFilter === "mine") {
+          matchScope = c.isPersonalQr || c.channelSource === "QR_SCANNER" || (!c.isOfficialApi && c.channelSource !== "OFFICIAL_API");
+        } else if (scopeFilter === "api") {
+          matchScope = c.isOfficialApi || c.channelSource === "OFFICIAL_API";
+        } else {
+          matchScope = true;
+        }
+      } else if (isCloser) {
         const currentUserId = state.user?.userId || (state.user as any)?.id;
         const currentDisplayName = state.user?.displayName || CURRENT_USER;
         const currentProfileId = (state.user as any)?.agentProfileId || (state.user as any)?.profileId;
@@ -1048,11 +1213,11 @@ export function ChatView() {
           isSharedWithMe;
 
         if (scopeFilter === "mine") {
-          // In "mine", closer sees all their active personal chats (assigned, scanned QR, or shared with them)
-          matchScope = belongsToMe;
+          // Strictly personal scanned QR WhatsApp companion chats
+          matchScope = (c.isPersonalQr || c.channelSource === "QR_SCANNER" || (!c.isOfficialApi && c.channelSource !== "OFFICIAL_API")) && belongsToMe;
         } else if (scopeFilter === "api") {
           // Strictly official API chats assigned to or shared with this closer
-          matchScope = isOfficial && belongsToMe;
+          matchScope = (c.isOfficialApi || c.channelSource === "OFFICIAL_API") && (isAdmin || belongsToMe);
         } else {
           // All chats (API + QR) assigned to, scanned by, or shared with this closer
           matchScope = belongsToMe;
@@ -1060,9 +1225,9 @@ export function ChatView() {
       } else if (scopeFilter === "api") {
         // Admin / Manager API view
         if (targetAgent) {
-          matchScope = isOfficial && (assigned.includes(targetAgent) || assigned === targetAgent);
+          matchScope = (c.isOfficialApi || c.channelSource === "OFFICIAL_API") && (assigned.includes(targetAgent) || assigned === targetAgent);
         } else {
-          matchScope = isOfficial;
+          matchScope = c.isOfficialApi || c.channelSource === "OFFICIAL_API";
         }
       } else if (targetAgent) {
         // Admin viewing specific agent
@@ -1071,7 +1236,7 @@ export function ChatView() {
             scannedBy === targetAgent ||
             scannedBy.includes(targetAgent) ||
             (isQrChannel && (assigned === targetAgent || assigned.includes(targetAgent)));
-          matchScope = isQrChannel && !c.isOfficialApi && c.channelSource !== "OFFICIAL_API" && belongsToAgent;
+          matchScope = (c.isPersonalQr || c.channelSource === "QR_SCANNER" || (!c.isOfficialApi && c.channelSource !== "OFFICIAL_API")) && belongsToAgent;
         } else if (scopeFilter === "all") {
           matchScope =
             assigned.includes(targetAgent) ||
@@ -1085,7 +1250,7 @@ export function ChatView() {
           scannedBy === myName ||
           scannedBy.includes(myName) ||
           (isQrChannel && (assigned === myName || assigned.includes(myName)));
-        matchScope = isQrChannel && !isOfficial && belongsToMe;
+        matchScope = (c.isPersonalQr || c.channelSource === "QR_SCANNER" || (!c.isOfficialApi && c.channelSource !== "OFFICIAL_API")) && belongsToMe;
       } else if (scopeFilter === "unassigned") {
         matchScope = c.assignedTo === "Unassigned";
       }
@@ -1382,6 +1547,10 @@ export function ChatView() {
                 isSharedWithMe,
                 assignedFreelancerId: c.assignedFreelancerId || c.payload?.assignedFreelancerId || null,
                 assignedFreelancerName: c.assignedFreelancerName || c.payload?.assignedFreelancerName || c.assignedAgent?.displayName || null,
+                isDraft: false,
+                is24HourWindowOpen: c.is24HourWindowOpen ?? c.payload?.is24HourWindowOpen,
+                lastInboundAt: c.lastInboundAt ?? c.payload?.lastInboundAt,
+                windowExpiresAt: c.windowExpiresAt ?? c.payload?.windowExpiresAt,
               };
             });
 
@@ -1410,6 +1579,7 @@ export function ChatView() {
 
             if (urlId && combined.some((c) => c.id === urlId)) {
               targetChatId = urlId;
+              setDraftChat(null);
             } else if (urlLeadId || urlPhone) {
               const cleanPhone = urlPhone ? urlPhone.replace(/\D/g, "").slice(-10) : "";
               const match = combined.find((c) => {
@@ -1427,21 +1597,32 @@ export function ChatView() {
 
               if (match) {
                 targetChatId = match.id;
-              } else if (urlPhone && !urlResolvedRef.current) {
-                urlResolvedRef.current = true;
+                setDraftChat(null);
+              } else if (urlPhone || urlLeadId) {
                 const leadObj = state.leads.find((l) => l.id === urlLeadId || (cleanPhone && l.phone?.replace(/\D/g, "").slice(-10) === cleanPhone));
-                aicloserApi.conversations.getOrCreate({
-                  leadId: urlLeadId || undefined,
-                  customerPhone: urlPhone,
-                  customerName: leadObj?.name || undefined,
-                  channelSource: urlChannel === "mine" ? "QR_SCANNER" : "OFFICIAL_API",
-                }).then((res: any) => {
-                  const newConv = res?.data?.conversation || res?.conversation;
-                  if (newConv?.id) {
-                    setSelectedChatId(newConv.id);
-                    setRefreshCount((rc) => rc + 1);
-                  }
-                }).catch(() => undefined);
+                const isApi = urlChannel === "api";
+                const isMine = urlChannel === "mine";
+                const draftId = `draft-${urlLeadId || cleanPhone || Date.now()}`;
+                const newDraft: ConversationItem = {
+                  id: draftId,
+                  isDraft: true,
+                  leadId: urlLeadId || leadObj?.id || "",
+                  customerName: leadObj?.name || (urlPhone ? `Lead (${urlPhone})` : "New Customer"),
+                  company: leadObj?.company || "Direct Lead",
+                  phone: urlPhone || leadObj?.phone || "",
+                  channel: "whatsapp",
+                  channelSource: isMine ? "QR_SCANNER" : "OFFICIAL_API",
+                  channelSourceLabel: isMine ? "Personal WhatsApp QR (Draft)" : "Official WhatsApp Cloud API (Draft)",
+                  isOfficialApi: isApi || !isMine,
+                  isPersonalQr: isMine,
+                  lastMessage: "Draft conversation — not yet created in database",
+                  lastMessageTime: "Draft",
+                  unreadCount: 0,
+                  assignedTo: state.user?.displayName || "You",
+                  messages: [],
+                };
+                setDraftChat(newDraft);
+                targetChatId = draftId;
               }
             }
           }
@@ -1497,7 +1678,7 @@ export function ChatView() {
 
   // Sync Per-Conversation AI Copilot status when active thread changes & auto-clear unread
   useEffect(() => {
-    if (activeChat) {
+    if (activeChat && !activeChat.isDraft) {
       setAiAutoReply(!activeChat.aiAutoReplyDisabled);
       if (activeChat.unreadCount > 0) {
         aicloserApi.conversations.markRead(activeChat.id).catch(() => undefined);
@@ -1506,11 +1687,15 @@ export function ChatView() {
         );
       }
     }
-  }, [activeChat?.id, activeChat?.aiAutoReplyDisabled, activeChat?.unreadCount]);
+  }, [activeChat?.id, activeChat?.aiAutoReplyDisabled, activeChat?.unreadCount, activeChat?.isDraft]);
 
   // Fetch real messages for the active conversation when selected (stale-while-revalidate)
   useEffect(() => {
     if (!activeChat?.id) return;
+    if (activeChat.isDraft || activeChat.id.startsWith("draft-")) {
+      setLoadingMessages(false);
+      return;
+    }
 
     // Immediately display cached messages if available for fast UI response
     if (messagesCache[activeChat.id] && messagesCache[activeChat.id].length > 0) {
@@ -1787,7 +1972,7 @@ export function ChatView() {
 
   // Periodic active chat message polling with exponential backoff & SSE sync (ITEM-06)
   useEffect(() => {
-    if (!activeChat?.id) return;
+    if (!activeChat?.id || activeChat.isDraft || activeChat.id.startsWith("draft-")) return;
 
     let timeoutId: NodeJS.Timeout;
     let delay = 6000;
@@ -1907,9 +2092,49 @@ export function ChatView() {
     scrollToBottom("instant");
   }, [activeChat?.id, activeChat?.messages?.length, scrollToBottom]);
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!inputText.trim() || !activeChat || isReadOnlyShare) return;
+
+    if (isOfficialChat && !is24HourWindowOpen && selectedDispatchChannel === "OFFICIAL_API") {
+      setShowTemplateModal(true);
+      fetchTemplates();
+      showToast("Meta 24-Hour Service Window closed. You must send an approved template.");
+      return;
+    }
+
     const textToSend = inputText.trim();
+    let targetConvId = activeChat.id;
+
+    if (activeChat.isDraft) {
+      try {
+        const createRes: any = await aicloserApi.conversations.getOrCreate({
+          leadId: activeChat.leadId || undefined,
+          customerPhone: activeChat.phone,
+          customerName: activeChat.customerName || undefined,
+          channelSource: selectedDispatchChannel === "PERSONAL" ? "QR_SCANNER" : "OFFICIAL_API",
+        });
+        const createdConv = createRes?.data?.conversation || createRes?.conversation;
+        if (!createdConv?.id) {
+          throw new Error("Failed to initialize conversation.");
+        }
+        targetConvId = createdConv.id;
+        const newConvItem: ConversationItem = {
+          ...activeChat,
+          id: targetConvId,
+          isDraft: false,
+        };
+        setDraftChat(null);
+        setConversations((prev) => {
+          if (prev.some((c) => c.id === targetConvId)) return prev;
+          return [newConvItem, ...prev];
+        });
+        setSelectedChatId(targetConvId);
+      } catch (err: any) {
+        showToast(err?.message || "Failed to initialize conversation for message");
+        return;
+      }
+    }
+
     const newMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
       sender: "closer",
@@ -1921,18 +2146,19 @@ export function ChatView() {
       status: "sent",
     };
 
-    const updatedMessages = [...(activeChat.messages || []), newMsg];
+    const updatedMessages = [...(messagesCache[targetConvId] || activeChat.messages || []), newMsg];
 
-    setMessagesCache((prev) => ({ ...prev, [activeChat.id]: updatedMessages }));
+    setMessagesCache((prev) => ({ ...prev, [targetConvId]: updatedMessages }));
     setConversations((prev) =>
       prev.map((c) =>
-        c.id === activeChat.id
+        c.id === targetConvId
           ? {
               ...c,
               messages: updatedMessages,
               lastMessage: textToSend,
               lastMessageTime: "Just now",
               unreadCount: 0,
+              isDraft: false,
             }
           : c
       )
@@ -1942,13 +2168,13 @@ export function ChatView() {
 
     // Send to live backend API with selected delivery channel (Official API vs Personal WhatsApp)
     aicloserApi.conversations
-      .sendMessage(activeChat.id, textToSend, undefined, selectedDispatchChannel)
+      .sendMessage(targetConvId, textToSend, undefined, selectedDispatchChannel)
       .then((res: any) => {
         const wamid = res?.data?.externalMessageId || res?.externalMessageId;
         if (wamid) {
           setMessagesCache((prev) => ({
             ...prev,
-            [activeChat.id]: (prev[activeChat.id] || []).map((m) =>
+            [targetConvId]: (prev[targetConvId] || []).map((m) =>
               m.id === newMsg.id ? { ...m, externalMessageId: wamid, status: "sent" } : m
             ),
           }));
@@ -1959,7 +2185,24 @@ export function ChatView() {
       })
       .catch((err: any) => {
         const errMsg = err?.message || "Failed to deliver message";
-        showToast(errMsg);
+        if (
+          String(errMsg).toLowerCase().includes("24-hour") ||
+          String(errMsg).toLowerCase().includes("service window") ||
+          String(errMsg).includes("131047") ||
+          String(errMsg).includes("meta24hourwindowclosed")
+        ) {
+          setMessagesCache((prev) => ({
+            ...prev,
+            [targetConvId]: (prev[targetConvId] || []).map((m) =>
+              m.id === newMsg.id ? { ...m, status: "failed" } : m
+            ),
+          }));
+          setShowTemplateModal(true);
+          fetchTemplates();
+          showToast("Meta 24-Hour window expired. Please send an approved template.");
+        } else {
+          showToast(errMsg);
+        }
       });
   };
 
@@ -3315,6 +3558,11 @@ export function ChatView() {
                   <span style={{ fontWeight: 650, fontSize: "var(--fs-body)", color: "var(--text)" }}>
                     {activeChat.customerName}
                   </span>
+                  {activeChat.isDraft && (
+                    <span className="chip" data-tone="warning" style={{ fontSize: "11px", padding: "1px 8px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                      <Icon name="pencil" size={12} /> Draft
+                    </span>
+                  )}
                   {activeChat.isOfficialApi || activeChat.channelSource === "OFFICIAL_API" ? (
                     <span className="chip" data-tone="accent" style={{ fontSize: "11px", padding: "1px 8px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
                       <Icon name="whatsapp" size={12} /> {activeChat.channelSourceLabel || "Official Meta Cloud API"}
@@ -3386,6 +3634,15 @@ export function ChatView() {
               </button>
             </div>
           </header>
+
+          {activeChat.isDraft && (
+            <div className="chat-draft-banner">
+              <Icon name="pencil" size={13} />
+              <span>
+                <strong>Draft Mode:</strong> This conversation is not yet created in the database. Composing or sending your first message will automatically initialize it.
+              </span>
+            </div>
+          )}
 
           {isReadOnlyShare && (
             <div style={{ padding: "6px 18px", background: "var(--bg-soft)", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "var(--text-secondary)" }}>
@@ -3585,6 +3842,46 @@ export function ChatView() {
             </button>
           </div>
 
+          {/* 24-Hour Meta Service Window Closed Banner */}
+          {isOfficialChat && !is24HourWindowOpen && (
+            <div className="chat-window-alert">
+              <div className="chat-window-alert-content">
+                <div className="chat-window-alert-icon">
+                  <Icon name="alert-circle" size={16} />
+                </div>
+                <div className="chat-window-alert-text">
+                  <strong>Meta 24-Hour Service Window Closed.</strong>
+                  {" "}Free-form messages cannot be delivered via Official WhatsApp Cloud API until the customer responds. Send an approved template to re-engage, or switch to your Personal WhatsApp line.
+                </div>
+              </div>
+              <div className="chat-window-alert-actions">
+                <button
+                  type="button"
+                  className="btn"
+                  data-size="sm"
+                  data-variant="accent"
+                  onClick={() => {
+                    setShowTemplateModal(true);
+                    fetchTemplates();
+                  }}
+                >
+                  <Icon name="sparkle" size={12} /> Send Template
+                </button>
+                {(activeChat.isPersonalQr || activeChat.channelSource === "QR_SCANNER" || !activeChat.isOfficialApi) && (
+                  <button
+                    type="button"
+                    className="btn"
+                    data-size="sm"
+                    data-variant="outline"
+                    onClick={() => setSelectedDispatchChannel("PERSONAL")}
+                  >
+                    <Icon name="whatsapp" size={12} /> Switch to Personal
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Message Input Bar - Anchored at bottom, keyboard always visible */}
           <footer
             style={{
@@ -3620,6 +3917,7 @@ export function ChatView() {
                 <textarea
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
+                  disabled={selectedDispatchChannel === "OFFICIAL_API" && isOfficialChat && !is24HourWindowOpen}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
@@ -3629,7 +3927,11 @@ export function ChatView() {
                       handleSendMessage();
                     }
                   }}
-                  placeholder="Type your reply... (Press Enter to send, Shift+Enter for new line)"
+                  placeholder={
+                    selectedDispatchChannel === "OFFICIAL_API" && isOfficialChat && !is24HourWindowOpen
+                      ? "24h window closed — click 'Send Approved Template' or switch dispatch channel"
+                      : "Type your reply... (Press Enter to send, Shift+Enter for new line)"
+                  }
                   style={{
                     flex: 1,
                     height: "46px",
@@ -3643,6 +3945,7 @@ export function ChatView() {
                     fontSize: "var(--fs-body)",
                     resize: "none",
                     outline: "none",
+                    opacity: (selectedDispatchChannel === "OFFICIAL_API" && isOfficialChat && !is24HourWindowOpen) ? 0.6 : 1,
                   }}
                 />
                 <div className="seg" data-size="sm" title="Message Dispatch Channel">
@@ -3665,14 +3968,29 @@ export function ChatView() {
                     <span>Personal</span>
                   </button>
                 </div>
-                <button
-                  className="btn"
-                  data-variant="primary"
-                  onClick={handleSendMessage}
-                  style={{ height: "46px", padding: "0 18px", fontWeight: 600 }}
-                >
-                  Send <Icon name="arrow-right" size={14} />
-                </button>
+                {selectedDispatchChannel === "OFFICIAL_API" && isOfficialChat && !is24HourWindowOpen ? (
+                  <button
+                    type="button"
+                    className="btn"
+                    data-variant="accent"
+                    onClick={() => {
+                      setShowTemplateModal(true);
+                      fetchTemplates();
+                    }}
+                    style={{ height: "46px", padding: "0 18px", fontWeight: 600 }}
+                  >
+                    <Icon name="sparkle" size={14} /> Send Template
+                  </button>
+                ) : (
+                  <button
+                    className="btn"
+                    data-variant="primary"
+                    onClick={handleSendMessage}
+                    style={{ height: "46px", padding: "0 18px", fontWeight: 600 }}
+                  >
+                    Send <Icon name="arrow-right" size={14} />
+                  </button>
+                )}
               </>
             )}
           </footer>
@@ -4928,6 +5246,120 @@ export function ChatView() {
                 onClick={handleConfirmScheduleCallback}
               >
                 {schedulingCallback ? "Scheduling..." : "Save Callback"}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {/* Meta WhatsApp 24-Hour Service Window Template Selection Modal */}
+      {showTemplateModal && (
+        <div className="overlay" data-kind="dialog" onClick={() => setShowTemplateModal(false)}>
+          <div className="dialog" style={{ maxWidth: 580, width: "95vw" }} onClick={(e) => e.stopPropagation()}>
+            <header className="dialog-head">
+              <div className="dialog-icon" style={{ color: "var(--accent)" }}>
+                <Icon name="sparkle" size={16} />
+              </div>
+              <h2>Send Approved WhatsApp Template</h2>
+              <button type="button" className="icon-btn" onClick={() => setShowTemplateModal(false)}>
+                <Icon name="close" size={14} />
+              </button>
+            </header>
+            <div className="dialog-body" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              <div style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                The Meta 24-hour customer service window for <strong>{activeChat?.customerName || "this contact"}</strong> is currently closed.
+                Selecting and sending a pre-approved template will re-open the 24-hour communication window once they reply.
+              </div>
+
+              {/* Template Search Filter */}
+              <div className="field">
+                <input
+                  type="text"
+                  className="input"
+                  placeholder="Search approved templates..."
+                  value={templateSearch}
+                  onChange={(e) => setTemplateSearch(e.target.value)}
+                  autoFocus
+                />
+              </div>
+
+              {/* Templates List */}
+              {loadingTemplates ? (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", padding: "32px", color: "var(--text-tertiary)", fontSize: "12px" }}>
+                  <Icon name="sparkle" size={14} /> Loading Meta approved templates...
+                </div>
+              ) : (
+                (() => {
+                  const filtered = templates.filter(
+                    (t) =>
+                      t.name.toLowerCase().includes(templateSearch.toLowerCase()) ||
+                      t.bodyText.toLowerCase().includes(templateSearch.toLowerCase()) ||
+                      t.category.toLowerCase().includes(templateSearch.toLowerCase())
+                  );
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="empty" style={{ padding: "32px 16px" }}>
+                        <div className="empty-icon">
+                          <Icon name="sparkle" size={18} />
+                        </div>
+                        <div className="empty-title" style={{ fontSize: "13px" }}>No Approved Templates Found</div>
+                        <div className="empty-desc" style={{ fontSize: "11px" }}>
+                          No templates matched your search. Check Marketing &gt; Templates to sync WhatsApp templates.
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="template-list">
+                      {filtered.map((tmpl) => {
+                        const isSelected = selectedTemplate?.id === tmpl.id || selectedTemplate?.name === tmpl.name;
+                        return (
+                          <div
+                            key={tmpl.id}
+                            className="template-item"
+                            data-selected={isSelected}
+                            onClick={() => setSelectedTemplate(tmpl)}
+                          >
+                            <div className="template-item-head">
+                              <span className="template-item-name">{tmpl.name}</span>
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                <span className="chip" data-tone="accent" style={{ fontSize: "10px", padding: "1px 6px" }}>
+                                  {tmpl.category}
+                                </span>
+                                <span className="chip" data-tone="success" style={{ fontSize: "10px", padding: "1px 6px" }}>
+                                  {tmpl.language}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="template-item-body">{tmpl.bodyText || "(No body preview available)"}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()
+              )}
+            </div>
+            <footer className="dialog-foot">
+              <button
+                type="button"
+                className="btn"
+                data-variant="ghost"
+                onClick={() => setShowTemplateModal(false)}
+                disabled={isSendingTemplate}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn"
+                data-variant="primary"
+                disabled={!selectedTemplate || isSendingTemplate}
+                onClick={handleSendTemplate}
+              >
+                {isSendingTemplate ? "Sending Template..." : "Send Approved Template"}
               </button>
             </footer>
           </div>

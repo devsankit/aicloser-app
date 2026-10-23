@@ -2663,7 +2663,7 @@ function ChatWorkspaceInner({
   }, [activeConversationId, activeConversation?.internalNotes, activeConversation?.nextFollowUpAt, isNotesSaving]);
 
   useEffect(() => {
-    if (!activeConversation?.id) {
+    if (!activeConversation?.id || activeConversation.id.startsWith("draft-")) {
       setDripState(null);
       return;
     }
@@ -2682,7 +2682,7 @@ function ChatWorkspaceInner({
   }, [activeConversation?.id]);
 
   useEffect(() => {
-    if (!isDetailsOpen || !activeConversation?.id) return;
+    if (!isDetailsOpen || !activeConversation?.id || activeConversation.id.startsWith("draft-")) return;
     let isActive = true;
     setIsCrmDetailsLoading(true);
     const load = activeConversation.leadId
@@ -2705,7 +2705,7 @@ function ChatWorkspaceInner({
   // Load the same CRM timeline for the compact notes/callback popover. The
   // customer drawer is intentionally closed while these actions are open.
   useEffect(() => {
-    if (!isNotesMenuOpen || !activeConversation?.id) return;
+    if (!isNotesMenuOpen || !activeConversation?.id || activeConversation.id.startsWith("draft-")) return;
     let isActive = true;
     setIsCrmDetailsLoading(true);
     const load = activeConversation.leadId
@@ -2783,7 +2783,7 @@ function ChatWorkspaceInner({
   );
 
   useEffect(() => {
-    if (!activeConversation?.id) { setRegistrationStatus(null); return; }
+    if (!activeConversation?.id || activeConversation.id.startsWith("draft-")) { setRegistrationStatus(null); return; }
     let cancelled = false;
     fetch(`/api/conversations/${activeConversation.id}/registration-status`, { cache: "no-store" })
       .then((response) => response.json())

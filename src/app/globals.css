@@ -6791,6 +6791,112 @@ button.list-prio:hover {
   font-weight: 600;
 }
 
+/* Meta 24-Hour Window Alert Banner & Template Modal */
+.chat-window-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--warning-soft);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: var(--fs-caption);
+  flex-wrap: wrap;
+}
+
+.chat-window-alert-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 240px;
+}
+
+.chat-window-alert-icon {
+  color: var(--warning);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.chat-window-alert-text {
+  line-height: 1.45;
+}
+
+.chat-window-alert-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.chat-draft-banner {
+  padding: 10px 16px;
+  background: var(--bg-soft);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-caption);
+  color: var(--text-secondary);
+}
+
+.template-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  max-height: 52vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.template-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  cursor: pointer;
+  transition: all var(--speed) ease;
+  text-align: left;
+  width: 100%;
+}
+
+.template-item:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+.template-item[data-selected="true"] {
+  border-color: var(--accent);
+  background: var(--bg-selected);
+}
+
+.template-item-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.template-item-name {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.template-item-body {
+  font-size: var(--fs-caption);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 
 
 
