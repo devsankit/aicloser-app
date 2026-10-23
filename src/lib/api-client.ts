@@ -813,13 +813,32 @@ export const aicloserApi = {
     async getPool(params?: { maxVisibleToCloser?: number }) {
       const qs = params?.maxVisibleToCloser ? `?maxVisibleToCloser=${encodeURIComponent(params.maxVisibleToCloser)}` : '';
       const res = await requestConversation<any>(`/leads/pool${qs}`);
+      const rawData = res?.data;
+      const items = (Array.isArray(rawData) ? rawData : (Array.isArray(rawData?.items) ? rawData.items : [])) as LeadPoolItem[];
+      const totalPoolCount = typeof res?.totalPoolCount === 'number'
+        ? res.totalPoolCount
+        : typeof rawData?.totalPoolCount === 'number'
+        ? rawData.totalPoolCount
+        : typeof res?.totalUnassigned === 'number'
+        ? res.totalUnassigned
+        : typeof rawData?.totalUnassigned === 'number'
+        ? rawData.totalUnassigned
+        : items.length;
+      const mySlottedCount = typeof res?.mySlottedCount === 'number'
+        ? res.mySlottedCount
+        : typeof rawData?.mySlottedCount === 'number'
+        ? rawData.mySlottedCount
+        : items.length;
+
       return {
-        items: (Array.isArray(res?.data) ? res.data : []) as LeadPoolItem[],
-        initialStageCount: typeof res?.initialStageCount === 'number' ? res.initialStageCount : null,
-        grabCapacity: typeof res?.grabCapacity === 'number' ? res.grabCapacity : null,
-        availableSlots: typeof res?.availableSlots === 'number' ? res.availableSlots : null,
-        isAtQuota: typeof res?.isAtQuota === 'boolean' ? res.isAtQuota : null,
-        initialStageLabel: res?.initialStageLabel || 'New Lead',
+        items,
+        totalPoolCount,
+        mySlottedCount,
+        initialStageCount: typeof res?.initialStageCount === 'number' ? res.initialStageCount : (typeof rawData?.initialStageCount === 'number' ? rawData.initialStageCount : null),
+        grabCapacity: typeof res?.grabCapacity === 'number' ? res.grabCapacity : (typeof rawData?.grabCapacity === 'number' ? rawData.grabCapacity : null),
+        availableSlots: typeof res?.availableSlots === 'number' ? res.availableSlots : (typeof rawData?.availableSlots === 'number' ? rawData.availableSlots : null),
+        isAtQuota: typeof res?.isAtQuota === 'boolean' ? res.isAtQuota : (typeof rawData?.isAtQuota === 'boolean' ? rawData.isAtQuota : null),
+        initialStageLabel: res?.initialStageLabel || rawData?.initialStageLabel || 'New Lead',
       };
     },
 

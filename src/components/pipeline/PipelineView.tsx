@@ -664,7 +664,7 @@ export function PipelineView() {
                 <Icon name="zap" size={13} />
                 <span>{isAdmin ? "Unassigned Pool" : "Lead Grab Pool"}</span>
                 <span className="chip" data-tone="accent">
-                  {openPoolList.length || state.poolCount || 0}
+                  {state.poolQuota?.totalPoolCount ?? state.poolCount ?? openPoolList.length}
                 </span>
               </button>
               {isAdmin && (
@@ -684,7 +684,7 @@ export function PipelineView() {
           <p className="page-sub">
             {viewMode === "board"
               ? `${filtered.length} active leads across pipeline stages`
-              : `Unassigned pool · ${openPoolList.length} leads waiting to be claimed or distributed`}
+              : `Unassigned pool · ${state.poolQuota?.totalPoolCount ?? state.poolCount ?? openPoolList.length} leads waiting to be claimed or distributed`}
           </p>
         </div>
         <div className="page-actions">
@@ -699,7 +699,7 @@ export function PipelineView() {
                     fetchPoolLeads().catch(() => {});
                   }}
                 >
-                  <Icon name="zap" size={14} /> {isAdmin ? "Unassigned Pool" : "Open Grab Pool"} ({openPoolList.length || state.poolCount})
+                  <Icon name="zap" size={14} /> {isAdmin ? "Unassigned Pool" : "Open Grab Pool"} ({state.poolQuota?.totalPoolCount ?? state.poolCount ?? openPoolList.length})
                 </button>
               )}
               {isAdmin && (
@@ -791,7 +791,7 @@ export function PipelineView() {
                 {isAdmin ? "Admin Distribution Pool" : "Lead Grab Pool"}
               </span>
               <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text)" }}>
-                {openPoolList.length} Unassigned Leads
+                {state.poolQuota?.totalPoolCount ?? state.poolCount ?? openPoolList.length} Unassigned Leads
               </span>
               <span className="chip" data-tone="neutral" style={{ fontSize: "11px", gap: "4px" }}>
                 <Icon name="clock" size={11} /> 10-Min Rotation Active
@@ -863,7 +863,7 @@ export function PipelineView() {
             </select>
 
             <span className="col-w-label">
-              Showing {openPoolList.length} leads
+              Showing {openPoolList.length} of {state.poolQuota?.totalPoolCount ?? state.poolCount ?? openPoolList.length} leads
             </span>
             <button
               type="button"
@@ -1300,7 +1300,7 @@ export function PipelineView() {
             {!isAdmin && (
               <div
                 className="col"
-                aria-label={`Lead Grab Pool, ${openPoolList.length} leads`}
+                aria-label={`Lead Grab Pool, ${openPoolList.length} of ${state.poolQuota?.totalPoolCount || state.poolCount || openPoolList.length} leads`}
                 role="listitem"
               >
                 <header className="col-head">
@@ -1310,7 +1310,12 @@ export function PipelineView() {
                     </span>
                     Lead Grab
                   </h2>
-                  <span className="col-count">{openPoolList.length}</span>
+                  <span
+                    className="col-count"
+                    title={`${openPoolList.length} ready to grab of ${state.poolQuota?.totalPoolCount || state.poolCount || openPoolList.length} unassigned`}
+                  >
+                    {openPoolList.length}
+                  </span>
                   <span
                     className="chip"
                     data-tone={missedCount > 0 ? "danger" : "neutral"}

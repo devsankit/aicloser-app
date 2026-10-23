@@ -40,6 +40,8 @@ export interface PoolQuotaInfo {
   availableSlots: number | null;
   isAtQuota: boolean | null;
   initialStageLabel: string;
+  totalPoolCount?: number;
+  mySlottedCount?: number;
 }
 
 interface AppState extends Persisted {
@@ -815,21 +817,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const res = await aicloserApi.leads.getPool(params);
       const items = Array.isArray(res) ? res : (res?.items || []);
+      const totalPoolCount = typeof (res as any)?.totalPoolCount === "number"
+        ? (res as any).totalPoolCount
+        : items.length;
+      const mySlottedCount = typeof (res as any)?.mySlottedCount === "number"
+        ? (res as any).mySlottedCount
+        : items.length;
+
       const poolQuota: PoolQuotaInfo | null =
-        res && typeof (res as any).grabCapacity === "number"
+        res && (typeof (res as any).grabCapacity === "number" || typeof (res as any).totalPoolCount === "number")
           ? {
               initialStageCount: (res as any).initialStageCount,
               grabCapacity: (res as any).grabCapacity,
               availableSlots: (res as any).availableSlots,
               isAtQuota: (res as any).isAtQuota,
               initialStageLabel: (res as any).initialStageLabel || "New Lead",
+              totalPoolCount,
+              mySlottedCount,
             }
           : null;
       setState((prev) => ({
         ...prev,
         poolLeads: items,
-        poolCount: items.length,
-        poolQuota: poolQuota || prev.poolQuota,
+        poolCount: totalPoolCount,
+        poolQuota: poolQuota || (prev.poolQuota ? { ...prev.poolQuota, totalPoolCount, mySlottedCount } : null),
         isPoolLoading: false,
       }));
       return items;
@@ -859,6 +870,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ...prev,
         poolLeads: prev.poolLeads.filter((p) => p.id !== poolItemId),
         poolCount: Math.max(0, prev.poolCount - 1),
+        poolQuota: prev.poolQuota
+          ? {
+              ...prev.poolQuota,
+              totalPoolCount: Math.max(0, (prev.poolQuota.totalPoolCount ?? prev.poolCount) - 1),
+            }
+          : null,
       }));
 
       try {
