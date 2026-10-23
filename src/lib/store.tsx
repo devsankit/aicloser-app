@@ -490,6 +490,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       if (me?.user) {
+        if (me.user.role !== "SUPER_ADMIN" && typeof window !== "undefined") {
+          window.localStorage.removeItem("aicloser_impersonating_tenant");
+          window.localStorage.removeItem("aicloser_impersonating_name");
+          document.cookie = "gx_tenant=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+        }
         const [{ leads: apiLeads }, poolItems, teamData] = await Promise.all([
           aicloserApi.leads.list({ limit: 1000 }).catch(() => ({ leads: [] })),
           aicloserApi.leads.getPool().catch(() => []),

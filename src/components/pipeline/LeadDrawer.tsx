@@ -720,11 +720,6 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                 set("followUp", iso);
                 updateLead(lead.id, { followUp: iso });
               }}
-              onNoteSaved={(newNote) => {
-                const currentNotesStr = typeof draft.notes === "string" ? draft.notes : (draft.notes ? JSON.stringify(draft.notes) : "");
-                const updated = currentNotesStr ? `${currentNotesStr}\n\n${newNote}` : newNote;
-                set("notes", updated);
-              }}
             />
           </ErrorBoundary>
 

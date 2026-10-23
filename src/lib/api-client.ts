@@ -468,11 +468,9 @@ async function request<T>(
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  // Cross-tenant impersonation override: propagate target tenant if impersonating
-  if (typeof document !== 'undefined' && !headers.has('x-target-tenant-id')) {
-    const impersonatedTenant =
-      localStorage.getItem('aicloser_impersonating_tenant') ||
-      document.cookie.match(/(?:^|;\s*)gx_tenant=([^;]+)/)?.[1];
+  // Cross-tenant impersonation override: only apply if explicit super-admin impersonation is active
+  if (typeof window !== 'undefined' && !headers.has('x-target-tenant-id')) {
+    const impersonatedTenant = localStorage.getItem('aicloser_impersonating_tenant');
     if (impersonatedTenant) {
       headers.set('x-target-tenant-id', decodeURIComponent(impersonatedTenant));
     }
@@ -521,11 +519,9 @@ async function requestConversation<T>(
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  // Cross-tenant impersonation override: propagate target tenant if impersonating
-  if (typeof document !== 'undefined' && !headers.has('x-target-tenant-id')) {
-    const impersonatedTenant =
-      localStorage.getItem('aicloser_impersonating_tenant') ||
-      document.cookie.match(/(?:^|;\s*)gx_tenant=([^;]+)/)?.[1];
+  // Cross-tenant impersonation override: only apply if explicit super-admin impersonation is active
+  if (typeof window !== 'undefined' && !headers.has('x-target-tenant-id')) {
+    const impersonatedTenant = localStorage.getItem('aicloser_impersonating_tenant');
     if (impersonatedTenant) {
       headers.set('x-target-tenant-id', decodeURIComponent(impersonatedTenant));
     }

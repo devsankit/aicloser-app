@@ -3152,13 +3152,6 @@ export function ChatView() {
                   updateLead(activeLead.id, { followUp: iso });
                 }
               }}
-              onNoteSaved={(newNote) => {
-                if (activeLead) {
-                  const currentNotesStr = typeof activeLead.notes === "string" ? activeLead.notes : (activeLead.notes ? JSON.stringify(activeLead.notes) : "");
-                  const updated = currentNotesStr ? `${currentNotesStr}\n\n${newNote}` : newNote;
-                  updateLead(activeLead.id, { notes: updated });
-                }
-              }}
             />
           </ErrorBoundary>
         </aside>

@@ -1353,17 +1353,6 @@ export function PipelineView() {
                     >
                       <Icon name="plus" size={14} />
                     </button>
-                    <button
-                      className="icon-btn col-add"
-                      onClick={() => {
-                        const nextWidth = state.colWidth <= 280 ? 330 : state.colWidth <= 330 ? 380 : 280;
-                        setLayout({ colWidth: nextWidth });
-                      }}
-                      aria-label={`${stage.label} column options`}
-                      title="Click to toggle column width preset (280px / 330px / 380px)"
-                    >
-                      <Icon name="more" size={14} />
-                    </button>
                   </header>
 
                   <div className="col-cards">

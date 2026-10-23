@@ -231,7 +231,11 @@ export function LeadCommandHistory({
       const cleanTitle = String(entry.title || "").trim().toLowerCase();
       const rawBody = typeof entry.body === "string" ? entry.body : (typeof entry.body === "object" && entry.body !== null ? JSON.stringify(entry.body) : String(entry.body || ""));
       const cleanBody = rawBody.trim().toLowerCase().slice(0, 50);
-      const signature = `${entry.kind}:${cleanTitle}:${cleanBody}:${minuteBucket}`;
+      // Deduplicate notes by content and time window regardless of title variant
+      const signature =
+        entry.kind === "NOTE"
+          ? `NOTE:${cleanBody}:${minuteBucket}`
+          : `${entry.kind}:${cleanTitle}:${cleanBody}:${minuteBucket}`;
 
       if (seenSignatures.has(signature)) return false;
 
@@ -270,7 +274,11 @@ export function LeadCommandHistory({
     // 2. Process Notes (only if not already present in history)
     (rawNotes || []).forEach((n) => {
       if (!n) return;
-      const existsInHistory = (rawHistory || []).some((h) => h?.id === n.id || (h as any)?.noteId === n.id);
+      const noteRawId = String(n.id || "").replace(/^timeline:/, "");
+      const existsInHistory = (rawHistory || []).some((h) => {
+        const histRawId = String(h?.id || "").replace(/^timeline:/, "");
+        return histRawId === noteRawId || (h as any)?.noteId === noteRawId || h?.id === n.id;
+      });
       if (existsInHistory) return;
 
       const actorName = typeof n.author === "string" ? n.author : (n.author?.name || (n as any).authorName || "Closer");
@@ -354,13 +362,8 @@ export function LeadCommandHistory({
     try {
       if (leadId && !leadId.startsWith("ld-")) {
         await aicloserApi.leads.addNote(leadId, text);
-      }
-      if (conversationId) {
-        await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/notes`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ notes: text }),
-        });
+      } else if (conversationId) {
+        await aicloserApi.conversations.addNote(conversationId, text);
       }
 
       try {
