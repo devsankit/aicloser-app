@@ -432,7 +432,7 @@ export function ChannelsView() {
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: scannerConnected ? "var(--success)" : "var(--warning)", marginTop: "4px", display: "flex", alignItems: "center", gap: 5 }}>
             <span className="dot" style={{ background: scannerConnected ? "var(--success)" : "var(--warning)" }} />
-            <span>{scannerConnected ? (scannerPhone || "QR Companion Paired") : "Requires QR Scan at /whatsapp"}</span>
+            <span>{scannerConnected ? (scannerPhone || "QR Companion Paired") : "Requires QR Scan in Chat"}</span>
           </div>
         </div>
 
@@ -553,9 +553,9 @@ export function ChannelsView() {
             </div>
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 12, borderTop: "1px solid var(--border)" }}>
-              <Link href="/whatsapp?tab=setup" className="btn" data-size="sm" data-variant="ghost" style={{ fontSize: 12 }}>
+              <Link href="/chat" className="btn" data-size="sm" data-variant="ghost" style={{ fontSize: 12 }}>
                 <Icon name="external" size={12} />
-                <span>QR Scanner</span>
+                <span>Link Personal WhatsApp</span>
               </Link>
               <button
                 className="btn"

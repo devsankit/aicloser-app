@@ -1938,12 +1938,60 @@ export const aicloserApi = {
           const res = await request<{ data: any[]; totalPendingLeads: number; totalActiveThreads: number }>('/integrations/whatsapp/devices');
           return res;
         },
-        async startPairing(payload?: { name?: string }) {
-          const res = await request<{ sessionId: string; qrData: string; pairingCode: string; deviceName: string; expiresInSec: number; protocol: string; instructions: string[] }>(
+        async startPairing(payload?: { name?: string; forceRefresh?: boolean }) {
+          const res = await request<{
+            sessionId: string;
+            status: string;
+            qrCodeDataUrl?: string;
+            qrRaw?: string;
+            pairingCode?: string;
+            connectedPhone?: string;
+            connectedDisplayName?: string;
+            deviceName: string;
+            expiresInSec: number;
+            protocol: string;
+            instructions: string[];
+          }>(
             '/integrations/whatsapp/devices/pair',
             { method: 'POST', body: JSON.stringify(payload || {}) }
           );
           return res.data;
+        },
+        async getStatus() {
+          const res = await request<{
+            status: string;
+            qrCodeDataUrl?: string;
+            qrRaw?: string;
+            pairingCode?: string;
+            connectedPhone?: string;
+            connectedDisplayName?: string;
+            isReady: boolean;
+            deviceName?: string;
+          }>(
+            '/integrations/whatsapp/devices/status'
+          );
+          return res.data;
+        },
+        async requestPairingCode(phone: string) {
+          const res = await request<{ pairingCode: string }>(
+            '/integrations/whatsapp/devices/pairing-code',
+            { method: 'POST', body: JSON.stringify({ phone }) }
+          );
+          return res.data;
+        },
+        async syncLive() {
+          const res = await request<{ syncedCount: number }>(
+            '/integrations/whatsapp/devices/sync',
+            { method: 'POST' }
+          );
+          return res.data;
+        },
+        async disconnectDaemon() {
+          const res = await request(
+            '/integrations/whatsapp/devices/disconnect',
+            { method: 'POST' }
+          );
+          return res;
         },
         async confirmPairing(payload: { name: string; phoneNumber: string; sessionId?: string }) {
           const res = await request<{ id: string; name: string; phoneNumber: string; status: string }>(

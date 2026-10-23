@@ -8,7 +8,6 @@ import { aicloserApi } from "@/lib/api-client";
 import { isScannedWhatsAppLead } from "@/lib/lead-mapper";
 import { LeadCommandHistory } from "@/components/pipeline/LeadCommandHistory";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
-import { renderDeterministicQrSvg } from "@/components/sales/contacts-hub";
 import { ResizeHandle } from "@/components/ui/ResizeHandle";
 
 interface ChatMessage {
@@ -171,9 +170,13 @@ export function ChatView() {
   const [showQrModal, setShowQrModal] = useState(false);
   const [qrPairingMethod, setQrPairingMethod] = useState<"qr" | "code">("qr");
   const [qrSessionId, setQrSessionId] = useState("");
+  const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>("");
   const [qrPairingCode, setQrPairingCode] = useState("");
   const [qrPhoneInput, setQrPhoneInput] = useState("");
+  const [waDeviceStatus, setWaDeviceStatus] = useState<string>("DISCONNECTED");
+  const [connectedPhone, setConnectedPhone] = useState<string>("");
   const [qrLoading, setQrLoading] = useState(false);
+  const [isRequestingCode, setIsRequestingCode] = useState(false);
   const [qrSuccess, setQrSuccess] = useState<string | null>(null);
   const [qrError, setQrError] = useState<string | null>(null);
   const [refreshCount, setRefreshCount] = useState(0);
@@ -185,12 +188,26 @@ export function ChatView() {
     setQrLoading(true);
     try {
       const closerName = state.user?.displayName || CURRENT_USER;
+      // First check if already connected
+      const statusRes = await aicloserApi.integrations.whatsapp.devices.getStatus().catch(() => null);
+      if (statusRes?.status === "CONNECTED" && statusRes.connectedPhone) {
+        setWaDeviceStatus("CONNECTED");
+        setConnectedPhone(statusRes.connectedPhone);
+        setQrLoading(false);
+        return;
+      }
+
+      // Initiate/fetch QR pairing session
       const res = await aicloserApi.integrations.whatsapp.devices.startPairing({
         name: `${closerName} Personal Line`,
       }).catch(() => null);
+
       if (res) {
         setQrSessionId(res.sessionId || `wa_${Date.now()}`);
+        if (res.qrCodeDataUrl) setQrCodeDataUrl(res.qrCodeDataUrl);
         if (res.pairingCode) setQrPairingCode(res.pairingCode);
+        if (res.status) setWaDeviceStatus(res.status);
+        if (res.connectedPhone) setConnectedPhone(res.connectedPhone);
       } else {
         setQrSessionId(`wa_${Date.now()}`);
       }
@@ -201,33 +218,120 @@ export function ChatView() {
     }
   };
 
-  const handleConfirmQrPairing = async () => {
-    if (!qrPhoneInput.trim()) {
-      setQrError("Please enter your WhatsApp mobile number to pair");
-      return;
-    }
+  const handleRefreshQr = async () => {
     setQrLoading(true);
     setQrError(null);
     try {
       const closerName = state.user?.displayName || CURRENT_USER;
-      await aicloserApi.integrations.whatsapp.devices.confirmPairing({
-        name: `${closerName} WhatsApp Line`,
-        phoneNumber: qrPhoneInput.trim(),
-        sessionId: qrSessionId,
+      const res = await aicloserApi.integrations.whatsapp.devices.startPairing({
+        name: `${closerName} Personal Line`,
+        forceRefresh: true,
       });
-      setQrSuccess(`Successfully linked ${closerName}'s WhatsApp (${qrPhoneInput.trim()})! Chats will appear in your tab.`);
-      setRefreshCount((c) => c + 1);
-      setTimeout(() => {
-        setShowQrModal(false);
-        setQrSuccess(null);
-        setQrPhoneInput("");
-      }, 1500);
+      if (res?.qrCodeDataUrl) {
+        setQrCodeDataUrl(res.qrCodeDataUrl);
+      }
+      if (res?.status) setWaDeviceStatus(res.status);
     } catch (err: any) {
-      setQrError(err?.message || "Failed to link WhatsApp. Please verify your phone number.");
+      setQrError(err?.message || "Failed to refresh QR code.");
     } finally {
       setQrLoading(false);
     }
   };
+
+  const handleRequestPairingCode = async () => {
+    const clean = qrPhoneInput.replace(/\D/g, "");
+    if (!clean || clean.length < 8) {
+      setQrError("Please enter your WhatsApp phone number with country code (e.g. +91 98765 43210)");
+      return;
+    }
+    setIsRequestingCode(true);
+    setQrError(null);
+    try {
+      const res = await aicloserApi.integrations.whatsapp.devices.requestPairingCode(clean);
+      if (res?.pairingCode) {
+        setQrPairingCode(res.pairingCode);
+        setQrSuccess("Pairing code generated! Enter this code in WhatsApp on your phone.");
+        setTimeout(() => setQrSuccess(null), 5000);
+      }
+    } catch (err: any) {
+      setQrError(err?.message || "Failed to generate pairing code. Please try again.");
+    } finally {
+      setIsRequestingCode(false);
+    }
+  };
+
+  const handleDisconnectLine = async () => {
+    if (!window.confirm("Are you sure you want to disconnect this WhatsApp line?")) return;
+    setQrLoading(true);
+    try {
+      await aicloserApi.integrations.whatsapp.devices.disconnectDaemon();
+      setWaDeviceStatus("DISCONNECTED");
+      setConnectedPhone("");
+      setQrCodeDataUrl("");
+      setQrPairingCode("");
+      setQrSuccess("WhatsApp line disconnected successfully.");
+      setTimeout(() => setQrSuccess(null), 3000);
+      handleRefreshQr();
+    } catch (err: any) {
+      setQrError(err?.message || "Failed to disconnect.");
+    } finally {
+      setQrLoading(false);
+    }
+  };
+
+  const handleSyncLiveChats = async () => {
+    setQrLoading(true);
+    setQrError(null);
+    try {
+      const res = await aicloserApi.integrations.whatsapp.devices.syncLive();
+      setQrSuccess(`Synced ${res?.syncedCount || 0} chats into your inbox!`);
+      setRefreshCount((c) => c + 1);
+      setTimeout(() => setQrSuccess(null), 3000);
+    } catch (err: any) {
+      setQrError(err?.message || "Failed to sync chats.");
+    } finally {
+      setQrLoading(false);
+    }
+  };
+
+  // Auto-polling for WhatsApp scan status while modal is open
+  useEffect(() => {
+    if (!showQrModal) return;
+    let cancelled = false;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await aicloserApi.integrations.whatsapp.devices.getStatus();
+        if (cancelled || !res) return;
+
+        if (res.qrCodeDataUrl && res.qrCodeDataUrl !== qrCodeDataUrl) {
+          setQrCodeDataUrl(res.qrCodeDataUrl);
+        }
+        if (res.status) {
+          setWaDeviceStatus(res.status);
+        }
+        if (res.connectedPhone) {
+          setConnectedPhone(res.connectedPhone);
+        }
+        if (res.status === "CONNECTED") {
+          setQrSuccess(`WhatsApp Connected (${res.connectedPhone || "Line"})! Syncing chats...`);
+          aicloserApi.integrations.whatsapp.devices.syncLive().catch(() => {});
+          setRefreshCount((c) => c + 1);
+          setTimeout(() => {
+            if (!cancelled) {
+              setShowQrModal(false);
+              setQrSuccess(null);
+            }
+          }, 2000);
+        }
+      } catch {}
+    }, 2500);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [showQrModal, qrCodeDataUrl]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -3574,75 +3678,169 @@ export function ChatView() {
                 Link your personal or business WhatsApp to receive client messages directly in your <strong style={{ color: "var(--text)" }}>Mine</strong> tab. Leads captured on your line remain strictly isolated to you and workspace admins.
               </div>
 
-              {/* Method Switcher */}
-              <div className="seg" style={{ width: "100%", justifyContent: "center" }}>
-                <button
-                  type="button"
-                  data-on={qrPairingMethod === "qr"}
-                  onClick={() => setQrPairingMethod("qr")}
-                  style={{ flex: 1 }}
-                >
-                  QR Code Scanner
-                </button>
-                <button
-                  type="button"
-                  data-on={qrPairingMethod === "code"}
-                  onClick={() => setQrPairingMethod("code")}
-                  style={{ flex: 1 }}
-                >
-                  Pairing Code
-                </button>
-              </div>
-
-              {qrPairingMethod === "qr" ? (
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px", padding: "10px 0" }}>
-                  <div style={{ border: "2px solid var(--border)", borderRadius: "12px", padding: "8px", background: "#fff" }}>
-                    {renderDeterministicQrSvg(qrSessionId || "wa-closer-pairing-code")}
+              {waDeviceStatus === "CONNECTED" ? (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "14px", padding: "16px 0" }}>
+                  <div className="chip" data-tone="success" style={{ padding: "8px 14px", fontSize: "13px", display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span className="dot" style={{ background: "var(--success)" }} />
+                    <strong>WhatsApp Line Active</strong>
                   </div>
-                  <div style={{ fontSize: "11.5px", color: "var(--text-secondary)", textAlign: "center", maxWidth: "300px" }}>
-                    Open WhatsApp &gt; <strong>Linked Devices</strong> &gt; <strong>Link a Device</strong>, then scan this QR code.
+                  <div style={{ fontSize: "16px", fontWeight: 700, fontFamily: "monospace", color: "var(--text)" }}>
+                    {connectedPhone || "Connected Line"}
+                  </div>
+                  <div style={{ fontSize: "12px", color: "var(--text-secondary)", textAlign: "center", maxWidth: "340px" }}>
+                    Your WhatsApp session is live and connected. Outbound replies will be sent directly through your linked phone.
+                  </div>
+                  <div style={{ display: "flex", gap: "10px", marginTop: "8px" }}>
+                    <button
+                      type="button"
+                      className="btn"
+                      data-variant="primary"
+                      data-size="sm"
+                      disabled={qrLoading}
+                      onClick={handleSyncLiveChats}
+                    >
+                      <Icon name="refresh" size={13} className={qrLoading ? "spin" : ""} /> Sync Recent Chats
+                    </button>
+                    <button
+                      type="button"
+                      className="btn"
+                      data-variant="danger"
+                      data-size="sm"
+                      disabled={qrLoading}
+                      onClick={handleDisconnectLine}
+                    >
+                      Disconnect Line
+                    </button>
                   </div>
                 </div>
               ) : (
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "12px", padding: "14px 0" }}>
-                  <div style={{ fontSize: "11px", textTransform: "uppercase", fontWeight: 700, color: "var(--text-tertiary)" }}>
-                    Your WhatsApp 8-Digit Pairing Code
+                <>
+                  {/* Method Switcher */}
+                  <div className="seg" style={{ width: "100%", justifyContent: "center" }}>
+                    <button
+                      type="button"
+                      data-on={qrPairingMethod === "qr"}
+                      onClick={() => setQrPairingMethod("qr")}
+                      style={{ flex: 1 }}
+                    >
+                      QR Code Scanner
+                    </button>
+                    <button
+                      type="button"
+                      data-on={qrPairingMethod === "code"}
+                      onClick={() => setQrPairingMethod("code")}
+                      style={{ flex: 1 }}
+                    >
+                      Pairing Code
+                    </button>
                   </div>
-                  <div
-                    style={{
-                      fontSize: "24px",
-                      fontWeight: 700,
-                      letterSpacing: "4px",
-                      color: "var(--accent)",
-                      background: "var(--bg-soft)",
-                      padding: "8px 20px",
-                      borderRadius: "8px",
-                      border: "1px dashed var(--accent)",
-                      fontFamily: "monospace",
-                    }}
-                  >
-                    {qrPairingCode}
-                  </div>
-                  <div style={{ fontSize: "11.5px", color: "var(--text-secondary)", textAlign: "center", maxWidth: "320px" }}>
-                    In WhatsApp on your phone, choose <strong>Link with phone number instead</strong> and enter this code.
-                  </div>
-                </div>
-              )}
 
-              {/* Phone number confirmation */}
-              <div className="field">
-                <label style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
-                  Your WhatsApp Mobile Number
-                </label>
-                <input
-                  type="tel"
-                  className="input"
-                  placeholder="+91 98765 43210"
-                  value={qrPhoneInput}
-                  onChange={(e) => setQrPhoneInput(e.target.value)}
-                  style={{ marginTop: "4px" }}
-                />
-              </div>
+                  {qrPairingMethod === "qr" ? (
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "12px", padding: "10px 0" }}>
+                      <div
+                        style={{
+                          border: "2px solid var(--border)",
+                          borderRadius: "12px",
+                          padding: "10px",
+                          background: "#fff",
+                          minHeight: "244px",
+                          minWidth: "244px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        {qrLoading && !qrCodeDataUrl ? (
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px", color: "#666" }}>
+                            <Icon name="refresh" size={24} className="spin" />
+                            <span style={{ fontSize: "12px" }}>Generating WhatsApp QR...</span>
+                          </div>
+                        ) : qrCodeDataUrl ? (
+                          <img
+                            src={qrCodeDataUrl}
+                            alt="WhatsApp Multi-Device QR Code"
+                            width={224}
+                            height={224}
+                            style={{ display: "block", borderRadius: "6px" }}
+                          />
+                        ) : (
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px", color: "#666" }}>
+                            <span style={{ fontSize: "12px" }}>No QR available</span>
+                            <button type="button" className="btn" data-size="sm" onClick={handleRefreshQr}>
+                              Reload QR
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      <div style={{ fontSize: "11.5px", color: "var(--text-secondary)", textAlign: "center", maxWidth: "340px", lineHeight: 1.4 }}>
+                        1. Open WhatsApp on your phone<br />
+                        2. Tap <strong>Menu (⋮)</strong> or <strong>Settings</strong> &gt; <strong>Linked Devices</strong><br />
+                        3. Tap <strong>Link a Device</strong> and point your camera at this code
+                      </div>
+
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "var(--accent)" }}>
+                        <span className="dot" style={{ background: "var(--accent)" }} />
+                        <span>Live scanner waiting for scan...</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "12px", padding: "10px 0" }}>
+                      <div className="field" style={{ width: "100%" }}>
+                        <label style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
+                          Enter Your WhatsApp Number (with country code)
+                        </label>
+                        <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
+                          <input
+                            type="tel"
+                            className="input"
+                            placeholder="+91 98765 43210"
+                            value={qrPhoneInput}
+                            onChange={(e) => setQrPhoneInput(e.target.value)}
+                            style={{ flex: 1 }}
+                          />
+                          <button
+                            type="button"
+                            className="btn"
+                            data-variant="primary"
+                            data-size="sm"
+                            disabled={isRequestingCode || !qrPhoneInput.trim()}
+                            onClick={handleRequestPairingCode}
+                          >
+                            {isRequestingCode ? "Requesting..." : "Get Code"}
+                          </button>
+                        </div>
+                      </div>
+
+                      {qrPairingCode && (
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px", marginTop: "6px" }}>
+                          <div style={{ fontSize: "11px", textTransform: "uppercase", fontWeight: 700, color: "var(--text-tertiary)" }}>
+                            Your WhatsApp 8-Digit Pairing Code
+                          </div>
+                          <div
+                            style={{
+                              fontSize: "24px",
+                              fontWeight: 700,
+                              letterSpacing: "4px",
+                              color: "var(--accent)",
+                              background: "var(--bg-soft)",
+                              padding: "8px 20px",
+                              borderRadius: "8px",
+                              border: "1px dashed var(--accent)",
+                              fontFamily: "monospace",
+                            }}
+                          >
+                            {qrPairingCode}
+                          </div>
+                          <div style={{ fontSize: "11.5px", color: "var(--text-secondary)", textAlign: "center", maxWidth: "320px" }}>
+                            In WhatsApp &gt; <strong>Linked Devices</strong> &gt; <strong>Link with phone number instead</strong> &gt; enter this code.
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
 
               {qrSuccess && (
                 <div className="chip" data-tone="success" style={{ padding: "6px 10px", fontSize: "12px" }}>
@@ -3656,17 +3854,19 @@ export function ChatView() {
 
             <footer className="dialog-foot">
               <button type="button" className="btn" onClick={() => setShowQrModal(false)}>
-                Cancel
+                Close
               </button>
-              <button
-                type="button"
-                className="btn"
-                data-variant="primary"
-                disabled={qrLoading || !qrPhoneInput.trim()}
-                onClick={handleConfirmQrPairing}
-              >
-                {qrLoading ? "Verifying..." : "Confirm & Link Line"}
-              </button>
+              {waDeviceStatus !== "CONNECTED" && qrPairingMethod === "qr" && (
+                <button
+                  type="button"
+                  className="btn"
+                  data-variant="ghost"
+                  disabled={qrLoading}
+                  onClick={handleRefreshQr}
+                >
+                  <Icon name="refresh" size={13} className={qrLoading ? "spin" : ""} /> Refresh QR
+                </button>
+              )}
             </footer>
           </div>
         </div>
