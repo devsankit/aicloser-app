@@ -118,6 +118,10 @@ const LABEL_COLOR_OPTIONS = [
 export function TeamView() {
   const { state, setScope } = useApp();
   const router = useRouter();
+  // Only workspace admins may mint/promote the ADMIN role or edit privileged roles.
+  const isAdmin =
+    state.user?.role === "ADMIN" ||
+    state.user?.role === "SUPER_ADMIN";
 
   const [tab, setTab] = useState<TeamTab>("members");
   const [members, setMembers] = useState<TeamMember[]>([]);
