@@ -46,6 +46,12 @@ interface ConversationItem {
   aiAutoReplyDisabled?: boolean;
   notes?: string;
   messages: ChatMessage[];
+  payload?: any;
+  sharedUserIds?: string[];
+  shares?: any[];
+  isSharedWithMe?: boolean;
+  assignedFreelancerId?: string | null;
+  assignedFreelancerName?: string | null;
 }
 
 
@@ -449,6 +455,50 @@ export function ChatView() {
     return !isNaN(diffMs) && diffMs < 1000 * 60 * 30; // Active within last 30 minutes
   }, [activeChat]);
 
+  const isReadOnlyShare = useMemo(() => {
+    if (!activeChat) return false;
+    const roleUpper = String(state.user?.role || "").toUpperCase();
+    if (roleUpper === "ADMIN" || roleUpper === "SUPER_ADMIN") return false;
+
+    const myName = (state.user?.displayName || CURRENT_USER).toLowerCase();
+    const currentUserId = state.user?.userId || (state.user as any)?.id;
+    const currentProfileId = (state.user as any)?.agentProfileId || (state.user as any)?.profileId;
+
+    const assigned = (activeChat.assignedTo || "").toLowerCase();
+    const scannedBy = (activeChat.scannedByName || "").toLowerCase();
+    const isOwner =
+      assigned === myName ||
+      assigned.includes(myName) ||
+      scannedBy === myName ||
+      scannedBy.includes(myName) ||
+      Boolean(activeChat.assignedFreelancerName && activeChat.assignedFreelancerName.toLowerCase() === myName) ||
+      Boolean(activeChat.assignedFreelancerId && (
+        (currentUserId && activeChat.assignedFreelancerId === currentUserId) ||
+        (currentProfileId && activeChat.assignedFreelancerId === currentProfileId)
+      ));
+
+    if (isOwner) return false;
+
+    const sharesList = Array.isArray(activeChat.shares)
+      ? activeChat.shares
+      : Array.isArray(activeChat.payload?.shares)
+      ? activeChat.payload.shares
+      : [];
+
+    const myShare = sharesList.find((s: any) =>
+      !s.revokedAt && (
+        (currentUserId && (s.userId === currentUserId || s.agentProfileId === currentUserId)) ||
+        (currentProfileId && (s.agentProfileId === currentProfileId || s.userId === currentProfileId)) ||
+        (myName && (s.userId?.toLowerCase() === myName || s.userName?.toLowerCase() === myName))
+      )
+    );
+
+    if (myShare && myShare.permission === "VIEW") {
+      return true;
+    }
+    return false;
+  }, [activeChat, state.user]);
+
   const activeLeadProfile = useMemo(() => {
     if (activeLead) return { ...activeLead, stage: chatStage };
     if (!activeChat) return null;
@@ -519,15 +569,37 @@ export function ChatView() {
 
       let matchScope = true;
 
-      // Strict sales closer isolation: Closers can NEVER see another closer's chats!
+      // Strict sales closer isolation: Closers can NEVER see another closer's chats unless assigned or shared!
       if (isCloser) {
         const currentUserId = state.user?.userId || (state.user as any)?.id;
         const currentDisplayName = state.user?.displayName || CURRENT_USER;
-        const isSharedWithMe = Array.isArray(c.payload?.sharedUserIds) && (
-          (currentUserId && c.payload.sharedUserIds.includes(currentUserId)) ||
-          (currentDisplayName && c.payload.sharedUserIds.includes(currentDisplayName)) ||
+        const currentProfileId = (state.user as any)?.agentProfileId || (state.user as any)?.profileId;
+
+        const isSharedWithMe = Boolean(
+          c.isSharedWithMe ||
+          (Array.isArray(c.sharedUserIds) && (
+            (currentUserId && c.sharedUserIds.includes(currentUserId)) ||
+            (currentProfileId && c.sharedUserIds.includes(currentProfileId)) ||
+            (currentDisplayName && c.sharedUserIds.includes(currentDisplayName))
+          )) ||
+          (Array.isArray(c.payload?.sharedUserIds) && (
+            (currentUserId && c.payload.sharedUserIds.includes(currentUserId)) ||
+            (currentProfileId && c.payload.sharedUserIds.includes(currentProfileId)) ||
+            (currentDisplayName && c.payload.sharedUserIds.includes(currentDisplayName))
+          )) ||
+          (Array.isArray(c.shares) && c.shares.some((s: any) =>
+            !s.revokedAt && (
+              (currentUserId && (s.userId === currentUserId || s.agentProfileId === currentUserId)) ||
+              (currentProfileId && (s.agentProfileId === currentProfileId || s.userId === currentProfileId)) ||
+              (currentDisplayName && (s.userId?.toLowerCase() === currentDisplayName.toLowerCase() || s.userName?.toLowerCase() === currentDisplayName.toLowerCase()))
+            )
+          )) ||
           (Array.isArray(c.payload?.shares) && c.payload.shares.some((s: any) =>
-            (s.userId === currentUserId || s.userId === currentDisplayName) && !s.revokedAt
+            !s.revokedAt && (
+              (currentUserId && (s.userId === currentUserId || s.agentProfileId === currentUserId)) ||
+              (currentProfileId && (s.agentProfileId === currentProfileId || s.userId === currentProfileId)) ||
+              (currentDisplayName && (s.userId?.toLowerCase() === currentDisplayName.toLowerCase() || s.userName?.toLowerCase() === currentDisplayName.toLowerCase()))
+            )
           ))
         );
 
@@ -538,17 +610,20 @@ export function ChatView() {
           scannedBy === myName ||
           scannedBy.includes(myName) ||
           Boolean(c.assignedFreelancerName && c.assignedFreelancerName.toLowerCase() === myName) ||
-          Boolean(c.assignedFreelancerId && currentUserId && (c.assignedFreelancerId === currentUserId || c.assignedFreelancerId === state.user?.userId)) ||
+          Boolean(c.assignedFreelancerId && (
+            (currentUserId && c.assignedFreelancerId === currentUserId) ||
+            (currentProfileId && c.assignedFreelancerId === currentProfileId)
+          )) ||
           isSharedWithMe;
 
         if (scopeFilter === "mine") {
-          // Strictly personal scanned QR WhatsApp chats for this closer
-          matchScope = isQrChannel && !c.isOfficialApi && belongsToMe;
+          // In "mine", closer sees all their active personal chats (assigned, scanned QR, or shared with them)
+          matchScope = belongsToMe;
         } else if (scopeFilter === "api") {
-          // Strictly official API chats assigned to this closer
+          // Strictly official API chats assigned to or shared with this closer
           matchScope = isOfficial && belongsToMe;
         } else {
-          // All chats (API + QR) assigned to or scanned by this closer
+          // All chats (API + QR) assigned to, scanned by, or shared with this closer
           matchScope = belongsToMe;
         }
       } else if (scopeFilter === "api") {
@@ -669,6 +744,7 @@ export function ChatView() {
         });
 
       const apiParams: any = { limit: 200 };
+      const isCloser = (state.user?.role as string) === "CLOSER" || state.user?.role === "SALES_AGENT";
       if (state.scope.startsWith("agent:")) {
         const targetAgent = state.scope.slice(6).trim();
         if (scopeFilter === "mine") {
@@ -680,7 +756,7 @@ export function ChatView() {
         } else {
           apiParams.agentName = targetAgent;
         }
-      } else if (scopeFilter === "mine") {
+      } else if (!isCloser && scopeFilter === "mine") {
         apiParams.sourceType = "QR_SCANNER";
         if (state.user?.displayName) {
           apiParams.scannerName = state.user.displayName;
@@ -700,11 +776,16 @@ export function ChatView() {
                 const scannerName = c.scannedByName || c.payload?.scannedByName || c.assignedFreelancerName;
                 const myName = state.user?.displayName;
                 const currentUserId = state.user?.userId || (state.user as any)?.id;
-                const isSharedWithMe = Array.isArray(c.payload?.sharedUserIds) && (
-                  (currentUserId && c.payload.sharedUserIds.includes(currentUserId)) ||
-                  (myName && c.payload.sharedUserIds.includes(myName)) ||
+                const currentProfileId = (state.user as any)?.agentProfileId || (state.user as any)?.profileId;
+                const isSharedWithMe = Boolean(
+                  c.isSharedWithMe ||
+                  (Array.isArray(c.payload?.sharedUserIds) && (
+                    (currentUserId && c.payload.sharedUserIds.includes(currentUserId)) ||
+                    (currentProfileId && c.payload.sharedUserIds.includes(currentProfileId)) ||
+                    (myName && c.payload.sharedUserIds.includes(myName))
+                  )) ||
                   (Array.isArray(c.payload?.shares) && c.payload.shares.some((s: any) =>
-                    (s.userId === currentUserId || s.userId === myName) && !s.revokedAt
+                    !s.revokedAt && (s.userId === currentUserId || s.agentProfileId === currentProfileId || s.userId === myName)
                   ))
                 );
                 if (scannerName && myName && scannerName !== myName && !isSharedWithMe) {
@@ -714,40 +795,79 @@ export function ChatView() {
               return true;
             })
             .map((c: any) => {
-            const isQrScanner = c.channelSource === "QR_SCANNER" || c.serviceSlug === "whatsapp-companion" || c.isPersonalQr === true;
-            return {
-              id: c.id,
-              leadId: c.leadId || `ld-${c.id.slice(-4)}`,
-              customerName: c.customerName || "Customer",
-              company: c.lead?.company || "Direct Account",
-              phone: c.customerPhone || "",
-              channel: (c.channel === "instagram"
-                ? "instagram"
-                : c.channel === "website"
-                ? "website"
-                : "whatsapp") as "whatsapp" | "instagram" | "website",
-              channelSource: isQrScanner ? "QR_SCANNER" : (c.channelSource || "OFFICIAL_API"),
-              channelSourceLabel: isQrScanner
-                ? (c.channelSourceLabel || (c.scannedByName ? `QR: ${c.scannedByName}` : "Personal WhatsApp QR"))
-                : (c.channelSourceLabel || (c.displayPhoneNumber ? `Cloud API • ${c.displayPhoneNumber}` : "Official WhatsApp Cloud API")),
-              scannedByName: isQrScanner ? (c.scannedByName || c.payload?.scannedByName || c.assignedFreelancerName || null) : null,
-              isOfficialApi: !isQrScanner,
-              isPersonalQr: isQrScanner,
-              isReassignable: c.isReassignable !== false,
-              lastMessage: c.lastMessageSnippet || c.lastMessage?.body || "Conversation active",
-              lastMessageTime: formatMessageTime(c.lastMessage?.createdAt || c.lastMessageAt || c.updatedAt || c.lastMessageTime),
-              lastMessageAt: c.lastMessage?.createdAt || c.lastMessageAt || c.updatedAt,
-              updatedAt: c.lastMessage?.createdAt || c.lastMessageAt || c.updatedAt,
-              unreadCount: c.id === selectedChatId ? 0 : (c.unreadCount || 0),
-              assignedTo:
-                c.assignedFreelancerName ||
-                c.assignedAgent?.displayName ||
-                (isQrScanner ? (c.scannedByName || c.payload?.scannedByName) : null) ||
-                "Unassigned",
-              aiAutoReplyDisabled: Boolean(c.aiAutoReplyDisabled ?? c.payload?.aiAutoReplyDisabled),
-              messages: [],
-            };
-          });
+              const isQrScanner = c.channelSource === "QR_SCANNER" || c.serviceSlug === "whatsapp-companion" || c.isPersonalQr === true;
+              const currentUserId = state.user?.userId || (state.user as any)?.id;
+              const currentDisplayName = state.user?.displayName || CURRENT_USER;
+              const currentProfileId = (state.user as any)?.agentProfileId || (state.user as any)?.profileId;
+              const currentEmail = state.user?.email;
+
+              const sharedUserIdsList: string[] = Array.isArray(c.payload?.sharedUserIds)
+                ? c.payload.sharedUserIds
+                : Array.isArray(c.sharedUserIds)
+                ? c.sharedUserIds
+                : [];
+
+              const sharesList: any[] = Array.isArray(c.payload?.shares)
+                ? c.payload.shares
+                : Array.isArray(c.shares)
+                ? c.shares
+                : [];
+
+              const isSharedWithMe = Boolean(
+                c.isSharedWithMe ||
+                (currentUserId && sharedUserIdsList.includes(currentUserId)) ||
+                (currentProfileId && sharedUserIdsList.includes(currentProfileId)) ||
+                (currentDisplayName && sharedUserIdsList.includes(currentDisplayName)) ||
+                (currentEmail && sharedUserIdsList.includes(currentEmail)) ||
+                sharesList.some((s: any) =>
+                  !s.revokedAt && (
+                    (currentUserId && (s.userId === currentUserId || s.agentProfileId === currentUserId)) ||
+                    (currentProfileId && (s.agentProfileId === currentProfileId || s.userId === currentProfileId)) ||
+                    (currentDisplayName && (s.userId?.toLowerCase() === currentDisplayName.toLowerCase() || s.userName?.toLowerCase() === currentDisplayName.toLowerCase())) ||
+                    (currentEmail && s.userId?.toLowerCase() === currentEmail.toLowerCase())
+                  )
+                )
+              );
+
+              return {
+                id: c.id,
+                leadId: c.leadId || `ld-${c.id.slice(-4)}`,
+                customerName: c.customerName || "Customer",
+                company: c.lead?.company || "Direct Account",
+                phone: c.customerPhone || "",
+                channel: (c.channel === "instagram"
+                  ? "instagram"
+                  : c.channel === "website"
+                  ? "website"
+                  : "whatsapp") as "whatsapp" | "instagram" | "website",
+                channelSource: isQrScanner ? "QR_SCANNER" : (c.channelSource || "OFFICIAL_API"),
+                channelSourceLabel: isQrScanner
+                  ? (c.channelSourceLabel || (c.scannedByName ? `QR: ${c.scannedByName}` : "Personal WhatsApp QR"))
+                  : (c.channelSourceLabel || (c.displayPhoneNumber ? `Cloud API • ${c.displayPhoneNumber}` : "Official WhatsApp Cloud API")),
+                scannedByName: isQrScanner ? (c.scannedByName || c.payload?.scannedByName || c.assignedFreelancerName || null) : null,
+                isOfficialApi: !isQrScanner,
+                isPersonalQr: isQrScanner,
+                isReassignable: c.isReassignable !== false,
+                lastMessage: c.lastMessageSnippet || c.lastMessage?.body || "Conversation active",
+                lastMessageTime: formatMessageTime(c.lastMessage?.createdAt || c.lastMessageAt || c.updatedAt || c.lastMessageTime),
+                lastMessageAt: c.lastMessage?.createdAt || c.lastMessageAt || c.updatedAt,
+                updatedAt: c.lastMessage?.createdAt || c.lastMessageAt || c.updatedAt,
+                unreadCount: c.id === selectedChatId ? 0 : (c.unreadCount || 0),
+                assignedTo:
+                  c.assignedFreelancerName ||
+                  c.assignedAgent?.displayName ||
+                  (isQrScanner ? (c.scannedByName || c.payload?.scannedByName) : null) ||
+                  "Unassigned",
+                aiAutoReplyDisabled: Boolean(c.aiAutoReplyDisabled ?? c.payload?.aiAutoReplyDisabled),
+                messages: [],
+                payload: c.payload,
+                sharedUserIds: sharedUserIdsList,
+                shares: sharesList,
+                isSharedWithMe,
+                assignedFreelancerId: c.assignedFreelancerId || c.payload?.assignedFreelancerId || null,
+                assignedFreelancerName: c.assignedFreelancerName || c.payload?.assignedFreelancerName || c.assignedAgent?.displayName || null,
+              };
+            });
 
           const combined = [...apiMapped];
           const seenPhones = new Set<string>();
@@ -1086,6 +1206,14 @@ export function ChatView() {
             });
           }
         }
+      } else if (
+        type === "conversation.shared" ||
+        type === "conversation.share_revoked" ||
+        type === "conversation.assigned" ||
+        type === "lead.assigned" ||
+        type === "chat.conversation_assigned"
+      ) {
+        setRefreshCount((prev) => prev + 1);
       }
     };
 
@@ -1218,7 +1346,7 @@ export function ChatView() {
   }, [activeChat?.id, activeChat?.messages?.length, scrollToBottom]);
 
   const handleSendMessage = () => {
-    if (!inputText.trim() || !activeChat) return;
+    if (!inputText.trim() || !activeChat || isReadOnlyShare) return;
     const textToSend = inputText.trim();
     const newMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
@@ -1357,6 +1485,7 @@ export function ChatView() {
   };
 
   const handlePriorityChange = (newPriority: Priority) => {
+    if (isReadOnlyShare) return;
     if (activeLead) {
       updateLead(activeLead.id, { priority: newPriority });
       aicloserApi.leads.update(activeLead.id, { priority: newPriority }).catch(() => {});
@@ -1364,6 +1493,7 @@ export function ChatView() {
   };
 
   const handleStageChange = (newStage: StageId) => {
+    if (isReadOnlyShare) return;
     setChatStage(newStage);
     if (activeLead) {
       moveLead(activeLead.id, newStage);
@@ -1783,18 +1913,38 @@ export function ChatView() {
     );
     const displayName = targetMember?.name || shareTargetUser;
     const targetParam = targetMember?.id || shareTargetUser;
+    const shareObj = { id: `share-${Date.now()}`, userId: targetParam, userName: displayName, permission: sharePermission };
     try {
       await aicloserApi.conversations.share(activeChat.id, targetParam, sharePermission);
       setActiveShares((prev) => [
         ...prev.filter((s) => s.userId !== targetParam),
-        { id: `share-${Date.now()}`, userId: targetParam, userName: displayName, permission: sharePermission },
+        shareObj,
       ]);
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id !== activeChat.id) return c;
+          const currentShares = Array.isArray(c.shares) ? c.shares : [];
+          const currentSharedUserIds = Array.isArray(c.sharedUserIds) ? c.sharedUserIds : [];
+          const updatedShares = [...currentShares.filter((s: any) => s.userId !== targetParam), shareObj];
+          const updatedSharedUserIds = Array.from(new Set([...currentSharedUserIds, targetParam]));
+          return {
+            ...c,
+            shares: updatedShares,
+            sharedUserIds: updatedSharedUserIds,
+            payload: {
+              ...(c.payload || {}),
+              shares: updatedShares,
+              sharedUserIds: updatedSharedUserIds,
+            },
+          };
+        })
+      );
       setShareSuccess(`Chat shared with ${displayName}. Access granted.`);
       setTimeout(() => setShareSuccess(null), 3000);
     } catch {
       setActiveShares((prev) => [
         ...prev.filter((s) => s.userId !== targetParam),
-        { id: `share-${Date.now()}`, userId: targetParam, userName: displayName, permission: sharePermission },
+        shareObj,
       ]);
       setShareSuccess(`Chat shared with ${displayName}. Access granted.`);
       setTimeout(() => setShareSuccess(null), 3000);
@@ -1808,6 +1958,23 @@ export function ChatView() {
     try {
       await aicloserApi.conversations.revokeShare(activeChat.id, userId).catch(() => {});
       setActiveShares((prev) => prev.filter((s) => s.userId !== userId));
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id !== activeChat.id) return c;
+          const updatedShares = (Array.isArray(c.shares) ? c.shares : []).filter((s: any) => s.userId !== userId);
+          const updatedSharedUserIds = (Array.isArray(c.sharedUserIds) ? c.sharedUserIds : []).filter((id: string) => id !== userId);
+          return {
+            ...c,
+            shares: updatedShares,
+            sharedUserIds: updatedSharedUserIds,
+            payload: {
+              ...(c.payload || {}),
+              shares: updatedShares,
+              sharedUserIds: updatedSharedUserIds,
+            },
+          };
+        })
+      );
     } catch {}
   };
 
@@ -2184,6 +2351,12 @@ export function ChatView() {
                           {chat.assignedTo}
                         </span>
                       )}
+
+                      {chat.isSharedWithMe && (
+                        <span className="chip" data-tone="accent" style={{ fontSize: "10px", padding: "1px 6px", height: "18px", display: "inline-flex", alignItems: "center", gap: "3px", flexShrink: 0, whiteSpace: "nowrap" }}>
+                          <Icon name="share" size={10} /> Shared
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2259,6 +2432,11 @@ export function ChatView() {
                   {activeChat.assignedTo && activeChat.assignedTo !== "Unassigned" && (
                     <span> • Assigned to: <strong style={{ color: "var(--text)" }}>{activeChat.assignedTo}</strong></span>
                   )}
+                  {activeChat.isSharedWithMe && (
+                    <span className="chip" data-tone="accent" style={{ fontSize: "10px", padding: "1px 6px" }}>
+                      Shared with you
+                    </span>
+                  )}
                   <span>•</span>
                   <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", color: isChatActiveNow ? "var(--success)" : "var(--text-tertiary)" }}>
                     <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: isChatActiveNow ? "#25D366" : "var(--text-tertiary)", display: "inline-block" }} />
@@ -2302,6 +2480,13 @@ export function ChatView() {
               </button>
             </div>
           </header>
+
+          {isReadOnlyShare && (
+            <div style={{ padding: "6px 18px", background: "var(--bg-soft)", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "var(--text-secondary)" }}>
+              <Icon name="lock" size={12} />
+              <span>Read-only shared conversation. You can view message history but cannot reply.</span>
+            </div>
+          )}
 
           {toastMessage && (
             <div className="chat-toast-banner" role="status" aria-live="polite">
@@ -2506,42 +2691,64 @@ export function ChatView() {
               flexShrink: 0,
             }}
           >
-            <textarea
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSendMessage();
-                } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                  e.preventDefault();
-                  handleSendMessage();
-                }
-              }}
-              placeholder="Type your reply... (Press Enter to send, Shift+Enter for new line)"
-              style={{
-                flex: 1,
-                height: "46px",
-                minHeight: "46px",
-                maxHeight: "120px",
-                padding: "10px 12px",
-                borderRadius: "var(--r-md)",
-                border: "1px solid var(--border-input)",
-                background: "var(--bg-surface)",
-                color: "var(--text)",
-                fontSize: "var(--fs-body)",
-                resize: "none",
-                outline: "none",
-              }}
-            />
-            <button
-              className="btn"
-              data-variant="primary"
-              onClick={handleSendMessage}
-              style={{ height: "46px", padding: "0 18px", fontWeight: 600 }}
-            >
-              Send <Icon name="arrow-right" size={14} />
-            </button>
+            {isReadOnlyShare ? (
+              <div
+                style={{
+                  flex: 1,
+                  padding: "12px 16px",
+                  borderRadius: "var(--r-md)",
+                  background: "var(--bg-soft)",
+                  border: "1px dashed var(--border)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  color: "var(--text-secondary)",
+                  fontSize: "var(--fs-caption)",
+                }}
+              >
+                <Icon name="lock" size={14} />
+                <span>You have read-only access to this shared conversation. Replying is disabled.</span>
+              </div>
+            ) : (
+              <>
+                <textarea
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSendMessage();
+                    } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                      e.preventDefault();
+                      handleSendMessage();
+                    }
+                  }}
+                  placeholder="Type your reply... (Press Enter to send, Shift+Enter for new line)"
+                  style={{
+                    flex: 1,
+                    height: "46px",
+                    minHeight: "46px",
+                    maxHeight: "120px",
+                    padding: "10px 12px",
+                    borderRadius: "var(--r-md)",
+                    border: "1px solid var(--border-input)",
+                    background: "var(--bg-surface)",
+                    color: "var(--text)",
+                    fontSize: "var(--fs-body)",
+                    resize: "none",
+                    outline: "none",
+                  }}
+                />
+                <button
+                  className="btn"
+                  data-variant="primary"
+                  onClick={handleSendMessage}
+                  style={{ height: "46px", padding: "0 18px", fontWeight: 600 }}
+                >
+                  Send <Icon name="arrow-right" size={14} />
+                </button>
+              </>
+            )}
           </footer>
         </div>
       )}
@@ -2643,7 +2850,8 @@ export function ChatView() {
               id="chat-stage"
               value={activeLeadProfile.stage}
               onChange={(e) => handleStageChange(e.target.value as StageId)}
-              style={{ width: "100%", marginTop: "6px", fontWeight: 600 }}
+              disabled={isReadOnlyShare}
+              style={{ width: "100%", marginTop: "6px", fontWeight: 600, opacity: isReadOnlyShare ? 0.6 : 1 }}
             >
               {STAGES.map((s) => (
                 <option key={s.id} value={s.id}>
@@ -2663,8 +2871,8 @@ export function ChatView() {
               id="chat-priority"
               value={activeLead?.priority || "medium"}
               onChange={(e) => handlePriorityChange(e.target.value as Priority)}
-              disabled={!activeLead}
-              style={{ width: "100%", marginTop: "6px", fontWeight: 600 }}
+              disabled={!activeLead || isReadOnlyShare}
+              style={{ width: "100%", marginTop: "6px", fontWeight: 600, opacity: (!activeLead || isReadOnlyShare) ? 0.6 : 1 }}
             >
               <option value="urgent">Urgent</option>
               <option value="high">High</option>
@@ -2913,14 +3121,16 @@ export function ChatView() {
             <button
               className="btn"
               onClick={() => setShowAssignModal(true)}
-              style={{ width: "100%", justifyContent: "flex-start" }}
+              disabled={isReadOnlyShare}
+              style={{ width: "100%", justifyContent: "flex-start", opacity: isReadOnlyShare ? 0.6 : 1 }}
             >
               <Icon name="users" size={13} /> Assign to Closer
             </button>
             <button
               className="btn"
               onClick={() => setShowShareModal(true)}
-              style={{ width: "100%", justifyContent: "flex-start" }}
+              disabled={isReadOnlyShare}
+              style={{ width: "100%", justifyContent: "flex-start", opacity: isReadOnlyShare ? 0.6 : 1 }}
             >
               <Icon name="link" size={13} /> Share Conversation
             </button>
