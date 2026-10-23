@@ -2302,6 +2302,27 @@ export const aicloserApi = {
         return { activeBreaks: [], totalOnBreak: 0 };
       }
     },
+    async getBreakLogs(scope?: 'mine' | 'all') {
+      try {
+        const qs = scope ? `?scope=${encodeURIComponent(scope)}` : '';
+        const res = await request<any>(`/team/break/logs${qs}`);
+        return res.data;
+      } catch {
+        return {
+          logs: [],
+          summary: {
+            allowedMinutes: 30,
+            allowedSeconds: 1800,
+            usedSeconds: 0,
+            usedMinutes: 0,
+            remainingSeconds: 1800,
+            remainingMinutes: 30,
+            isOnBreak: false,
+            totalBreaksToday: 0,
+          },
+        };
+      }
+    },
   },
 
   // 12. Dedicated AI Engine

@@ -272,12 +272,19 @@ export function AppShell({
 
   useEffect(() => {
     aicloserApi.team.getBreakStatus().then((status) => {
-      if (status?.isOnBreak && status.remainingSeconds) {
-        setIsOnBreak(true);
-        setBreakRemainingSec(status.remainingSeconds);
-        const expiresAt = Date.now() + status.remainingSeconds * 1000;
-        localStorage.setItem("aicloser_on_break", "true");
-        localStorage.setItem("aicloser_break_expires", String(expiresAt));
+      if (status) {
+        setIsOnBreak(Boolean(status.isOnBreak));
+        if (typeof status.remainingSeconds === "number") {
+          setBreakRemainingSec(status.remainingSeconds);
+          if (status.isOnBreak) {
+            const expiresAt = Date.now() + status.remainingSeconds * 1000;
+            localStorage.setItem("aicloser_on_break", "true");
+            localStorage.setItem("aicloser_break_expires", String(expiresAt));
+          } else {
+            localStorage.removeItem("aicloser_on_break");
+            localStorage.removeItem("aicloser_break_expires");
+          }
+        }
       }
     }).catch(() => {});
   }, []);
@@ -324,23 +331,35 @@ export function AppShell({
 
   const handleToggleBreak = async () => {
     if (isOnBreak) {
-      setIsOnBreak(false);
-      setBreakRemainingSec(0);
-      localStorage.removeItem("aicloser_on_break");
-      localStorage.removeItem("aicloser_break_expires");
       try {
-        await aicloserApi.team.endBreak();
+        const res: any = await aicloserApi.team.endBreak();
+        setIsOnBreak(false);
+        localStorage.removeItem("aicloser_on_break");
+        localStorage.removeItem("aicloser_break_expires");
+        if (res && typeof res.remainingSeconds === "number") {
+          setBreakRemainingSec(res.remainingSeconds);
+        }
       } catch {}
     } else {
-      const duration = 30; // 30 minutes
-      const expiresAt = Date.now() + duration * 60 * 1000;
-      setIsOnBreak(true);
-      setBreakRemainingSec(duration * 60);
-      localStorage.setItem("aicloser_on_break", "true");
-      localStorage.setItem("aicloser_break_expires", String(expiresAt));
+      if (breakRemainingSec <= 5 && breakRemainingSec > 0) {
+        alert("Daily break limit reached for today.");
+        return;
+      }
       try {
-        await aicloserApi.team.startBreak(duration);
-      } catch {}
+        const res: any = await aicloserApi.team.startBreak();
+        if (res?.success) {
+          setIsOnBreak(true);
+          const rem = typeof res.remainingSeconds === "number" ? res.remainingSeconds : (breakRemainingSec || 1800);
+          setBreakRemainingSec(rem);
+          const expiresAt = Date.now() + rem * 1000;
+          localStorage.setItem("aicloser_on_break", "true");
+          localStorage.setItem("aicloser_break_expires", String(expiresAt));
+        } else if (res?.error === "DailyBreakLimitExceeded") {
+          alert(res.message || "Daily break limit reached for today.");
+        }
+      } catch (err: any) {
+        alert(err?.message || "Daily break limit reached for today.");
+      }
     }
   };
 
@@ -1134,11 +1153,23 @@ export function AppShell({
               className="break-badge"
               data-active={isOnBreak}
               onClick={handleToggleBreak}
-              title={isOnBreak ? "Currently on 30-min break. Click to resume receiving leads." : "Take a 30-minute break (pauses inbound lead routing)"}
+              title={
+                isOnBreak
+                  ? `Currently on break (${formattedBreakRemaining} remaining). Click to resume work.`
+                  : breakRemainingSec <= 0
+                  ? "Daily break quota (30m) exhausted for today."
+                  : `Take a break (${Math.ceil(breakRemainingSec / 60)}m quota left)`
+              }
               aria-label="Toggle Break Mode"
             >
               <Icon name="coffee" size={13} />
-              <span>{isOnBreak ? `On Break (${formattedBreakRemaining})` : "Take Break"}</span>
+              <span>
+                {isOnBreak
+                  ? `On Break (${formattedBreakRemaining})`
+                  : breakRemainingSec <= 0
+                  ? "Break Used"
+                  : `Take Break (${Math.ceil(breakRemainingSec / 60)}m)`}
+              </span>
             </button>
           )}
 

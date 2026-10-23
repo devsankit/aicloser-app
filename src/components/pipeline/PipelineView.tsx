@@ -64,6 +64,7 @@ export function PipelineView() {
   const [breakExpiresAt, setBreakExpiresAt] = useState<string | null>(null);
   const [breakLoading, setBreakLoading] = useState(false);
   const [breakCountdown, setBreakCountdown] = useState<string>("00:00");
+  const [breakRemainingSec, setBreakRemainingSec] = useState<number>(1800);
 
   const fetchMissedAndBreak = async () => {
     try {
@@ -78,6 +79,9 @@ export function PipelineView() {
       if (breakRes) {
         setIsOnBreak(Boolean(breakRes.isOnBreak));
         setBreakExpiresAt(breakRes.breakExpiresAt || null);
+        if (typeof breakRes.remainingSeconds === "number") {
+          setBreakRemainingSec(breakRes.remainingSeconds);
+        }
       }
     } catch {}
   };
@@ -112,9 +116,18 @@ export function PipelineView() {
   const handleTakeBreak = async () => {
     setBreakLoading(true);
     try {
-      const res = await aicloserApi.team.startBreak();
-      setIsOnBreak(true);
-      if (res?.breakExpiresAt) setBreakExpiresAt(res.breakExpiresAt);
+      const res: any = await aicloserApi.team.startBreak();
+      if (res?.success) {
+        setIsOnBreak(true);
+        if (res?.breakExpiresAt) setBreakExpiresAt(res.breakExpiresAt);
+        if (typeof res?.remainingSeconds === "number") setBreakRemainingSec(res.remainingSeconds);
+      } else if (res?.error === "DailyBreakLimitExceeded") {
+        setClaimFeedback({
+          status: "quota_limit",
+          message: res.message || "Daily break limit reached for today.",
+        });
+        setTimeout(() => setClaimFeedback(null), 4000);
+      }
     } catch (err: any) {
       setClaimFeedback({
         status: "already_claimed",
@@ -128,9 +141,12 @@ export function PipelineView() {
   const handleEndBreak = async () => {
     setBreakLoading(true);
     try {
-      await aicloserApi.team.endBreak();
+      const res: any = await aicloserApi.team.endBreak();
       setIsOnBreak(false);
       setBreakExpiresAt(null);
+      if (typeof res?.remainingSeconds === "number") {
+        setBreakRemainingSec(res.remainingSeconds);
+      }
     } catch (err: any) {
       setClaimFeedback({
         status: "already_claimed",
@@ -807,11 +823,21 @@ export function PipelineView() {
               data-size="sm"
               data-variant={isOnBreak ? "accent" : "ghost"}
               onClick={isOnBreak ? handleEndBreak : handleTakeBreak}
-              disabled={breakLoading}
-              title={isOnBreak ? "Click to resume receiving leads" : "Take a break (pauses missed leads)"}
+              disabled={breakLoading || (!isOnBreak && breakRemainingSec <= 0)}
+              title={
+                isOnBreak
+                  ? `On Break (${breakCountdown} remaining). Click to resume receiving leads.`
+                  : breakRemainingSec <= 0
+                  ? "Daily break quota (30m) exhausted for today."
+                  : `Take a break (${Math.ceil(breakRemainingSec / 60)}m left)`
+              }
             >
               <Icon name={isOnBreak ? "check" : "clock"} size={12} />
-              {isOnBreak ? `☕ On Break (${breakCountdown}) - Resume` : "☕ Take Break"}
+              {isOnBreak
+                ? `☕ On Break (${breakCountdown}) - Resume`
+                : breakRemainingSec <= 0
+                ? "☕ Break Used"
+                : `☕ Take Break (${Math.ceil(breakRemainingSec / 60)}m)`}
             </button>
 
             {isAdmin ? (

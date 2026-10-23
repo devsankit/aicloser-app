@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { compactMoney, relativeTime, useApp, useScopedLeads } from "@/lib/store";
 import { STAGES, stageMeta, sourceMeta, isOpenStage, isWonStage, isLostStage } from "@/lib/types";
@@ -28,6 +28,47 @@ export function DashboardView() {
       cancelled = true;
     };
   }, []);
+
+  const [breakLogs, setBreakLogs] = useState<Array<{
+    id: string;
+    userId: string;
+    userName: string;
+    startedAt: string;
+    endedAt: string | null;
+    durationSeconds: number;
+    status: string;
+  }>>([]);
+  const [breakSummary, setBreakSummary] = useState({
+    allowedMinutes: 30,
+    allowedSeconds: 1800,
+    usedSeconds: 0,
+    usedMinutes: 0,
+    remainingSeconds: 1800,
+    remainingMinutes: 30,
+    isOnBreak: false,
+    totalBreaksToday: 0,
+  });
+  const [breakLoading, setBreakLoading] = useState(false);
+
+  const fetchBreakLogs = useCallback(async () => {
+    setBreakLoading(true);
+    try {
+      const scope = state.user?.role === "ADMIN" || state.user?.role === "SUPER_ADMIN" || state.user?.role === "MANAGER"
+        ? "all"
+        : "mine";
+      const res = await aicloserApi.team.getBreakLogs(scope);
+      if (res?.logs) setBreakLogs(res.logs);
+      if (res?.summary) setBreakSummary(res.summary);
+    } catch {} finally {
+      setBreakLoading(false);
+    }
+  }, [state.user?.role]);
+
+  useEffect(() => {
+    fetchBreakLogs();
+    const t = setInterval(fetchBreakLogs, 20000);
+    return () => clearInterval(t);
+  }, [fetchBreakLogs]);
 
   const stats = useMemo(() => {
     const open = leads.filter((l) => isOpenStage(l.stage));
@@ -115,6 +156,14 @@ export function DashboardView() {
     month: "long",
     timeZone: "Asia/Kolkata",
   });
+
+  const formatDurationSec = (totalSeconds: number): string => {
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    if (mins === 0) return `${secs}s`;
+    if (secs === 0) return `${mins}m`;
+    return `${mins}m ${secs}s`;
+  };
 
   return (
     <div className="dashboard-container">
@@ -232,6 +281,134 @@ export function DashboardView() {
           <span className="stat-foot" data-tone="success">
             {stats.wonCount} won · {stats.openCount} open ({compactMoney(stats.openValue)})
           </span>
+        </div>
+      </section>
+
+      {/* Closer Break Activity & Daily Quota Records */}
+      <section className="card" style={{ marginBottom: "20px" }}>
+        <div className="card-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div className="card-title-group">
+            <span className="card-title" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <Icon name="coffee" size={16} /> Closer Break Logs & Time Records
+            </span>
+            <span className="card-sub">
+              Daily allowed break quota (30 mins), cumulative time taken, and active break sessions
+            </span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <span className="chip" data-tone={breakSummary.isOnBreak ? "warning" : "success"}>
+              <span className="dot" />
+              {breakSummary.isOnBreak ? "Currently On Break" : "Active / Receiving Leads"}
+            </span>
+            <button
+              type="button"
+              className="btn"
+              data-size="sm"
+              data-variant="ghost"
+              onClick={fetchBreakLogs}
+              title="Refresh Break Logs"
+            >
+              <Icon name="refresh" size={13} className={breakLoading ? "spin" : ""} /> Refresh
+            </button>
+          </div>
+        </div>
+
+        <div className="card-body">
+          {/* Mini Stat Pills */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "12px", marginBottom: "16px" }}>
+            <div style={{ padding: "10px 14px", background: "var(--bg-soft)", borderRadius: "var(--r-md)", border: "1px solid var(--border)" }}>
+              <div style={{ fontSize: "11px", textTransform: "uppercase", color: "var(--text-tertiary)", fontWeight: 600 }}>
+                Daily Quota
+              </div>
+              <div style={{ fontSize: "18px", fontWeight: 700, color: "var(--text)", marginTop: "2px" }}>
+                {breakSummary.allowedMinutes} mins
+              </div>
+            </div>
+
+            <div style={{ padding: "10px 14px", background: "var(--bg-soft)", borderRadius: "var(--r-md)", border: "1px solid var(--border)" }}>
+              <div style={{ fontSize: "11px", textTransform: "uppercase", color: "var(--text-tertiary)", fontWeight: 600 }}>
+                Time Used Today
+              </div>
+              <div style={{ fontSize: "18px", fontWeight: 700, color: "var(--accent)", marginTop: "2px" }}>
+                {formatDurationSec(breakSummary.usedSeconds)}
+              </div>
+            </div>
+
+            <div style={{ padding: "10px 14px", background: "var(--bg-soft)", borderRadius: "var(--r-md)", border: "1px solid var(--border)" }}>
+              <div style={{ fontSize: "11px", textTransform: "uppercase", color: "var(--text-tertiary)", fontWeight: 600 }}>
+                Remaining Quota
+              </div>
+              <div style={{ fontSize: "18px", fontWeight: 700, color: breakSummary.remainingSeconds > 0 ? "var(--success)" : "var(--danger)", marginTop: "2px" }}>
+                {formatDurationSec(breakSummary.remainingSeconds)}
+              </div>
+            </div>
+
+            <div style={{ padding: "10px 14px", background: "var(--bg-soft)", borderRadius: "var(--r-md)", border: "1px solid var(--border)" }}>
+              <div style={{ fontSize: "11px", textTransform: "uppercase", color: "var(--text-tertiary)", fontWeight: 600 }}>
+                Sessions Today
+              </div>
+              <div style={{ fontSize: "18px", fontWeight: 700, color: "var(--text)", marginTop: "2px" }}>
+                {breakSummary.totalBreaksToday} {breakSummary.totalBreaksToday === 1 ? "session" : "sessions"}
+              </div>
+            </div>
+          </div>
+
+          {/* Table of Break Session Logs */}
+          {breakLogs.length === 0 ? (
+            <div className="empty" style={{ padding: "20px 0" }}>
+              <span className="empty-icon">
+                <Icon name="coffee" size={20} />
+              </span>
+              <h3>No Break Sessions Recorded Today</h3>
+              <p>When closers take a break, their start time, elapsed duration, and remaining quota will appear here in real time.</p>
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table style={{ width: "100%", fontSize: "12px", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ borderBottom: "1px solid var(--border)", color: "var(--text-tertiary)", textTransform: "uppercase", fontSize: "11px" }}>
+                    <th style={{ padding: "8px 12px", textAlign: "left" }}>Closer</th>
+                    <th style={{ padding: "8px 12px", textAlign: "left" }}>Started At</th>
+                    <th style={{ padding: "8px 12px", textAlign: "left" }}>Ended At</th>
+                    <th style={{ padding: "8px 12px", textAlign: "left" }}>Duration Taken</th>
+                    <th style={{ padding: "8px 12px", textAlign: "left" }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {breakLogs.map((log) => {
+                    const isLive = log.status === "IN_PROGRESS";
+                    return (
+                      <tr key={log.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                        <td style={{ padding: "10px 12px", fontWeight: 600, color: "var(--text)" }}>
+                          {log.userName}
+                        </td>
+                        <td style={{ padding: "10px 12px", color: "var(--text-secondary)" }}>
+                          {new Date(log.startedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true })}
+                        </td>
+                        <td style={{ padding: "10px 12px", color: "var(--text-secondary)" }}>
+                          {log.endedAt
+                            ? new Date(log.endedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true })
+                            : <span style={{ color: "var(--accent)", fontWeight: 600 }}>Active Now...</span>}
+                        </td>
+                        <td style={{ padding: "10px 12px", fontFamily: "var(--mono)", fontWeight: 600 }}>
+                          {formatDurationSec(log.durationSeconds)}
+                        </td>
+                        <td style={{ padding: "10px 12px" }}>
+                          <span
+                            className="chip"
+                            data-tone={isLive ? "warning" : log.status === "EXPIRED" ? "danger" : "success"}
+                            style={{ fontSize: "11px" }}
+                          >
+                            {isLive ? "In Progress" : log.status === "EXPIRED" ? "Quota Expired" : "Completed / Paused"}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </section>
 
