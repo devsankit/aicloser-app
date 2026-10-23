@@ -1544,12 +1544,13 @@ export const aicloserApi = {
       };
     },
 
-    async createUpiLink(payload: { leadId?: string; amount: number; customerName: string; customerPhone?: string; customerEmail?: string; productName?: string; customerNote?: string; purpose?: string; notes?: string; upiId?: string; currency?: string }) {
+    async createUpiLink(payload: { leadId?: string; amount: number; customerName: string; customerPhone?: string; customerEmail?: string; productName?: string; customerNote?: string; purpose?: string; notes?: string; upiId?: string; currency?: string; expiryMinutes?: number; expiresAt?: string }) {
       const body = {
         ...payload,
         productName: payload.productName || payload.purpose || 'CRM License / Consultation',
         customerNote: payload.customerNote || payload.notes,
         notes: payload.notes || payload.customerNote,
+        expiryMinutes: payload.expiryMinutes || 30,
       };
       const res = await request('/payments', {
         method: 'POST',
@@ -1558,7 +1559,7 @@ export const aicloserApi = {
       return res.data;
     },
 
-    async updatePayment(id: string, payload: { amount?: number; notes?: string; customerNote?: string; productName?: string; description?: string; customerName?: string; customerPhone?: string; customerEmail?: string }) {
+    async updatePayment(id: string, payload: { amount?: number; notes?: string; customerNote?: string; productName?: string; description?: string; customerName?: string; customerPhone?: string; customerEmail?: string; expiryMinutes?: number; expiresAt?: string }) {
       const res = await request(`/payments/${encodeURIComponent(id)}`, {
         method: 'PATCH',
         body: JSON.stringify(payload),

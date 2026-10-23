@@ -5554,6 +5554,154 @@ button.list-prio:hover {
   margin-top: 16px;
 }
 
+.pay-brand-header {
+  width: 100%;
+  max-width: 860px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  padding: 0 4px;
+}
+
+.pay-brand-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pay-brand-badge {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pay-security-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 550;
+  color: var(--success);
+  background: var(--success-soft);
+  border: 1px solid var(--success);
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+}
+
+.pay-support-tag {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
+.pay-countdown-banner {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  font-weight: 550;
+  margin-bottom: 14px;
+  transition: all 0.2s ease;
+}
+
+.pay-countdown-banner[data-state="active"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+.pay-countdown-banner[data-state="expired"] {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+
+.pay-countdown-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pay-pulse 1.6s infinite ease-in-out;
+}
+
+@keyframes pay-pulse {
+  0% { transform: scale(0.9); opacity: 0.8; }
+  50% { transform: scale(1.3); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.8; }
+}
+
+.pay-countdown-digits {
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+}
+
+.pay-qr-frame.is-expired {
+  position: relative;
+  opacity: 0.35;
+  filter: grayscale(1);
+}
+
+.pay-qr-expired-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.75);
+  border-radius: var(--r-md);
+  color: #ff4d4f;
+  font-weight: 600;
+  font-size: 12px;
+  text-align: center;
+  padding: 12px;
+}
+
+.pay-vpa-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 6px 12px;
+  margin-bottom: 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+}
+
+.pay-vpa-copy-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+}
+
+.pay-vpa-copy-btn:hover {
+  background: var(--accent-soft);
+}
+
 /* ==========================================================================
    Developer Hub & API Tester Styles
    ========================================================================== */

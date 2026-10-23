@@ -26,6 +26,11 @@ export interface PublicPaymentData {
   paidAt?: string;
   createdAt: string;
   creatorName?: string;
+  expiresAt?: string;
+  isExpired?: boolean;
+  remainingSeconds?: number;
+  expiryMinutes?: number;
+  leadId?: string;
 }
 
 export function PublicPayGateway({ token }: { token: string }) {
@@ -34,6 +39,10 @@ export function PublicPayGateway({ token }: { token: string }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
+  const [vpaCopied, setVpaCopied] = useState(false);
+
+  // Live countdown timer state
+  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
 
   // Proof submission state
   const [utrNumber, setUtrNumber] = useState("");
@@ -60,6 +69,17 @@ export function PublicPayGateway({ token }: { token: string }) {
 
       const paymentData: PublicPaymentData = json.payment || json.data;
       setPayment(paymentData);
+
+      // Compute initial remaining seconds
+      let initialSecs = 0;
+      if (typeof paymentData.remainingSeconds === "number") {
+        initialSecs = paymentData.remainingSeconds;
+      } else if (paymentData.expiresAt) {
+        initialSecs = Math.max(0, Math.floor((new Date(paymentData.expiresAt).getTime() - Date.now()) / 1000));
+      } else {
+        initialSecs = 1800; // default 30 mins
+      }
+      setSecondsLeft(initialSecs);
 
       // Generate dynamic QR code data URL from NPCI upiUri
       if (paymentData.upiUri) {
@@ -90,11 +110,47 @@ export function PublicPayGateway({ token }: { token: string }) {
     }
   }, [token]);
 
+  // Live 1-second interval ticking down
+  useEffect(() => {
+    if (secondsLeft === null || secondsLeft <= 0) return;
+    const interval = setInterval(() => {
+      setSecondsLeft((prev) => {
+        if (prev === null || prev <= 1) {
+          clearInterval(interval);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [secondsLeft]);
+
+  const formatCountdown = (totalSeconds: number | null) => {
+    if (totalSeconds === null) return "--:--";
+    if (totalSeconds <= 0) return "00:00 (Expired)";
+    const hrs = Math.floor(totalSeconds / 3600);
+    const mins = Math.floor((totalSeconds % 3600) / 60);
+    const secs = totalSeconds % 60;
+    if (hrs > 0) {
+      return `${hrs}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+    }
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
+
   const handleCopyLink = () => {
     if (typeof window !== "undefined" && navigator.clipboard) {
       navigator.clipboard.writeText(window.location.href);
       setBanner("Payment link copied to clipboard.");
       setTimeout(() => setBanner(null), 3000);
+    }
+  };
+
+  const handleCopyVpa = () => {
+    if (!payment?.upiId) return;
+    if (typeof window !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(payment.upiId);
+      setVpaCopied(true);
+      setTimeout(() => setVpaCopied(false), 2000);
     }
   };
 
@@ -174,13 +230,27 @@ export function PublicPayGateway({ token }: { token: string }) {
     );
   }
 
+  const isExpired = payment.status === "EXPIRED" || (secondsLeft !== null && secondsLeft <= 0) || Boolean(payment.isExpired);
   const isPaid = payment.status === "PAID" || payment.status === "SETTLED";
   const isCancelled = payment.status === "CANCELLED" || payment.status === "VOIDED";
 
   return (
     <main className="pay-gateway-wrap">
+      {/* Top Verified Brand Bar */}
+      <header className="pay-brand-header">
+        <div className="pay-brand-logo">
+          <span className="pay-brand-badge">
+            <Icon name="sparkle" size={15} /> AI Closer
+          </span>
+          <span className="pay-security-pill">
+            <Icon name="check" size={11} /> 256-Bit Encrypted UPI Portal
+          </span>
+        </div>
+        <div className="pay-support-tag">Verified Merchant Checkout</div>
+      </header>
+
       {banner && (
-        <div style={{ marginBottom: "16px", maxWidth: "840px", width: "100%" }}>
+        <div style={{ marginBottom: "16px", maxWidth: "860px", width: "100%" }}>
           <span className="chip" data-tone="success" style={{ width: "100%", justifyContent: "center", padding: "8px 12px" }}>
             <Icon name="check" size={13} /> {banner}
           </span>
@@ -190,7 +260,25 @@ export function PublicPayGateway({ token }: { token: string }) {
       <div className="pay-gateway-container">
         {/* Left Column: QR Code & Immediate UPI App Pay */}
         <section className="card pay-qr-card">
-          <div className="card-head" style={{ borderBottom: "none", padding: 0, textAlign: "center" }}>
+          {/* Expiry Countdown Timer Banner */}
+          {!isPaid && !isCancelled && (
+            <div className="pay-countdown-banner" data-state={isExpired ? "expired" : "active"}>
+              {!isExpired && <div className="pay-countdown-pulse" />}
+              {isExpired ? (
+                <>
+                  <Icon name="clock" size={13} />
+                  <span>Payment Session Expired</span>
+                </>
+              ) : (
+                <>
+                  <span>Link Expires In:</span>
+                  <strong className="pay-countdown-digits">{formatCountdown(secondsLeft)}</strong>
+                </>
+              )}
+            </div>
+          )}
+
+          <div className="card-head" style={{ borderBottom: "none", padding: 0, textAlign: "center", width: "100%" }}>
             <span className="chip" data-tone="accent" style={{ marginBottom: "8px" }}>
               Secure UPI Payment
             </span>
@@ -210,7 +298,7 @@ export function PublicPayGateway({ token }: { token: string }) {
           </div>
 
           {/* QR Code Container */}
-          <div className="pay-qr-frame">
+          <div className={`pay-qr-frame ${isExpired ? "is-expired" : ""}`}>
             {qrCodeUrl ? (
               <img src={qrCodeUrl} alt="UPI Payment QR Code" className="pay-qr-img" />
             ) : (
@@ -219,23 +307,55 @@ export function PublicPayGateway({ token }: { token: string }) {
                 <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Generating QR...</span>
               </div>
             )}
+
+            {isExpired && (
+              <div className="pay-qr-expired-overlay">
+                <Icon name="close" size={24} />
+                <span>Link Expired</span>
+                <span style={{ fontSize: "10.5px", opacity: 0.85, fontWeight: 400 }}>
+                  QR code deactivated
+                </span>
+              </div>
+            )}
           </div>
 
-          <div style={{ fontFamily: "var(--mono)", fontSize: "12px", color: "var(--text-secondary)", marginBottom: "8px" }}>
-            VPA: <b>{payment.upiId}</b>
+          {/* VPA Row with 1-Click Copy */}
+          <div className="pay-vpa-row">
+            <span>VPA: <b>{payment.upiId}</b></span>
+            <button
+              type="button"
+              className="pay-vpa-copy-btn"
+              onClick={handleCopyVpa}
+              title="Copy VPA to clipboard"
+            >
+              <Icon name={vpaCopied ? "check" : "copy"} size={11} />
+              {vpaCopied ? "Copied" : "Copy"}
+            </button>
           </div>
 
           {/* Action Buttons */}
           <div className="pay-app-actions">
-            {!isPaid && !isCancelled && (
+            {!isPaid && !isCancelled && !isExpired && (
               <a
                 href={payment.upiUri}
                 className="btn"
                 data-variant="accent"
-                style={{ height: "40px", fontSize: "14px", fontWeight: 600 }}
+                style={{ height: "40px", fontSize: "14px", fontWeight: 600, width: "100%", justifyContent: "center" }}
               >
                 <Icon name="sparkle" size={14} /> Open in UPI App
               </a>
+            )}
+
+            {!isPaid && !isCancelled && isExpired && (
+              <button
+                type="button"
+                className="btn"
+                data-variant="outline"
+                disabled
+                style={{ height: "40px", width: "100%", justifyContent: "center", opacity: 0.65 }}
+              >
+                <Icon name="clock" size={14} /> Link Expired — Request New Link
+              </button>
             )}
 
             <button
@@ -243,6 +363,7 @@ export function PublicPayGateway({ token }: { token: string }) {
               className="btn"
               data-variant="ghost"
               onClick={handleCopyLink}
+              style={{ width: "100%", justifyContent: "center" }}
             >
               <Icon name="link" size={13} /> Copy Payment Link
             </button>
@@ -296,8 +417,20 @@ export function PublicPayGateway({ token }: { token: string }) {
               </div>
             </div>
 
+            {/* Expired Banner Notice */}
+            {isExpired && !isPaid && !isCancelled && (
+              <div className="card" style={{ padding: "16px", background: "var(--danger-soft)", border: "1px solid var(--danger)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--danger)", fontWeight: 600 }}>
+                  <Icon name="clock" size={16} /> Payment Session Expired
+                </div>
+                <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "4px" }}>
+                  For security, this payment session has expired. To complete your transaction, please reach out to your sales closer or specialist to issue a fresh payment link.
+                </div>
+              </div>
+            )}
+
             {/* Confirmation & Proof Form */}
-            {!isPaid && !isCancelled && (
+            {!isPaid && !isCancelled && !isExpired && (
               <form onSubmit={handleProofSubmit} style={{ display: "flex", flexDirection: "column", gap: "12px", marginTop: "8px" }}>
                 <div style={{ fontSize: "var(--fs-meta)", fontWeight: 600 }}>
                   Confirm Payment Completion

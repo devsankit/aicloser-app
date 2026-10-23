@@ -27,6 +27,9 @@ export interface PaymentTransaction {
   paidAt?: string;
   proofNote?: string;
   hasProof?: boolean;
+  expiresAt?: string;
+  isExpired?: boolean;
+  remainingSeconds?: number;
 }
 
 export function PaymentsView() {
@@ -57,6 +60,7 @@ export function PaymentsView() {
   const [linkCustomerPhone, setLinkCustomerPhone] = useState("");
   const [linkAmount, setLinkAmount] = useState("");
   const [linkPurpose, setLinkPurpose] = useState("");
+  const [linkExpiryMinutes, setLinkExpiryMinutes] = useState<number>(30);
 
   // Gateway Settings State
   const [upiSettings, setUpiSettings] = useState<{
@@ -166,6 +170,7 @@ export function PaymentsView() {
       const rawList = res?.payments || [];
       const mapped: PaymentTransaction[] = rawList.map((p: any) => {
         const rawStatus = String(p.status || "").toUpperCase();
+        const isExp = p.isExpired || rawStatus === "EXPIRED" || (rawStatus === "PENDING" && p.expiresAt && new Date() > new Date(p.expiresAt));
         let normalizedStatus: PaymentTransaction["status"] = "pending";
         if (rawStatus === "PAID" || rawStatus === "SETTLED") {
           normalizedStatus = "settled";
@@ -175,7 +180,7 @@ export function PaymentsView() {
           normalizedStatus = "cancelled";
         } else if (rawStatus === "REJECTED") {
           normalizedStatus = "rejected";
-        } else if (rawStatus === "EXPIRED") {
+        } else if (isExp) {
           normalizedStatus = "expired";
         }
 
@@ -202,6 +207,9 @@ export function PaymentsView() {
           status: normalizedStatus,
           rawStatus,
           utr: p.utrReference,
+          expiresAt: p.expiresAt,
+          isExpired: isExp,
+          remainingSeconds: p.remainingSeconds,
           createdAt: p.createdAt
             ? new Date(p.createdAt).toLocaleDateString("en-IN", {
                 day: "numeric",
@@ -286,6 +294,7 @@ export function PaymentsView() {
           purpose: linkPurpose.trim(),
           productName: linkPurpose.trim(),
           leadId: (customerMode === "crm_lead" && selectedLeadId) ? selectedLeadId : undefined,
+          expiryMinutes: linkExpiryMinutes || 30,
         });
 
         setIsCreateOpen(false);
@@ -308,6 +317,22 @@ export function PaymentsView() {
       setBanner(`Payment link copied: ${paymentUrl}`);
       setTimeout(() => setBanner(null), 3500);
     }
+  };
+
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setTick((t) => t + 1), 15000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const formatTimeRemaining = (expiresAtStr?: string) => {
+    if (!expiresAtStr) return null;
+    const diff = Math.floor((new Date(expiresAtStr).getTime() - Date.now()) / 1000);
+    if (diff <= 0) return "Expired";
+    const hrs = Math.floor(diff / 3600);
+    const mins = Math.floor((diff % 3600) / 60);
+    if (hrs > 0) return `${hrs}h ${mins}m left`;
+    return `${mins}m left`;
   };
 
   // Open Edit Modal for PENDING items
@@ -625,13 +650,20 @@ export function PaymentsView() {
                               Rejected
                             </span>
                           ) : tx.status === "expired" ? (
-                            <span className="chip">
-                              Expired
+                            <span className="chip" data-tone="danger" title={tx.expiresAt ? `Expired at ${new Date(tx.expiresAt).toLocaleTimeString()}` : "Expired"}>
+                              <Icon name="clock" size={10} /> Expired
                             </span>
                           ) : (
-                            <span className="chip" data-tone="accent">
-                              <span className="dot" style={{ background: "var(--accent)" }} /> Pending Payment
-                            </span>
+                            <div style={{ display: "flex", flexDirection: "column", gap: "3px", alignItems: "flex-start" }}>
+                              <span className="chip" data-tone="accent">
+                                <span className="dot" style={{ background: "var(--accent)" }} /> Pending Payment
+                              </span>
+                              {tx.expiresAt && (
+                                <span className="chip" data-tone="neutral" style={{ fontSize: "10px", padding: "1px 6px" }}>
+                                  <Icon name="clock" size={9} /> {formatTimeRemaining(tx.expiresAt)}
+                                </span>
+                              )}
+                            </div>
                           )}
                         </td>
                         <td>
@@ -1115,6 +1147,62 @@ export function PaymentsView() {
                     placeholder="e.g. 50% Advance Onboarding Deposit"
                     required
                   />
+                </div>
+
+                <div className="field">
+                  <label>Link Expiry Duration</label>
+                  <div className="seg" role="tablist" style={{ width: "100%", display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr" }}>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={linkExpiryMinutes === 15}
+                      data-on={linkExpiryMinutes === 15}
+                      onClick={() => setLinkExpiryMinutes(15)}
+                      style={{ fontSize: "11px", padding: "4px 0" }}
+                    >
+                      15m
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={linkExpiryMinutes === 30}
+                      data-on={linkExpiryMinutes === 30}
+                      onClick={() => setLinkExpiryMinutes(30)}
+                      style={{ fontSize: "11px", padding: "4px 0" }}
+                    >
+                      30m
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={linkExpiryMinutes === 60}
+                      data-on={linkExpiryMinutes === 60}
+                      onClick={() => setLinkExpiryMinutes(60)}
+                      style={{ fontSize: "11px", padding: "4px 0" }}
+                    >
+                      1h
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={linkExpiryMinutes === 1440}
+                      data-on={linkExpiryMinutes === 1440}
+                      onClick={() => setLinkExpiryMinutes(1440)}
+                      style={{ fontSize: "11px", padding: "4px 0" }}
+                    >
+                      24h
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={linkExpiryMinutes === 4320}
+                      data-on={linkExpiryMinutes === 4320}
+                      onClick={() => setLinkExpiryMinutes(4320)}
+                      style={{ fontSize: "11px", padding: "4px 0" }}
+                    >
+                      3d
+                    </button>
+                  </div>
                 </div>
 
                 <div className="card" style={{ padding: "10px", background: "var(--bg-soft)", fontSize: "11px", color: "var(--text-secondary)" }}>

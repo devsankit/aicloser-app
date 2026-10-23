@@ -438,6 +438,7 @@ export function ChatView() {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [activeHistoryTab, setActiveHistoryTab] = useState<"history" | "note" | "callback" | "calls">("history");
   const [leadPayment, setLeadPayment] = useState<any>(null);
+  const [leadPaymentSecondsLeft, setLeadPaymentSecondsLeft] = useState<number | null>(null);
 
   // Payment amount editing & quick-creation states
   const [isEditingPayment, setIsEditingPayment] = useState(false);
@@ -447,6 +448,7 @@ export function ChatView() {
   const [isCreatingPayment, setIsCreatingPayment] = useState(false);
   const [newPaymentAmount, setNewPaymentAmount] = useState("");
   const [newPaymentTitle, setNewPaymentTitle] = useState("CRM Setup & Consultation");
+  const [newPaymentExpiry, setNewPaymentExpiry] = useState<number>(30);
   const [creatingPayment, setCreatingPayment] = useState(false);
 
   // Copyability & clipboard feedback states
@@ -701,6 +703,47 @@ export function ChatView() {
       active = false;
     };
   }, [activeLeadProfile?.id, activeLead?.id, activeChat?.leadId]);
+
+  // Live ticking countdown for payment link expiration
+  useEffect(() => {
+    if (!leadPayment) {
+      setLeadPaymentSecondsLeft(null);
+      return;
+    }
+    const computeSecs = () => {
+      if (typeof leadPayment.remainingSeconds === "number") {
+        return leadPayment.remainingSeconds;
+      }
+      if (leadPayment.expiresAt) {
+        return Math.max(0, Math.floor((new Date(leadPayment.expiresAt).getTime() - Date.now()) / 1000));
+      }
+      return null;
+    };
+    const initial = computeSecs();
+    setLeadPaymentSecondsLeft(initial);
+    if (initial === null || initial <= 0) return;
+
+    const interval = setInterval(() => {
+      setLeadPaymentSecondsLeft((prev) => {
+        if (prev === null || prev <= 1) {
+          clearInterval(interval);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [leadPayment?.id, leadPayment?.expiresAt, leadPayment?.remainingSeconds]);
+
+  const formatTimerShort = (seconds: number | null) => {
+    if (seconds === null) return null;
+    if (seconds <= 0) return "Expired";
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    if (hrs > 0) return `${hrs}h ${mins}m`;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
 
   // Helper to find linked lead for any conversation
   const getLinkedLead = useCallback(
@@ -1992,6 +2035,7 @@ export function ChatView() {
         customerName: activeLeadProfile?.name || activeChat?.customerName || "Customer",
         customerPhone: activeLeadProfile?.phone || activeChat?.phone,
         productName: newPaymentTitle.trim() || "CRM Setup & Consultation",
+        expiryMinutes: newPaymentExpiry || 30,
       });
       const paymentObj = (created as any)?.payment || created;
       setLeadPayment(paymentObj);
@@ -3771,12 +3815,43 @@ export function ChatView() {
               </span>
               <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                 {leadPayment ? (
-                  <span
-                    className="chip"
-                    data-tone={leadPayment.status === "PAID" ? "success" : leadPayment.status === "CUSTOMER_CONFIRMED" ? "accent" : "warning"}
-                  >
-                    {leadPayment.status === "PAID" ? "Paid" : leadPayment.status === "CUSTOMER_CONFIRMED" ? "Proof Submitted" : "Pending"}
-                  </span>
+                  <>
+                    <span
+                      className="chip"
+                      data-tone={
+                        leadPayment.status === "PAID"
+                          ? "success"
+                          : leadPayment.status === "CUSTOMER_CONFIRMED"
+                          ? "accent"
+                          : (leadPayment.status === "EXPIRED" || (leadPaymentSecondsLeft !== null && leadPaymentSecondsLeft <= 0))
+                          ? "danger"
+                          : "warning"
+                      }
+                    >
+                      {leadPayment.status === "PAID"
+                        ? "Paid"
+                        : leadPayment.status === "CUSTOMER_CONFIRMED"
+                        ? "Proof Submitted"
+                        : (leadPayment.status === "EXPIRED" || (leadPaymentSecondsLeft !== null && leadPaymentSecondsLeft <= 0))
+                        ? "Expired"
+                        : "Active"}
+                    </span>
+                    {leadPayment.status !== "PAID" && (
+                      <span
+                        className="chip"
+                        data-tone={
+                          (leadPayment.status === "EXPIRED" || (leadPaymentSecondsLeft !== null && leadPaymentSecondsLeft <= 0))
+                            ? "danger"
+                            : "accent"
+                        }
+                        style={{ fontSize: "10px", padding: "1px 6px" }}
+                        title={leadPayment.expiresAt ? `Expires: ${new Date(leadPayment.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : undefined}
+                      >
+                        <Icon name="clock" size={10} />
+                        {formatTimerShort(leadPaymentSecondsLeft)}
+                      </span>
+                    )}
+                  </>
                 ) : (
                   <span className="chip" data-tone="neutral">
                     Unbilled
@@ -3946,6 +4021,51 @@ export function ChatView() {
                     style={{ height: "28px", fontSize: "12px" }}
                   />
                 </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                  <label style={{ fontSize: "10px", color: "var(--text-tertiary)" }}>Link Validity / Expiry</label>
+                  <div className="seg" role="tablist" style={{ width: "100%", display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={newPaymentExpiry === 15}
+                      data-on={newPaymentExpiry === 15}
+                      onClick={() => setNewPaymentExpiry(15)}
+                      style={{ fontSize: "10.5px", padding: "3px 0" }}
+                    >
+                      15m
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={newPaymentExpiry === 30}
+                      data-on={newPaymentExpiry === 30}
+                      onClick={() => setNewPaymentExpiry(30)}
+                      style={{ fontSize: "10.5px", padding: "3px 0" }}
+                    >
+                      30m
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={newPaymentExpiry === 60}
+                      data-on={newPaymentExpiry === 60}
+                      onClick={() => setNewPaymentExpiry(60)}
+                      style={{ fontSize: "10.5px", padding: "3px 0" }}
+                    >
+                      1h
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={newPaymentExpiry === 1440}
+                      data-on={newPaymentExpiry === 1440}
+                      onClick={() => setNewPaymentExpiry(1440)}
+                      style={{ fontSize: "10.5px", padding: "3px 0" }}
+                    >
+                      24h
+                    </button>
+                  </div>
+                </div>
                 <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end", marginTop: "2px" }}>
                   <button
                     className="btn"
@@ -3978,8 +4098,17 @@ export function ChatView() {
               data-variant="accent"
               onClick={() => {
                 if (leadPayment?.publicToken) {
+                  const isExp = leadPayment.status === "EXPIRED" || (leadPaymentSecondsLeft !== null && leadPaymentSecondsLeft <= 0);
+                  if (isExp) {
+                    showToast("This payment link has expired. Please generate a new link before sending.");
+                    setIsCreatingPayment(true);
+                    return;
+                  }
                   const payUrl = `${window.location.origin}/pay/${leadPayment.publicToken}`;
-                  handleApplyMacro(`Here is your custom payment link for ₹${Number(leadPayment.totalAmount || leadPayment.baseAmount || 0).toLocaleString("en-IN")}: ${payUrl}`);
+                  const expiryNote = leadPaymentSecondsLeft !== null && leadPaymentSecondsLeft > 0
+                    ? ` (Valid for next ${formatTimerShort(leadPaymentSecondsLeft)})`
+                    : "";
+                  handleApplyMacro(`Here is your custom payment link for ₹${Number(leadPayment.totalAmount || leadPayment.baseAmount || 0).toLocaleString("en-IN")}: ${payUrl}${expiryNote}`);
                 } else {
                   const qs = new URLSearchParams({
                     customerName: activeLeadProfile.name || "",
