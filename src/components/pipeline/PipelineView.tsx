@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { aicloserApi } from "@/lib/api-client";
 import { isScannedWhatsAppLead } from "@/lib/lead-mapper";
@@ -191,13 +191,52 @@ export function PipelineView() {
 
   const initialStage = STAGES[0];
   const initialStageId = initialStage?.id || "new";
-  const initialStageLabel = initialStage?.label || "New Leads";
-  const myInitialStageCount = state.leads.filter(
-    (l) => (l.owner === closerName || (!isAdmin && state.scope === "all")) && l.stage === initialStageId
-  ).length;
-  const myCap = (state.user as any)?.maxActiveLeads || poolCapacity || 25;
-  const isAtQuota = !isAdmin && myInitialStageCount >= myCap;
-  const availableSlots = Math.max(0, myCap - myInitialStageCount);
+
+  const isMyLead = useCallback(
+    (l: Lead) => {
+      if (isAdmin) return true;
+      if (l.owner && closerName && l.owner.trim().toLowerCase() === closerName.trim().toLowerCase()) return true;
+      if (
+        l.assignedAgentId &&
+        (l.assignedAgentId === (state.user as any)?.agentProfileId || l.assignedAgentId === state.user?.id)
+      ) {
+        return true;
+      }
+      return false;
+    },
+    [isAdmin, closerName, state.user]
+  );
+
+  // Local calculation as fallback if backend quota is not yet loaded
+  const localInitialStageCount = useMemo(() => {
+    return state.leads.filter((l) => isMyLead(l) && l.stage === initialStageId).length;
+  }, [state.leads, isMyLead, initialStageId]);
+
+  // Single Source of Truth from backend
+  const backendQuota = state.poolQuota;
+  const initialStageCount =
+    !isAdmin && backendQuota && typeof backendQuota.initialStageCount === "number"
+      ? backendQuota.initialStageCount
+      : localInitialStageCount;
+
+  const myCap =
+    backendQuota && typeof backendQuota.grabCapacity === "number"
+      ? backendQuota.grabCapacity
+      : (state.user as any)?.maxActiveLeads || poolCapacity || 25;
+
+  const isAtQuota =
+    !isAdmin &&
+    (backendQuota && typeof backendQuota.isAtQuota === "boolean"
+      ? backendQuota.isAtQuota
+      : initialStageCount >= myCap);
+
+  const availableSlots =
+    backendQuota && typeof backendQuota.availableSlots === "number"
+      ? backendQuota.availableSlots
+      : Math.max(0, myCap - initialStageCount);
+
+  const initialStageLabel =
+    backendQuota?.initialStageLabel || initialStage?.label || "New Leads";
   const [isDistributing, setIsDistributing] = useState(false);
   const [poolLimit, setPoolLimit] = useState<number>(10);
   const [activeClosers, setActiveClosers] = useState<Array<{ id: string; name: string; role?: string }>>([]);
@@ -458,7 +497,7 @@ export function PipelineView() {
           id: item.id,
           status: isQuota ? "quota_limit" : "already_claimed",
           message: isQuota
-            ? ` Quota Limit: You already hold ${myInitialStageCount}/${myCap} leads in ${initialStageLabel}. Advance existing leads before grabbing more.`
+            ? ` Quota Limit: You already hold ${initialStageCount}/${myCap} leads in ${initialStageLabel}. Advance existing leads before grabbing more.`
             : `Lead was just grabbed by another closer!`,
         });
         setTimeout(() => setClaimFeedback(null), 4500);
@@ -759,7 +798,7 @@ export function PipelineView() {
               </span>
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <div className="pool-banner-actions">
               {isAdmin ? (
                 <button
                   type="button"
@@ -773,9 +812,9 @@ export function PipelineView() {
                   {isDistributing ? "Distributing..." : "Auto-Distribute (Round-Robin)"}
                 </button>
               ) : (
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <span className="hint" style={{ fontSize: "12px" }}>
-                    Capacity: <strong style={{ color: "var(--text)" }}>{myInitialStageCount}</strong> / {myCap} in {initialStageLabel}
+                <div className="pool-capacity-wrap">
+                  <span className="hint">
+                    Capacity: <strong>{initialStageCount}</strong> / {myCap} in {initialStageLabel}
                   </span>
                   <span className="chip" data-tone={isAtQuota ? "danger" : "success"} data-size="sm">
                     {isAtQuota ? "Quota Full" : `${availableSlots} slots left`}
@@ -835,7 +874,6 @@ export function PipelineView() {
                 setShowMissedModal(true);
                 void fetchMissedAndBreak();
               }}
-              style={{ cursor: "pointer" }}
             >
               Missed: {missedCount} leads
             </button>

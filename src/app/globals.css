@@ -5202,6 +5202,18 @@ button.list-prio:hover {
   line-height: 1.5;
 }
 
+.pool-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pool-capacity-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 /* Pool Quota Card Elements */
 .pool-quota-header {
   display: flex;

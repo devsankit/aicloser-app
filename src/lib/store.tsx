@@ -34,6 +34,14 @@ interface Persisted {
   drawerWidth: number;
 }
 
+export interface PoolQuotaInfo {
+  initialStageCount: number | null;
+  grabCapacity: number | null;
+  availableSlots: number | null;
+  isAtQuota: boolean | null;
+  initialStageLabel: string;
+}
+
 interface AppState extends Persisted {
   sidebarCollapsed: boolean;
   scope: Scope;
@@ -52,6 +60,7 @@ interface AppState extends Persisted {
   poolLeads: LeadPoolItem[];
   poolCount: number;
   isPoolLoading: boolean;
+  poolQuota: PoolQuotaInfo | null;
   /** Global AI Bot master toggle across all channels */
   globalAiBotEnabled: boolean;
   isTogglingAiBot: boolean;
@@ -346,6 +355,7 @@ const initialState: AppState = {
   poolLeads: [],
   poolCount: 0,
   isPoolLoading: false,
+  poolQuota: null,
   globalAiBotEnabled: true,
   isTogglingAiBot: false,
   teamMembers: [],
@@ -495,13 +505,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
           window.localStorage.removeItem("aicloser_impersonating_name");
           document.cookie = "gx_tenant=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
         }
-        const [{ leads: apiLeads }, poolItems, teamData] = await Promise.all([
+        const [{ leads: apiLeads }, poolRes, teamData] = await Promise.all([
           aicloserApi.leads.list({ limit: 1000 }).catch(() => ({ leads: [] })),
-          aicloserApi.leads.getPool().catch(() => []),
+          aicloserApi.leads.getPool().catch(() => ({
+            items: [],
+            initialStageCount: null,
+            grabCapacity: null,
+            availableSlots: null,
+            isAtQuota: null,
+            initialStageLabel: "New Lead",
+          })),
           aicloserApi.team.listMembers().catch(() => []),
         ]);
-        const poolList = Array.isArray(poolItems) ? poolItems : [];
-        const poolCount = Array.isArray(poolItems) ? poolItems.length : 0;
+        const poolList = Array.isArray(poolRes) ? poolRes : ((poolRes as any)?.items || []);
+        const poolCount = poolList.length;
+        const poolQuota: PoolQuotaInfo | null =
+          poolRes && typeof (poolRes as any).grabCapacity === "number"
+            ? {
+                initialStageCount: (poolRes as any).initialStageCount,
+                grabCapacity: (poolRes as any).grabCapacity,
+                availableSlots: (poolRes as any).availableSlots,
+                isAtQuota: (poolRes as any).isAtQuota,
+                initialStageLabel: (poolRes as any).initialStageLabel || "New Lead",
+              }
+            : null;
         const rawTeam = Array.isArray(teamData)
           ? teamData
           : Array.isArray((teamData as any)?.members)
@@ -531,6 +558,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           leads: mapped,
           poolLeads: poolList,
           poolCount,
+          poolQuota,
           teamMembers: teamMembers.length > 0 ? teamMembers : p.teamMembers,
           theme: userTheme || p.theme,
           apiConnected: true,
@@ -651,9 +679,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return l;
       });
 
+      // Update poolQuota dynamically if lead moves into or out of initial stage
+      const initialStageId = (STAGES[0]?.id || "new") as StageId;
+      let nextQuota = prev.poolQuota;
+      if (prev.poolQuota && currentLead.stage !== stage) {
+        let count = prev.poolQuota.initialStageCount ?? 0;
+        const cap = prev.poolQuota.grabCapacity ?? 25;
+        if (currentLead.stage === initialStageId && stage !== initialStageId) {
+          // Moved OUT of initial stage -> slot liberated immediately!
+          count = Math.max(0, count - 1);
+          const slots = Math.max(0, cap - count);
+          nextQuota = {
+            ...prev.poolQuota,
+            initialStageCount: count,
+            availableSlots: slots,
+            isAtQuota: count >= cap,
+          };
+        } else if (currentLead.stage !== initialStageId && stage === initialStageId) {
+          // Moved INTO initial stage -> slot taken
+          count = count + 1;
+          const slots = Math.max(0, cap - count);
+          nextQuota = {
+            ...prev.poolQuota,
+            initialStageCount: count,
+            availableSlots: slots,
+            isAtQuota: count >= cap,
+          };
+        }
+      }
+
       return {
         ...prev,
         leads: newLeads,
+        poolQuota: nextQuota,
       };
     });
 
@@ -755,15 +813,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const fetchPoolLeads = useCallback(async (params?: { maxVisibleToCloser?: number }): Promise<LeadPoolItem[]> => {
     setState((prev) => ({ ...prev, isPoolLoading: true }));
     try {
-      const items = await aicloserApi.leads.getPool(params);
-      const list = Array.isArray(items) ? items : [];
+      const res = await aicloserApi.leads.getPool(params);
+      const items = Array.isArray(res) ? res : (res?.items || []);
+      const poolQuota: PoolQuotaInfo | null =
+        res && typeof (res as any).grabCapacity === "number"
+          ? {
+              initialStageCount: (res as any).initialStageCount,
+              grabCapacity: (res as any).grabCapacity,
+              availableSlots: (res as any).availableSlots,
+              isAtQuota: (res as any).isAtQuota,
+              initialStageLabel: (res as any).initialStageLabel || "New Lead",
+            }
+          : null;
       setState((prev) => ({
         ...prev,
-        poolLeads: list,
-        poolCount: list.length,
+        poolLeads: items,
+        poolCount: items.length,
+        poolQuota: poolQuota || prev.poolQuota,
         isPoolLoading: false,
       }));
-      return list;
+      return items;
     } catch {
       setState((prev) => ({ ...prev, isPoolLoading: false }));
       return [];
@@ -825,12 +894,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
             };
           }
 
-          setState((prev) => ({
-            ...prev,
-            leads: [newLead, ...prev.leads.filter((l) => l.id !== newLead.id)],
-          }));
+          setState((prev) => {
+            let nextQuota = prev.poolQuota;
+            if (prev.poolQuota) {
+              const cap = prev.poolQuota.grabCapacity ?? 25;
+              const count = (prev.poolQuota.initialStageCount ?? 0) + 1;
+              const slots = Math.max(0, cap - count);
+              nextQuota = {
+                ...prev.poolQuota,
+                initialStageCount: count,
+                availableSlots: slots,
+                isAtQuota: count >= cap,
+              };
+            }
+            return {
+              ...prev,
+              leads: [newLead, ...prev.leads.filter((l) => l.id !== newLead.id)],
+              poolQuota: nextQuota,
+            };
+          });
 
           refreshLeads().catch(() => {});
+          fetchPoolLeads().catch(() => {});
           return { success: true, message: "Lead grabbed successfully!", lead: newLead };
         } else {
           fetchPoolLeads().catch(() => {});

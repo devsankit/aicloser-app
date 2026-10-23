@@ -495,6 +495,7 @@ async function request<T>(
   }
 
   return {
+    ...json,
     data: json.data as T,
     pagination: json.pagination,
   };
@@ -503,7 +504,7 @@ async function request<T>(
 async function requestConversation<T>(
   path: string,
   options: RequestInit = {},
-): Promise<{ data: T; pagination?: ApiResponse<T>['pagination'] }> {
+): Promise<{ data: T; pagination?: ApiResponse<T>['pagination']; [key: string]: any }> {
   const useSameOriginProxy = typeof window !== 'undefined';
   if (!useSameOriginProxy) {
     return request<T>(path, options);
@@ -539,7 +540,11 @@ async function requestConversation<T>(
     error.status = response.status;
     throw error;
   }
-  return { data: (json?.data !== undefined ? json.data : json) as T, pagination: json?.pagination };
+  return {
+    ...json,
+    data: (json?.data !== undefined ? json.data : json) as T,
+    pagination: json?.pagination,
+  };
 }
 
 // ==========================================
@@ -806,8 +811,15 @@ export const aicloserApi = {
 
     async getPool(params?: { maxVisibleToCloser?: number }) {
       const qs = params?.maxVisibleToCloser ? `?maxVisibleToCloser=${encodeURIComponent(params.maxVisibleToCloser)}` : '';
-      const res = await requestConversation<LeadPoolItem[]>(`/leads/pool${qs}`);
-      return res.data;
+      const res = await requestConversation<any>(`/leads/pool${qs}`);
+      return {
+        items: (Array.isArray(res?.data) ? res.data : []) as LeadPoolItem[],
+        initialStageCount: typeof res?.initialStageCount === 'number' ? res.initialStageCount : null,
+        grabCapacity: typeof res?.grabCapacity === 'number' ? res.grabCapacity : null,
+        availableSlots: typeof res?.availableSlots === 'number' ? res.availableSlots : null,
+        isAtQuota: typeof res?.isAtQuota === 'boolean' ? res.isAtQuota : null,
+        initialStageLabel: res?.initialStageLabel || 'New Lead',
+      };
     },
 
     async autoDistributePool() {
