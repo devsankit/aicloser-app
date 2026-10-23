@@ -57,10 +57,11 @@ function formatDateTime(dateStr?: string | null) {
   }
 }
 
-function formatDuration(seconds?: number) {
-  if (!seconds || seconds <= 0) return "0s";
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
+function formatDuration(seconds?: number | string) {
+  const sec = Number(seconds || 0);
+  if (!sec || sec <= 0 || isNaN(sec)) return "0s";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
@@ -222,26 +223,29 @@ export function LeadCommandHistory({
     const seenSignatures = new Set<string>();
 
     const tryAddEvent = (entry: UnifiedEvent) => {
+      if (!entry || !entry.id) return false;
       if (seenIds.has(entry.id)) return false;
 
-      const timeMs = new Date(entry.createdAt).getTime() || 0;
+      const timeMs = entry.createdAt ? new Date(entry.createdAt).getTime() || 0 : 0;
       const minuteBucket = Math.floor(timeMs / 60000);
-      const cleanTitle = (entry.title || "").trim().toLowerCase();
-      const cleanBody = (entry.body || "").trim().toLowerCase().slice(0, 50);
+      const cleanTitle = String(entry.title || "").trim().toLowerCase();
+      const rawBody = typeof entry.body === "string" ? entry.body : (typeof entry.body === "object" && entry.body !== null ? JSON.stringify(entry.body) : String(entry.body || ""));
+      const cleanBody = rawBody.trim().toLowerCase().slice(0, 50);
       const signature = `${entry.kind}:${cleanTitle}:${cleanBody}:${minuteBucket}`;
 
       if (seenSignatures.has(signature)) return false;
 
       seenIds.add(entry.id);
       seenSignatures.add(signature);
-      list.push(entry);
+      list.push({ ...entry, body: rawBody });
       return true;
     };
 
     // 1. Process History Entries
-    rawHistory.forEach((h) => {
-      const id = `h-${h.id}`;
-      const k = (h.kind || "").toUpperCase();
+    (rawHistory || []).forEach((h) => {
+      if (!h) return;
+      const id = `h-${h.id || Math.random()}`;
+      const k = String(h.kind || "").toUpperCase();
       let kind: UnifiedEvent["kind"] = "SYSTEM";
       if (k.includes("NOTE")) kind = "NOTE";
       else if (k.includes("FOLLOW") || k.includes("CALLBACK")) kind = "CALLBACK";
@@ -254,62 +258,66 @@ export function LeadCommandHistory({
       tryAddEvent({
         id,
         kind,
-        title: h.title || "Activity logged",
-        body: h.body,
-        createdAt: h.createdAt,
+        title: typeof h.title === "string" ? h.title : (h.title ? JSON.stringify(h.title) : "Activity logged"),
+        body: typeof h.body === "string" ? h.body : (h.body ? JSON.stringify(h.body) : undefined),
+        createdAt: h.createdAt || new Date().toISOString(),
         dueAt: h.dueAt,
         status: h.status,
-        actorName: h.actorName,
+        actorName: typeof h.actorName === "string" ? h.actorName : (typeof (h as any).author === "string" ? (h as any).author : null),
       });
     });
 
     // 2. Process Notes (only if not already present in history)
-    rawNotes.forEach((n) => {
-      const existsInHistory = rawHistory.some((h) => h.id === n.id || (h as any).noteId === n.id);
+    (rawNotes || []).forEach((n) => {
+      if (!n) return;
+      const existsInHistory = (rawHistory || []).some((h) => h?.id === n.id || (h as any)?.noteId === n.id);
       if (existsInHistory) return;
 
+      const actorName = typeof n.author === "string" ? n.author : (n.author?.name || (n as any).authorName || "Closer");
       tryAddEvent({
-        id: `n-${n.id}`,
+        id: `n-${n.id || Math.random()}`,
         kind: "NOTE",
         title: "Internal Note",
-        body: n.body,
-        createdAt: n.createdAt,
-        actorName: n.author?.name || "Closer",
+        body: typeof n.body === "string" ? n.body : (typeof (n as any).note === "string" ? (n as any).note : (n.body ? JSON.stringify(n.body) : "")),
+        createdAt: n.createdAt || new Date().toISOString(),
+        actorName,
       });
     });
 
     // 3. Process Calls (only if not already present in history)
-    rawCalls.forEach((c) => {
-      const existsInHistory = rawHistory.some((h) => h.id === c.id || (h as any).callId === c.id);
+    (rawCalls || []).forEach((c) => {
+      if (!c) return;
+      const existsInHistory = (rawHistory || []).some((h) => h?.id === c.id || (h as any)?.callId === c.id);
       if (existsInHistory) return;
 
       const isOutbound = c.direction === "OUTBOUND";
       const recUrl = c.recordingUrl || (c as any).audioUrl || (c as any).url || null;
       tryAddEvent({
-        id: `c-${c.id}`,
+        id: `c-${c.id || Math.random()}`,
         kind: "CALL",
         title: `${isOutbound ? "Outbound" : "Inbound"} Call (${formatDuration(c.durationSeconds)})`,
-        body: c.note || c.outcome || (c.hasRecording ? "Recording saved" : undefined),
+        body: typeof c.note === "string" ? c.note : (typeof c.outcome === "string" ? c.outcome : (c.hasRecording ? "Recording saved" : undefined)),
         createdAt: c.endedAt || (c as any).createdAt || new Date().toISOString(),
         actorName: c.agent?.user?.displayName || c.agent?.agentCode || "Agent",
         recordingUrl: recUrl,
-        durationSeconds: c.durationSeconds,
+        durationSeconds: Number(c.durationSeconds || 0),
         status: c.status,
       });
     });
 
     // 4. Process Payments
-    rawPayments.forEach((p) => {
-      const existsInHistory = rawHistory.some((h) => h.id === p.id || (h as any).paymentId === p.id);
+    (rawPayments || []).forEach((p) => {
+      if (!p) return;
+      const existsInHistory = (rawHistory || []).some((h) => h?.id === p.id || (h as any)?.paymentId === p.id);
       if (existsInHistory) return;
 
       tryAddEvent({
-        id: `p-${p.id}`,
+        id: `p-${p.id || Math.random()}`,
         kind: "PAYMENT",
         title: `Payment ${p.status || "Record"}`,
         body: p.utrReference ? `UTR: ${p.utrReference}` : undefined,
         createdAt: p.createdAt || new Date().toISOString(),
-        amount: p.totalAmount || p.amount,
+        amount: Number(p.totalAmount || p.amount || 0),
         currency: p.currency || "INR",
         status: p.status,
       });
@@ -321,7 +329,7 @@ export function LeadCommandHistory({
         id: "init-note",
         kind: "NOTE",
         title: "Initial Note",
-        body: initialNotes,
+        body: typeof initialNotes === "string" ? initialNotes : JSON.stringify(initialNotes),
         createdAt: new Date().toISOString(),
         actorName: CURRENT_USER,
       });
@@ -568,13 +576,13 @@ export function LeadCommandHistory({
                       )}
                       {evt.amount !== undefined && evt.amount !== null && (
                         <span className="chip" data-tone="success" style={{ fontSize: "10px", padding: "0 5px", height: "16px", fontWeight: 700 }}>
-                          ₹{evt.amount.toLocaleString("en-IN")}
+                          ₹{Number(evt.amount || 0).toLocaleString("en-IN")}
                         </span>
                       )}
                     </div>
                     {evt.body && (
                       <div className="activity-sub" style={{ fontSize: "11px", color: "var(--text)", whiteSpace: "pre-wrap", marginTop: "2px" }}>
-                        {evt.body}
+                        {typeof evt.body === "string" ? evt.body : JSON.stringify(evt.body)}
                       </div>
                     )}
                     {evt.dueAt && (

@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo, useCallback } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { ResizeHandle } from "@/components/ui/ResizeHandle";
 import { LeadCommandHistory } from "./LeadCommandHistory";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { LIMITS, maskPhone, money, relativeTime, slaLabel, useApp } from "@/lib/store";
 import { aicloserApi } from "@/lib/api-client";
 import {
@@ -30,7 +31,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
   ).toUpperCase();
   const isAdmin = userRole === "ADMIN" || userRole === "SUPER_ADMIN" || userRole === "MANAGER";
   const [draft, setDraft] = useState(lead);
-  const [rawTagsInput, setRawTagsInput] = useState(lead.tags.join(", "));
+  const [rawTagsInput, setRawTagsInput] = useState((lead.tags || []).join(", "));
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -148,7 +149,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
   };
 
   const removeTag = (tagToRemove: string) => {
-    const nextTags = draft.tags.filter((t) => t !== tagToRemove);
+    const nextTags = (draft.tags || []).filter((t) => t !== tagToRemove);
     setDraft((d) => ({ ...d, tags: nextTags }));
     setRawTagsInput(nextTags.join(", "));
     updateLead(lead.id, { tags: nextTags });
@@ -156,21 +157,21 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
 
   useEffect(() => {
     setDraft(lead);
-    setRawTagsInput(lead.tags.join(", "));
+    setRawTagsInput((lead.tags || []).join(", "));
     setConfirmDelete(false);
     setSaved(false);
   }, [lead]);
 
   const save = () => {
     updateLead(lead.id, {
-      name: draft.name.trim() || lead.name,
-      company: draft.company.trim(),
-      phone: draft.phone.trim(),
-      email: draft.email.trim(),
+      name: draft.name?.trim() || lead.name,
+      company: (draft.company || "").trim(),
+      phone: (draft.phone || "").trim(),
+      email: (draft.email || "").trim(),
       value: Number.isFinite(draft.value) ? draft.value : lead.value,
       owner: draft.owner,
-      notes: draft.notes,
-      tags: draft.tags,
+      notes: typeof draft.notes === "string" ? draft.notes : JSON.stringify(draft.notes || ""),
+      tags: draft.tags || [],
       source: draft.source,
       segment: draft.segment,
       priority: draft.priority,
@@ -223,7 +224,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
     draft.notes !== lead.notes ||
     draft.priority !== lead.priority ||
     draft.followUp !== lead.followUp ||
-    draft.tags.join(",") !== lead.tags.join(",");
+    (draft.tags || []).join(",") !== (lead.tags || []).join(",");
 
   const meta = stageMeta(draft.stage);
   const dateValue = (() => {
@@ -303,13 +304,13 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
             <span className="stage-icon-badge" data-tone={meta.tone}><Icon name={meta.icon} size={16} /></span>
             <input
               className="drawer-title-input"
-              value={draft.name}
+              value={draft.name || ""}
               onChange={(e) => set("name", e.target.value)}
               aria-label="Lead name"
             />
             <input
               className="drawer-sub-input"
-              value={draft.company}
+              value={draft.company || ""}
               onChange={(e) => set("company", e.target.value)}
               aria-label="Company"
               placeholder="Company"
@@ -427,11 +428,11 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
 
             <div className="field-row">
               <span className="field-label">
-                <Icon name={PRIORITY_ICON[draft.priority] as never} size={14} /> Priority
+                <Icon name={(PRIORITY_ICON[(draft.priority || "medium").toLowerCase() as Priority] || "priority-medium") as never} size={14} /> Priority
               </span>
               <select
                 className="select"
-                value={draft.priority}
+                value={(draft.priority || "medium").toLowerCase()}
                 onChange={(e) => set("priority", e.target.value as Priority)}
                 aria-label="Priority"
               >
@@ -532,8 +533,8 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                 <Icon name="tag" size={14} /> Labels
               </span>
               <div className="chip-row" style={{ flexWrap: "wrap", gap: "6px" }}>
-                {draft.tags.map((tag) => {
-                  const match = workspaceLabels.find((l) => l.name.toLowerCase() === tag.toLowerCase());
+                {(draft.tags || []).map((tag) => {
+                  const match = workspaceLabels.find((l) => (l?.name || "").toLowerCase() === String(tag || "").toLowerCase());
                   const dotColor = match?.color || "var(--accent)";
                   return (
                     <span key={tag} className="chip" style={{ display: "inline-flex", alignItems: "center", gap: "5px", padding: "2px 8px" }}>
@@ -658,7 +659,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
               <input
                 className="input"
                 type="email"
-                value={draft.email}
+                value={draft.email || ""}
                 onChange={(e) => set("email", e.target.value)}
                 aria-label="Email"
               />
@@ -672,7 +673,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                 <input
                   className="input"
                   inputMode="tel"
-                  value={isAdmin ? draft.phone : maskPhone(draft.phone, true)}
+                  value={isAdmin ? (draft.phone || "") : maskPhone(draft.phone || "", true)}
                   onChange={(e) => {
                     if (isAdmin) set("phone", e.target.value);
                   }}
@@ -685,21 +686,24 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
           </div>
 
           {/* Unified Command History, Notes & Callbacks */}
-          <LeadCommandHistory
-            leadId={lead.id}
-            customerName={draft.name}
-            customerPhone={draft.phone}
-            currentFollowUpAt={draft.followUp}
-            initialNotes={draft.notes}
-            onFollowUpSaved={(iso) => {
-              set("followUp", iso);
-              updateLead(lead.id, { followUp: iso });
-            }}
-            onNoteSaved={(newNote) => {
-              const updated = draft.notes ? `${draft.notes}\n\n${newNote}` : newNote;
-              set("notes", updated);
-            }}
-          />
+          <ErrorBoundary fallbackTitle="Activity & Notes history temporarily unavailable">
+            <LeadCommandHistory
+              leadId={lead.id}
+              customerName={draft.name}
+              customerPhone={draft.phone}
+              currentFollowUpAt={draft.followUp}
+              initialNotes={typeof draft.notes === "string" ? draft.notes : (draft.notes ? JSON.stringify(draft.notes) : "")}
+              onFollowUpSaved={(iso) => {
+                set("followUp", iso);
+                updateLead(lead.id, { followUp: iso });
+              }}
+              onNoteSaved={(newNote) => {
+                const currentNotesStr = typeof draft.notes === "string" ? draft.notes : (draft.notes ? JSON.stringify(draft.notes) : "");
+                const updated = currentNotesStr ? `${currentNotesStr}\n\n${newNote}` : newNote;
+                set("notes", updated);
+              }}
+            />
+          </ErrorBoundary>
 
           <p className="hint">
             Last updated {relativeTime(lead.updatedAt)}

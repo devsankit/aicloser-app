@@ -91,8 +91,8 @@ export function backendLeadToUiLead(b: BackendLead): UiLead {
     priority: normalizePriority(b.priority),
     owner: (b as any).assignedAgent?.user?.displayName || b.assignedAgent?.displayName || "Unassigned",
     followUp: b.followUpAt || "",
-    tags: Array.isArray(b.tags) ? b.tags : [],
-    notes: b.notes || (custom.notes as string) || "",
+    tags: Array.isArray(b.tags) ? b.tags : (typeof b.tags === "string" && (b.tags as string).trim() ? [(b.tags as string).trim()] : []),
+    notes: typeof b.notes === "string" ? b.notes : (typeof custom.notes === "string" ? custom.notes : (custom.notes ? JSON.stringify(custom.notes) : "")),
     updatedAt: b.updatedAt || b.createdAt || new Date().toISOString(),
   };
 }

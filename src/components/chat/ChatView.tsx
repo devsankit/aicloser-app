@@ -7,6 +7,7 @@ import { STAGES, type StageId, type Priority } from "@/lib/types";
 import { aicloserApi } from "@/lib/api-client";
 import { isScannedWhatsAppLead } from "@/lib/lead-mapper";
 import { LeadCommandHistory } from "@/components/pipeline/LeadCommandHistory";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { renderDeterministicQrSvg } from "@/components/sales/contacts-hub";
 import { ResizeHandle } from "@/components/ui/ResizeHandle";
 
@@ -2969,27 +2970,30 @@ export function ChatView() {
           </div>
 
           {/* Unified Lead Command History, Notes, Callbacks & Call Recordings */}
-          <LeadCommandHistory
-            leadId={activeLead?.id || activeChat?.leadId || ""}
-            conversationId={activeChat?.id}
-            customerName={activeLeadProfile.name}
-            customerPhone={activeChat?.phone}
-            currentFollowUpAt={activeLead?.followUp}
-            initialNotes={activeLead?.notes}
-            activeTab={activeHistoryTab}
-            onTabChange={setActiveHistoryTab}
-            onFollowUpSaved={(iso) => {
-              if (activeLead) {
-                updateLead(activeLead.id, { followUp: iso });
-              }
-            }}
-            onNoteSaved={(newNote) => {
-              if (activeLead) {
-                const updated = activeLead.notes ? `${activeLead.notes}\n\n${newNote}` : newNote;
-                updateLead(activeLead.id, { notes: updated });
-              }
-            }}
-          />
+          <ErrorBoundary fallbackTitle="Activity & Notes history temporarily unavailable">
+            <LeadCommandHistory
+              leadId={activeLead?.id || activeChat?.leadId || ""}
+              conversationId={activeChat?.id}
+              customerName={activeLeadProfile.name}
+              customerPhone={activeChat?.phone}
+              currentFollowUpAt={activeLead?.followUp}
+              initialNotes={typeof activeLead?.notes === "string" ? activeLead.notes : (activeLead?.notes ? JSON.stringify(activeLead.notes) : "")}
+              activeTab={activeHistoryTab}
+              onTabChange={setActiveHistoryTab}
+              onFollowUpSaved={(iso) => {
+                if (activeLead) {
+                  updateLead(activeLead.id, { followUp: iso });
+                }
+              }}
+              onNoteSaved={(newNote) => {
+                if (activeLead) {
+                  const currentNotesStr = typeof activeLead.notes === "string" ? activeLead.notes : (activeLead.notes ? JSON.stringify(activeLead.notes) : "");
+                  const updated = currentNotesStr ? `${currentNotesStr}\n\n${newNote}` : newNote;
+                  updateLead(activeLead.id, { notes: updated });
+                }
+              }}
+            />
+          </ErrorBoundary>
         </aside>
       )}
 

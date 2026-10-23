@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { aicloserApi } from "@/lib/api-client";
 import { Icon, type IconName } from "@/components/ui/Icon";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { LeadDrawer } from "@/components/pipeline/LeadDrawer";
 import { AddLeadDialog } from "@/components/pipeline/AddLeadDialog";
 import { compactMoney, money, relativeTime, useApp, useScopedLeads } from "@/lib/store";
@@ -328,7 +329,7 @@ export function ContactsView() {
         (l.email || "").toLowerCase().includes(q) ||
         phoneMatches ||
         (l.owner || "").toLowerCase().includes(q) ||
-        ((l.notes || "").toLowerCase().includes(q))
+        (String(l.notes || "").toLowerCase().includes(q))
       );
     });
     return filtered.sort((a, b) => {
@@ -894,9 +895,11 @@ export function ContactsView() {
                     {isColVisible("notes") && (
                       <td>
                         {lead.notes ? (
-                          <div className="contact-note-cell" title={lead.notes}>
+                          <div className="contact-note-cell" title={typeof lead.notes === "string" ? lead.notes : JSON.stringify(lead.notes)}>
                             <Icon name="message" size={12} className="note-icon" />
-                            <span className="note-text">{lead.notes}</span>
+                            <span className="note-text">
+                              {typeof lead.notes === "string" ? lead.notes : JSON.stringify(lead.notes)}
+                            </span>
                           </div>
                         ) : (
                           <span className="cell-muted">—</span>
@@ -1175,7 +1178,11 @@ export function ContactsView() {
       )}
 
       {/* Full Lead Details Drawer */}
-      {active ? <LeadDrawer lead={active} onClose={() => setSelected(null)} /> : null}
+      {active ? (
+        <ErrorBoundary fallbackTitle="Could not load lead drawer" onReset={() => setSelected(null)}>
+          <LeadDrawer lead={active} onClose={() => setSelected(null)} />
+        </ErrorBoundary>
+      ) : null}
 
       {/* Add Lead Dialog */}
       {showAddLead ? <AddLeadDialog defaultStage="new" onClose={() => setShowAddLead(false)} /> : null}

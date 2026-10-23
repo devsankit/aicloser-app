@@ -21,6 +21,7 @@ import {
   type Source,
   type StageId,
 } from "@/lib/types";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { LeadDrawer } from "./LeadDrawer";
 import { AddLeadDialog } from "./AddLeadDialog";
 
@@ -1504,7 +1505,11 @@ export function PipelineView() {
         </>
       )}
 
-      {active ? <LeadDrawer lead={active} onClose={() => setSelected(null)} /> : null}
+      {active ? (
+        <ErrorBoundary fallbackTitle="Could not load lead drawer" onReset={() => setSelected(null)}>
+          <LeadDrawer lead={active} onClose={() => setSelected(null)} />
+        </ErrorBoundary>
+      ) : null}
       {addStage ? <AddLeadDialog defaultStage={addStage} onClose={() => setAddStage(null)} /> : null}
     </div>
   );
