@@ -5,6 +5,6 @@ import { requirePageRole } from "@/lib/auth/page-guard";
 export const metadata: Metadata = { title: "Team & Users" };
 
 export default async function TeamPage() {
-  await requirePageRole(["ADMIN", "MANAGER"], "/team");
+  await requirePageRole(["ADMIN", "MANAGER", "SUPER_ADMIN"], "/team");
   return <TeamView />;
 }

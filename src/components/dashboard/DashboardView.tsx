@@ -165,6 +165,10 @@ export function DashboardView() {
     return `${mins}m ${secs}s`;
   };
 
+  const isAdmin = state.user?.role === "ADMIN" || state.user?.role === "SUPER_ADMIN";
+  const isManager = state.user?.role === "MANAGER";
+  const canManage = isAdmin || isManager;
+
   return (
     <div className="dashboard-container">
       <header className="page-head">
@@ -181,9 +185,15 @@ export function DashboardView() {
           <Link href="/pipeline" className="btn">
             Open pipeline <Icon name="arrow-right" size={15} />
           </Link>
-          <Link href="/lead-import" className="btn" data-variant="primary">
-            <Icon name="upload" size={15} /> Import leads
-          </Link>
+          {canManage ? (
+            <Link href="/lead-import" className="btn" data-variant="primary">
+              <Icon name="upload" size={15} /> Import leads
+            </Link>
+          ) : (
+            <Link href="/pipeline" className="btn" data-variant="primary">
+              <Icon name="arrow-right" size={15} /> My Pipeline
+            </Link>
+          )}
         </div>
       </header>
 
@@ -572,16 +582,29 @@ export function DashboardView() {
                 <Icon name="chevron-right" size={14} className="quick-arrow" />
               </Link>
 
-              <Link href="/forms" className="quick">
-                <div className="quick-icon-wrap">
-                  <Icon name="form" size={18} />
-                </div>
-                <div className="quick-info">
-                  <span>Lead Forms</span>
-                  <small>Web capture forms & embed codes</small>
-                </div>
-                <Icon name="chevron-right" size={14} className="quick-arrow" />
-              </Link>
+              {canManage ? (
+                <Link href="/forms" className="quick">
+                  <div className="quick-icon-wrap">
+                    <Icon name="form" size={18} />
+                  </div>
+                  <div className="quick-info">
+                    <span>Lead Forms</span>
+                    <small>Web capture forms & embed codes</small>
+                  </div>
+                  <Icon name="chevron-right" size={14} className="quick-arrow" />
+                </Link>
+              ) : (
+                <Link href="/contacts" className="quick">
+                  <div className="quick-icon-wrap">
+                    <Icon name="users" size={18} />
+                  </div>
+                  <div className="quick-info">
+                    <span>Contacts Hub</span>
+                    <small>Customer directory & records</small>
+                  </div>
+                  <Icon name="chevron-right" size={14} className="quick-arrow" />
+                </Link>
+              )}
 
               <Link href="/payments" className="quick">
                 <div className="quick-icon-wrap">

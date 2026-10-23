@@ -22,7 +22,7 @@ export default function UnauthorizedPage() {
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", width: "100%", marginTop: "1rem" }}>
           <Link
-            href="/login"
+            href="/dashboard"
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -36,10 +36,10 @@ export default function UnauthorizedPage() {
               textAlign: "center",
             }}
           >
-            Sign in to AIcloser &rarr;
+            &larr; Back to CRM Dashboard
           </Link>
           <Link
-            href="/signup"
+            href="/login"
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -54,7 +54,7 @@ export default function UnauthorizedPage() {
               textAlign: "center",
             }}
           >
-            Create New Closer Account
+            Sign in with an Admin Account &rarr;
           </Link>
         </div>
       </section>
