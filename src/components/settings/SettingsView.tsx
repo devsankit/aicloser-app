@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Icon } from "@/components/ui/Icon";
-import { ACCENTS, FONT_SCALES, useApp } from "@/lib/store";
+import { ACCENTS, FONT_SCALES, useApp, type Scope } from "@/lib/store";
 import type { Density, NavSpacing, Theme } from "@/lib/types";
 import { aicloserApi } from "@/lib/api-client";
 
@@ -108,8 +108,114 @@ const CONNECTIONS = [
 ];
 
 export function SettingsView() {
-  const { state, setTheme, setDensity, setAccent, setFontScale, setNavSpacing } = useApp();
+  const { state, setTheme, setDensity, setAccent, setFontScale, setNavSpacing, setScope } = useApp();
   const isAdmin = state.user?.role === "ADMIN" || state.user?.role === "SUPER_ADMIN";
+  const isManager = state.user?.role === "MANAGER";
+  const canManage = isAdmin || isManager;
+  const [activeTab, setActiveTab] = useState<"personal" | "workspace">("personal");
+
+  // Dashboard & Audio Preferences State
+  const [defaultScope, setDefaultScope] = useState<Scope>(() => {
+    if (typeof window !== "undefined") {
+      const s = localStorage.getItem("aicloser_default_scope") as Scope | null;
+      if (s === "all" || s === "mine") return s;
+    }
+    return state.scope || "mine";
+  });
+
+  const [autoPlayAudio, setAutoPlayAudio] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("aicloser_autoplay_audio") !== "false";
+    }
+    return true;
+  });
+
+  const [leadChime, setLeadChime] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("aicloser_lead_chime") !== "false";
+    }
+    return true;
+  });
+
+  const [whatsappChime, setWhatsappChime] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("aicloser_whatsapp_chime") !== "false";
+    }
+    return true;
+  });
+
+  const [showMacros, setShowMacros] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("aicloser_show_macros") !== "false";
+    }
+    return true;
+  });
+
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editName, setEditName] = useState(state.user?.displayName || "");
+  const [editPhone, setEditPhone] = useState(state.user?.phone || "");
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileNotice, setProfileNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (state.user?.displayName) setEditName(state.user.displayName);
+    if (state.user?.phone) setEditPhone(state.user.phone);
+  }, [state.user]);
+
+  const handleScopeChange = (newScope: Scope) => {
+    setDefaultScope(newScope);
+    setScope(newScope);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("aicloser_default_scope", newScope);
+    }
+  };
+
+  const handleAutoPlayAudioChange = (val: boolean) => {
+    setAutoPlayAudio(val);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("aicloser_autoplay_audio", String(val));
+    }
+  };
+
+  const handleLeadChimeChange = (val: boolean) => {
+    setLeadChime(val);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("aicloser_lead_chime", String(val));
+    }
+  };
+
+  const handleWhatsappChimeChange = (val: boolean) => {
+    setWhatsappChime(val);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("aicloser_whatsapp_chime", String(val));
+    }
+  };
+
+  const handleShowMacrosChange = (val: boolean) => {
+    setShowMacros(val);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("aicloser_show_macros", String(val));
+    }
+  };
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setProfileSaving(true);
+    try {
+      await aicloserApi.users.updateProfile({
+        displayName: editName,
+        phone: editPhone,
+      });
+      setProfileNotice("✓ Profile updated successfully.");
+      setIsEditingProfile(false);
+      setTimeout(() => setProfileNotice(null), 3500);
+    } catch (err: any) {
+      setProfileNotice(err?.message || "Failed to update profile.");
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
   const [exported, setExported] = useState(false);
   const canExport = state.user?.role !== "CLOSER" && state.user?.role !== "SALES_AGENT";
 
@@ -220,24 +326,26 @@ export function SettingsView() {
         // Fallback to local mode silently
       });
 
-    // Fetch developer Bearer token
-    setIsTokenLoading(true);
-    aicloserApi.developer.getToken()
-      .then((res: any) => {
-        const tok = res?.token || res?.data?.token || res?.apiKey;
-        if (tok) {
-          setDeveloperToken(tok);
-          setTokenError(null);
-        }
-      })
-      .catch((err: any) => {
-        setTokenError(
-          err?.status === 403
-            ? "Only a workspace admin can view this token."
-            : "Could not load token.",
-        );
-      })
-      .finally(() => setIsTokenLoading(false));
+    // Fetch developer Bearer token (Admin only)
+    if (isAdmin) {
+      setIsTokenLoading(true);
+      aicloserApi.developer.getToken()
+        .then((res: any) => {
+          const tok = res?.token || res?.data?.token || res?.apiKey;
+          if (tok) {
+            setDeveloperToken(tok);
+            setTokenError(null);
+          }
+        })
+        .catch((err: any) => {
+          setTokenError(
+            err?.status === 403
+              ? "Only a workspace admin can view this token."
+              : "Could not load token.",
+          );
+        })
+        .finally(() => setIsTokenLoading(false));
+    }
   }, []);
 
   const handleRegenerateToken = async () => {
@@ -555,117 +663,396 @@ export function SettingsView() {
     <div className="settings">
       <header className="page-head">
         <div>
-          <h1 className="page-title">Settings</h1>
+          <h1 className="page-title">Settings & Preferences</h1>
           <p className="page-sub">
-            Appearance, AI LLM providers, token billing controls, and workspace preferences.
+            {canManage
+              ? "Appearance, personal display preferences, developer API hubs, and workspace controls."
+              : "Personalize your Closer dashboard, theme appearance, text sizing, density, and calling preferences."}
           </p>
         </div>
       </header>
 
-      {/* Appearance */}
-      <section className="card settings-card">
-        <div className="settings-head">
-          <div>
-            <h2 className="settings-title">Appearance</h2>
-            <p className="settings-sub">Saved automatically and applied before the first paint.</p>
-          </div>
+      {/* Role-based Tab Switcher (Visible to Admins / Managers) */}
+      {canManage && (
+        <div className="seg" role="tablist" style={{ width: "fit-content", marginBottom: 6 }}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "personal"}
+            data-on={activeTab === "personal"}
+            onClick={() => setActiveTab("personal")}
+          >
+            <Icon name="sparkle" size={13} /> Personal & Display
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "workspace"}
+            data-on={activeTab === "workspace"}
+            onClick={() => setActiveTab("workspace")}
+          >
+            <Icon name="settings" size={13} /> Workspace & Developer Hub
+          </button>
         </div>
-        <div className="settings-body">
-          <div className="setting-row">
-            <div>
-              <div className="setting-name">Theme</div>
-              <p className="setting-desc">Warm neutral in both modes — same hierarchy, different ink.</p>
-            </div>
-            <div className="seg" role="group" aria-label="Theme">
-              {(["light", "dark"] as Theme[]).map((t) => (
-                <button key={t} data-on={state.theme === t} onClick={() => setTheme(t)}>
-                  <Icon name={t === "light" ? "sun" : "moon"} size={12} />
-                  {t === "light" ? "Light" : "Dark"}
-                </button>
-              ))}
-            </div>
-          </div>
+      )}
 
-          <div className="setting-row">
-            <div>
-              <div className="setting-name">Density</div>
-              <p className="setting-desc">Compact tightens rows and cards for large pipelines.</p>
+      {activeTab === "personal" && (
+        <>
+          {/* Closer Account & Profile Card */}
+          <section className="card settings-card">
+            <div className="settings-head">
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: "50%",
+                    background: "var(--accent)",
+                    color: "#fff",
+                    display: "grid",
+                    placeItems: "center",
+                    fontWeight: 600,
+                    fontSize: "14px",
+                  }}
+                >
+                  {(state.user?.displayName || "C").slice(0, 2).toUpperCase()}
+                </div>
+                <div>
+                  <h2 className="settings-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {state.user?.displayName || "Calling Closer"}
+                    <span className="chip" data-tone="accent" style={{ fontSize: "11px", padding: "1px 6px" }}>
+                      {state.user?.role === "ADMIN" || state.user?.role === "SUPER_ADMIN" ? "Admin" : "Sales Closer"}
+                    </span>
+                  </h2>
+                  <p className="settings-sub">
+                    {state.user?.email || "closer@aicloser.in"} · {state.workspaceAuth?.workspaceName || "AI Closer Workspace"}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn"
+                data-size="sm"
+                data-variant="ghost"
+                style={{ marginLeft: "auto" }}
+                onClick={() => setIsEditingProfile((v) => !v)}
+              >
+                <Icon name="settings" size={12} /> {isEditingProfile ? "Cancel" : "Edit Profile"}
+              </button>
             </div>
-            <div className="seg" role="group" aria-label="Density">
-              {(["comfortable", "compact"] as Density[]).map((d) => (
-                <button key={d} data-on={state.density === d} onClick={() => setDensity(d)}>
-                  {d === "comfortable" ? "Comfortable" : "Compact"}
-                </button>
-              ))}
-            </div>
-          </div>
 
-          <div className="setting-row">
-            <div>
-              <div className="setting-name">Accent colour</div>
-              <p className="setting-desc">
-                Used for primary buttons, links and highlights. The default orange comes from the
-                Closer logo.
-              </p>
-            </div>
-            <div className="swatches" role="group" aria-label="Accent colour">
-              {ACCENTS.map((preset) => {
-                const active = state.accent.toLowerCase() === preset.color.toLowerCase();
-                return (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    className="swatch"
-                    style={{ background: preset.color }}
-                    aria-label={preset.label}
-                    title={preset.label}
-                    aria-pressed={active}
-                    onClick={() => setAccent(preset.color)}
-                  >
-                    {active && <Icon name="check" size={12} />}
+            {isEditingProfile ? (
+              <form onSubmit={handleSaveProfile} className="settings-body" style={{ padding: "14px 16px", gap: 12 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div className="field">
+                    <label style={{ fontSize: "12px", color: "var(--text-secondary)", marginBottom: 4 }}>Full Name</label>
+                    <input
+                      type="text"
+                      className="input"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      placeholder="Your Name"
+                      required
+                    />
+                  </div>
+                  <div className="field">
+                    <label style={{ fontSize: "12px", color: "var(--text-secondary)", marginBottom: 4 }}>Phone Number</label>
+                    <input
+                      type="text"
+                      className="input"
+                      value={editPhone}
+                      onChange={(e) => setEditPhone(e.target.value)}
+                      placeholder="+91 9876543210"
+                    />
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+                  <button type="submit" className="btn" data-variant="primary" data-size="sm" disabled={profileSaving}>
+                    <Icon name="check" size={13} /> {profileSaving ? "Saving..." : "Save Changes"}
                   </button>
-                );
-              })}
-            </div>
-          </div>
+                  <button type="button" className="btn" data-variant="ghost" data-size="sm" onClick={() => setIsEditingProfile(false)}>
+                    Cancel
+                  </button>
+                  {profileNotice && (
+                    <span style={{ fontSize: "12px", color: profileNotice.startsWith("✓") ? "var(--success)" : "var(--danger)" }}>
+                      {profileNotice}
+                    </span>
+                  )}
+                </div>
+              </form>
+            ) : (
+              <div className="settings-body">
+                <div className="setting-row">
+                  <div>
+                    <div className="setting-name">Role & Workspace Access</div>
+                    <p className="setting-desc">
+                      {state.user?.role === "ADMIN" || state.user?.role === "SUPER_ADMIN"
+                        ? "Full administrative control, round-robin lead allocation, AI vault, and team management."
+                        : "Sales lead closing, SIM telephony call recording, real-time client chat, and daily break management."}
+                    </p>
+                  </div>
+                  <span className="chip" data-tone={state.user?.role === "ADMIN" ? "accent" : "success"}>
+                    <span className="dot" /> {state.user?.role === "ADMIN" ? "Admin Access" : "Closer Floor Access"}
+                  </span>
+                </div>
+              </div>
+            )}
+          </section>
 
-          <div className="setting-row">
-            <div>
-              <div className="setting-name">Text size</div>
-              <p className="setting-desc">Scales labels, tables and form controls across the app.</p>
+          {/* Appearance & Dashboard Theme */}
+          <section className="card settings-card">
+            <div className="settings-head">
+              <div>
+                <h2 className="settings-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <Icon name="sparkle" size={16} /> Appearance & Interface Personalization
+                </h2>
+                <p className="settings-sub">Saved automatically and applied across your dashboard, Kanban board, and chat.</p>
+              </div>
             </div>
-            <div className="seg" role="group" aria-label="Text size">
-              {FONT_SCALES.map((scale) => (
-                <button
-                  key={scale.id}
-                  data-on={state.fontScale === scale.id}
-                  onClick={() => setFontScale(scale.id)}
-                >
-                  {scale.label}
-                </button>
-              ))}
-            </div>
-          </div>
+            <div className="settings-body">
+              <div className="setting-row">
+                <div>
+                  <div className="setting-name">Theme Mode</div>
+                  <p className="setting-desc">Warm neutral in both dark and light modes — identical hierarchy, different ink.</p>
+                </div>
+                <div className="seg" role="group" aria-label="Theme">
+                  {(["light", "dark"] as Theme[]).map((t) => (
+                    <button key={t} data-on={state.theme === t} onClick={() => setTheme(t)}>
+                      <Icon name={t === "light" ? "sun" : "moon"} size={12} />
+                      {t === "light" ? "Light Mode" : "Dark Mode"}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-          <div className="setting-row">
-            <div>
-              <div className="setting-name">Menu item spacing</div>
-              <p className="setting-desc">Adjust vertical gap between navigation links in the sidebar menu.</p>
+              <div className="setting-row">
+                <div>
+                  <div className="setting-name">Accent Colour</div>
+                  <p className="setting-desc">
+                    Used for primary buttons, active tabs, stage indicators, and highlights across your dashboard.
+                  </p>
+                </div>
+                <div className="swatches" role="group" aria-label="Accent colour">
+                  {ACCENTS.map((preset) => {
+                    const active = state.accent.toLowerCase() === preset.color.toLowerCase();
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        className="swatch"
+                        style={{ background: preset.color }}
+                        aria-label={preset.label}
+                        title={preset.label}
+                        aria-pressed={active}
+                        onClick={() => setAccent(preset.color)}
+                      >
+                        {active && <Icon name="check" size={12} />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="setting-row">
+                <div>
+                  <div className="setting-name">Display Density</div>
+                  <p className="setting-desc">Compact tightens Kanban cards, table rows, and call logs to fit more deals on screen.</p>
+                </div>
+                <div className="seg" role="group" aria-label="Density">
+                  {(["comfortable", "compact"] as Density[]).map((d) => (
+                    <button key={d} data-on={state.density === d} onClick={() => setDensity(d)}>
+                      {d === "comfortable" ? "Comfortable (Standard)" : "Compact (Data-Dense)"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="setting-row">
+                <div>
+                  <div className="setting-name">Text Size Scaling</div>
+                  <p className="setting-desc">Adjust typography scale across forms, contact drawers, call transcripts, and tables.</p>
+                </div>
+                <div className="seg" role="group" aria-label="Text size">
+                  {FONT_SCALES.map((scale) => (
+                    <button
+                      key={scale.id}
+                      data-on={state.fontScale === scale.id}
+                      onClick={() => setFontScale(scale.id)}
+                    >
+                      {scale.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="setting-row">
+                <div>
+                  <div className="setting-name">Sidebar Menu Spacing</div>
+                  <p className="setting-desc">Adjust vertical gap between navigation links in the left sidebar menu.</p>
+                </div>
+                <div className="seg" role="group" aria-label="Menu item spacing">
+                  {([1, 2, 4, 6] as NavSpacing[]).map((sp) => (
+                    <button
+                      key={sp}
+                      data-on={(state.navSpacing ?? 2) === sp}
+                      onClick={() => setNavSpacing(sp)}
+                    >
+                      {sp === 1 ? "1px (Tight)" : sp === 2 ? "2px (Default)" : sp === 4 ? "4px (Relaxed)" : "6px (Spacious)"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Live Preview Box */}
+              <div className="setting-row" style={{ alignItems: "flex-start", flexDirection: "column", gap: 10 }}>
+                <div>
+                  <div className="setting-name">Live Dashboard Element Preview</div>
+                  <p className="setting-desc">Real-time sample of controls styled with your active accent, density, and scale.</p>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "12px 16px", background: "var(--bg-soft)", border: "1px solid var(--border)", borderRadius: "var(--r-md)", width: "100%" }}>
+                  <button type="button" className="btn" data-variant="primary" data-size="sm">
+                    <Icon name="check" size={13} /> Primary Action
+                  </button>
+                  <button type="button" className="btn" data-variant="accent" data-size="sm">
+                    <Icon name="sparkle" size={13} /> Brand Accent
+                  </button>
+                  <button type="button" className="btn" data-variant="ghost" data-size="sm">
+                    Ghost Button
+                  </button>
+                  <span className="chip" data-tone="accent">
+                    <span className="dot" /> {state.theme === "dark" ? "Dark Theme" : "Light Theme"}
+                  </span>
+                  <span className="chip" data-tone="success">
+                    Active Closer
+                  </span>
+                  <span style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginLeft: "auto" }}>
+                    Density: <strong>{state.density}</strong> · Text Scale: <strong>{state.fontScale}</strong>
+                  </span>
+                </div>
+              </div>
             </div>
-            <div className="seg" role="group" aria-label="Menu item spacing">
-              {([1, 2, 4, 6] as NavSpacing[]).map((sp) => (
-                <button
-                  key={sp}
-                  data-on={(state.navSpacing ?? 2) === sp}
-                  onClick={() => setNavSpacing(sp)}
-                >
-                  {sp === 1 ? "1px (Tight)" : sp === 2 ? "2px (Default)" : sp === 4 ? "4px (Relaxed)" : "6px (Spacious)"}
-                </button>
-              ))}
+          </section>
+
+          {/* Closer Dashboard & Calling Preferences */}
+          <section className="card settings-card">
+            <div className="settings-head">
+              <div>
+                <h2 className="settings-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <Icon name="phone" size={16} /> Closer Dashboard & Calling Preferences
+                </h2>
+                <p className="settings-sub">Personalize your deal pipeline view, audio streaming, and notification alerts.</p>
+              </div>
             </div>
-          </div>
-        </div>
-      </section>
+            <div className="settings-body">
+              <div className="setting-row">
+                <div>
+                  <div className="setting-name">Default Lead Scope</div>
+                  <p className="setting-desc">Choose which leads are presented by default when opening your CRM Dashboard or Pipeline.</p>
+                </div>
+                <div className="seg" role="group" aria-label="Default Scope">
+                  <button data-on={defaultScope === "mine"} onClick={() => handleScopeChange("mine")}>
+                    My Leads Only
+                  </button>
+                  <button data-on={defaultScope === "all"} onClick={() => handleScopeChange("all")}>
+                    All Team Leads
+                  </button>
+                </div>
+              </div>
+
+              <div className="setting-row">
+                <div>
+                  <div className="setting-name">SIM Call Recordings Auto-Play</div>
+                  <p className="setting-desc">Automatically stream audio recordings when expanding a call record in the call log.</p>
+                </div>
+                <div className="seg" role="group" aria-label="Auto-Play Audio">
+                  <button data-on={autoPlayAudio} onClick={() => handleAutoPlayAudioChange(true)}>
+                    Auto-Play
+                  </button>
+                  <button data-on={!autoPlayAudio} onClick={() => handleAutoPlayAudioChange(false)}>
+                    Manual Play
+                  </button>
+                </div>
+              </div>
+
+              <div className="setting-row">
+                <div>
+                  <div className="setting-name">New Lead Assignment Chime</div>
+                  <p className="setting-desc">Play an audio sound notification when a new hot lead is assigned to you or claimed.</p>
+                </div>
+                <div className="seg" role="group" aria-label="Lead Chime">
+                  <button data-on={leadChime} onClick={() => handleLeadChimeChange(true)}>
+                    Enabled
+                  </button>
+                  <button data-on={!leadChime} onClick={() => handleLeadChimeChange(false)}>
+                    Muted
+                  </button>
+                </div>
+              </div>
+
+              <div className="setting-row">
+                <div>
+                  <div className="setting-name">WhatsApp Message Sound Alert</div>
+                  <p className="setting-desc">Play a notification sound when a client replies in WhatsApp live chat.</p>
+                </div>
+                <div className="seg" role="group" aria-label="WhatsApp Chime">
+                  <button data-on={whatsappChime} onClick={() => handleWhatsappChimeChange(true)}>
+                    Enabled
+                  </button>
+                  <button data-on={!whatsappChime} onClick={() => handleWhatsappChimeChange(false)}>
+                    Muted
+                  </button>
+                </div>
+              </div>
+
+              <div className="setting-row">
+                <div>
+                  <div className="setting-name">1-Click Fast Reply Macros in Chat</div>
+                  <p className="setting-desc">Display consultative reply suggestions and objection counters above the chat composer.</p>
+                </div>
+                <div className="seg" role="group" aria-label="Fast Reply Macros">
+                  <button data-on={showMacros} onClick={() => handleShowMacrosChange(true)}>
+                    Visible
+                  </button>
+                  <button data-on={!showMacros} onClick={() => handleShowMacrosChange(false)}>
+                    Hidden
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Android SIM Companion App */}
+          <section className="card settings-card">
+            <div className="settings-head">
+              <div>
+                <h2 className="settings-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <Icon name="smartphone" size={16} /> Android SIM Calling Companion
+                </h2>
+                <p className="settings-sub">
+                  Install the lightweight background APK on your calling phone to automatically record calls, log talk time, and stream audio to the cloud.
+                </p>
+              </div>
+              <span className="chip" data-tone="success">
+                <span className="dot" /> Live Telephony
+              </span>
+            </div>
+            <div className="settings-body">
+              <div className="setting-row">
+                <div>
+                  <div className="setting-name">Download Latest Companion APK</div>
+                  <p className="setting-desc">Direct high-speed download for Android devices running Android 9 through Android 15.</p>
+                </div>
+                <Link href="/latestapk" className="btn" data-variant="primary" style={{ gap: 6 }}>
+                  <Icon name="download" size={14} /> Download APK (v2.4)
+                </Link>
+              </div>
+            </div>
+          </section>
+        </>
+      )}
+
+      {activeTab === "workspace" && canManage && (
+        <>
 
       {/* AI Model Providers & BYOK Vault */}
       <section className="card settings-card">
@@ -1383,6 +1770,8 @@ export function SettingsView() {
           ))}
         </div>
       </section>
+        </>
+      )}
     </div>
   );
 }

@@ -616,11 +616,11 @@ export function AppShell({
                 if (managerNavMap && managerNavMap[item.href] !== undefined) {
                   return managerNavMap[item.href];
                 }
-                return item.href !== "/automations" && item.href !== "/settings";
+                return item.href !== "/automations";
               }
               // CLOSER / FIELD USER role:
               // 1. Never see administrative governance or AI developer vaults
-              if (item.href === "/team" || item.href === "/automations" || item.href === "/settings") {
+              if (item.href === "/team" || item.href === "/automations") {
                 return false;
               }
               // 2. Growth modules are locked by default unless Admin enabled them
@@ -763,7 +763,7 @@ export function AppShell({
                 }}
               >
                 <Icon name="settings" size={14} />
-                <span>Workspace Settings</span>
+                <span>{isAdmin ? "Workspace Settings" : "Settings & Preferences"}</span>
               </Link>
 
               <button
