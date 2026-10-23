@@ -180,6 +180,8 @@ export function ChatView() {
   const [qrSuccess, setQrSuccess] = useState<string | null>(null);
   const [qrError, setQrError] = useState<string | null>(null);
   const [refreshCount, setRefreshCount] = useState(0);
+  const [selectedDispatchChannel, setSelectedDispatchChannel] = useState<"AUTO" | "OFFICIAL_API" | "PERSONAL">("AUTO");
+  const urlResolvedRef = useRef<boolean>(false);
 
   const handleOpenQrModal = async () => {
     setShowQrModal(true);
@@ -336,6 +338,12 @@ export function ChatView() {
   useEffect(() => {
     if (typeof window !== "undefined") {
       const sp = new URLSearchParams(window.location.search);
+      const urlChannel = sp.get("channel");
+      if (urlChannel === "api") {
+        setScopeFilter("api");
+      } else if (urlChannel === "mine") {
+        setScopeFilter("mine");
+      }
       const urlId = sp.get("id") || sp.get("chatId");
       if (urlId) setSelectedChatId(urlId);
     }
@@ -536,6 +544,19 @@ export function ChatView() {
       setChatStage("new");
     }
   }, [activeLead?.id, activeLead?.stage, activeChat?.id]);
+
+  // Synchronize outbound dispatch channel when active chat switches
+  useEffect(() => {
+    if (activeChat) {
+      if (activeChat.isPersonalQr || activeChat.channelSource === "QR_SCANNER") {
+        setSelectedDispatchChannel("PERSONAL");
+      } else if (activeChat.isOfficialApi || activeChat.channelSource === "OFFICIAL_API") {
+        setSelectedDispatchChannel("OFFICIAL_API");
+      } else {
+        setSelectedDispatchChannel("AUTO");
+      }
+    }
+  }, [activeChat?.id, activeChat?.isPersonalQr, activeChat?.channelSource]);
 
   // Automatically mark opened/active chat as read
   useEffect(() => {
@@ -974,23 +995,65 @@ export function ChatView() {
             });
 
           const combined = [...apiMapped];
-          const seenPhones = new Set<string>();
           const seenIds = new Set<string>();
           for (const c of apiMapped) {
             seenIds.add(c.id);
-            if (c.phone) seenPhones.add(c.phone.replace(/\D/g, "").slice(-10));
           }
           for (const sc of scannedList) {
-            const clean = sc.phone.replace(/\D/g, "").slice(-10);
-            if (!seenIds.has(sc.id) && (!clean || !seenPhones.has(clean))) {
+            if (!seenIds.has(sc.id)) {
               seenIds.add(sc.id);
-              if (clean) seenPhones.add(clean);
               combined.push(sc);
             }
           }
 
           // Sort conversations strictly by newest message timestamp descending
           combined.sort((a, b) => getConversationTimestamp(b) - getConversationTimestamp(a));
+
+          let targetChatId: string | null = null;
+          if (typeof window !== "undefined") {
+            const sp = new URLSearchParams(window.location.search);
+            const urlId = sp.get("id") || sp.get("chatId");
+            const urlLeadId = sp.get("leadId");
+            const urlPhone = sp.get("phone");
+            const urlChannel = sp.get("channel"); // "api" | "mine"
+
+            if (urlId && combined.some((c) => c.id === urlId)) {
+              targetChatId = urlId;
+            } else if (urlLeadId || urlPhone) {
+              const cleanPhone = urlPhone ? urlPhone.replace(/\D/g, "").slice(-10) : "";
+              const match = combined.find((c) => {
+                const leadMatch = urlLeadId && (c.leadId === urlLeadId || c.payload?.leadId === urlLeadId);
+                const phoneMatch = cleanPhone && c.phone && c.phone.replace(/\D/g, "").slice(-10) === cleanPhone;
+                if (!leadMatch && !phoneMatch) return false;
+                if (urlChannel === "api") return c.isOfficialApi || c.channelSource === "OFFICIAL_API";
+                if (urlChannel === "mine") return c.isPersonalQr || c.channelSource === "QR_SCANNER";
+                return true;
+              }) || combined.find((c) => {
+                const leadMatch = urlLeadId && (c.leadId === urlLeadId || c.payload?.leadId === urlLeadId);
+                const phoneMatch = cleanPhone && c.phone && c.phone.replace(/\D/g, "").slice(-10) === cleanPhone;
+                return leadMatch || phoneMatch;
+              });
+
+              if (match) {
+                targetChatId = match.id;
+              } else if (urlPhone && !urlResolvedRef.current) {
+                urlResolvedRef.current = true;
+                const leadObj = state.leads.find((l) => l.id === urlLeadId || (cleanPhone && l.phone?.replace(/\D/g, "").slice(-10) === cleanPhone));
+                aicloserApi.conversations.getOrCreate({
+                  leadId: urlLeadId || undefined,
+                  customerPhone: urlPhone,
+                  customerName: leadObj?.name || undefined,
+                  channelSource: urlChannel === "mine" ? "QR_SCANNER" : "OFFICIAL_API",
+                }).then((res: any) => {
+                  const newConv = res?.data?.conversation || res?.conversation;
+                  if (newConv?.id) {
+                    setSelectedChatId(newConv.id);
+                    setRefreshCount((rc) => rc + 1);
+                  }
+                }).catch(() => undefined);
+              }
+            }
+          }
 
           setConversations((prev) => {
             // Preserve any active message threads already in memory
@@ -1002,7 +1065,11 @@ export function ChatView() {
               return c;
             });
           });
-          setSelectedChatId((current) => (current ? current : combined[0]?.id || null));
+          setSelectedChatId((current) => {
+            if (targetChatId) return targetChatId;
+            if (current && combined.some((c) => c.id === current)) return current;
+            return combined[0]?.id || null;
+          });
         })
         .catch(() => {
           if (!active) return;
@@ -1482,9 +1549,9 @@ export function ChatView() {
     setInputText("");
     setTimeout(() => scrollToBottom("smooth"), 30);
 
-    // Send to live backend API
+    // Send to live backend API with selected delivery channel (Official API vs Personal WhatsApp)
     aicloserApi.conversations
-      .sendMessage(activeChat.id, textToSend)
+      .sendMessage(activeChat.id, textToSend, undefined, selectedDispatchChannel)
       .then((res: any) => {
         const wamid = res?.data?.externalMessageId || res?.externalMessageId;
         if (wamid) {
@@ -1495,8 +1562,14 @@ export function ChatView() {
             ),
           }));
         }
+        if (res?.data?.outboundDispatchError) {
+          showToast(res.data.outboundDispatchError);
+        }
       })
-      .catch(() => {});
+      .catch((err: any) => {
+        const errMsg = err?.message || "Failed to deliver message";
+        showToast(errMsg);
+      });
   };
 
   const handleToggleAiAutoReply = async () => {
@@ -2843,6 +2916,26 @@ export function ChatView() {
                     outline: "none",
                   }}
                 />
+                <div className="seg" data-size="sm" title="Message Dispatch Channel">
+                  <button
+                    type="button"
+                    data-on={selectedDispatchChannel === "OFFICIAL_API"}
+                    onClick={() => setSelectedDispatchChannel("OFFICIAL_API")}
+                    title="Send via Official Meta WhatsApp Cloud API"
+                  >
+                    <Icon name="bolt" size={12} />
+                    <span>API</span>
+                  </button>
+                  <button
+                    type="button"
+                    data-on={selectedDispatchChannel === "PERSONAL"}
+                    onClick={() => setSelectedDispatchChannel("PERSONAL")}
+                    title="Send via Personal Scanned WhatsApp (Direct Companion Phone)"
+                  >
+                    <Icon name="whatsapp" size={12} />
+                    <span>Personal</span>
+                  </button>
+                </div>
                 <button
                   className="btn"
                   data-variant="primary"

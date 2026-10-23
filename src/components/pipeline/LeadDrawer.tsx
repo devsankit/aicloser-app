@@ -279,14 +279,24 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
               <Icon name="branch" size={14} />
             </a>
             {draft.phone && (
-              <a
-                href={`/chat?leadId=${lead.id}&phone=${encodeURIComponent(draft.phone)}`}
-                className="icon-btn"
-                title="Open WhatsApp Chat in Closer"
-                aria-label="Open live chat thread"
-              >
-                <Icon name="message" size={14} />
-              </a>
+              <>
+                <a
+                  href={`/chat?leadId=${lead.id}&phone=${encodeURIComponent(draft.phone)}&channel=api`}
+                  className="icon-btn"
+                  title="Open Official WhatsApp API Chat"
+                  aria-label="Open Official WhatsApp API Chat"
+                >
+                  <Icon name="bolt" size={14} />
+                </a>
+                <a
+                  href={`/chat?leadId=${lead.id}&phone=${encodeURIComponent(draft.phone)}&channel=mine`}
+                  className="icon-btn"
+                  title="Open Personal WhatsApp (Companion) Chat"
+                  aria-label="Open Personal WhatsApp Chat"
+                >
+                  <Icon name="whatsapp" size={14} />
+                </a>
+              </>
             )}
             <button
               className="icon-btn ml-auto"
@@ -334,13 +344,33 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
             {draft.phone && (
               <>
                 <a
-                  href={`/chat?leadId=${lead.id}&phone=${encodeURIComponent(draft.phone)}`}
+                  href={`/chat?leadId=${lead.id}&phone=${encodeURIComponent(draft.phone)}&channel=api`}
                   className="btn"
                   data-size="sm"
                   data-variant="accent"
-                  title="Open live chat thread for this lead"
+                  title="Open Official Meta WhatsApp Cloud API thread"
                 >
-                  <Icon name="whatsapp" size={13} /> WhatsApp
+                  <Icon name="bolt" size={13} /> WhatsApp API
+                </a>
+                <a
+                  href={`/chat?leadId=${lead.id}&phone=${encodeURIComponent(draft.phone)}&channel=mine`}
+                  className="btn"
+                  data-size="sm"
+                  data-variant="outline"
+                  title="Open Personal WhatsApp (Companion Scanner) thread"
+                >
+                  <Icon name="whatsapp" size={13} /> Personal WA
+                </a>
+                <a
+                  href={`https://wa.me/${draft.phone.replace(/\D/g, "")}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn"
+                  data-size="sm"
+                  data-variant="ghost"
+                  title="Open direct in WhatsApp Web application"
+                >
+                  <Icon name="external" size={13} /> WA Web
                 </a>
                 <a
                   href={`tel:${draft.phone}`}

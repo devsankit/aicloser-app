@@ -875,12 +875,18 @@ export function ContactsView() {
                               <Icon name="phone" size={12} />
                             </a>
                             <a
-                              href={`https://wa.me/${lead.phone.replace(/\D/g, "")}`}
-                              target="_blank"
-                              rel="noreferrer"
+                              href={`/chat?leadId=${lead.id}&phone=${encodeURIComponent(lead.phone)}&channel=api`}
+                              className="icon-btn"
+                              style={{ width: 22, height: 22, color: "var(--accent)" }}
+                              title={`Chat via Official WhatsApp API with ${lead.phone}`}
+                            >
+                              <Icon name="bolt" size={12} />
+                            </a>
+                            <a
+                              href={`/chat?leadId=${lead.id}&phone=${encodeURIComponent(lead.phone)}&channel=mine`}
                               className="icon-btn"
                               style={{ width: 22, height: 22, color: "var(--success)" }}
-                              title={`Chat on WhatsApp with ${lead.phone}`}
+                              title={`Chat via Personal WhatsApp (Companion) with ${lead.phone}`}
                             >
                               <Icon name="whatsapp" size={12} />
                             </a>

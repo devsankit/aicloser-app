@@ -1168,10 +1168,28 @@ export const aicloserApi = {
       );
     },
 
-    async sendMessage(conversationId: string, body: string, attachments?: any[]) {
+    async getOrCreate(params: {
+      leadId?: string;
+      customerPhone: string;
+      customerName?: string;
+      channelSource?: 'OFFICIAL_API' | 'QR_SCANNER';
+    }) {
+      const res = await requestConversation<{ conversation: any }>('/conversations/get-or-create', {
+        method: 'POST',
+        body: JSON.stringify(params),
+      });
+      return res.data;
+    },
+
+    async sendMessage(
+      conversationId: string,
+      body: string,
+      attachments?: any[],
+      dispatchChannel?: 'OFFICIAL_API' | 'PERSONAL' | 'AUTO'
+    ) {
       const res = await requestConversation(`/conversations/${encodeURIComponent(conversationId)}/messages`, {
         method: 'POST',
-        body: JSON.stringify({ body, attachments }),
+        body: JSON.stringify({ body, attachments, dispatchChannel }),
       });
       return res.data;
     },
