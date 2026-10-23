@@ -57,6 +57,7 @@ export function DashboardView() {
       connectedCalls,
       connectRate,
       followUpsPending,
+      missedCount: (liveSummary as any)?.missedCount ?? 0,
     };
   }, [leads, liveSummary]);
 
@@ -204,6 +205,19 @@ export function DashboardView() {
           <strong className="stat-value">{stats.newCount}</strong>
           <span className="stat-foot">
             {stats.newCount > 0 ? "Awaiting initial closer touchpoint" : "No uncontacted leads"}
+          </span>
+        </div>
+
+        <div className="card stat">
+          <div className="stat-head">
+            <span className="stat-label">Missed Pool Leads</span>
+            <span className="stat-badge danger">
+              <Icon name="clock-alert" size={15} />
+            </span>
+          </div>
+          <strong className="stat-value">{stats.missedCount}</strong>
+          <span className="stat-foot" data-tone={stats.missedCount > 0 ? "danger" : undefined}>
+            {stats.missedCount > 0 ? `${stats.missedCount} pool leads expired without claim` : "Zero missed pool leads"}
           </span>
         </div>
 

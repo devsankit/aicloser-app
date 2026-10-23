@@ -123,8 +123,14 @@ export function ChannelsView() {
       }
 
       if (scannerRes.status === "fulfilled" && scannerRes.value) {
-        setScannerConnected(scannerRes.value.status === "connected");
-        setScannerPhone(scannerRes.value.scanner?.connectedPhone || "");
+        const devList = Array.isArray(scannerRes.value?.data)
+          ? scannerRes.value.data
+          : Array.isArray(scannerRes.value)
+            ? scannerRes.value
+            : [];
+        const connectedDev = devList.find((d: any) => d.status === "connected");
+        setScannerConnected(Boolean(connectedDev || scannerRes.value?.status === "connected"));
+        setScannerPhone(connectedDev?.phoneNumber || scannerRes.value?.scanner?.connectedPhone || "");
       }
 
       if (igRes.status === "fulfilled" && igRes.value?.success && igRes.value.data) {
