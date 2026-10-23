@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState, useTransition, useMemo, useRef } from "react";
 import { Icon } from "@/components/ui/Icon";
-import { CURRENT_USER, useApp } from "@/lib/store";
+import { CURRENT_USER, useApp, useScopedLeads } from "@/lib/store";
 import { aicloserApi } from "@/lib/api-client";
 
 export interface PaymentTransaction {
@@ -44,7 +44,14 @@ export function PaymentsView() {
   const [banner, setBanner] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  const scopedLeads = useScopedLeads();
+
   // Create Link Form State
+  const [customerMode, setCustomerMode] = useState<"crm_lead" | "standalone">("crm_lead");
+  const [leadSearchQuery, setLeadSearchQuery] = useState("");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const searchDropdownRef = useRef<HTMLDivElement | null>(null);
+
   const [selectedLeadId, setSelectedLeadId] = useState("");
   const [linkCustomerName, setLinkCustomerName] = useState("");
   const [linkCustomerPhone, setLinkCustomerPhone] = useState("");
@@ -71,25 +78,85 @@ export function PaymentsView() {
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
 
-  // Auto-populate when selecting a lead for link creation
-  useEffect(() => {
-    if (state.leads.length > 0 && !selectedLeadId) {
-      const first = state.leads[0];
-      setSelectedLeadId(first.id);
-      setLinkCustomerName(first.name);
-      setLinkCustomerPhone(first.phone);
-      if (first.value) setLinkAmount(String(first.value));
+  // Search & Lead Selection Helpers
+  const filteredLeads = useMemo(() => {
+    const q = leadSearchQuery.trim().toLowerCase();
+    if (!q) {
+      return scopedLeads.slice(0, 8);
     }
-  }, [state.leads, selectedLeadId]);
+    return scopedLeads.filter((l) => {
+      const name = (l.name || "").toLowerCase();
+      const comp = (l.company || "").toLowerCase();
+      const phone = (l.phone || "");
+      return name.includes(q) || comp.includes(q) || phone.includes(q);
+    }).slice(0, 12);
+  }, [scopedLeads, leadSearchQuery]);
 
-  const handleLeadSelectChange = (leadId: string) => {
-    setSelectedLeadId(leadId);
-    const matched = state.leads.find((l) => l.id === leadId);
-    if (matched) {
-      setLinkCustomerName(matched.name);
-      setLinkCustomerPhone(matched.phone);
-      if (matched.value) setLinkAmount(String(matched.value));
+  const selectedLead = useMemo(() => {
+    if (!selectedLeadId) return null;
+    return scopedLeads.find((l) => l.id === selectedLeadId) || state.leads.find((l) => l.id === selectedLeadId) || null;
+  }, [selectedLeadId, scopedLeads, state.leads]);
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (searchDropdownRef.current && !searchDropdownRef.current.contains(e.target as Node)) {
+        setIsSearchOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
+
+  const handleSelectLead = (lead: (typeof scopedLeads)[0]) => {
+    setSelectedLeadId(lead.id);
+    setLinkCustomerName(lead.name || "");
+    setLinkCustomerPhone(lead.phone || "");
+    if (lead.value) setLinkAmount(String(lead.value));
+    if (!linkPurpose) {
+      setLinkPurpose(`Payment for ${lead.company || lead.name}`);
     }
+    setIsSearchOpen(false);
+  };
+
+  const handleClearSelectedLead = () => {
+    setSelectedLeadId("");
+    setLinkCustomerName("");
+    setLinkCustomerPhone("");
+    setLinkAmount("");
+    setLeadSearchQuery("");
+  };
+
+  const handleSwitchStandalone = () => {
+    setCustomerMode("standalone");
+    setSelectedLeadId("");
+    setLeadSearchQuery("");
+  };
+
+  const handleSwitchCrmLead = () => {
+    setCustomerMode("crm_lead");
+  };
+
+  const openCreateModal = (preselectedLeadId?: string) => {
+    if (preselectedLeadId) {
+      setCustomerMode("crm_lead");
+      setSelectedLeadId(preselectedLeadId);
+      const matched = scopedLeads.find((l) => l.id === preselectedLeadId);
+      if (matched) {
+        setLinkCustomerName(matched.name || "");
+        setLinkCustomerPhone(matched.phone || "");
+        setLinkAmount(matched.value ? String(matched.value) : "");
+        setLinkPurpose(`Payment for ${matched.company || matched.name}`);
+      }
+    } else {
+      setCustomerMode("crm_lead");
+      setSelectedLeadId("");
+      setLeadSearchQuery("");
+      setLinkCustomerName("");
+      setLinkCustomerPhone("");
+      setLinkAmount("");
+      setLinkPurpose("");
+    }
+    setIsCreateOpen(true);
   };
 
   const loadPayments = async () => {
@@ -218,7 +285,7 @@ export function PaymentsView() {
           customerPhone: linkCustomerPhone.trim(),
           purpose: linkPurpose.trim(),
           productName: linkPurpose.trim(),
-          leadId: selectedLeadId || undefined,
+          leadId: (customerMode === "crm_lead" && selectedLeadId) ? selectedLeadId : undefined,
         });
 
         setIsCreateOpen(false);
@@ -386,7 +453,7 @@ export function PaymentsView() {
               <Icon name="check" size={13} /> {banner}
             </span>
           )}
-          <button className="btn" data-variant="primary" onClick={() => setIsCreateOpen(true)}>
+          <button className="btn" data-variant="primary" onClick={() => openCreateModal()}>
             <Icon name="plus" size={13} /> Generate UPI Link
           </button>
         </div>
@@ -497,7 +564,7 @@ export function PaymentsView() {
                         <button
                           className="btn"
                           data-variant="primary"
-                          onClick={() => setIsCreateOpen(true)}
+                          onClick={() => openCreateModal()}
                           style={{ marginTop: "12px" }}
                         >
                           <Icon name="plus" size={13} /> Generate UPI Link
@@ -837,22 +904,170 @@ export function PaymentsView() {
             </div>
             <form onSubmit={handleCreateLink}>
               <div className="dialog-body" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                <div className="field">
-                  <label htmlFor="create-lead">Select CRM Lead (Auto-Populate)</label>
-                  <select
-                    id="create-lead"
-                    className="select"
-                    value={selectedLeadId}
-                    onChange={(e) => handleLeadSelectChange(e.target.value)}
+                {/* Customer Type Selector: Scoped CRM Lead vs Standalone */}
+                <div className="seg" role="tablist" style={{ width: "100%", display: "grid", gridTemplateColumns: "1fr 1fr" }}>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={customerMode === "crm_lead"}
+                    data-on={customerMode === "crm_lead"}
+                    onClick={handleSwitchCrmLead}
                   >
-                    <option value="">— Standalone / New Customer —</option>
-                    {state.leads.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.name} ({l.company}) • ₹{l.value?.toLocaleString("en-IN") || 0}
-                      </option>
-                    ))}
-                  </select>
+                    <Icon name="search" size={13} /> Search CRM Lead
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={customerMode === "standalone"}
+                    data-on={customerMode === "standalone"}
+                    onClick={handleSwitchStandalone}
+                  >
+                    <Icon name="user-plus" size={13} /> Standalone / New Customer
+                  </button>
                 </div>
+
+                {/* CRM Lead Mode: Search bar with instant customer lookup */}
+                {customerMode === "crm_lead" && (
+                  <div className="field" ref={searchDropdownRef} style={{ position: "relative" }}>
+                    <label>Select Customer from Your Leads ({scopedLeads.length} available in scope)</label>
+                    {selectedLead ? (
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          padding: "8px 12px",
+                          background: "var(--bg-soft)",
+                          border: "1px solid var(--accent)",
+                          borderRadius: "var(--r-sm, 6px)",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                          <span className="chip" data-tone="accent" style={{ fontSize: "11px", padding: "1px 6px" }}>
+                            Linked Lead
+                          </span>
+                          <strong style={{ fontSize: "var(--fs-body)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {selectedLead.name}
+                          </strong>
+                          <span style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)" }}>
+                            ({selectedLead.phone || selectedLead.company})
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn"
+                          data-size="sm"
+                          data-variant="ghost"
+                          onClick={handleClearSelectedLead}
+                          style={{ padding: "2px 8px", fontSize: "11px" }}
+                        >
+                          ✕ Change
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ position: "relative" }}>
+                          <input
+                            type="text"
+                            className="input"
+                            value={leadSearchQuery}
+                            onChange={(e) => {
+                              setLeadSearchQuery(e.target.value);
+                              setIsSearchOpen(true);
+                            }}
+                            onFocus={() => setIsSearchOpen(true)}
+                            placeholder="Type customer name, company, or phone to search..."
+                            style={{ paddingRight: "32px" }}
+                          />
+                          <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", color: "var(--text-tertiary)" }}>
+                            <Icon name="search" size={14} />
+                          </span>
+                        </div>
+
+                        {/* Search Results Dropdown */}
+                        {isSearchOpen && (
+                          <div
+                            className="card"
+                            style={{
+                              position: "absolute",
+                              top: "100%",
+                              left: 0,
+                              right: 0,
+                              marginTop: 4,
+                              maxHeight: "220px",
+                              overflowY: "auto",
+                              zIndex: 100,
+                              boxShadow: "var(--shadow-lg)",
+                              border: "1px solid var(--border-strong)",
+                              background: "var(--bg-surface)",
+                              padding: "4px",
+                            }}
+                          >
+                            {filteredLeads.length === 0 ? (
+                              <div style={{ padding: "12px", textAlign: "center", fontSize: "var(--fs-caption)", color: "var(--text-tertiary)" }}>
+                                No matching customers found in your scope.
+                                <div style={{ marginTop: 6 }}>
+                                  <button
+                                    type="button"
+                                    className="btn"
+                                    data-size="sm"
+                                    data-variant="ghost"
+                                    onClick={handleSwitchStandalone}
+                                  >
+                                    Switch to Standalone Customer
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              filteredLeads.map((l) => (
+                                <button
+                                  key={l.id}
+                                  type="button"
+                                  onClick={() => handleSelectLead(l)}
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    width: "100%",
+                                    padding: "8px 10px",
+                                    border: "none",
+                                    background: "transparent",
+                                    borderRadius: "var(--r-sm, 4px)",
+                                    cursor: "pointer",
+                                    textAlign: "left",
+                                    color: "var(--text)",
+                                  }}
+                                  onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-soft)")}
+                                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                                >
+                                  <div>
+                                    <div style={{ fontWeight: 600, fontSize: "var(--fs-meta)" }}>{l.name}</div>
+                                    <div style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
+                                      {l.phone} {l.company ? `· ${l.company}` : ""}
+                                    </div>
+                                  </div>
+                                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                                    <span style={{ fontWeight: 600, color: "var(--accent)", fontSize: "12px" }}>
+                                      ₹{l.value?.toLocaleString("en-IN") || 0}
+                                    </span>
+                                  </div>
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Standalone Notice */}
+                {customerMode === "standalone" && (
+                  <div className="card" style={{ padding: "8px 12px", background: "var(--bg-soft)", fontSize: "12px", display: "flex", alignItems: "center", gap: 8 }}>
+                    <span className="chip" data-tone="neutral">Standalone Mode</span>
+                    <span>Creating direct payment link for an ad-hoc or walk-in client without CRM lead binding.</span>
+                  </div>
+                )}
 
                 <div className="field">
                   <label htmlFor="create-customer-name">Customer Name</label>
