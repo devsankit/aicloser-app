@@ -2281,11 +2281,11 @@ export function ChatView() {
                 </button>
               )}
 
-              {/* WhatsApp AI Thread Toggle */}
+              {/* WhatsApp AI Thread Toggle - normalized to match standard header buttons */}
               <button
                 className="btn"
                 data-size="sm"
-                data-variant={aiAutoReply ? "accent" : "ghost"}
+                data-variant={aiAutoReply ? undefined : "ghost"}
                 onClick={handleToggleAiAutoReply}
                 disabled={togglingAiReply}
                 title={
@@ -3062,7 +3062,7 @@ export function ChatView() {
                     <button
                       type="button"
                       className="btn"
-                      data-variant="accent"
+                      data-variant="primary"
                       data-size="sm"
                       disabled={shareLoading}
                       onClick={handleShareChat}

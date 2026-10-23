@@ -41,6 +41,11 @@
   --accent-soft: rgba(244, 97, 42, 0.18);
   --accent-border: rgba(244, 97, 42, 0.45);
 
+  /* Chat Outbound Message Bubbles (calm WhatsApp dark emerald, zero neon glare) */
+  --chat-outbound-bg: #005c4b;
+  --chat-outbound-border: #0a715d;
+  --chat-outbound-text: #ffffff;
+
   --ink: #e6e6e8;
   --ink-hover: #ffffff;
   --ink-text: #08090a;
@@ -152,6 +157,11 @@
   --accent-strong-hover: #8f3817;
   --accent-soft: rgba(171, 68, 29, 0.12);
   --accent-border: rgba(171, 68, 29, 0.35);
+
+  /* Chat Outbound Message Bubbles (calm WhatsApp light mint, AA contrast) */
+  --chat-outbound-bg: #d9fdd3;
+  --chat-outbound-border: #bbf7d0;
+  --chat-outbound-text: #111b21;
 
   --ink: #282a30;
   --ink-hover: #14161a;
@@ -5606,9 +5616,9 @@ button.list-prio:hover {
 }
 
 .chat-bubble[data-sender="closer"] {
-  background: var(--accent-strong);
-  color: #ffffff;
-  border: 1px solid var(--accent-border);
+  background: var(--chat-outbound-bg);
+  color: var(--chat-outbound-text);
+  border: 1px solid var(--chat-outbound-border);
 }
 
 .chat-bubble[data-sender="customer"] {
@@ -5625,7 +5635,7 @@ button.list-prio:hover {
 }
 
 .chat-bubble[data-sender="closer"] .chat-bubble-link {
-  color: #ffffff;
+  color: var(--chat-outbound-text);
   text-decoration: underline;
   font-weight: 600;
 }
@@ -5635,7 +5645,7 @@ button.list-prio:hover {
 }
 
 .chat-bubble[data-sender="customer"] .chat-bubble-link {
-  color: var(--accent);
+  color: #53bdeb;
   text-decoration: underline;
   font-weight: 500;
 }
