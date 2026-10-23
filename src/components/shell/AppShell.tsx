@@ -261,22 +261,25 @@ export function AppShell({
   });
   const [breakRemainingSec, setBreakRemainingSec] = useState<number>(() => {
     if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("aicloser_on_break");
       const exp = localStorage.getItem("aicloser_break_expires");
-      if (exp) {
+      if (stored === "true" && exp) {
         const diff = Math.floor((Number(exp) - Date.now()) / 1000);
-        return diff > 0 ? diff : 0;
+        if (diff > 0) return diff;
       }
     }
-    return 0;
+    return 1800; // default 30 mins (1800s) quota
   });
 
   useEffect(() => {
-    aicloserApi.team.getBreakStatus().then((status) => {
+    aicloserApi.team.getBreakStatus().then((rawStatus: any) => {
+      const status = rawStatus?.data || rawStatus;
       if (status) {
-        setIsOnBreak(Boolean(status.isOnBreak));
+        const currentlyOnBreak = Boolean(status.isOnBreak);
+        setIsOnBreak(currentlyOnBreak);
         if (typeof status.remainingSeconds === "number") {
           setBreakRemainingSec(status.remainingSeconds);
-          if (status.isOnBreak) {
+          if (currentlyOnBreak) {
             const expiresAt = Date.now() + status.remainingSeconds * 1000;
             localStorage.setItem("aicloser_on_break", "true");
             localStorage.setItem("aicloser_break_expires", String(expiresAt));
@@ -332,7 +335,8 @@ export function AppShell({
   const handleToggleBreak = async () => {
     if (isOnBreak) {
       try {
-        const res: any = await aicloserApi.team.endBreak();
+        const rawRes: any = await aicloserApi.team.endBreak();
+        const res = rawRes?.data || rawRes;
         setIsOnBreak(false);
         localStorage.removeItem("aicloser_on_break");
         localStorage.removeItem("aicloser_break_expires");
@@ -346,7 +350,8 @@ export function AppShell({
         return;
       }
       try {
-        const res: any = await aicloserApi.team.startBreak();
+        const rawRes: any = await aicloserApi.team.startBreak();
+        const res = rawRes?.data || rawRes;
         if (res?.success) {
           setIsOnBreak(true);
           const rem = typeof res.remainingSeconds === "number" ? res.remainingSeconds : (breakRemainingSec || 1800);

@@ -2303,7 +2303,7 @@ export const aicloserApi = {
           method: 'POST',
           body: JSON.stringify({ durationMinutes }),
         });
-        return res.data;
+        return res?.data ?? res;
       } catch {
         return { success: true, startedAt: new Date().toISOString(), durationMinutes };
       }
@@ -2311,7 +2311,7 @@ export const aicloserApi = {
     async endBreak() {
       try {
         const res = await request<any>('/team/break/end', { method: 'POST' });
-        return res.data;
+        return res?.data ?? res;
       } catch {
         return { success: true, endedAt: new Date().toISOString() };
       }
@@ -2319,7 +2319,7 @@ export const aicloserApi = {
     async getBreakStatus() {
       try {
         const res = await request<any>('/team/break/status');
-        return res.data;
+        return res?.data ?? res;
       } catch {
         return null;
       }
@@ -2327,9 +2327,10 @@ export const aicloserApi = {
     async getTeamBreaks() {
       try {
         const res = await request<any>('/team/break/team');
+        const payload = res?.data ?? res;
         return {
-          activeBreaks: Array.isArray(res?.activeBreaks) ? res.activeBreaks : [],
-          totalOnBreak: Number(res?.totalOnBreak || 0),
+          activeBreaks: Array.isArray(payload?.activeBreaks) ? payload.activeBreaks : [],
+          totalOnBreak: Number(payload?.totalOnBreak || 0),
         };
       } catch {
         return { activeBreaks: [], totalOnBreak: 0 };
@@ -2339,7 +2340,7 @@ export const aicloserApi = {
       try {
         const qs = scope ? `?scope=${encodeURIComponent(scope)}` : '';
         const res = await request<any>(`/team/break/logs${qs}`);
-        return res.data;
+        return res?.data ?? res;
       } catch {
         return {
           logs: [],

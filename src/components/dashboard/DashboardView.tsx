@@ -297,124 +297,6 @@ export function DashboardView() {
         </div>
       </section>
 
-      {/* Closer Break Activity & Daily Quota Records */}
-      <section className="card card-section-break">
-        <div className="card-head">
-          <div className="card-title-group">
-            <span className="card-title">
-              <Icon name="coffee" size={16} /> Closer Break Logs & Time Records
-            </span>
-            <span className="card-sub">
-              Daily allowed break quota (30 mins), cumulative time taken, and active break sessions
-            </span>
-          </div>
-          <div className="break-head-actions">
-            <span className="chip" data-tone={breakSummary.isOnBreak ? "warning" : "success"}>
-              <span className="dot" />
-              {breakSummary.isOnBreak ? "Currently On Break" : "Active / Receiving Leads"}
-            </span>
-            <button
-              type="button"
-              className="btn"
-              data-size="sm"
-              data-variant="ghost"
-              onClick={fetchBreakLogs}
-              title="Refresh Break Logs"
-            >
-              <Icon name="refresh" size={13} className={breakLoading ? "spin" : ""} /> Refresh
-            </button>
-          </div>
-        </div>
-
-        <div className="card-body">
-          {/* Mini Stat Pills */}
-          <div className="break-quota-grid">
-            <div className="break-quota-pill">
-              <div className="break-quota-label">Daily Quota</div>
-              <div className="break-quota-value">{breakSummary.allowedMinutes} mins</div>
-            </div>
-
-            <div className="break-quota-pill">
-              <div className="break-quota-label">Time Used Today</div>
-              <div className="break-quota-value" data-tone="accent">
-                {formatDurationSec(breakSummary.usedSeconds)}
-              </div>
-            </div>
-
-            <div className="break-quota-pill">
-              <div className="break-quota-label">Remaining Quota</div>
-              <div
-                className="break-quota-value"
-                data-tone={breakSummary.remainingSeconds > 0 ? "success" : "danger"}
-              >
-                {formatDurationSec(breakSummary.remainingSeconds)}
-              </div>
-            </div>
-
-            <div className="break-quota-pill">
-              <div className="break-quota-label">Sessions Today</div>
-              <div className="break-quota-value">
-                {breakSummary.totalBreaksToday} {breakSummary.totalBreaksToday === 1 ? "session" : "sessions"}
-              </div>
-            </div>
-          </div>
-
-          {/* Table of Break Session Logs */}
-          {breakLogs.length === 0 ? (
-            <div className="empty">
-              <span className="empty-icon">
-                <Icon name="coffee" size={20} />
-              </span>
-              <h3>No Break Sessions Recorded Today</h3>
-              <p>When closers take a break, their start time, elapsed duration, and remaining quota will appear here in real time.</p>
-            </div>
-          ) : (
-            <div className="table-wrap">
-              <table className="break-log-table">
-                <thead>
-                  <tr>
-                    <th>Closer</th>
-                    <th>Started At</th>
-                    <th>Ended At</th>
-                    <th>Duration Taken</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {breakLogs.map((log) => {
-                    const isLive = log.status === "IN_PROGRESS";
-                    return (
-                      <tr key={log.id}>
-                        <td>{log.userName}</td>
-                        <td>
-                          {new Date(log.startedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true })}
-                        </td>
-                        <td>
-                          {log.endedAt ? (
-                            new Date(log.endedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true })
-                          ) : (
-                            <span className="chip" data-tone="accent">Active Now...</span>
-                          )}
-                        </td>
-                        <td>{formatDurationSec(log.durationSeconds)}</td>
-                        <td>
-                          <span
-                            className="chip"
-                            data-tone={isLive ? "warning" : log.status === "EXPIRED" ? "danger" : "success"}
-                          >
-                            {isLive ? "In Progress" : log.status === "EXPIRED" ? "Quota Expired" : "Completed / Paused"}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </section>
-
       {/* Middle Split: Pipeline Health Funnel & Recent Activity */}
       <div className="dash-split">
         <section className="card">
@@ -613,6 +495,124 @@ export function DashboardView() {
           </div>
         </section>
       </div>
+
+      {/* Closer Break Activity & Daily Quota Records (Positioned at Bottom) */}
+      <section className="card card-section-break">
+        <div className="card-head">
+          <div className="card-title-group">
+            <span className="card-title">
+              <Icon name="coffee" size={16} /> Closer Break Logs & Time Records
+            </span>
+            <span className="card-sub">
+              Daily allowed break quota (30 mins), cumulative time taken, and active break sessions
+            </span>
+          </div>
+          <div className="break-head-actions">
+            <span className="chip" data-tone={breakSummary.isOnBreak ? "warning" : "success"}>
+              <span className="dot" />
+              {breakSummary.isOnBreak ? "Currently On Break" : "Active / Receiving Leads"}
+            </span>
+            <button
+              type="button"
+              className="btn"
+              data-size="sm"
+              data-variant="ghost"
+              onClick={fetchBreakLogs}
+              title="Refresh Break Logs"
+            >
+              <Icon name="refresh" size={13} className={breakLoading ? "spin" : ""} /> Refresh
+            </button>
+          </div>
+        </div>
+
+        <div className="card-body">
+          {/* Mini Stat Pills */}
+          <div className="break-quota-grid">
+            <div className="break-quota-pill">
+              <div className="break-quota-label">Daily Quota</div>
+              <div className="break-quota-value">{breakSummary.allowedMinutes} mins</div>
+            </div>
+
+            <div className="break-quota-pill">
+              <div className="break-quota-label">Time Used Today</div>
+              <div className="break-quota-value" data-tone="accent">
+                {formatDurationSec(breakSummary.usedSeconds)}
+              </div>
+            </div>
+
+            <div className="break-quota-pill">
+              <div className="break-quota-label">Remaining Quota</div>
+              <div
+                className="break-quota-value"
+                data-tone={breakSummary.remainingSeconds > 0 ? "success" : "danger"}
+              >
+                {formatDurationSec(breakSummary.remainingSeconds)}
+              </div>
+            </div>
+
+            <div className="break-quota-pill">
+              <div className="break-quota-label">Sessions Today</div>
+              <div className="break-quota-value">
+                {breakSummary.totalBreaksToday} {breakSummary.totalBreaksToday === 1 ? "session" : "sessions"}
+              </div>
+            </div>
+          </div>
+
+          {/* Table of Break Session Logs */}
+          {breakLogs.length === 0 ? (
+            <div className="empty">
+              <span className="empty-icon">
+                <Icon name="coffee" size={20} />
+              </span>
+              <h3>No Break Sessions Recorded Today</h3>
+              <p>When closers take a break, their start time, elapsed duration, and remaining quota will appear here in real time.</p>
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table className="break-log-table">
+                <thead>
+                  <tr>
+                    <th>Closer</th>
+                    <th>Started At</th>
+                    <th>Ended At</th>
+                    <th>Duration Taken</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {breakLogs.map((log) => {
+                    const isLive = log.status === "IN_PROGRESS";
+                    return (
+                      <tr key={log.id}>
+                        <td>{log.userName}</td>
+                        <td>
+                          {new Date(log.startedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true })}
+                        </td>
+                        <td>
+                          {log.endedAt ? (
+                            new Date(log.endedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true })
+                          ) : (
+                            <span className="chip" data-tone="accent">Active Now...</span>
+                          )}
+                        </td>
+                        <td>{formatDurationSec(log.durationSeconds)}</td>
+                        <td>
+                          <span
+                            className="chip"
+                            data-tone={isLive ? "warning" : log.status === "EXPIRED" ? "danger" : "success"}
+                          >
+                            {isLive ? "In Progress" : log.status === "EXPIRED" ? "Quota Expired" : "Completed / Paused"}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </section>
     </div>
   );
 }
