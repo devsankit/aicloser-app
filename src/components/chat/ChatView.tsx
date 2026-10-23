@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { CURRENT_USER, useApp } from "@/lib/store";
-import { STAGES, type StageId, type Priority } from "@/lib/types";
+import { STAGES, type StageId, type Priority, stageMeta, PRIORITY_LABEL } from "@/lib/types";
 import { aicloserApi } from "@/lib/api-client";
 import { isScannedWhatsAppLead } from "@/lib/lead-mapper";
 import { LeadCommandHistory } from "@/components/pipeline/LeadCommandHistory";
@@ -158,13 +158,36 @@ function renderMessageContent(text: string, isCloser: boolean) {
 }
 
 export function ChatView() {
-  const { state, moveLead, updateLead, reassignLead, setScope } = useApp();
+  const { state, moveLead, updateLead, reassignLead, setScope, deleteLead } = useApp();
 
   // Channel filter: all, whatsapp, instagram, website
   const [channelFilter, setChannelFilter] = useState<string>("all");
   const [scopeFilter, setScopeFilter] = useState<"all" | "mine" | "api" | "unassigned">("all");
   const [search, setSearch] = useState("");
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+
+  // Inbox Header Filters (Status/Stage, Priority, Callback/SLA, Workspace Labels)
+  const [stageFilter, setStageFilter] = useState<string>("all");
+  const [priorityFilter, setPriorityFilter] = useState<string>("all");
+  const [callbackFilter, setCallbackFilter] = useState<string>("all");
+  const [labelFilter, setLabelFilter] = useState<string>("all");
+  const [workspaceLabels, setWorkspaceLabels] = useState<Array<{ id: string; name: string; color?: string }>>([]);
+
+  // Multi-Selection & Bulk Delete state
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedChatIds, setSelectedChatIds] = useState<Set<string>>(new Set());
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
+  const [isDeletingBulk, setIsDeletingBulk] = useState(false);
+
+  // Per-chat action menu state
+  const [menuChatId, setMenuChatId] = useState<string | null>(null);
+  const [menuSubView, setMenuSubView] = useState<"root" | "stage" | "priority" | "label">("root");
+  const [singleDeleteChat, setSingleDeleteChat] = useState<ConversationItem | null>(null);
+  const [isDeletingSingle, setIsDeletingSingle] = useState(false);
+  const [callbackModalChat, setCallbackModalChat] = useState<ConversationItem | null>(null);
+  const [callbackDateTime, setCallbackDateTime] = useState<string>("");
+  const [callbackNote, setCallbackNote] = useState<string>("");
+  const [schedulingCallback, setSchedulingCallback] = useState(false);
 
   // Closer WhatsApp QR Linking Modal State
   const [showQrModal, setShowQrModal] = useState(false);
@@ -679,6 +702,246 @@ export function ChatView() {
     };
   }, [activeLeadProfile?.id, activeLead?.id, activeChat?.leadId]);
 
+  // Helper to find linked lead for any conversation
+  const getLinkedLead = useCallback(
+    (c: ConversationItem) => {
+      const cleanPhone = c.phone ? c.phone.replace(/\D/g, "").slice(-10) : "";
+      return (
+        state.leads.find((l) => {
+          if (c.leadId && l.id === c.leadId) return true;
+          if (cleanPhone && l.phone && l.phone.replace(/\D/g, "").slice(-10) === cleanPhone) return true;
+          return false;
+        }) || null
+      );
+    },
+    [state.leads]
+  );
+
+  // Load workspace labels for inbox filter
+  useEffect(() => {
+    let active = true;
+    aicloserApi.labels
+      .list()
+      .then((list: any) => {
+        if (active && Array.isArray(list)) {
+          setWorkspaceLabels(list);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const allAvailableLabels = useMemo(() => {
+    const set = new Set<string>();
+    workspaceLabels.forEach((lbl) => {
+      if (lbl?.name) set.add(lbl.name);
+    });
+    state.leads.forEach((l) => {
+      if (Array.isArray(l.tags)) {
+        l.tags.forEach((t) => {
+          if (t) set.add(t);
+        });
+      }
+    });
+    return Array.from(set).sort();
+  }, [workspaceLabels, state.leads]);
+
+  // Click outside listener for per-chat three-dot menu
+  useEffect(() => {
+    if (!menuChatId) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest(".chat-card-menu-popover") && !target?.closest(".chat-card-menu-btn")) {
+        setMenuChatId(null);
+        setMenuSubView("root");
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, [menuChatId]);
+
+  // Action handlers: Single Delete, Bulk Delete, Quick Stage, Quick Priority, Quick Label, Schedule Callback
+  const handleConfirmSingleDelete = async () => {
+    if (!singleDeleteChat) return;
+    setIsDeletingSingle(true);
+    try {
+      const chatIdToDelete = singleDeleteChat.id;
+      await aicloserApi.conversations.delete(chatIdToDelete);
+
+      // Immediate UI removal
+      setConversations((prev) => prev.filter((c) => c.id !== chatIdToDelete));
+
+      // Remove linked lead from UI store
+      const lead = getLinkedLead(singleDeleteChat);
+      if (lead?.id) {
+        deleteLead(lead.id);
+      }
+
+      // Re-assign active chat selection if deleted
+      if (selectedChatId === chatIdToDelete) {
+        const remaining = conversations.filter((c) => c.id !== chatIdToDelete);
+        setSelectedChatId(remaining[0]?.id || null);
+      }
+
+      showToast("Moved chat and contact to Recycle Bin");
+      setSingleDeleteChat(null);
+    } catch (err: any) {
+      showToast(err?.message || "Failed to delete chat");
+    } finally {
+      setIsDeletingSingle(false);
+    }
+  };
+
+  const handleConfirmBulkDelete = async () => {
+    const idsToDelete = Array.from(selectedChatIds);
+    if (idsToDelete.length === 0) return;
+    setIsDeletingBulk(true);
+    try {
+      await aicloserApi.conversations.bulkDelete(idsToDelete);
+
+      // Remove from conversations
+      setConversations((prev) => prev.filter((c) => !selectedChatIds.has(c.id)));
+
+      // Remove linked leads from store
+      idsToDelete.forEach((cId) => {
+        const chatItem = conversations.find((c) => c.id === cId);
+        if (chatItem) {
+          const lead = getLinkedLead(chatItem);
+          if (lead?.id) {
+            deleteLead(lead.id);
+          }
+        }
+      });
+
+      // Update active selection if deleted
+      if (selectedChatId && selectedChatIds.has(selectedChatId)) {
+        const remaining = conversations.filter((c) => !selectedChatIds.has(c.id));
+        setSelectedChatId(remaining[0]?.id || null);
+      }
+
+      const count = idsToDelete.length;
+      setSelectedChatIds(new Set());
+      setIsSelectionMode(false);
+      setShowBulkDeleteModal(false);
+      showToast(`Moved ${count} chat(s) and contact(s) to Recycle Bin`);
+    } catch (err: any) {
+      showToast(err?.message || "Failed to delete selected chats");
+    } finally {
+      setIsDeletingBulk(false);
+    }
+  };
+
+  const handleQuickStageChange = async (chat: ConversationItem, stageId: StageId) => {
+    try {
+      const lead = getLinkedLead(chat);
+      if (lead?.id) {
+        moveLead(lead.id, stageId);
+      }
+      if (chat.id === activeChat?.id) {
+        setChatStage(stageId);
+      }
+      aicloserApi.conversations.updateStage(chat.id, stageId).catch(() => {});
+      const meta = stageMeta(stageId);
+      showToast(`Stage updated to ${meta.label}`);
+      setMenuChatId(null);
+      setMenuSubView("root");
+    } catch (err: any) {
+      showToast(err?.message || "Failed to update stage");
+    }
+  };
+
+  const handleQuickPriorityChange = (chat: ConversationItem, priority: Priority) => {
+    try {
+      const lead = getLinkedLead(chat);
+      if (lead?.id) {
+        updateLead(lead.id, { priority });
+      }
+      showToast(`Priority updated to ${PRIORITY_LABEL[priority]}`);
+      setMenuChatId(null);
+      setMenuSubView("root");
+    } catch (err: any) {
+      showToast(err?.message || "Failed to update priority");
+    }
+  };
+
+  const handleQuickToggleLabel = (chat: ConversationItem, labelName: string) => {
+    try {
+      const lead = getLinkedLead(chat);
+      if (lead?.id) {
+        const currentTags = lead.tags || [];
+        const exists = currentTags.includes(labelName);
+        const nextTags = exists
+          ? currentTags.filter((t) => t !== labelName)
+          : [...currentTags, labelName];
+        updateLead(lead.id, { tags: nextTags });
+        showToast(exists ? `Removed "${labelName}"` : `Added "${labelName}"`);
+      } else {
+        showToast("No contact profile to assign label");
+      }
+    } catch (err: any) {
+      showToast(err?.message || "Failed to update label");
+    }
+  };
+
+  const handleOpenCallbackModal = (chat: ConversationItem) => {
+    setMenuChatId(null);
+    setMenuSubView("root");
+    setCallbackModalChat(chat);
+    const lead = getLinkedLead(chat);
+    if (lead?.followUp) {
+      try {
+        const d = new Date(lead.followUp);
+        const pad = (n: number) => String(n).padStart(2, "0");
+        const formatted = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        setCallbackDateTime(formatted);
+      } catch {
+        setCallbackDateTime("");
+      }
+    } else {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(10, 0, 0, 0);
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const formatted = `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())}T${pad(tomorrow.getHours())}:${pad(tomorrow.getMinutes())}`;
+      setCallbackDateTime(formatted);
+    }
+    setCallbackNote("");
+  };
+
+  const handleConfirmScheduleCallback = async () => {
+    if (!callbackModalChat || !callbackDateTime) return;
+    setSchedulingCallback(true);
+    try {
+      const isoDate = new Date(callbackDateTime).toISOString();
+      await aicloserApi.conversations.scheduleCallback(
+        callbackModalChat.id,
+        isoDate,
+        callbackNote.trim() || undefined
+      );
+
+      const lead = getLinkedLead(callbackModalChat);
+      if (lead?.id) {
+        updateLead(lead.id, {
+          followUp: isoDate,
+          notes: callbackNote.trim()
+            ? `${lead.notes || ""}\nCallback: ${callbackNote.trim()}`
+            : lead.notes,
+        });
+      }
+
+      showToast("Callback scheduled successfully");
+      setCallbackModalChat(null);
+    } catch (err: any) {
+      showToast(err?.message || "Failed to schedule callback");
+    } finally {
+      setSchedulingCallback(false);
+    }
+  };
+
   const filteredConversations = useMemo(() => {
     const myName = (state.user?.displayName || CURRENT_USER).toLowerCase();
     const isAgentScope = state.scope.startsWith("agent:");
@@ -794,9 +1057,94 @@ export function ChatView() {
         c.company.toLowerCase().includes(q) ||
         c.lastMessage.toLowerCase().includes(q) ||
         phoneMatches;
-      return matchChannel && matchScope && matchSearch;
+
+      // Linked lead matching for stage, priority, callback/SLA, and label filters
+      const linkedLead = getLinkedLead(c);
+
+      // A. Status / Stage filter
+      let matchStage = true;
+      if (stageFilter !== "all") {
+        const leadStage = (linkedLead?.stage || (c as any).stage || "new").toLowerCase();
+        if (stageFilter === "new") {
+          matchStage = leadStage === "new";
+        } else if (stageFilter === "follow_up") {
+          matchStage = leadStage === "follow_up";
+        } else if (stageFilter === "qualified") {
+          matchStage = ["qualified", "demo", "negotiation", "in_progress", "contacted"].includes(leadStage);
+        } else if (stageFilter === "won") {
+          matchStage = leadStage === "won";
+        } else if (stageFilter === "lost") {
+          matchStage = leadStage === "lost";
+        } else {
+          matchStage = leadStage === stageFilter.toLowerCase();
+        }
+      }
+
+      // B. Priority filter
+      let matchPriority = true;
+      if (priorityFilter !== "all") {
+        const leadPriority = (linkedLead?.priority || "medium").toLowerCase();
+        matchPriority = leadPriority === priorityFilter.toLowerCase();
+      }
+
+      // C. Callback / SLA filter
+      let matchCallback = true;
+      if (callbackFilter !== "all") {
+        const followUp = linkedLead?.followUp;
+        if (callbackFilter === "has_callback") {
+          matchCallback = Boolean(followUp);
+        } else if (callbackFilter === "due_today") {
+          if (!followUp) {
+            matchCallback = false;
+          } else {
+            const d = new Date(followUp);
+            const today = new Date();
+            matchCallback =
+              !isNaN(d.getTime()) &&
+              d.getFullYear() === today.getFullYear() &&
+              d.getMonth() === today.getMonth() &&
+              d.getDate() === today.getDate();
+          }
+        } else if (callbackFilter === "overdue") {
+          if (!followUp) {
+            matchCallback = false;
+          } else {
+            const d = new Date(followUp);
+            matchCallback = !isNaN(d.getTime()) && d.getTime() < Date.now();
+          }
+        }
+      }
+
+      // D. Label / Tag filter
+      let matchLabel = true;
+      if (labelFilter !== "all") {
+        const tags = linkedLead?.tags || [];
+        matchLabel = Array.isArray(tags) && tags.includes(labelFilter);
+      }
+
+      return (
+        matchChannel &&
+        matchScope &&
+        matchSearch &&
+        matchStage &&
+        matchPriority &&
+        matchCallback &&
+        matchLabel
+      );
     });
-  }, [conversations, channelFilter, scopeFilter, search, state.user, state.scope]);
+  }, [
+    conversations,
+    channelFilter,
+    scopeFilter,
+    search,
+    stageFilter,
+    priorityFilter,
+    callbackFilter,
+    labelFilter,
+    getLinkedLead,
+    state.user,
+    state.scope,
+  ]);
 
   // Synchronize selectedChatId with active filteredConversations to prevent ghost chats from other scopes
   useEffect(() => {
@@ -2260,12 +2608,25 @@ export function ChatView() {
           getWidth={() => inboxWidth}
           setWidth={handleSetInboxWidth}
         />
-        {/* Header with Search */}
+        {/* Header with Search & Filters */}
         <div className="chat-inbox-head">
           <div className="chat-inbox-top">
             <div>
               <div className="chat-inbox-title-wrap">
                 <h2 className="chat-inbox-title">Inbox</h2>
+                <button
+                  type="button"
+                  className="btn chat-link-qr-btn"
+                  data-size="sm"
+                  data-variant={isSelectionMode ? "primary" : "ghost"}
+                  onClick={() => {
+                    setIsSelectionMode(!isSelectionMode);
+                    setSelectedChatIds(new Set());
+                  }}
+                  title="Toggle multi-chat checkbox selection"
+                >
+                  <Icon name="check" size={12} /> {isSelectionMode ? "Done" : "Select"}
+                </button>
                 <button
                   type="button"
                   className="btn chat-link-qr-btn"
@@ -2325,6 +2686,70 @@ export function ChatView() {
             />
           </div>
 
+          {/* Header Filter Controls (Status/Stage, Priority, Callback/SLA, Workspace Labels) */}
+          <div className="chat-filters-grid">
+            {/* 1. Status / Stage Filter */}
+            <select
+              className="chat-filter-select"
+              value={stageFilter}
+              onChange={(e) => setStageFilter(e.target.value)}
+              title="Filter by Lead Stage"
+              aria-label="Filter by Lead Stage"
+            >
+              <option value="all">All Stages</option>
+              <option value="new">New</option>
+              <option value="follow_up">Follow-up</option>
+              <option value="qualified">Qualified</option>
+              <option value="won">Won</option>
+              <option value="lost">Lost</option>
+            </select>
+
+            {/* 2. Priority Filter */}
+            <select
+              className="chat-filter-select"
+              value={priorityFilter}
+              onChange={(e) => setPriorityFilter(e.target.value)}
+              title="Filter by Lead Priority"
+              aria-label="Filter by Lead Priority"
+            >
+              <option value="all">All Priorities</option>
+              <option value="urgent">Urgent</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+
+            {/* 3. Callback / SLA Filter */}
+            <select
+              className="chat-filter-select"
+              value={callbackFilter}
+              onChange={(e) => setCallbackFilter(e.target.value)}
+              title="Filter by Callback / Follow-up"
+              aria-label="Filter by Callback / Follow-up"
+            >
+              <option value="all">All Follow-ups</option>
+              <option value="due_today">Due Today</option>
+              <option value="overdue">Overdue</option>
+              <option value="has_callback">Has Callback</option>
+            </select>
+
+            {/* 4. Label Filter */}
+            <select
+              className="chat-filter-select"
+              value={labelFilter}
+              onChange={(e) => setLabelFilter(e.target.value)}
+              title="Filter by Label"
+              aria-label="Filter by Label"
+            >
+              <option value="all">All Labels</option>
+              {allAvailableLabels.map((lbl) => (
+                <option key={lbl} value={lbl}>
+                  {lbl}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Channel Filters (Scrollable, Clean Linear Navigation) */}
           <div
             style={{
@@ -2364,6 +2789,59 @@ export function ChatView() {
           </div>
         </div>
 
+        {/* Sticky Batch Selection Bar */}
+        {isSelectionMode && (
+          <div className="chat-batch-bar">
+            <div className="chat-batch-left">
+              <label className="chat-batch-select-all">
+                <input
+                  type="checkbox"
+                  className="chat-checkbox"
+                  checked={
+                    filteredConversations.length > 0 &&
+                    filteredConversations.every((c) => selectedChatIds.has(c.id))
+                  }
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelectedChatIds(new Set(filteredConversations.map((c) => c.id)));
+                    } else {
+                      setSelectedChatIds(new Set());
+                    }
+                  }}
+                />
+                <span>Select All ({filteredConversations.length})</span>
+              </label>
+              <span className="chat-batch-count">
+                {selectedChatIds.size} selected
+              </span>
+            </div>
+            <div className="chat-batch-actions">
+              <button
+                type="button"
+                className="btn"
+                data-size="sm"
+                data-variant="danger"
+                disabled={selectedChatIds.size === 0}
+                onClick={() => setShowBulkDeleteModal(true)}
+              >
+                <Icon name="trash" size={12} /> Delete ({selectedChatIds.size})
+              </button>
+              <button
+                type="button"
+                className="btn"
+                data-size="sm"
+                data-variant="ghost"
+                onClick={() => {
+                  setIsSelectionMode(false);
+                  setSelectedChatIds(new Set());
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Conversation Rows */}
         <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
           {filteredConversations.length === 0 ? (
@@ -2379,9 +2857,18 @@ export function ChatView() {
           ) : (
             filteredConversations.map((chat) => {
               const isSelected = activeChat ? chat.id === activeChat.id : false;
+              const linkedLead = getLinkedLead(chat);
+              const isCloser =
+                (state.user?.role as string) === "CLOSER" || state.user?.role === "SALES_AGENT";
+              const isOfficial =
+                chat.isOfficialApi === true || chat.channelSource === "OFFICIAL_API";
+              const canDeleteChat = !isCloser || !isOfficial;
+
               return (
                 <div
                   key={chat.id}
+                  className="chat-card-row"
+                  data-selected={isSelected}
                   onClick={() => {
                     setSelectedChatId(chat.id);
                     setConversations((prev) =>
@@ -2391,17 +2878,28 @@ export function ChatView() {
                       aicloserApi.conversations.markRead(chat.id).catch(() => undefined);
                     }
                   }}
-                  style={{
-                    padding: "10px 14px",
-                    borderBottom: "1px solid var(--border)",
-                    cursor: "pointer",
-                    background: isSelected ? "var(--bg-selected)" : "transparent",
-                    transition: "background var(--speed) ease",
-                    display: "flex",
-                    gap: "10px",
-                    alignItems: "flex-start",
-                  }}
                 >
+                  {/* Multi-Selection Checkbox */}
+                  {isSelectionMode && (
+                    <div style={{ display: "flex", alignItems: "center", paddingTop: "8px" }}>
+                      <input
+                        type="checkbox"
+                        className="chat-checkbox"
+                        checked={selectedChatIds.has(chat.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          setSelectedChatIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(chat.id)) next.delete(chat.id);
+                            else next.add(chat.id);
+                            return next;
+                          });
+                        }}
+                      />
+                    </div>
+                  )}
+
                   {/* Avatar with Channel Icon */}
                   <div style={{ position: "relative", flexShrink: 0 }}>
                     <div
@@ -2439,7 +2937,7 @@ export function ChatView() {
                   </div>
 
                   {/* Details */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ flex: 1, minWidth: 0, paddingRight: isSelectionMode ? "0px" : "18px" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                       <span style={{ fontWeight: chat.unreadCount > 0 ? 750 : 650, fontSize: "var(--fs-meta)", color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {chat.customerName}
@@ -2536,6 +3034,193 @@ export function ChatView() {
                       )}
                     </div>
                   </div>
+
+                  {/* Hover Three-Dot Action Menu Button */}
+                  {!isSelectionMode && (
+                    <button
+                      type="button"
+                      className="chat-card-menu-btn"
+                      data-open={menuChatId === chat.id}
+                      title="Chat actions"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (menuChatId === chat.id) {
+                          setMenuChatId(null);
+                          setMenuSubView("root");
+                        } else {
+                          setMenuChatId(chat.id);
+                          setMenuSubView("root");
+                        }
+                      }}
+                    >
+                      <Icon name="more" size={13} />
+                    </button>
+                  )}
+
+                  {/* Contextual Action Menu Popover */}
+                  {!isSelectionMode && menuChatId === chat.id && (
+                    <div
+                      className="chat-card-menu-popover"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {menuSubView === "root" && (
+                        <>
+                          <button
+                            type="button"
+                            className="chat-card-menu-item"
+                            onClick={() => setMenuSubView("stage")}
+                          >
+                            <Icon name="zap" size={13} /> Quick Stage change
+                          </button>
+                          <button
+                            type="button"
+                            className="chat-card-menu-item"
+                            onClick={() => setMenuSubView("priority")}
+                          >
+                            <Icon name="target" size={13} /> Quick Priority change
+                          </button>
+                          <button
+                            type="button"
+                            className="chat-card-menu-item"
+                            onClick={() => setMenuSubView("label")}
+                          >
+                            <Icon name="tag" size={13} /> Add / remove label
+                          </button>
+                          <button
+                            type="button"
+                            className="chat-card-menu-item"
+                            onClick={() => handleOpenCallbackModal(chat)}
+                          >
+                            <Icon name="calendar-clock" size={13} /> Schedule Callback
+                          </button>
+                          <div className="chat-card-menu-divider" />
+                          <button
+                            type="button"
+                            className="chat-card-menu-item"
+                            data-tone="danger"
+                            disabled={!canDeleteChat}
+                            title={
+                              !canDeleteChat
+                                ? "Company API chats can only be deleted by Admin"
+                                : "Move chat and linked contact to Recycle Bin"
+                            }
+                            onClick={() => {
+                              if (!canDeleteChat) return;
+                              setMenuChatId(null);
+                              setSingleDeleteChat(chat);
+                            }}
+                          >
+                            <Icon name="trash" size={13} /> Delete Chat & Contact
+                          </button>
+                          {!canDeleteChat && (
+                            <span style={{ fontSize: "10px", color: "var(--text-tertiary)", padding: "2px 6px" }}>
+                              Company API chats: Admin delete only
+                            </span>
+                          )}
+                        </>
+                      )}
+
+                      {menuSubView === "stage" && (
+                        <>
+                          <div className="chat-card-menu-head">
+                            <button
+                              type="button"
+                              className="chat-card-menu-back-btn"
+                              onClick={() => setMenuSubView("root")}
+                            >
+                              <Icon name="chevron-left" size={11} /> Back
+                            </button>
+                            <span>Quick Stage</span>
+                          </div>
+                          {STAGES.map((s) => {
+                            const currentStage = (linkedLead?.stage || (chat as any).stage || "new").toLowerCase();
+                            const isActive = currentStage === s.id;
+                            return (
+                              <button
+                                key={s.id}
+                                type="button"
+                                className="chat-card-menu-subitem"
+                                data-active={isActive}
+                                onClick={() => handleQuickStageChange(chat, s.id)}
+                              >
+                                <span>{s.label}</span>
+                                {isActive && <Icon name="check" size={11} />}
+                              </button>
+                            );
+                          })}
+                        </>
+                      )}
+
+                      {menuSubView === "priority" && (
+                        <>
+                          <div className="chat-card-menu-head">
+                            <button
+                              type="button"
+                              className="chat-card-menu-back-btn"
+                              onClick={() => setMenuSubView("root")}
+                            >
+                              <Icon name="chevron-left" size={11} /> Back
+                            </button>
+                            <span>Quick Priority</span>
+                          </div>
+                          {(["urgent", "high", "medium", "low"] as Priority[]).map((p) => {
+                            const currentPrio = (linkedLead?.priority || "medium").toLowerCase();
+                            const isActive = currentPrio === p;
+                            return (
+                              <button
+                                key={p}
+                                type="button"
+                                className="chat-card-menu-subitem"
+                                data-active={isActive}
+                                onClick={() => handleQuickPriorityChange(chat, p)}
+                              >
+                                <span>{PRIORITY_LABEL[p]}</span>
+                                {isActive && <Icon name="check" size={11} />}
+                              </button>
+                            );
+                          })}
+                        </>
+                      )}
+
+                      {menuSubView === "label" && (
+                        <>
+                          <div className="chat-card-menu-head">
+                            <button
+                              type="button"
+                              className="chat-card-menu-back-btn"
+                              onClick={() => setMenuSubView("root")}
+                            >
+                              <Icon name="chevron-left" size={11} /> Back
+                            </button>
+                            <span>Toggle Labels</span>
+                          </div>
+                          <div style={{ maxHeight: "160px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "2px" }}>
+                            {allAvailableLabels.length === 0 ? (
+                              <div style={{ fontSize: "11px", color: "var(--text-tertiary)", padding: "6px" }}>
+                                No workspace labels
+                              </div>
+                            ) : (
+                              allAvailableLabels.map((lbl) => {
+                                const hasTag = linkedLead?.tags?.includes(lbl);
+                                return (
+                                  <button
+                                    key={lbl}
+                                    type="button"
+                                    className="chat-card-menu-subitem"
+                                    data-active={hasTag}
+                                    onClick={() => handleQuickToggleLabel(chat, lbl)}
+                                  >
+                                    <span>{lbl}</span>
+                                    {hasTag && <Icon name="check" size={11} />}
+                                  </button>
+                                );
+                              })
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })
@@ -3960,6 +4645,161 @@ export function ChatView() {
                   <Icon name="refresh" size={13} className={qrLoading ? "spin" : ""} /> Refresh QR
                 </button>
               )}
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Delete Confirmation Modal (Recycle Bin) */}
+      {showBulkDeleteModal && (
+        <div className="overlay" data-kind="dialog" onClick={() => setShowBulkDeleteModal(false)}>
+          <div className="dialog" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+            <header className="dialog-head">
+              <div className="dialog-icon" style={{ color: "var(--danger)" }}>
+                <Icon name="trash" size={16} />
+              </div>
+              <h2>Move {selectedChatIds.size} Selected to Recycle Bin?</h2>
+              <button type="button" className="icon-btn" onClick={() => setShowBulkDeleteModal(false)}>
+                <Icon name="close" size={14} />
+              </button>
+            </header>
+            <div className="dialog-body">
+              <p style={{ fontSize: "var(--fs-meta)", color: "var(--text)", margin: 0, lineHeight: 1.5 }}>
+                Move <strong>{selectedChatIds.size}</strong> selected chat(s) and linked contact(s) to Recycle Bin?
+              </p>
+              <div className="chip" data-tone="warning" style={{ width: "100%", height: "auto", padding: "8px 10px", whiteSpace: "normal", fontSize: "11px" }}>
+                Soft-deleted items are safely preserved in the workspace Recycle Bin and can be restored by workspace administrators within 30 days.
+              </div>
+            </div>
+            <footer className="dialog-foot">
+              <button
+                type="button"
+                className="btn"
+                data-variant="ghost"
+                onClick={() => setShowBulkDeleteModal(false)}
+                disabled={isDeletingBulk}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn"
+                data-variant="danger"
+                disabled={isDeletingBulk || selectedChatIds.size === 0}
+                onClick={handleConfirmBulkDelete}
+              >
+                {isDeletingBulk ? "Moving..." : `Delete (${selectedChatIds.size})`}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {/* Single Chat Soft-Delete Modal (Recycle Bin) */}
+      {singleDeleteChat && (
+        <div className="overlay" data-kind="dialog" onClick={() => setSingleDeleteChat(null)}>
+          <div className="dialog" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+            <header className="dialog-head">
+              <div className="dialog-icon" style={{ color: "var(--danger)" }}>
+                <Icon name="trash" size={16} />
+              </div>
+              <h2>Move Chat & Contact to Recycle Bin?</h2>
+              <button type="button" className="icon-btn" onClick={() => setSingleDeleteChat(null)}>
+                <Icon name="close" size={14} />
+              </button>
+            </header>
+            <div className="dialog-body">
+              <p style={{ fontSize: "var(--fs-meta)", color: "var(--text)", margin: 0, lineHeight: 1.5 }}>
+                Move conversation with <strong>{singleDeleteChat.customerName}</strong> ({singleDeleteChat.phone || "No phone"}) and linked contact to Recycle Bin?
+              </p>
+              <div className="chip" data-tone="warning" style={{ width: "100%", height: "auto", padding: "8px 10px", whiteSpace: "normal", fontSize: "11px" }}>
+                Soft-deleted chats and contacts are safely archived in the Recycle Bin and can be restored by administrators.
+              </div>
+            </div>
+            <footer className="dialog-foot">
+              <button
+                type="button"
+                className="btn"
+                data-variant="ghost"
+                onClick={() => setSingleDeleteChat(null)}
+                disabled={isDeletingSingle}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn"
+                data-variant="danger"
+                disabled={isDeletingSingle}
+                onClick={handleConfirmSingleDelete}
+              >
+                {isDeletingSingle ? "Moving..." : "Move to Recycle Bin"}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {/* Schedule Callback Modal */}
+      {callbackModalChat && (
+        <div className="overlay" data-kind="dialog" onClick={() => setCallbackModalChat(null)}>
+          <div className="dialog" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+            <header className="dialog-head">
+              <div className="dialog-icon" style={{ color: "var(--accent)" }}>
+                <Icon name="calendar-clock" size={16} />
+              </div>
+              <h2>Schedule Callback</h2>
+              <button type="button" className="icon-btn" onClick={() => setCallbackModalChat(null)}>
+                <Icon name="close" size={14} />
+              </button>
+            </header>
+            <div className="dialog-body">
+              <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+                Set up a callback reminder for <strong>{callbackModalChat.customerName}</strong> ({callbackModalChat.phone || "Direct"}).
+              </div>
+              <div className="field">
+                <label style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
+                  Callback Date & Time
+                </label>
+                <input
+                  type="datetime-local"
+                  className="input"
+                  value={callbackDateTime}
+                  onChange={(e) => setCallbackDateTime(e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
+                  Follow-up Note / Context
+                </label>
+                <input
+                  type="text"
+                  className="input"
+                  placeholder="e.g. Follow up on demo feedback & invoice"
+                  value={callbackNote}
+                  onChange={(e) => setCallbackNote(e.target.value)}
+                />
+              </div>
+            </div>
+            <footer className="dialog-foot">
+              <button
+                type="button"
+                className="btn"
+                data-variant="ghost"
+                onClick={() => setCallbackModalChat(null)}
+                disabled={schedulingCallback}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn"
+                data-variant="primary"
+                disabled={!callbackDateTime || schedulingCallback}
+                onClick={handleConfirmScheduleCallback}
+              >
+                {schedulingCallback ? "Scheduling..." : "Save Callback"}
+              </button>
             </footer>
           </div>
         </div>

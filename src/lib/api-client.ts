@@ -1369,6 +1369,21 @@ export const aicloserApi = {
       }
       return json.data as { name: string; mimeType: string; sizeBytes: number; externalUrl: string; url?: string };
     },
+
+    async delete(conversationId: string) {
+      const res = await requestConversation(`/conversations/${encodeURIComponent(conversationId)}`, {
+        method: 'DELETE',
+      });
+      return res.data;
+    },
+
+    async bulkDelete(conversationIds: string[]) {
+      const res = await requestConversation('/conversations/bulk-delete', {
+        method: 'POST',
+        body: JSON.stringify({ conversationIds }),
+      });
+      return res.data;
+    },
   },
 
   // 5. Telephony & Recordings
