@@ -17,7 +17,8 @@ export async function proxy(request: NextRequest) {
     pathname.endsWith(".svg") ||
     pathname.endsWith(".webp") ||
     pathname.endsWith(".css") ||
-    pathname.endsWith(".js")
+    pathname.endsWith(".js") ||
+    pathname.endsWith(".apk")
   ) {
     return NextResponse.next();
   }
@@ -32,6 +33,7 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/forms") ||
     pathname.startsWith("/go") ||
     pathname.startsWith("/latestapk") ||
+    pathname.startsWith("/downloads") ||
     pathname.startsWith("/activate-plan") ||
     pathname.startsWith("/unauthorized")
   ) {

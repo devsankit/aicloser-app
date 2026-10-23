@@ -22,13 +22,24 @@ export function isWorkspacePlanLocked(
 }
 
 export async function getWorkspacePaymentState(userId: string) {
-  const subscription = await getLatestWorkspaceSubscription(userId);
+  let subscription: Awaited<ReturnType<typeof getLatestWorkspaceSubscription>> = null;
+
+  try {
+    subscription = await getLatestWorkspaceSubscription(userId);
+  } catch (error) {
+    // The app talks to the remote API; this Prisma client has no reachable database.
+    // Fail open so billing pages render instead of throwing a 500.
+    console.error("[billing] workspace subscription lookup failed; failing open", error);
+  }
+
   const locked = isWorkspacePlanLocked(subscription);
   return {
     subscription,
     locked,
     paymentStatus: subscription?.paymentStatus ?? "NOT_CONFIGURED",
     pendingSince: subscription?.createdAt ?? null,
-    lockAt: subscription ? new Date(subscription.createdAt.getTime() + WORKSPACE_PAYMENT_GRACE_MS) : null,
+    lockAt: subscription
+      ? new Date(subscription.createdAt.getTime() + WORKSPACE_PAYMENT_GRACE_MS)
+      : null,
   };
 }

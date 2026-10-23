@@ -219,13 +219,20 @@ function GlobalSearch() {
   );
 }
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({
+  children,
+  initialRole,
+}: {
+  children: ReactNode;
+  initialRole?: string;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const { state, toggleSidebar, setTheme, setScope, setLayout, setQuickAdd, setPalette, refreshLeads, logoutWorkspace, toggleGlobalAiBot } = useApp();
   const scopedLeads = useScopedLeads();
-  const isAdmin = state.user?.role === "ADMIN" || state.user?.role === "SUPER_ADMIN" || state.user?.role === "OWNER";
-  const isManager = state.user?.role === "MANAGER";
+  const userRole: string = (state.user?.role ?? initialRole ?? "SALES_AGENT").toUpperCase();
+  const isAdmin = userRole === "ADMIN" || userRole === "SUPER_ADMIN" || userRole === "OWNER";
+  const isManager = userRole === "MANAGER";
   const [mobileOpen, setMobileOpen] = useState(false);
   const [loginModalOpen, setLoginModalOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -241,6 +248,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [teamMembers, setTeamMembers] = useState<Array<{ id: string; name: string; count: number }>>([]);
   const [teamBreaks, setTeamBreaks] = useState<Array<{ userId: string; name: string; remainingSeconds: number; breakExpiresAt: string }>>([]);
   const [teamBreakOpen, setTeamBreakOpen] = useState(false);
+  const [aiBotError, setAiBotError] = useState<string | null>(null);
 
   // Agent Break Mode State & Countdown
   const [isOnBreak, setIsOnBreak] = useState<boolean>(() => {
@@ -575,12 +583,6 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <nav className="sidebar-scroll">
           {NAV.map((group) => {
-            const userRole = (
-              state.user?.role ||
-              state.workspaceAuth?.user?.role ||
-              (typeof document !== "undefined" && document.cookie.match(/(?:^|;\s*)gx_role=([^;]+)/)?.[1]) ||
-              "SALES_AGENT"
-            ).toUpperCase();
             const visibleItems = group.items.filter((item) => {
               if (item.href === "/super-admin") {
                 return userRole === "SUPER_ADMIN";
@@ -1141,25 +1143,40 @@ export function AppShell({ children }: { children: ReactNode }) {
           )}
 
           {/* Master Global AI Bot Switch */}
-          <button
-            type="button"
-            className="topbar-ai-btn"
-            data-active={state.globalAiBotEnabled}
-            onClick={() => {
-              void toggleGlobalAiBot().catch(() => {});
-            }}
-            disabled={state.isTogglingAiBot}
-            title={
-              state.globalAiBotEnabled
-                ? "Global AI Sales Bot is ACTIVE across all channels (WhatsApp and Inbound). Click to pause."
-                : "Global AI Sales Bot is PAUSED (Manual Human Takeover mode). Click to activate."
-            }
-            aria-label="Toggle Global AI Bot"
-          >
-            <span className="dot" />
-            <Icon name="bot" size={15} />
-            <span className="hide-sm">{state.globalAiBotEnabled ? "AI Bot ON" : "AI Bot OFF"}</span>
-          </button>
+          {(isAdmin || isManager) && (
+            <button
+              type="button"
+              className="topbar-ai-btn"
+              data-active={state.globalAiBotEnabled}
+              onClick={() => {
+                void toggleGlobalAiBot().catch((err: any) => {
+                  setAiBotError(
+                    err?.status === 403
+                      ? "Only an admin can change the AI bot setting."
+                      : "Could not update the AI bot. Try again."
+                  );
+                  setTimeout(() => setAiBotError(null), 3500);
+                });
+              }}
+              disabled={state.isTogglingAiBot}
+              title={
+                state.globalAiBotEnabled
+                  ? "Global AI Sales Bot is ACTIVE across all channels (WhatsApp and Inbound). Click to pause."
+                  : "Global AI Sales Bot is PAUSED (Manual Human Takeover mode). Click to activate."
+              }
+              aria-label="Toggle Global AI Bot"
+            >
+              <span className="dot" />
+              <Icon name="bot" size={15} />
+              <span className="hide-sm">{state.globalAiBotEnabled ? "AI Bot ON" : "AI Bot OFF"}</span>
+            </button>
+          )}
+
+          {aiBotError && (
+            <span className="chip" data-tone="danger" style={{ fontSize: "11px", position: "fixed", top: "54px", right: "20px", zIndex: 9999 }}>
+              {aiBotError}
+            </span>
+          )}
 
           <div className="seg" role="group" aria-label="Colour theme">
             <button

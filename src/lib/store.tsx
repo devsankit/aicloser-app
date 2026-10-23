@@ -478,7 +478,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               userId: "session-user",
               displayName: nameMatch ? decodeURIComponent(nameMatch) : (impNameMatch ? `${decodeURIComponent(impNameMatch)} Admin` : "Workspace Admin"),
               email: emailMatch ? decodeURIComponent(emailMatch) : "",
-              role: ((roleMatch ? decodeURIComponent(roleMatch) : "ADMIN") as any),
+              role: ((roleMatch ? decodeURIComponent(roleMatch) : "SALES_AGENT") as any),
               tenantId: tenantIdMatch ? decodeURIComponent(tenantIdMatch) : "workspace",
             },
             tenant: {

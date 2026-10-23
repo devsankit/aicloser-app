@@ -15,7 +15,7 @@ export interface TeamMember {
   phone: string;
   role: TeamRole;
   status: "active" | "away" | "offline" | "on_leave";
-  simConnected: boolean;
+  simConnected: boolean | null;
   maxCapacity: number;
   assignedLeads: number;
   pipelineValue: number;
@@ -23,8 +23,8 @@ export interface TeamMember {
   inRoundRobin: boolean;
   onLeave: boolean;
   numberMasking: boolean;
-  reportingManager?: string;
-  joinedAt: string;
+  reportingManager: string | null;
+  joinedAt: string | null;
 }
 
 export interface PermissionRow {
@@ -322,7 +322,7 @@ export function TeamView() {
             phone: m.phone || m.user?.phone || "",
             role,
             status,
-            simConnected: Boolean(m.simConnected ?? true),
+            simConnected: typeof m.simConnected === "boolean" ? m.simConnected : null,
             maxCapacity: Number(m.maxActiveLeads || m.maxCapacity || 25),
             assignedLeads: Number(m.assignedLeadsCount || m._count?.leadAssignments || m._count?.assignedLeads || 0),
             pipelineValue: Number(m.pipelineValue || 0),
@@ -331,12 +331,12 @@ export function TeamView() {
             onLeave: Boolean(m.onLeave || rawStatus === "on_leave"),
             numberMasking: Boolean(m.numberMasking),
             reportingManager:
-              m.reportingManager ||
-              m.manager?.displayName ||
-              (role === "MANAGER" ? "Founder & Owner" : "Direct Admin"),
+              typeof m.reportingManager === "string"
+                ? m.reportingManager
+                : m.reportingManager?.name ?? m.manager?.displayName ?? null,
             joinedAt: m.createdAt
               ? new Date(m.createdAt).toLocaleDateString("en-IN", { month: "short", year: "numeric" })
-              : "Active",
+              : null,
           };
         });
         setMembers(mapped);
@@ -350,7 +350,7 @@ export function TeamView() {
             phone: state.user.phone || "",
             role: (state.user.role as TeamRole) || "ADMIN",
             status: "active",
-            simConnected: true,
+            simConnected: null,
             maxCapacity: 100,
             assignedLeads: 0,
             pipelineValue: 0,
@@ -358,8 +358,8 @@ export function TeamView() {
             inRoundRobin: false,
             onLeave: false,
             numberMasking: false,
-            reportingManager: "Founder & Owner",
-            joinedAt: "Active",
+            reportingManager: null,
+            joinedAt: null,
           }]);
         } else {
           setMembers([]);
@@ -375,7 +375,7 @@ export function TeamView() {
           phone: state.user.phone || "",
           role: (state.user.role as TeamRole) || "ADMIN",
           status: "active",
-          simConnected: true,
+          simConnected: null,
           maxCapacity: 100,
           assignedLeads: 0,
           pipelineValue: 0,
@@ -383,8 +383,8 @@ export function TeamView() {
           inRoundRobin: false,
           onLeave: false,
           numberMasking: false,
-          reportingManager: "Founder & Owner",
-          joinedAt: "Active",
+          reportingManager: null,
+          joinedAt: null,
         }]);
       } else {
         setMembers([]);
@@ -492,7 +492,7 @@ export function TeamView() {
     if (!target) return;
     const managerObj = members.find((m) => m.id === managerIdOrName);
     const managerProfileId = managerObj ? managerObj.id : null;
-    const managerDisplayName = managerObj ? managerObj.name : "Direct Admin";
+    const managerDisplayName = managerObj ? managerObj.name : null;
 
     setMembers((prev) =>
       prev.map((m) =>
@@ -706,7 +706,6 @@ export function TeamView() {
       password,
       maxCapacity: Number(inviteCapacity) || 15,
       maxActiveLeads: Number(inviteCapacity) || 15,
-      reportingManager: inviteRole === "MANAGER" ? "Founder & Owner" : "Direct Admin",
     };
 
     try {
@@ -944,12 +943,22 @@ export function TeamView() {
     });
   }, [members, search, roleFilter]);
 
-  const closerMembers = useMemo(() => members.filter((m) => m.role !== "ADMIN"), [members]);
+  const billableMembers = useMemo(
+    () => members.filter((m) => m.role === "MANAGER" || m.role === "CLOSER"),
+    [members],
+  );
   const adminMembers = useMemo(() => members.filter((m) => m.role === "ADMIN"), [members]);
-  const closerSeatsUsed = closerMembers.length;
+  const closerSeatsUsed = billableMembers.length;
+  const managerSeatsUsed = useMemo(
+    () => members.filter((m) => m.role === "MANAGER").length,
+    [members],
+  );
   const closerSeatsTotal = 10;
   const availableCloserSeats = Math.max(0, closerSeatsTotal - closerSeatsUsed);
-  const activeClosersCount = closerMembers.filter((m) => m.role === "CLOSER" && m.status === "active" && !m.onLeave).length;
+  const activeClosersCount = useMemo(
+    () => members.filter((m) => m.role === "CLOSER" && m.status === "active" && !m.onLeave).length,
+    [members],
+  );
 
   return (
     <div className="team-container" style={{ padding: "20px 24px", maxWidth: "1280px", margin: "0 auto" }}>
@@ -986,10 +995,13 @@ export function TeamView() {
       >
         <div className="card" style={{ padding: "14px 16px" }}>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", fontWeight: 550, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-            Workspace Closer Seats
+            Workspace Billable Seats
           </div>
           <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px" }}>
             {closerSeatsUsed} <span style={{ fontSize: "var(--fs-body)", fontWeight: 400, color: "var(--text-tertiary)" }}>/ {closerSeatsTotal} seats</span>
+          </div>
+          <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "2px" }}>
+            {managerSeatsUsed} manager · {closerSeatsUsed - managerSeatsUsed} closer
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--success)", marginTop: "4px", display: "flex", alignItems: "center", gap: "4px" }}>
             <span className="dot" style={{ background: "var(--success)" }} /> {availableCloserSeats} seats available
@@ -1207,6 +1219,8 @@ export function TeamView() {
                               {member.name}
                               {member.role === "ADMIN" ? (
                                 <span className="chip" data-tone="accent" style={{ fontSize: "10px", padding: "1px 6px" }}>ADMIN · OWNER (UNMETERED)</span>
+                              ) : member.role === "MANAGER" ? (
+                                <span className="chip" data-tone="info" style={{ fontSize: "10px", padding: "1px 6px" }}>MANAGER SEAT</span>
                               ) : (
                                 <span className="chip" data-tone="neutral" style={{ fontSize: "10px", padding: "1px 6px" }}>CLOSER SEAT</span>
                               )}
@@ -1243,13 +1257,17 @@ export function TeamView() {
                         </select>
                       </td>
                       <td style={{ whiteSpace: "nowrap" }}>
-                        {member.simConnected ? (
+                        {member.simConnected === true ? (
                           <span className="chip" data-tone="success" style={{ fontSize: "11px" }}>
                             <Icon name="phone" size={11} /> Connected
                           </span>
-                        ) : (
+                        ) : member.simConnected === false ? (
                           <span className="chip" style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
                             No SIM
+                          </span>
+                        ) : (
+                          <span className="chip" style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                            Unknown
                           </span>
                         )}
                       </td>
@@ -1362,12 +1380,12 @@ export function TeamView() {
                               value={
                                 members.find((mgr) => mgr.name === member.reportingManager)?.id ||
                                 member.reportingManager ||
-                                "Direct Admin"
+                                ""
                               }
                               onChange={(e) => handleChangeReportingManager(member.id, e.target.value)}
                               aria-label={`Reporting manager for ${member.name}`}
                             >
-                              <option value="Direct Admin">Direct Admin (No Manager)</option>
+                              <option value="">— (No Manager)</option>
                               {members
                                 .filter((m) => (m.role === "ADMIN" || m.role === "MANAGER") && m.id !== member.id)
                                 .map((mgr) => (
@@ -2376,11 +2394,11 @@ export function TeamView() {
                   className="select"
                   value={editRole}
                   onChange={(e) => setEditRole(e.target.value as TeamRole)}
-                  disabled={isEditSubmitting}
+                  disabled={isEditSubmitting || !isAdmin}
                 >
                   <option value="CLOSER">Sales Closer (Field Telecaller)</option>
                   <option value="MANAGER">Sales Manager (Lead Routing & Approvals)</option>
-                  <option value="ADMIN">Workspace Admin (Full System Control)</option>
+                  {isAdmin && <option value="ADMIN">Workspace Admin (Full System Control)</option>}
                 </select>
               </div>
 
@@ -2570,7 +2588,7 @@ export function TeamView() {
                   >
                     <option value="CLOSER">Sales Closer</option>
                     <option value="MANAGER">Sales Manager</option>
-                    <option value="ADMIN">Workspace Admin</option>
+                    {isAdmin && <option value="ADMIN">Workspace Admin</option>}
                   </select>
                 </div>
 

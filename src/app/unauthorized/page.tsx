@@ -14,10 +14,10 @@ export default function UnauthorizedPage() {
         <BrandWordmark />
         <div>
           <p className="section-label">Access Restricted</p>
-          <h1>Sales Agent permissions required.</h1>
+          <h1>You do not have access to this page.</h1>
           <p>
-            Your current account does not have Closer or Sales Agent permissions for AIcloser.
-            Please sign in with an authorized sales account or create a new workspace.
+            Your current account or role does not have permission to view this resource.
+            Please sign in with an authorized account or contact your workspace administrator.
           </p>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", width: "100%", marginTop: "1rem" }}>

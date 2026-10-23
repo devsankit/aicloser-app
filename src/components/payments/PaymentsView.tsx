@@ -31,6 +31,7 @@ export interface PaymentTransaction {
 
 export function PaymentsView() {
   const { state, moveLead } = useApp();
+  const isAdmin = state.user?.role === "ADMIN" || state.user?.role === "SUPER_ADMIN";
   const [tab, setTab] = useState<"links" | "proofs" | "settings">("links");
   const [transactions, setTransactions] = useState<PaymentTransaction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -52,20 +53,22 @@ export function PaymentsView() {
 
   // Gateway Settings State
   const [upiSettings, setUpiSettings] = useState<{
-    enabled?: boolean;
-    upiId?: string | null;
-    payeeName?: string | null;
-    instructions?: string | null;
-    qrBrandName?: string | null;
-    qrAccentColor?: string;
+    enabled: boolean;
+    upiId: string | null;
+    payeeName: string | null;
+    instructions: string | null;
+    qrBrandName: string | null;
+    qrAccentColor: string;
   }>({
-    enabled: true,
-    upiId: "sales@aicloser",
-    payeeName: "AI Closer Technologies Pvt Ltd",
-    instructions: "Pay instantly using Google Pay, PhonePe, Paytm, or BHIM.",
-    qrBrandName: "AI Closer",
+    enabled: false,
+    upiId: null,
+    payeeName: null,
+    instructions: null,
+    qrBrandName: null,
     qrAccentColor: "#f4612a",
   });
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
 
   // Auto-populate when selecting a lead for link creation
@@ -164,18 +167,23 @@ export function PaymentsView() {
   const loadSettings = async () => {
     try {
       const data = await aicloserApi.payments.getSettings();
-      if (data) {
-        setUpiSettings({
-          enabled: data.enabled ?? true,
-          upiId: data.upiId || "sales@aicloser",
-          payeeName: data.payeeName || "AI Closer Technologies Pvt Ltd",
-          instructions: data.instructions || "Pay instantly using any UPI app.",
-          qrBrandName: data.qrBrandName || "AI Closer",
-          qrAccentColor: data.qrAccentColor || "#f4612a",
-        });
-      }
-    } catch {
-      // Keep defaults
+      setUpiSettings({
+        enabled: Boolean(data?.enabled),
+        upiId: data?.upiId ?? null,
+        payeeName: data?.payeeName ?? null,
+        instructions: data?.instructions ?? null,
+        qrBrandName: data?.qrBrandName ?? null,
+        qrAccentColor: data?.qrAccentColor || "#f4612a",
+      });
+      setSettingsError(null);
+    } catch (err: any) {
+      setSettingsError(
+        err?.status === 403
+          ? "Only a workspace admin can view gateway settings."
+          : "Could not load gateway settings.",
+      );
+    } finally {
+      setSettingsLoaded(true);
     }
   };
 
@@ -443,13 +451,15 @@ export function PaymentsView() {
         >
           <Icon name="sparkle" size={13} /> Proof Review Queue ({pendingProofs.length})
         </button>
-        <button
-          className="seg-item"
-          data-on={tab === "settings"}
-          onClick={() => setTab("settings")}
-        >
-          <Icon name="settings" size={13} /> UPI & QR Gateway Config
-        </button>
+        {isAdmin && (
+          <button
+            className="seg-item"
+            data-on={tab === "settings"}
+            onClick={() => setTab("settings")}
+          >
+            <Icon name="settings" size={13} /> UPI & QR Gateway Config
+          </button>
+        )}
       </div>
 
       {/* TAB 1: Links & Transactions */}
@@ -701,98 +711,117 @@ export function PaymentsView() {
       )}
 
       {/* TAB 3: Gateway Configuration */}
-      {tab === "settings" && (
-        <div className="grid-2">
-          <section className="card">
-            <div className="card-head">
-              <h2 className="card-title">Business UPI VPA Configuration</h2>
-              <p className="card-sub">Configure the receiving UPI VPA address and business name for your organization.</p>
+      {tab === "settings" && isAdmin && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+          {settingsError ? (
+            <div className="card">
+              <div className="card-body" style={{ color: "var(--text-secondary)" }}>{settingsError}</div>
             </div>
-            <form onSubmit={handleSaveSettings} className="card-body">
-              <div className="field" style={{ marginBottom: "12px" }}>
-                <label htmlFor="settings-upi">Receiving UPI ID / VPA</label>
-                <input
-                  id="settings-upi"
-                  className="input"
-                  value={upiSettings.upiId || ""}
-                  onChange={(e) => setUpiSettings({ ...upiSettings, upiId: e.target.value })}
-                  placeholder="e.g. yourcompany@icici"
-                  required
-                />
+          ) : settingsLoaded && !upiSettings.upiId ? (
+            <div className="card">
+              <div className="card-body">
+                <strong>Gateway not configured.</strong>{" "}
+                No UPI VPA has been saved for this workspace. Payment links stay in draft until one is set.
               </div>
-
-              <div className="field" style={{ marginBottom: "12px" }}>
-                <label htmlFor="settings-payee">Payee Merchant Display Name</label>
-                <input
-                  id="settings-payee"
-                  className="input"
-                  value={upiSettings.payeeName || ""}
-                  onChange={(e) => setUpiSettings({ ...upiSettings, payeeName: e.target.value })}
-                  placeholder="e.g. Acme Corp Sales"
-                  required
-                />
-              </div>
-
-              <div className="field" style={{ marginBottom: "12px" }}>
-                <label htmlFor="settings-brand">Brand Title on QR Card</label>
-                <input
-                  id="settings-brand"
-                  className="input"
-                  value={upiSettings.qrBrandName || ""}
-                  onChange={(e) => setUpiSettings({ ...upiSettings, qrBrandName: e.target.value })}
-                  placeholder="e.g. AI Closer"
-                />
-              </div>
-
-              <div className="field" style={{ marginBottom: "16px" }}>
-                <label htmlFor="settings-instructions">Customer Checkout Instructions</label>
-                <textarea
-                  id="settings-instructions"
-                  className="textarea"
-                  value={upiSettings.instructions || ""}
-                  onChange={(e) => setUpiSettings({ ...upiSettings, instructions: e.target.value })}
-                  placeholder="Instructions displayed on public /pay/[token] page"
-                  rows={3}
-                />
-              </div>
-
-              <button className="btn" data-variant="primary" type="submit" disabled={isSavingSettings}>
-                <Icon name="check" size={13} /> {isSavingSettings ? "Saving Settings..." : "Save Gateway Settings"}
-              </button>
-            </form>
-          </section>
-
-          <section className="card">
-            <div className="card-head">
-              <h2 className="card-title">Dynamic Checkout QR Architecture</h2>
-              <p className="card-sub">Every generated link constructs an authenticated NPCI UPI payload.</p>
             </div>
-            <div className="card-body">
-              <div
-                style={{
-                  padding: "20px",
-                  borderRadius: "var(--r-md)",
-                  border: "1px dashed var(--border-strong)",
-                  background: "var(--bg-soft)",
-                  marginBottom: "16px",
-                  textAlign: "center",
-                }}
-              >
-                <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "8px" }}>
-                  Active Protocol
+          ) : null}
+
+          <div className="grid-2">
+            <section className="card">
+              <div className="card-head">
+                <h2 className="card-title">Business UPI VPA Configuration</h2>
+                <p className="card-sub">Configure the receiving UPI VPA address and business name for your organization.</p>
+              </div>
+              <form onSubmit={handleSaveSettings} className="card-body">
+                <div className="field" style={{ marginBottom: "12px" }}>
+                  <label htmlFor="settings-upi">Receiving UPI ID / VPA</label>
+                  <input
+                    id="settings-upi"
+                    className="input"
+                    value={upiSettings.upiId || ""}
+                    onChange={(e) => setUpiSettings({ ...upiSettings, upiId: e.target.value })}
+                    placeholder="e.g. yourcompany@icici"
+                    required
+                  />
                 </div>
-                <div style={{ fontFamily: "var(--mono)", fontSize: "12px", color: "var(--accent)", wordBreak: "break-all" }}>
-                  upi://pay?pa={upiSettings.upiId || "sales@aicloser"}&amp;pn={encodeURIComponent(upiSettings.payeeName || "AI Closer")}&amp;cu=INR
+
+                <div className="field" style={{ marginBottom: "12px" }}>
+                  <label htmlFor="settings-payee">Payee Merchant Display Name</label>
+                  <input
+                    id="settings-payee"
+                    className="input"
+                    value={upiSettings.payeeName || ""}
+                    onChange={(e) => setUpiSettings({ ...upiSettings, payeeName: e.target.value })}
+                    placeholder="e.g. Acme Corp Sales"
+                    required
+                  />
+                </div>
+
+                <div className="field" style={{ marginBottom: "12px" }}>
+                  <label htmlFor="settings-brand">Brand Title on QR Card</label>
+                  <input
+                    id="settings-brand"
+                    className="input"
+                    value={upiSettings.qrBrandName || ""}
+                    onChange={(e) => setUpiSettings({ ...upiSettings, qrBrandName: e.target.value })}
+                    placeholder="e.g. AI Closer"
+                  />
+                </div>
+
+                <div className="field" style={{ marginBottom: "16px" }}>
+                  <label htmlFor="settings-instructions">Customer Checkout Instructions</label>
+                  <textarea
+                    id="settings-instructions"
+                    className="textarea"
+                    value={upiSettings.instructions || ""}
+                    onChange={(e) => setUpiSettings({ ...upiSettings, instructions: e.target.value })}
+                    placeholder="Instructions displayed on public /pay/[token] page"
+                    rows={3}
+                  />
+                </div>
+
+                <button className="btn" data-variant="primary" type="submit" disabled={isSavingSettings || !isAdmin || !upiSettings.upiId}>
+                  <Icon name="check" size={13} /> {isSavingSettings ? "Saving Settings..." : "Save Gateway Settings"}
+                </button>
+              </form>
+            </section>
+
+            <section className="card">
+              <div className="card-head">
+                <h2 className="card-title">Dynamic Checkout QR Architecture</h2>
+                <p className="card-sub">Every generated link constructs an authenticated NPCI UPI payload.</p>
+              </div>
+              <div className="card-body">
+                <div
+                  style={{
+                    padding: "20px",
+                    borderRadius: "var(--r-md)",
+                    border: "1px dashed var(--border-strong)",
+                    background: "var(--bg-soft)",
+                    marginBottom: "16px",
+                    textAlign: "center",
+                  }}
+                >
+                  <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "8px" }}>
+                    Active Protocol
+                  </div>
+                  {upiSettings.upiId ? (
+                    <div style={{ fontFamily: "var(--mono)", fontSize: "12px", color: "var(--accent)", wordBreak: "break-all" }}>
+                      upi://pay?pa={upiSettings.upiId}&amp;pn={encodeURIComponent(upiSettings.payeeName || "")}&amp;cu=INR
+                    </div>
+                  ) : (
+                    <span style={{ color: "var(--text-tertiary)", fontSize: "12px" }}>Not configured</span>
+                  )}
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "12px", color: "var(--text-secondary)" }}>
+                  <div>✓ <b>Zero PG Cut:</b> 100% direct bank-to-bank settlement via UPI.</div>
+                  <div>✓ <b>Universal App Support:</b> PhonePe, Google Pay, Paytm, BHIM, CRED, Amazon Pay.</div>
+                  <div>✓ <b>Automated Attribution:</b> Lead ID and publicToken tracked securely on customer upload.</div>
                 </div>
               </div>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "12px", color: "var(--text-secondary)" }}>
-                <div>✓ <b>Zero PG Cut:</b> 100% direct bank-to-bank settlement via UPI.</div>
-                <div>✓ <b>Universal App Support:</b> PhonePe, Google Pay, Paytm, BHIM, CRED, Amazon Pay.</div>
-                <div>✓ <b>Automated Attribution:</b> Lead ID and publicToken tracked securely on customer upload.</div>
-              </div>
-            </div>
-          </section>
+            </section>
+          </div>
         </div>
       )}
 

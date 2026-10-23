@@ -27,6 +27,9 @@ interface ImportBatch {
 export function LeadImportView() {
   const { addLead, state } = useApp();
   const router = useRouter();
+  const isAdmin = state.user?.role === "ADMIN" || state.user?.role === "SUPER_ADMIN";
+  const isManager = state.user?.role === "MANAGER";
+  const canImport = isAdmin || isManager || Boolean((state.user as any)?.permissions?.["leads:reassign"] || (state.user as any)?.permissions?.["leads:import"]);
   const [tab, setTab] = useState<"wizard" | "history">("wizard");
   const [channel, setChannel] = useState<ImportChannel>("csv");
   const [batches, setBatches] = useState<ImportBatch[]>([]);
@@ -560,17 +563,33 @@ export function LeadImportView() {
         
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: "flex", gap: "8px", borderBottom: "1px solid var(--border)", paddingBottom: "12px", marginBottom: "16px" }}>
-        <div className="seg">
-          <button data-on={tab === "wizard"} onClick={() => setTab("wizard")}>
-            <Icon name="upload" size={13} /> Ingestion Wizard {uploadedFile ? `(Step ${step} of 3)` : ""}
-          </button>
-          <button data-on={tab === "history"} onClick={() => setTab("history")}>
-            <Icon name="clock" size={13} /> Batch History ({batches.length})
-          </button>
-        </div>
-      </div>
+      {!canImport ? (
+        <section className="card" style={{ textAlign: "center", padding: "48px 24px" }}>
+          <div className="empty">
+            <div className="empty-icon" style={{ display: "inline-flex", justifyContent: "center", marginBottom: 12 }}>
+              <Icon name="shield" size={32} />
+            </div>
+            <h2 className="empty-title" style={{ fontSize: "18px", fontWeight: 650 }}>
+              Lead Import Restricted
+            </h2>
+            <p className="empty-desc" style={{ color: "var(--text-secondary)", maxWidth: "480px", margin: "8px auto 0" }}>
+              Lead import is not enabled for your role. Ask your workspace admin to grant import permissions.
+            </p>
+          </div>
+        </section>
+      ) : (
+        <>
+          {/* Tabs */}
+          <div style={{ display: "flex", gap: "8px", borderBottom: "1px solid var(--border)", paddingBottom: "12px", marginBottom: "16px" }}>
+            <div className="seg">
+              <button data-on={tab === "wizard"} onClick={() => setTab("wizard")}>
+                <Icon name="upload" size={13} /> Ingestion Wizard {uploadedFile ? `(Step ${step} of 3)` : ""}
+              </button>
+              <button data-on={tab === "history"} onClick={() => setTab("history")}>
+                <Icon name="clock" size={13} /> Batch History ({batches.length})
+              </button>
+            </div>
+          </div>
 
       {/* Tab 1: Wizard */}
       {tab === "wizard" && (
@@ -1715,6 +1734,8 @@ export function LeadImportView() {
             </table>
           </div>
         </section>
+      )}
+      </>
       )}
     </div>
   );

@@ -109,11 +109,13 @@ const CONNECTIONS = [
 
 export function SettingsView() {
   const { state, setTheme, setDensity, setAccent, setFontScale, setNavSpacing } = useApp();
+  const isAdmin = state.user?.role === "ADMIN" || state.user?.role === "SUPER_ADMIN";
   const [exported, setExported] = useState(false);
   const canExport = state.user?.role !== "CLOSER" && state.user?.role !== "SALES_AGENT";
 
   // Developer API & Webhook Hub State
   const [developerToken, setDeveloperToken] = useState<string>("");
+  const [tokenError, setTokenError] = useState<string | null>(null);
   const [isTokenLoading, setIsTokenLoading] = useState<boolean>(false);
   const [isRegeneratingToken, setIsRegeneratingToken] = useState<boolean>(false);
   const [tokenCopied, setTokenCopied] = useState<boolean>(false);
@@ -223,9 +225,18 @@ export function SettingsView() {
     aicloserApi.developer.getToken()
       .then((res: any) => {
         const tok = res?.token || res?.data?.token || res?.apiKey;
-        if (tok) setDeveloperToken(tok);
+        if (tok) {
+          setDeveloperToken(tok);
+          setTokenError(null);
+        }
       })
-      .catch(() => {})
+      .catch((err: any) => {
+        setTokenError(
+          err?.status === 403
+            ? "Only a workspace admin can view this token."
+            : "Could not load token.",
+        );
+      })
       .finally(() => setIsTokenLoading(false));
   }, []);
 
@@ -236,11 +247,17 @@ export function SettingsView() {
       const tok = res?.token || res?.data?.token || res?.apiKey;
       if (tok) {
         setDeveloperToken(tok);
+        setTokenError(null);
         setTokenNotice("✓ New Bearer API token generated successfully.");
       } else {
         setTokenNotice("Token regenerated.");
       }
-    } catch {
+    } catch (err: any) {
+      setTokenError(
+        err?.status === 403
+          ? "Only a workspace admin can regenerate this token."
+          : "Failed to regenerate token.",
+      );
       setTokenNotice("Failed to regenerate token. Please verify admin privileges.");
     } finally {
       setIsRegeneratingToken(false);
@@ -335,7 +352,7 @@ export function SettingsView() {
   };
 
   const getCurlSnippet = () => {
-    const tokenDisplay = developerToken || "aicloser_sec_live_example";
+    const tokenDisplay = developerToken || "<YOUR_BEARER_TOKEN>";
     if (activeCurlTab === "create_lead") {
       return `curl -X POST "https://api.aicloser.com/api/v1/leads" \\
   -H "Authorization: Bearer ${tokenDisplay}" \\
@@ -1095,48 +1112,49 @@ export function SettingsView() {
       )}
 
       {/* Developer API & Webhook Hub */}
-      <section className="card settings-card">
-        <div className="settings-head">
-          <div>
-            <h2 className="settings-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <Icon name="tag" size={16} />
-              Developer API & Webhook Hub
-            </h2>
-            <p className="settings-sub">
-              Authenticate external integrations, inspect REST endpoint contracts, and test API queries directly in your browser.
-            </p>
-          </div>
-          <span className="chip" data-tone="accent">
-            REST v1 Engine
-          </span>
-        </div>
-
-        <div className="settings-body">
-          {/* Sub-section 1: Bearer API Token */}
-          <div className="setting-row" style={{ alignItems: "flex-start", flexDirection: "column", gap: 10 }}>
-            <div style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <div className="setting-name">Workspace Bearer API Token</div>
-                <p className="setting-desc">
-                  Secret key used in the <code style={{ fontFamily: "var(--font-mono, monospace)" }}>Authorization: Bearer &lt;token&gt;</code> HTTP header for incoming webhooks and automated scripts.
-                </p>
-              </div>
-              <span className="chip" data-tone={developerToken ? "success" : "neutral"}>
-                {developerToken ? "Active Key" : "Generating"}
-              </span>
+      {isAdmin && (
+        <section className="card settings-card">
+          <div className="settings-head">
+            <div>
+              <h2 className="settings-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Icon name="tag" size={16} />
+                Developer API & Webhook Hub
+              </h2>
+              <p className="settings-sub">
+                Authenticate external integrations, inspect REST endpoint contracts, and test API queries directly in your browser.
+              </p>
             </div>
+            <span className="chip" data-tone="accent">
+              REST v1 Engine
+            </span>
+          </div>
 
-            <div style={{ width: "100%", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <div className="dev-token-box" style={{ flex: 1, minWidth: 260 }}>
-                <span className="dev-token-val">
-                  {developerToken
-                    ? (developerToken.length > 20
-                        ? `${developerToken.slice(0, 14)}••••••••••••${developerToken.slice(-6)}`
-                        : developerToken)
-                    : isTokenLoading
-                    ? "Loading token..."
-                    : "aicloser_sec_••••••••••••••••••••••••"}
+          <div className="settings-body">
+            {/* Sub-section 1: Bearer API Token */}
+            <div className="setting-row" style={{ alignItems: "flex-start", flexDirection: "column", gap: 10 }}>
+              <div style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div className="setting-name">Workspace Bearer API Token</div>
+                  <p className="setting-desc">
+                    Secret key used in the <code style={{ fontFamily: "var(--font-mono, monospace)" }}>Authorization: Bearer &lt;token&gt;</code> HTTP header for incoming webhooks and automated scripts.
+                  </p>
+                </div>
+                <span className="chip" data-tone={developerToken ? "success" : "neutral"}>
+                  {developerToken ? "Active Key" : isTokenLoading ? "Loading…" : tokenError ? "Unavailable" : "Not generated"}
                 </span>
+              </div>
+
+              <div style={{ width: "100%", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <div className="dev-token-box" style={{ flex: 1, minWidth: 260 }}>
+                  <span className="dev-token-val">
+                    {developerToken
+                      ? (developerToken.length > 20
+                          ? `${developerToken.slice(0, 14)}••••••••••••${developerToken.slice(-6)}`
+                          : developerToken)
+                      : isTokenLoading
+                      ? "Loading token..."
+                      : tokenError || "No token available"}
+                  </span>
                 <button
                   type="button"
                   className="btn"
@@ -1330,6 +1348,7 @@ export function SettingsView() {
           </div>
         </div>
       </section>
+      )}
 
       {/* Connections */}
       <section className="card settings-card">

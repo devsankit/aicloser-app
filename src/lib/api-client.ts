@@ -491,7 +491,9 @@ async function request<T>(
   if (!response.ok || json.success === false) {
     const errorMsg = json.message || json.error || `Request failed with status ${response.status}`;
     handleCentralAuthFailure(response.status, String(errorMsg));
-    throw new Error(errorMsg);
+    const error = new Error(String(errorMsg)) as Error & { status?: number };
+    error.status = response.status;
+    throw error;
   }
 
   return {
@@ -537,7 +539,9 @@ async function requestConversation<T>(
   if (!response.ok || json?.success === false) {
     const errorMsg = json?.error || json?.message || `Request failed with status ${response.status}`;
     handleCentralAuthFailure(response.status, String(errorMsg));
-    throw new Error(errorMsg);
+    const error = new Error(String(errorMsg)) as Error & { status?: number };
+    error.status = response.status;
+    throw error;
   }
   return { data: json?.data as T, pagination: json?.pagination };
 }
