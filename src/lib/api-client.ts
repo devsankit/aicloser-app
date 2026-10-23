@@ -1437,6 +1437,13 @@ export const aicloserApi = {
       });
       return res.data;
     },
+
+    async resolveMissed(callId: string) {
+      const res = await request<{ success: boolean; data?: any }>(`/calls/${encodeURIComponent(callId)}/resolve-missed`, {
+        method: 'POST',
+      });
+      return res.data;
+    },
   },
 
   // 6. Payments & Collections

@@ -201,10 +201,7 @@ export function CallsView() {
       )
     );
     try {
-      await fetch(`/api/v1/calls/${callId}/resolve-missed`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      }).catch(() => null);
+      await aicloserApi.calls.resolveMissed(callId).catch(() => null);
     } catch {
       // Non-blocking
     }
@@ -769,25 +766,16 @@ export function CallsView() {
                     </td>
                     <td>{c.closerName}</td>
                     <td style={{ textAlign: "right" }}>
-                      <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
-                        <button
-                          className="btn"
-                          data-size="sm"
-                          data-variant="ghost"
-                          onClick={() => handleResolveMissed(c.id)}
-                        >
-                          Mark Done
-                        </button>
-                        <a
-                          href={`tel:${c.phone}`}
-                          className="btn"
-                          data-size="sm"
-                          data-variant="primary"
-                          onClick={() => handleResolveMissed(c.id)}
-                        >
-                          <Icon name="phone" size={12} /> Call Back Now
-                        </a>
-                      </div>
+                      <a
+                        href={`tel:${c.phone}`}
+                        className="btn"
+                        data-size="sm"
+                        data-variant="primary"
+                        onClick={() => handleResolveMissed(c.id)}
+                        title={`Call back ${c.phone} and resolve missed call`}
+                      >
+                        <Icon name="phone" size={12} /> Call Back Now
+                      </a>
                     </td>
                   </tr>
                 ))}
