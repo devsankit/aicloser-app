@@ -1,63 +1,65 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { BrandWordmark } from "@/components/ui/brand-wordmark";
+import { Icon } from "@/components/ui/Icon";
 
 export const metadata: Metadata = {
-  title: "Access Restricted | AIcloser",
+  title: "Access Restricted | AI Closer",
   robots: { index: false, follow: false },
 };
 
 export default function UnauthorizedPage() {
   return (
-    <main className="sales-auth-shell">
-      <section className="sales-auth-card">
-        <BrandWordmark />
-        <div>
-          <p className="section-label">Access Restricted</p>
-          <h1>You do not have access to this page.</h1>
-          <p>
-            Your current account or role does not have permission to view this resource.
-            Please sign in with an authorized account or contact your workspace administrator.
-          </p>
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", width: "100%", marginTop: "1rem" }}>
-          <Link
-            href="/dashboard"
+    <div className="auth-page">
+      <div className="auth-card">
+        <div className="auth-header">
+          <div
+            className="auth-brand-badge"
             style={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "0.75rem 1.25rem",
-              backgroundColor: "var(--closer-orange, #ff6b2f)",
-              color: "#ffffff",
-              fontWeight: 700,
-              borderRadius: "0.5rem",
-              textDecoration: "none",
-              textAlign: "center",
+              background: "var(--warning-soft, rgba(234, 179, 8, 0.15))",
+              color: "var(--warning, #eab308)",
+              border: "1px solid var(--warning, #eab308)",
+              margin: "0 auto 14px auto",
             }}
           >
-            &larr; Back to CRM Dashboard
+            <Icon name="shield" size={24} />
+          </div>
+          <span className="chip" data-tone="warning" style={{ margin: "0 auto 10px auto" }}>
+            <span className="dot" /> Access Restricted
+          </span>
+          <h1 className="auth-title">Permission Required</h1>
+          <p className="auth-subtitle">
+            Your current account role does not have authorization to view this section.
+            Please return to your active CRM workspace or switch to an authorized account.
+          </p>
+        </div>
+
+        <div className="auth-form">
+          <Link
+            href="/dashboard"
+            className="btn"
+            data-variant="primary"
+            data-size="md"
+            style={{ width: "100%", justifyContent: "center" }}
+          >
+            <Icon name="home" size={15} /> Back to CRM Dashboard
           </Link>
           <Link
             href="/login"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "0.75rem 1.25rem",
-              backgroundColor: "var(--color-surface-soft, #1f2937)",
-              color: "var(--color-text-primary, #f3f4f6)",
-              border: "1px solid var(--color-border, rgba(255, 255, 255, 0.1))",
-              fontWeight: 600,
-              borderRadius: "0.5rem",
-              textDecoration: "none",
-              textAlign: "center",
-            }}
+            className="btn"
+            data-variant="ghost"
+            data-size="md"
+            style={{ width: "100%", justifyContent: "center" }}
           >
-            Sign in with an Admin Account &rarr;
+            <Icon name="arrow-right" size={15} /> Sign in with Admin Account
           </Link>
         </div>
-      </section>
-    </main>
+
+        <div style={{ textAlign: "center", borderTop: "1px solid var(--border)", paddingTop: 14 }}>
+          <p style={{ fontSize: "var(--fs-caption, 12px)", color: "var(--text-tertiary)" }}>
+            Need access? Contact your workspace owner to update your closer permissions.
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }
