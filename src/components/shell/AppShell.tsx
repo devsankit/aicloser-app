@@ -575,7 +575,12 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <nav className="sidebar-scroll">
           {NAV.map((group) => {
-            const userRole = state.user?.role || "ADMIN";
+            const userRole = (
+              state.user?.role ||
+              state.workspaceAuth?.user?.role ||
+              (typeof document !== "undefined" && document.cookie.match(/(?:^|;\s*)gx_role=([^;]+)/)?.[1]) ||
+              "SALES_AGENT"
+            ).toUpperCase();
             const visibleItems = group.items.filter((item) => {
               if (item.href === "/super-admin") {
                 return userRole === "SUPER_ADMIN";
@@ -716,31 +721,6 @@ export function AppShell({ children }: { children: ReactNode }) {
               </div>
 
               {/* Menu Actions */}
-              <a
-                href="/latestapk"
-                download="aicloser-latest.apk"
-                onClick={() => setUserMenuOpen(false)}
-                className="user-menu-item"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "7px 10px",
-                  borderRadius: "var(--r-sm, 6px)",
-                  fontSize: "var(--fs-meta, 13px)",
-                  color: "var(--text)",
-                  textDecoration: "none",
-                }}
-              >
-                <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <Icon name="phone" size={14} style={{ color: "#22c55e" }} />
-                  <span>Download Companion App</span>
-                </span>
-                <span className="chip" data-tone="success" style={{ fontSize: "9px", padding: "1px 5px", fontWeight: 600 }}>
-                  APK
-                </span>
-              </a>
-
               <Link
                 href="/settings"
                 onClick={() => setUserMenuOpen(false)}

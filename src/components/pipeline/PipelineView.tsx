@@ -50,6 +50,7 @@ export function PipelineView() {
   const [fit, setFit] = useState(false);
   const [dragging, setDragging] = useState<string | null>(null);
   const [overStage, setOverStage] = useState<StageId | null>(null);
+  const [dragOverCardId, setDragOverCardId] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [addStage, setAddStage] = useState<StageId | null>(null);
   const boardRef = useRef<HTMLDivElement | null>(null);
@@ -393,23 +394,6 @@ export function PipelineView() {
     return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   };
 
-  const prevRemainingRef = useRef<Record<string, number>>({});
-  useEffect(() => {
-    let justExpired = false;
-    openPoolList.forEach((lead) => {
-      const rem = getRemainingSeconds(lead.createdAt);
-      const prev = prevRemainingRef.current[lead.id];
-      if (prev !== undefined && prev > 0 && rem === 0) {
-        justExpired = true;
-      }
-      prevRemainingRef.current[lead.id] = rem;
-    });
-    if (justExpired) {
-      refreshLeads();
-      fetchPoolLeads().catch(() => {});
-    }
-  }, [now, openPoolList, refreshLeads, fetchPoolLeads]);
-
   const missedCount = useMemo(() => {
     if (apiMissedCount !== null) return apiMissedCount;
     return openPoolList.filter((lead) => getRemainingSeconds(lead.createdAt) <= 0).length;
@@ -517,6 +501,15 @@ export function PipelineView() {
           b.value - a.value ||
           a.id.localeCompare(b.id)
         );
+      }
+      if (a.stage === b.stage) {
+        const aPos = typeof a.kanbanPosition === "number" ? a.kanbanPosition : undefined;
+        const bPos = typeof b.kanbanPosition === "number" ? b.kanbanPosition : undefined;
+        if (aPos !== undefined && bPos !== undefined && aPos !== bPos) {
+          return aPos - bPos;
+        }
+        if (aPos !== undefined && bPos === undefined) return -1;
+        if (aPos === undefined && bPos !== undefined) return 1;
       }
       const bTime = new Date(b.updatedAt).getTime() || 0;
       const aTime = new Date(a.updatedAt).getTime() || 0;
@@ -1336,6 +1329,7 @@ export function PipelineView() {
                     if (id) moveLead(id, stage.id);
                     setDragging(null);
                     setOverStage(null);
+                    setDragOverCardId(null);
                   }}
                   aria-label={`${stage.label}, ${cards.length} leads`}
                   role="listitem"
@@ -1347,7 +1341,7 @@ export function PipelineView() {
                     </h2>
                     <span className="col-count">{cards.length}</span>
                     {cards.reduce((sum, c) => sum + (Number(c.value) || 0), 0) > 0 && (
-                      <span className="chip" data-tone="accent" style={{ fontSize: "11px", fontWeight: 650, padding: "2px 6px" }}>
+                      <span className="chip" data-tone="accent">
                         {money(cards.reduce((sum, c) => sum + (Number(c.value) || 0), 0))}
                       </span>
                     )}
@@ -1383,14 +1377,41 @@ export function PipelineView() {
                           data-lead={lead.id}
                           draggable
                           data-dragging={dragging === lead.id}
+                          data-drag-over={dragOverCardId === lead.id}
                           onDragStart={(e) => {
                             e.dataTransfer.setData("text/plain", lead.id);
                             e.dataTransfer.effectAllowed = "move";
                             setDragging(lead.id);
                           }}
+                          onDragOver={(e) => {
+                            if (dragging && dragging !== lead.id) {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (dragOverCardId !== lead.id) {
+                                setDragOverCardId(lead.id);
+                              }
+                            }
+                          }}
+                          onDragLeave={(e) => {
+                            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                              if (dragOverCardId === lead.id) setDragOverCardId(null);
+                            }
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const draggedId = e.dataTransfer.getData("text/plain") || dragging;
+                            if (draggedId && draggedId !== lead.id) {
+                              moveLead(draggedId, stage.id, lead.id);
+                            }
+                            setDragging(null);
+                            setOverStage(null);
+                            setDragOverCardId(null);
+                          }}
                           onDragEnd={() => {
                             setDragging(null);
                             setOverStage(null);
+                            setDragOverCardId(null);
                           }}
                           tabIndex={0}
                           role="button"

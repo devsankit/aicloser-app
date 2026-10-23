@@ -181,8 +181,8 @@ export function SuperAdminView() {
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "SUSPENDED">("ALL");
   const [isLoading, setIsLoading] = useState(true);
   const [authRequired, setAuthRequired] = useState(false);
-  const [loginEmail, setLoginEmail] = useState("hello.ankitrathore@gmail.com");
-  const [loginPassword, setLoginPassword] = useState("Ankit@1143");
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -562,14 +562,14 @@ export function SuperAdminView() {
       if (res.ok && data?.success && data?.data?.token) {
         if (data.data.user?.role !== "SUPER_ADMIN") {
           setLoginError("This account does not have SUPER_ADMIN permissions.");
+          setIsLoggingIn(false);
           return;
         }
         setStoredToken(data.data.token);
         if (typeof document !== "undefined") {
           document.cookie = `aicloser_token=${encodeURIComponent(data.data.token)}; path=/; max-age=${60 * 60 * 24 * 30}; SameSite=Lax`;
-          document.cookie = `gx_session=${encodeURIComponent(data.data.token)}; path=/; max-age=${60 * 60 * 24 * 30}; SameSite=Lax`;
         }
-        await fetch("/api/auth/login/password", {
+        const sessionRes = await fetch("/api/auth/login/password", {
           method: "POST",
           headers: { "Content-Type": "application/json", Accept: "application/json" },
           body: JSON.stringify({
@@ -581,6 +581,12 @@ export function SuperAdminView() {
             forceReplace: "1",
           }),
         }).catch(() => null);
+
+        if (sessionRes && sessionRes.ok) {
+          window.location.href = "/super-admin";
+          return;
+        }
+
         setAuthRequired(false);
         showToast("Authenticated as Super Admin.");
         await refreshCentralData(true);

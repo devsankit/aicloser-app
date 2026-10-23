@@ -166,9 +166,9 @@ export function LeadCommandHistory({
         }
         if (detailsRes.status === "fulfilled" && detailsRes.value) {
           const d = detailsRes.value;
-          fetchedHistory = d.history || [];
-          fetchedCalls = d.callLogs || d.calls || [];
-          fetchedPayments = d.payments || [];
+          fetchedHistory = Array.isArray(d.history) ? d.history : [];
+          fetchedCalls = Array.isArray(d.callLogs) ? d.callLogs : (Array.isArray(d.calls) ? d.calls : []);
+          fetchedPayments = Array.isArray(d.payments) ? d.payments : [];
           if (d.lead?.followUpAt) leadFollowUp = d.lead.followUpAt;
         }
       } catch {}
@@ -713,12 +713,12 @@ export function LeadCommandHistory({
       {/* Tab 4: Calls & Recordings */}
       {tab === "calls" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxHeight: "280px", overflowY: "auto" }}>
-          {rawCalls.length === 0 ? (
+          {(!rawCalls || rawCalls.length === 0) ? (
             <div style={{ padding: "20px 0", textAlign: "center", color: "var(--text-tertiary)", fontSize: "11.5px" }}>
               No SIM or Web phone calls logged yet.
             </div>
           ) : (
-            rawCalls.map((c) => {
+            (rawCalls || []).map((c) => {
               const recUrl = c.recordingUrl || (c as any).audioUrl || (c as any).url || null;
               const isOutbound = c.direction === "OUTBOUND";
               return (

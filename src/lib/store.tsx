@@ -63,7 +63,7 @@ interface AppApi {
   state: AppState;
   toggleGlobalAiBot: () => Promise<boolean>;
   setGlobalAiBotEnabled: (enabled: boolean) => void;
-  moveLead: (id: string, stage: StageId) => void;
+  moveLead: (id: string, stage: StageId, targetLeadId?: string) => void;
   updateLead: (id: string, patch: Partial<Lead>) => void;
   addLead: (lead: Omit<Lead, "id" | "updatedAt" | "code">) => Promise<Lead>;
   deleteLead: (id: string) => Promise<void> | void;
@@ -602,19 +602,58 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [state.apiConnected]);
 
-  const moveLead = useCallback((id: string, stage: StageId) => {
+  const moveLead = useCallback((id: string, stage: StageId, targetLeadId?: string) => {
+    let calculatedPos = 0;
     setState((prev) => {
-      const target = prev.leads.find((l) => l.id === id);
-      if (!target || target.stage === stage) return prev;
+      const currentLead = prev.leads.find((l) => l.id === id);
+      if (!currentLead) return prev;
+
+      // If moving within same stage and no targetLeadId or dropping on self, no-op
+      if (currentLead.stage === stage && (!targetLeadId || targetLeadId === id)) {
+        return prev;
+      }
+
+      const otherLeads = prev.leads.filter((l) => l.id !== id);
+      const updatedMovedLead: Lead = {
+        ...currentLead,
+        stage,
+        updatedAt: new Date().toISOString(),
+      };
+
+      let newLeads: Lead[];
+      if (targetLeadId) {
+        const targetIdx = otherLeads.findIndex((l) => l.id === targetLeadId);
+        if (targetIdx !== -1) {
+          newLeads = [
+            ...otherLeads.slice(0, targetIdx),
+            updatedMovedLead,
+            ...otherLeads.slice(targetIdx),
+          ];
+        } else {
+          newLeads = [updatedMovedLead, ...otherLeads];
+        }
+      } else {
+        newLeads = [updatedMovedLead, ...otherLeads];
+      }
+
+      let stageIndex = 0;
+      newLeads = newLeads.map((l) => {
+        if (l.stage === stage) {
+          const pos = stageIndex++;
+          if (l.id === id) calculatedPos = pos;
+          return { ...l, kanbanPosition: pos };
+        }
+        return l;
+      });
+
       return {
         ...prev,
-        leads: prev.leads.map((l) =>
-          l.id === id ? { ...l, stage, updatedAt: new Date().toISOString() } : l,
-        ),
+        leads: newLeads,
       };
     });
+
     if (state.apiConnected) {
-      aicloserApi.leads.updateKanbanPosition(id, stageIdToBackendStage(stage), 0).catch((err) => {
+      aicloserApi.leads.updateKanbanPosition(id, stageIdToBackendStage(stage), calculatedPos).catch((err) => {
         console.error("Failed to update Kanban stage on API:", err);
         if (typeof window !== "undefined") {
           window.dispatchEvent(

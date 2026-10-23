@@ -2269,20 +2269,7 @@ export function ChatView() {
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              {typeof Notification !== "undefined" && notifPermission === "default" && (
-                <button
-                  type="button"
-                  className="btn"
-                  data-size="sm"
-                  data-variant="ghost"
-                  onClick={handleRequestNotifPermission}
-                  title="Enable desktop notifications for incoming messages"
-                >
-                  <Icon name="bell" size={12} /> Enable Alerts
-                </button>
-              )}
-
-              {/* WhatsApp AI Thread Toggle - normalized to match standard header buttons */}
+              {/* WhatsApp AI Thread Toggle */}
               <button
                 className="btn"
                 data-size="sm"
@@ -2296,36 +2283,6 @@ export function ChatView() {
                 }
               >
                 <Icon name="sparkle" size={12} /> WhatsApp AI {aiAutoReply ? "On" : "Paused"}
-              </button>
-
-              {/* Share Chat Button */}
-              <button
-                className="btn"
-                data-size="sm"
-                onClick={() => setShowShareModal(true)}
-                title="Share conversation link or grant team access"
-              >
-                <Icon name="link" size={12} /> Share
-              </button>
-
-              {/* Assign Chat Button */}
-              <button
-                className="btn"
-                data-size="sm"
-                onClick={() => {
-                  setAssignError(null);
-                  setAssignSuccess(null);
-                  const pool = assignableTeamMembers;
-                  const currentAssigned = (activeChat.assignedTo || "").toLowerCase();
-                  const other = pool.find(
-                    (m) => (m.name || "").toLowerCase() !== currentAssigned && (m.id || "").toLowerCase() !== currentAssigned
-                  );
-                  setAssignTargetCloser(other?.id || other?.name || (pool[0]?.id || pool[0]?.name || ""));
-                  setShowAssignModal(true);
-                }}
-                title="Assign conversation to a team closer"
-              >
-                <Icon name="users" size={12} /> Assign ({activeChat.assignedTo || "Unassigned"})
               </button>
 
               {/* Direct Call Button */}

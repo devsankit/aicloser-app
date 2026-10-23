@@ -166,7 +166,6 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
     updateLead(lead.id, {
       name: draft.name?.trim() || lead.name,
       company: (draft.company || "").trim(),
-      phone: (draft.phone || "").trim(),
       email: (draft.email || "").trim(),
       value: Number.isFinite(draft.value) ? draft.value : lead.value,
       owner: draft.owner,
@@ -670,17 +669,41 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                 <Icon name="phone" size={14} /> Phone
               </span>
               <div className="field-static">
-                <input
-                  className="input"
-                  inputMode="tel"
-                  value={isAdmin ? (draft.phone || "") : maskPhone(draft.phone || "", true)}
-                  onChange={(e) => {
-                    if (isAdmin) set("phone", e.target.value);
-                  }}
-                  readOnly={!isAdmin}
-                  aria-label="Phone"
-                  title={!isAdmin ? "Phone number locked for closer isolation" : "Client phone number"}
-                />
+                <div className="phone-static-box">
+                  <span className="phone-static-text">
+                    {isAdmin ? (draft.phone || "—") : maskPhone(draft.phone || "", false)}
+                  </span>
+                  <div className="phone-actions">
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      title="Copy phone"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(draft.phone || "");
+                        setPhoneCopied(true);
+                        setTimeout(() => setPhoneCopied(false), 1500);
+                      }}
+                    >
+                      <Icon name={phoneCopied ? "check" : "copy"} size={12} />
+                    </button>
+                    {draft.phone && (
+                      <a href={`tel:${draft.phone}`} className="icon-btn" title="Call">
+                        <Icon name="phone" size={12} />
+                      </a>
+                    )}
+                    {draft.phone && (
+                      <a
+                        href={`https://wa.me/${(draft.phone || "").replace(/\D/g, "")}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="icon-btn"
+                        title="WhatsApp"
+                      >
+                        <Icon name="whatsapp" size={12} />
+                      </a>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -748,14 +771,16 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
             </div>
           ) : (
             <>
-              <button
-                className="btn"
-                data-variant="ghost"
-                onClick={() => setConfirmDelete(true)}
-                title="Delete lead"
-              >
-                <Icon name="trash" size={14} /> Delete
-              </button>
+              {isAdmin && (
+                <button
+                  className="btn"
+                  data-variant="ghost"
+                  onClick={() => setConfirmDelete(true)}
+                  title="Delete lead"
+                >
+                  <Icon name="trash" size={14} /> Delete
+                </button>
+              )}
               <div className="drawer-foot-end">
                 <button className="btn" onClick={onClose}>
                   Close

@@ -547,6 +547,35 @@ async function requestConversation<T>(
 // ==========================================
 
 export const aicloserApi = {
+  // Channels (IndiaMART & JustDial)
+  channels: {
+    indiamart: {
+      async getConfig() {
+        return request<any>('/channels/indiamart/config').then((r) => r.data).catch(() => null);
+      },
+      async saveConfig(payload: any) {
+        return request<any>('/channels/indiamart/config', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        }).then((r) => r.data).catch(() => null);
+      },
+      async syncNow() {
+        return request<any>('/channels/indiamart/sync', { method: 'POST' }).then((r) => r.data).catch(() => null);
+      },
+      async sync() {
+        return request<any>('/channels/indiamart/sync', { method: 'POST' }).then((r) => r.data).catch(() => null);
+      },
+    },
+    justdial: {
+      async getConfig() {
+        return request<any>('/channels/justdial/config').then((r) => r.data).catch(() => null);
+      },
+      async getWebhookUrl() {
+        return request<any>('/channels/justdial/webhook-url').then((r) => r.data).catch(() => null);
+      },
+    },
+  },
+
   // 1. Auth & Session
   auth: {
     async login(params: {

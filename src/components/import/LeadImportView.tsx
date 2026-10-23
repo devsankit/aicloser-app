@@ -78,7 +78,7 @@ export function LeadImportView() {
 
   useEffect(() => {
     if (channel === "indiamart") {
-      aicloserApi.channels.indiamart.getConfig().then((cfg) => {
+      aicloserApi.channels?.indiamart?.getConfig?.().then((cfg) => {
         if (cfg) {
           if (cfg.crmKey) setImCrmKey(cfg.crmKey);
           if (cfg.mobileNumber) setImMobile(cfg.mobileNumber);
@@ -98,7 +98,7 @@ export function LeadImportView() {
         localStorage.setItem("aicloser_indiamart_interval", imInterval);
         localStorage.setItem("aicloser_indiamart_distribution", imDistribution);
       }
-      await aicloserApi.channels.indiamart.saveConfig({
+      await aicloserApi.channels?.indiamart?.saveConfig?.({
         crmKey: imCrmKey,
         mobileNumber: imMobile,
         syncInterval: imInterval,
@@ -117,7 +117,7 @@ export function LeadImportView() {
   const handleSyncImLeads = async () => {
     setImIsSyncing(true);
     try {
-      const res = await aicloserApi.channels.indiamart.sync();
+      const res = await aicloserApi.channels?.indiamart?.sync?.();
       setImBanner(res?.message || "✓ IndiaMART sync completed. Leads routed to CRM pipeline.");
       setTimeout(() => setImBanner(null), 4000);
     } catch {

@@ -68,6 +68,7 @@ export interface Lead {
   tags: string[];
   notes: string;
   updatedAt: string; // ISO
+  kanbanPosition?: number;
 }
 
 export interface LeadPoolItem {

@@ -94,6 +94,7 @@ export function backendLeadToUiLead(b: BackendLead): UiLead {
     tags: Array.isArray(b.tags) ? b.tags : (typeof b.tags === "string" && (b.tags as string).trim() ? [(b.tags as string).trim()] : []),
     notes: typeof b.notes === "string" ? b.notes : (typeof custom.notes === "string" ? custom.notes : (custom.notes ? JSON.stringify(custom.notes) : "")),
     updatedAt: b.updatedAt || b.createdAt || new Date().toISOString(),
+    kanbanPosition: typeof (b as any).kanbanPosition === "number" ? (b as any).kanbanPosition : undefined,
   };
 }
 
@@ -104,6 +105,7 @@ export function uiLeadToBackendPayload(u: Partial<UiLead>): Partial<BackendLead>
   if (u.email !== undefined) payload.customerEmail = u.email;
   if (u.value !== undefined) payload.budgetAmount = u.value;
   if (u.stage !== undefined) payload.stage = stageIdToBackendStage(u.stage);
+  if (u.kanbanPosition !== undefined) payload.kanbanPosition = u.kanbanPosition;
   if (u.source !== undefined) payload.source = u.source;
   if (u.priority !== undefined) payload.priority = u.priority.toUpperCase();
   if (u.segment !== undefined) payload.segment = u.segment;

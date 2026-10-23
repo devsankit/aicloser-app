@@ -1285,6 +1285,20 @@ svg {
   padding-right: 26px;
 }
 
+select,
+.select {
+  background-color: var(--bg-soft);
+  color: var(--text);
+  border: 1px solid var(--border-input);
+  border-radius: var(--r-sm);
+}
+
+select option,
+.select option {
+  background-color: var(--bg-panel, #18191c);
+  color: var(--text, #f7f8f8);
+}
+
 /* ---------- chips / badges ---------- */
 .chip {
   display: inline-flex;
@@ -1818,6 +1832,12 @@ svg {
 .lead[data-dragging="true"] {
   opacity: 0.4;
   transform: rotate(0.6deg);
+}
+
+.lead[data-drag-over="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 -2px 0 0 var(--accent), var(--shadow-sm);
+  transform: translateY(2px);
 }
 
 .lead:focus-visible {
@@ -3626,6 +3646,39 @@ button.list-prio:hover {
   display: flex;
   align-items: center;
   height: 30px;
+}
+
+.phone-static-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: 32px;
+  padding: 0 8px 0 10px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  box-sizing: border-box;
+}
+
+.phone-static-text {
+  font-family: var(--mono);
+  font-size: var(--fs-caption);
+  font-weight: 550;
+  color: var(--text);
+  letter-spacing: 0.02em;
+  user-select: text;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phone-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
 .pill {
