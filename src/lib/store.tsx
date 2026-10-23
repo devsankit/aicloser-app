@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import type { Density, FontScale, Lead, LeadPoolItem, NavSpacing, Priority, Segment, StageId, Theme } from "./types";
-import { normalizeSource } from "./types";
+import { STAGES, normalizeSource } from "./types";
 import { aicloserApi, type UserSession } from "./api-client";
 import { backendLeadToUiLead, uiLeadToBackendPayload, stageIdToBackendStage, isTeammateScannedWhatsAppLead } from "./lead-mapper";
 
@@ -796,9 +796,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const res = await aicloserApi.leads.claimFromPool(poolItemId, assignedAgentId);
         if (res && (res as any).success !== false) {
           const rawLead = (res as any).data?.lead || (res as any).lead;
+          const initialStageId = (STAGES[0]?.id || "new") as StageId;
           let newLead: Lead;
           if (rawLead && rawLead.id) {
-            newLead = backendLeadToUiLead(rawLead);
+            const mapped = backendLeadToUiLead(rawLead);
+            newLead = {
+              ...mapped,
+              stage: initialStageId,
+            };
           } else {
             newLead = {
               id: poolItemId,
@@ -810,7 +815,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               value: Number(currentItem?.budgetAmount) || 0,
               source: normalizeSource(currentItem?.source || "Google Sheets"),
               segment: (currentItem?.segment as Segment) || "SMB",
-              stage: "new",
+              stage: initialStageId,
               priority: (currentItem?.priority as Priority) || "medium",
               owner: finalCloser,
               followUp: currentItem?.followUpAt || "",
@@ -834,6 +839,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       } catch (err: any) {
         if (!state.apiConnected || err?.status === 401 || String(err?.message || "").includes("401") || String(err?.message || "").includes("token")) {
+          const initialStageId = (STAGES[0]?.id || "new") as StageId;
           const newLead: Lead = {
             id: poolItemId,
             code: `CLO-${poolItemId.slice(-4).toUpperCase()}`,
@@ -844,7 +850,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             value: Number(currentItem?.budgetAmount) || 0,
             source: normalizeSource(currentItem?.source || "Google Sheets"),
             segment: (currentItem?.segment as Segment) || "SMB",
-            stage: "new",
+            stage: initialStageId,
             priority: (currentItem?.priority as Priority) || "medium",
             owner: finalCloser,
             followUp: currentItem?.followUpAt || "",

@@ -539,7 +539,7 @@ async function requestConversation<T>(
     error.status = response.status;
     throw error;
   }
-  return { data: json?.data as T, pagination: json?.pagination };
+  return { data: (json?.data !== undefined ? json.data : json) as T, pagination: json?.pagination };
 }
 
 // ==========================================
@@ -840,7 +840,11 @@ export const aicloserApi = {
           reason: string;
         }>;
       }>('/leads/missed');
-      return res.data;
+      const d = (res as any)?.data;
+      if (d && (Array.isArray(d.items) || typeof d.myMissed === 'number')) {
+        return d;
+      }
+      return (res as any) || { items: [], totalMissed: 0, myMissed: 0 };
     },
 
     async transfer(id: string, targetAgentId: string, note?: string) {

@@ -174,11 +174,30 @@ export function PipelineView() {
   const userRole = state.user?.role || "ADMIN";
   const isAdmin = userRole === "ADMIN" || userRole === "SUPER_ADMIN" || userRole === "MANAGER";
   const closerName = state.user?.displayName || "Closer";
-  const myActiveLeads = state.leads.filter(
-    (l) => l.stage !== "won" && l.stage !== "lost" && (l.owner === closerName || (!isAdmin && state.scope === "all"))
+
+  const [poolCapacity, setPoolCapacity] = useState<number>(25);
+
+  useEffect(() => {
+    aicloserApi.roundRobin
+      .get()
+      .then((res: any) => {
+        const cap = res?.settings?.maxActiveLeadsPerCloser || res?.settings?.leadCapacity;
+        if (typeof cap === "number" && cap > 0) {
+          setPoolCapacity(cap);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const initialStage = STAGES[0];
+  const initialStageId = initialStage?.id || "new";
+  const initialStageLabel = initialStage?.label || "New Leads";
+  const myInitialStageCount = state.leads.filter(
+    (l) => (l.owner === closerName || (!isAdmin && state.scope === "all")) && l.stage === initialStageId
   ).length;
-  const myCap = (state.user as any)?.maxActiveLeads || 25;
-  const isAtQuota = !isAdmin && myActiveLeads >= myCap;
+  const myCap = (state.user as any)?.maxActiveLeads || poolCapacity || 25;
+  const isAtQuota = !isAdmin && myInitialStageCount >= myCap;
+  const availableSlots = Math.max(0, myCap - myInitialStageCount);
   const [isDistributing, setIsDistributing] = useState(false);
   const [poolLimit, setPoolLimit] = useState<number>(10);
   const [activeClosers, setActiveClosers] = useState<Array<{ id: string; name: string; role?: string }>>([]);
@@ -412,8 +431,8 @@ export function PipelineView() {
 
   const missedCount = useMemo(() => {
     if (apiMissedCount !== null) return apiMissedCount;
-    return openPoolList.filter((lead) => getRemainingSeconds(lead.createdAt) <= 0).length;
-  }, [apiMissedCount, openPoolList, now]);
+    return missedLeads.length;
+  }, [apiMissedCount, missedLeads]);
 
   const handleClaimLead = async (item: LeadPoolItem) => {
     if (claimingId || isAtQuota) return;
@@ -426,7 +445,7 @@ export function PipelineView() {
         setClaimFeedback({
           id: item.id,
           status: "success",
-          message: `Lead "${item.customerName || "Customer"}" claimed. Added to your New Leads column.`,
+          message: `Lead "${item.customerName || "Customer"}" claimed. Added to your ${initialStageLabel} column.`,
         });
         setTimeout(() => setClaimFeedback(null), 4000);
       } else {
@@ -439,7 +458,7 @@ export function PipelineView() {
           id: item.id,
           status: isQuota ? "quota_limit" : "already_claimed",
           message: isQuota
-            ? ` Quota Limit: You already hold ${myActiveLeads}/${myCap} active leads. Close existing deals before grabbing more.`
+            ? ` Quota Limit: You already hold ${myInitialStageCount}/${myCap} leads in ${initialStageLabel}. Advance existing leads before grabbing more.`
             : `Lead was just grabbed by another closer!`,
         });
         setTimeout(() => setClaimFeedback(null), 4500);
@@ -756,10 +775,10 @@ export function PipelineView() {
               ) : (
                 <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                   <span className="hint" style={{ fontSize: "12px" }}>
-                    Capacity: <strong style={{ color: "var(--text)" }}>{myActiveLeads}</strong> / {myCap}
+                    Capacity: <strong style={{ color: "var(--text)" }}>{myInitialStageCount}</strong> / {myCap} in {initialStageLabel}
                   </span>
                   <span className="chip" data-tone={isAtQuota ? "danger" : "success"} data-size="sm">
-                    {isAtQuota ? "Quota Full" : `${Math.max(0, myCap - myActiveLeads)} slots left`}
+                    {isAtQuota ? "Quota Full" : `${availableSlots} slots left`}
                   </span>
                 </div>
               )}
@@ -811,8 +830,11 @@ export function PipelineView() {
               type="button"
               className="chip"
               data-tone={missedCount > 0 ? "danger" : "neutral"}
-              title="Click to view missed pool leads"
-              onClick={() => setShowMissedModal(true)}
+              title="Click to view missed pool leads audit"
+              onClick={() => {
+                setShowMissedModal(true);
+                void fetchMissedAndBreak();
+              }}
               style={{ cursor: "pointer" }}
             >
               Missed: {missedCount} leads
@@ -981,7 +1003,11 @@ export function PipelineView() {
                           data-variant="primary"
                           disabled={isClaiming || isAtQuota}
                           onClick={() => handleClaimLead(item)}
-                          title={isAtQuota ? `Active lead cap reached (${myActiveLeads}/${myCap}). Resolve deals to grab more.` : "Click to claim lead into your pipeline"}
+                          title={
+                            isAtQuota
+                              ? `Quota limit reached (${myCap} leads in ${initialStageLabel}). Advance leads to other stages to claim more.`
+                              : "Click to claim lead into your pipeline"
+                          }
                         >
                           {isClaiming ? (
                             <>
@@ -1547,6 +1573,118 @@ export function PipelineView() {
         </ErrorBoundary>
       ) : null}
       {addStage ? <AddLeadDialog defaultStage={addStage} onClose={() => setAddStage(null)} /> : null}
+
+      {/* Missed Leads Inspection Modal */}
+      {showMissedModal && (
+        <div className="overlay" data-kind="dialog" onClick={() => setShowMissedModal(false)}>
+          <div className="dialog" data-size="lg" onClick={(e) => e.stopPropagation()}>
+            <header className="dialog-head">
+              <div className="dialog-icon" data-tone="warning">
+                <Icon name="alert-circle" size={16} />
+              </div>
+              <h2>Missed Pool Leads Audit ({missedCount})</h2>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => setShowMissedModal(false)}
+                aria-label="Close dialog"
+              >
+                <Icon name="close" size={14} />
+              </button>
+            </header>
+            <div className="dialog-body" data-scroll="true">
+              {missedLeads.length === 0 ? (
+                <div className="empty">
+                  <span className="empty-icon">
+                    <Icon name="check-circle" size={24} />
+                  </span>
+                  <h3>No Missed Leads</h3>
+                  <p>
+                    You have not missed any pool leads. Keep active and claim incoming opportunities within the 10-minute window!
+                  </p>
+                </div>
+              ) : (
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Customer Name</th>
+                        <th>Phone</th>
+                        <th>Missed At</th>
+                        <th>Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {missedLeads.map((item, idx) => {
+                        const isTimer =
+                          item.reason?.toLowerCase().includes("timer") ||
+                          item.reason?.toLowerCase().includes("expired") ||
+                          item.reason?.toLowerCase().includes("10-min");
+                        const isPeer =
+                          item.reason?.toLowerCase().includes("teammate") ||
+                          item.reason?.toLowerCase().includes("another") ||
+                          item.reason?.toLowerCase().includes("closer") ||
+                          item.reason?.toLowerCase().includes("peer");
+
+                        return (
+                          <tr key={item.id || item.poolItemId || idx}>
+                            <td>
+                              <strong className="cell-name">
+                                {item.customerName || "Customer Lead"}
+                              </strong>
+                            </td>
+                            <td>
+                              <span>{item.customerPhone || "—"}</span>
+                            </td>
+                            <td>
+                              <span className="cell-muted">
+                                {item.missedAt ? new Date(item.missedAt).toLocaleString() : "Recently"}
+                              </span>
+                            </td>
+                            <td>
+                              {isTimer ? (
+                                <span className="chip" data-tone="warning">
+                                  ⏱️ Timer Expired
+                                </span>
+                              ) : isPeer ? (
+                                <span className="chip" data-tone="accent">
+                                  ⚡ Grabbed by teammate
+                                </span>
+                              ) : (
+                                <span className="chip" data-tone="neutral">
+                                  {item.reason || "Unclaimed"}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            <footer className="dialog-foot">
+              <button
+                type="button"
+                className="btn"
+                data-variant="ghost"
+                onClick={fetchMissedAndBreak}
+              >
+                <Icon name="refresh" size={13} /> Refresh
+              </button>
+              <button
+                type="button"
+                className="btn"
+                data-variant="primary"
+                onClick={() => setShowMissedModal(false)}
+              >
+                Close
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
