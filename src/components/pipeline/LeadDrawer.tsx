@@ -95,14 +95,14 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
     }
     if (state.teamMembers && state.teamMembers.length > 0) {
       state.teamMembers.forEach((m) => {
-        const r = (m.role || "").toUpperCase();
-        if (r === "SUPER_ADMIN" || r.includes("SUPER") || r === "ADMIN") return;
+        const r = (m.role || "").trim().toUpperCase().replace(/\s+/g, "_");
+        if (r === "SUPER_ADMIN" || r.includes("SUPER") || r === "ADMIN" || r === "WORKSPACE_ADMIN" || r === "OWNER") return;
         if (m.name && !list.includes(m.name)) list.push(m.name);
       });
     } else {
       if (state.user?.displayName && !list.includes(state.user.displayName)) {
-        const uRole = (state.user?.role || "").toUpperCase();
-        if (uRole !== "SUPER_ADMIN" && !uRole.includes("SUPER") && uRole !== "ADMIN") {
+        const uRole = (state.user?.role || "").trim().toUpperCase().replace(/\s+/g, "_");
+        if (uRole !== "SUPER_ADMIN" && !uRole.includes("SUPER") && uRole !== "ADMIN" && uRole !== "WORKSPACE_ADMIN" && uRole !== "OWNER") {
           list.push(state.user.displayName);
         }
       }
@@ -153,12 +153,6 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
     setRawTagsInput(nextTags.join(", "));
     updateLead(lead.id, { tags: nextTags });
   };
-
-  useEffect(() => {
-    if (availableOwners.length > 0 && (!targetCloser || !availableOwners.includes(targetCloser))) {
-      setTargetCloser(availableOwners[0]);
-    }
-  }, [availableOwners, targetCloser]);
 
   useEffect(() => {
     setDraft(lead);
@@ -382,8 +376,9 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                 {state.teamMembers && state.teamMembers.length > 0 ? (
                   state.teamMembers
                     .filter((m) => {
-                      const r = (m.role || "").toUpperCase();
-                      return r !== "SUPER_ADMIN" && !r.includes("SUPER");
+                      const r = (m.role || "").trim().toUpperCase().replace(/\s+/g, "_");
+                      if (r === "SUPER_ADMIN" || r.includes("SUPER") || r === "ADMIN" || r === "WORKSPACE_ADMIN" || r === "OWNER") return false;
+                      return true;
                     })
                     .filter((m) => m.name !== draft.owner && m.displayName !== draft.owner)
                     .map((m) => (
@@ -505,8 +500,9 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                 {state.teamMembers && state.teamMembers.length > 0 ? (
                   state.teamMembers
                     .filter((m) => {
-                      const r = (m.role || "").toUpperCase();
-                      return r !== "SUPER_ADMIN" && !r.includes("SUPER");
+                      const r = (m.role || "").trim().toUpperCase().replace(/\s+/g, "_");
+                      if (r === "SUPER_ADMIN" || r.includes("SUPER") || r === "ADMIN" || r === "WORKSPACE_ADMIN" || r === "OWNER") return false;
+                      return true;
                     })
                     .filter((m) => m.name !== draft.owner && m.displayName !== draft.owner)
                     .map((m) => (

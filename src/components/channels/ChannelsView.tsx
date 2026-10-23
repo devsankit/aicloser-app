@@ -495,7 +495,7 @@ export function ChannelsView() {
             <div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <div style={{ width: 38, height: 38, borderRadius: 8, background: "rgba(37, 211, 102, 0.12)", display: "flex", alignItems: "center", justifyContent: "center", color: "#25D366", border: "1px solid rgba(37, 211, 102, 0.3)" }}>
+                  <div style={{ width: 38, height: 38, borderRadius: 8, background: "rgba(37, 211, 102, 0.12)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--success)", border: "1px solid rgba(37, 211, 102, 0.3)" }}>
                     <Icon name="whatsapp" size={20} />
                   </div>
                   <div>
@@ -677,7 +677,7 @@ export function ChannelsView() {
             <div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <div style={{ width: 38, height: 38, borderRadius: 8, background: "rgba(168, 85, 247, 0.12)", display: "flex", alignItems: "center", justifyContent: "center", color: "#a855f7", border: "1px solid rgba(168, 85, 247, 0.3)" }}>
+                  <div style={{ width: 38, height: 38, borderRadius: 8, background: "rgba(168, 85, 247, 0.12)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--accent)", border: "1px solid rgba(168, 85, 247, 0.3)" }}>
                     <Icon name="plug" size={18} />
                   </div>
                   <div>
@@ -737,7 +737,7 @@ export function ChannelsView() {
             <div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <div style={{ width: 38, height: 38, borderRadius: 8, background: "rgba(236, 72, 153, 0.12)", display: "flex", alignItems: "center", justifyContent: "center", color: "#ec4899", border: "1px solid rgba(236, 72, 153, 0.3)" }}>
+                  <div style={{ width: 38, height: 38, borderRadius: 8, background: "rgba(236, 72, 153, 0.12)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--accent-hover)", border: "1px solid rgba(236, 72, 153, 0.3)" }}>
                     <Icon name="message" size={18} />
                   </div>
                   <div>
@@ -1305,7 +1305,7 @@ export function ChannelsView() {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16, marginTop: 20 }}>
               <div className="card" style={{ padding: "16px", background: "var(--bg-panel)" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                  <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--accent)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13 }}>
+                  <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--accent)", color: "var(--ink-text)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13 }}>
                     1
                   </div>
                   <h4 style={{ fontSize: 13, fontWeight: 650 }}>Install Closer APK</h4>
@@ -1317,7 +1317,7 @@ export function ChannelsView() {
 
               <div className="card" style={{ padding: "16px", background: "var(--bg-panel)" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                  <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--accent)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13 }}>
+                  <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--accent)", color: "var(--ink-text)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13 }}>
                     2
                   </div>
                   <h4 style={{ fontSize: 13, fontWeight: 650 }}>Log In with Closer Account</h4>
@@ -1329,7 +1329,7 @@ export function ChannelsView() {
 
               <div className="card" style={{ padding: "16px", background: "var(--bg-panel)" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                  <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--accent)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13 }}>
+                  <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--accent)", color: "var(--ink-text)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13 }}>
                     3
                   </div>
                   <h4 style={{ fontSize: 13, fontWeight: 650 }}>Grant Call Permissions</h4>

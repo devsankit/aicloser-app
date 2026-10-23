@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Check, Tags } from "lucide-react";
+import { aicloserApi } from "@/lib/api-client";
 
 interface StatusLabel {
   id: string;
@@ -35,12 +36,25 @@ export function LeadStatusTagsSelector({
     const fetchLabels = async () => {
       setLoadError("");
       try {
-        const res = await fetch("/api/sales/status-labels", { cache: "no-store" });
-        const data = await res.json();
-        if (!res.ok || !data.ok || !Array.isArray(data.labels)) {
-          throw new Error(data.error || "Status labels could not be loaded.");
+        const raw = await aicloserApi.labels.list().catch(() => null);
+        if (Array.isArray(raw) && raw.length > 0) {
+          setAvailableLabels(raw.map((l: any, idx: number) => ({
+            id: l.id || l.name || `label-${idx}`,
+            name: l.name,
+            color: l.color || "#6366f1",
+            count: l.usageCount,
+          })));
+        } else {
+          const res = await fetch("/api/v1/labels", { cache: "no-store" });
+          const data = await res.json();
+          const list = Array.isArray(data?.data) ? data.data : Array.isArray(data?.labels) ? data.labels : [];
+          setAvailableLabels(list.map((l: any, idx: number) => ({
+            id: l.id || l.name || `label-${idx}`,
+            name: l.name,
+            color: l.color || "#6366f1",
+            count: l.usageCount,
+          })));
         }
-        setAvailableLabels(data.labels);
       } catch (error) {
         setAvailableLabels([]);
         setLoadError(error instanceof Error ? error.message : "Status labels could not be loaded.");
@@ -63,13 +77,15 @@ export function LeadStatusTagsSelector({
 
     try {
       if (leadId) {
-        const res = await fetch("/api/sales/status-labels", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ leadId, tags: updatedTags }),
-        });
-        const data = await res.json();
-        if (!res.ok || !data.ok) throw new Error(data.error || "Status label update failed.");
+        try {
+          await aicloserApi.leads.update(leadId, { tags: updatedTags });
+        } catch {
+          await fetch(`/api/v1/leads/${encodeURIComponent(leadId)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tags: updatedTags }),
+          });
+        }
       }
       onTagsChanged?.(updatedTags);
     } catch {

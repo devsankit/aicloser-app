@@ -192,3 +192,53 @@ export function sourceMeta(source?: string): SourceMeta {
       return { label: "Website", icon: "globe", tone: "neutral" };
   }
 }
+
+export type WhatsAppAccountType = "WHATSAPP_PERSONAL" | "WHATSAPP_BUSINESS";
+export type WhatsAppSyncMode = "FULL_INBOX_SYNC" | "CONTACTS_ONLY_SCRAPER";
+
+export interface WhatsAppScannerSessionState {
+  storeVersion?: number;
+  tenantId?: string;
+  id?: string;
+  sessionId?: string;
+  status: "DISCONNECTED" | "CONNECTING" | "QR_READY" | "CONNECTED" | string;
+  accountType?: WhatsAppAccountType | string;
+  syncMode?: WhatsAppSyncMode | string;
+  visibilityMode?: "TEAM_SHARED" | "PRIVATE" | string;
+  connectedPhone?: string;
+  connectedDisplayName?: string;
+  qrCodeToken?: string;
+  qrCodeDataUrl?: string;
+  pairingCode?: string;
+  qrGeneratedAt?: string | null;
+  connectedAt?: string | null;
+  lastSyncAt?: string | null;
+  stats?: {
+    totalScrapedContacts?: number;
+    totalSyncedChatThreads?: number;
+    totalGroupContactsScraped?: number;
+  };
+  discoveredChats?: any[];
+  discoveredGroups?: any[];
+}
+
+export type EmailProviderPresetId = "GMAIL" | "ZOHO" | "GODADDY" | "CUSTOM";
+
+export interface ConnectedEmailAccount {
+  id: string;
+  email: string;
+  provider: EmailProviderPresetId;
+  status: "CONNECTED" | "ERROR" | "CONNECTING";
+  lastSyncAt?: string;
+  enquiriesFound?: number;
+}
+
+export interface ParsedEmailEnquiry {
+  id: string;
+  fromName: string;
+  fromEmail: string;
+  phone?: string;
+  subject: string;
+  bodyPreview: string;
+  receivedAt: string;
+}

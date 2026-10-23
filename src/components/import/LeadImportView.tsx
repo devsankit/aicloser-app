@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import * as XLSX from "xlsx";
 import { Icon } from "@/components/ui/Icon";
 import { useApp } from "@/lib/store";
 import { aicloserApi } from "@/lib/api-client";
@@ -168,23 +169,50 @@ export function LeadImportView() {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const text = await file.text();
-      const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
-      if (lines.length > 1) {
-        const headers = lines[0].split(",").map((h) => h.trim().replace(/^["']|["']$/g, ""));
-        const rows = lines.slice(1).map((line) => {
-          const vals = line.split(",").map((v) => v.trim().replace(/^["']|["']$/g, ""));
-          const obj: Record<string, string> = {};
-          headers.forEach((h, idx) => {
-            obj[h] = vals[idx] || "";
+      const isExcel = file.name.toLowerCase().endsWith(".xlsx") || file.name.toLowerCase().endsWith(".xls");
+      if (isExcel) {
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: "array" });
+        const sheetName = workbook.SheetNames[0];
+        if (!sheetName) {
+          alert("Excel workbook contains no sheets.");
+          return;
+        }
+        const sheet = workbook.Sheets[sheetName];
+        const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+        if (rawRows.length > 0) {
+          const headers = Object.keys(rawRows[0]);
+          const rows = rawRows.map((r) => {
+            const obj: Record<string, string> = {};
+            headers.forEach((h) => {
+              obj[h] = String(r[h] ?? "").trim();
+            });
+            return obj;
           });
-          return obj;
-        });
+          applyDetectedRows(file.name, `${(file.size / 1024).toFixed(1)} KB`, headers, rows, "Excel");
+        } else {
+          alert("Excel sheet contains no data rows.");
+        }
+      } else {
+        const text = await file.text();
+        const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+        if (lines.length > 1) {
+          const headers = lines[0].split(",").map((h) => h.trim().replace(/^["']|["']$/g, ""));
+          const rows = lines.slice(1).map((line) => {
+            const vals = line.split(",").map((v) => v.trim().replace(/^["']|["']$/g, ""));
+            const obj: Record<string, string> = {};
+            headers.forEach((h, idx) => {
+              obj[h] = vals[idx] || "";
+            });
+            return obj;
+          });
 
-        applyDetectedRows(file.name, `${(file.size / 1024).toFixed(1)} KB`, headers, rows, "Excel");
+          applyDetectedRows(file.name, `${(file.size / 1024).toFixed(1)} KB`, headers, rows, "Excel");
+        }
       }
     } catch (err) {
-      console.error("Failed to parse CSV file", err);
+      console.error("Failed to parse file", err);
+      alert("Failed to parse file. Please verify it is a valid CSV or Excel file.");
     }
   };
 
@@ -195,18 +223,33 @@ export function LeadImportView() {
     }
     setIsFetchingSheet(true);
     try {
-      const res = await fetch(
-        `/api/sales/leads/import?action=preview_google_sheet&googleSheetUrl=${encodeURIComponent(sheetUrl.trim())}&sheetTab=${encodeURIComponent(sheetTabName.trim())}`
-      );
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || "Failed to fetch Google Sheet rows.");
+      const match = sheetUrl.trim().match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+      const exportUrl = match
+        ? `https://docs.google.com/spreadsheets/d/${match[1]}/export?format=csv${sheetTabName.trim() ? `&sheet=${encodeURIComponent(sheetTabName.trim())}` : ""}`
+        : sheetUrl.trim();
+      const res = await fetch(exportUrl);
+      if (!res.ok) {
+        throw new Error("Could not access Google Sheet. Please ensure link sharing is set to 'Anyone with the link can view'.");
       }
+      const csv = await res.text();
+      const lines = csv.split(/\r?\n/).filter((l) => l.trim().length > 0);
+      if (lines.length < 2) {
+        throw new Error("Google Sheet contains no data rows.");
+      }
+      const headers = lines[0].split(",").map((h) => h.trim().replace(/^["']|["']$/g, ""));
+      const rows = lines.slice(1).map((line) => {
+        const vals = line.split(",").map((v) => v.trim().replace(/^["']|["']$/g, ""));
+        const obj: Record<string, string> = {};
+        headers.forEach((h, idx) => {
+          obj[h] = vals[idx] || "";
+        });
+        return obj;
+      });
       applyDetectedRows(
         `Google Sheet: ${sheetTabName || "Sheet1"}`,
-        `${data.totalRows} Live Rows`,
-        data.headers,
-        data.rows,
+        `${rows.length} Live Rows`,
+        headers,
+        rows,
         "Google Sheets"
       );
     } catch (err: any) {
@@ -606,7 +649,7 @@ export function LeadImportView() {
                     gap: "12px",
                   }}
                 >
-                  <div style={{ width: "36px", height: "36px", borderRadius: "8px", background: "rgba(59, 130, 246, 0.15)", color: "#3b82f6", display: "grid", placeItems: "center" }}>
+                  <div style={{ width: "36px", height: "36px", borderRadius: "8px", background: "rgba(59, 130, 246, 0.15)", color: "var(--info)", display: "grid", placeItems: "center" }}>
                     <Icon name="link" size={18} />
                   </div>
                   <div>
@@ -654,7 +697,7 @@ export function LeadImportView() {
                     gap: "12px",
                   }}
                 >
-                  <div style={{ width: "36px", height: "36px", borderRadius: "8px", background: "rgba(168, 85, 247, 0.15)", color: "#a855f7", display: "grid", placeItems: "center" }}>
+                  <div style={{ width: "36px", height: "36px", borderRadius: "8px", background: "rgba(168, 85, 247, 0.15)", color: "var(--accent)", display: "grid", placeItems: "center" }}>
                     <Icon name="mail" size={18} />
                   </div>
                   <div>
@@ -702,7 +745,7 @@ export function LeadImportView() {
                     gap: "12px",
                   }}
                 >
-                  <div style={{ width: "36px", height: "36px", borderRadius: "8px", background: "rgba(59, 130, 246, 0.15)", color: "#3b82f6", display: "grid", placeItems: "center" }}>
+                  <div style={{ width: "36px", height: "36px", borderRadius: "8px", background: "rgba(59, 130, 246, 0.15)", color: "var(--info)", display: "grid", placeItems: "center" }}>
                     <Icon name="plug-2" size={18} />
                   </div>
                   <div>

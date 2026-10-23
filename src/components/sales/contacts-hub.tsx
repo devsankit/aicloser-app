@@ -35,12 +35,10 @@ import type {
   WhatsAppAccountType,
   WhatsAppScannerSessionState,
   WhatsAppSyncMode,
-} from "@/app/api/sales/whatsapp-scanner/route";
-import type {
   ConnectedEmailAccount,
   EmailProviderPresetId,
   ParsedEmailEnquiry,
-} from "@/app/api/sales/email-inbox/route";
+} from "@/lib/types";
 import type { SalesLeadStage } from "@/lib/gigxomi/sales-store";
 
 type ActiveImportDrawer =
@@ -651,24 +649,33 @@ export function ContactsHub({
     setBusyAction("generate_qr");
     setBanner(null);
     try {
-      const res = await fetch("/api/sales/whatsapp-scanner", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tenantId,
-          action: "generate_qr",
+      const pairRes = await aicloserApi.integrations.whatsapp.devices.startPairing({
+        name: personalWhatsAppOnly ? "Closer Companion Line" : "WhatsApp Business Line",
+      });
+      if (pairRes) {
+        setScannerState((prev) => ({
+          storeVersion: 2,
+          tenantId: tenantId || "central-workspace",
+          status: "QR_READY",
           accountType: personalWhatsAppOnly ? "WHATSAPP_PERSONAL" : waAccountType,
           syncMode: waSyncMode,
           visibilityMode: personalWhatsAppOnly ? "PRIVATE" : waVisibility,
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setScannerState(data.scanner);
-        setBanner({ tone: "success", text: data.message });
-      } else {
-        setBanner({ tone: "error", text: data.error || "Could not generate QR session." });
+          connectedPhone: "",
+          connectedDisplayName: pairRes.deviceName || "",
+          qrCodeToken: pairRes.qrData || "",
+          qrCodeDataUrl: pairRes.qrData || undefined,
+          pairingCode: pairRes.pairingCode,
+          qrGeneratedAt: new Date().toISOString(),
+          connectedAt: null,
+          lastSyncAt: null,
+          stats: { totalScrapedContacts: 0, totalSyncedChatThreads: 0, totalGroupContactsScraped: 0 },
+          discoveredChats: [],
+          discoveredGroups: [],
+        }));
+        setBanner({ tone: "success", text: "QR code generated successfully. Scan with your phone." });
       }
+    } catch (err: any) {
+      setBanner({ tone: "error", text: err?.message || "Could not generate QR session." });
     } finally {
       setBusyAction(null);
     }
@@ -678,24 +685,33 @@ export function ContactsHub({
     setBusyAction("request_pairing_code");
     setBanner(null);
     try {
-      const res = await fetch("/api/sales/whatsapp-scanner", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tenantId,
-          action: "request_pairing_code",
+      const pairRes = await aicloserApi.integrations.whatsapp.devices.startPairing({
+        name: waConnectedPhoneInput || "WhatsApp Companion Line",
+      });
+      if (pairRes) {
+        setScannerState((prev) => ({
+          storeVersion: 2,
+          tenantId: tenantId || "central-workspace",
+          status: "QR_READY",
           accountType: personalWhatsAppOnly ? "WHATSAPP_PERSONAL" : waAccountType,
           syncMode: waSyncMode,
+          visibilityMode: personalWhatsAppOnly ? "PRIVATE" : waVisibility,
           connectedPhone: waConnectedPhoneInput,
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setScannerState(data.scanner);
-        setBanner({ tone: "success", text: data.message });
-      } else {
-        setBanner({ tone: "error", text: data.error || "Failed to generate pairing code." });
+          connectedDisplayName: pairRes.deviceName || "",
+          qrCodeToken: pairRes.qrData || "",
+          qrCodeDataUrl: pairRes.qrData || undefined,
+          pairingCode: pairRes.pairingCode,
+          qrGeneratedAt: new Date().toISOString(),
+          connectedAt: null,
+          lastSyncAt: null,
+          stats: { totalScrapedContacts: 0, totalSyncedChatThreads: 0, totalGroupContactsScraped: 0 },
+          discoveredChats: [],
+          discoveredGroups: [],
+        }));
+        setBanner({ tone: "success", text: `Pairing code generated: ${pairRes.pairingCode}` });
       }
+    } catch (err: any) {
+      setBanner({ tone: "error", text: err?.message || "Failed to generate pairing code." });
     } finally {
       setBusyAction(null);
     }
@@ -705,21 +721,23 @@ export function ContactsHub({
     setBusyAction("disconnect_wa");
     setBanner(null);
     try {
-      const res = await fetch("/api/sales/whatsapp-scanner", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tenantId,
-          action: "disconnect",
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setScannerState(data.scanner);
-        setBanner({ tone: "success", text: "WhatsApp session disconnected." });
-      } else {
-        setBanner({ tone: "error", text: data.error || "Failed to disconnect." });
+      if (scannerState?.sessionId) {
+        await aicloserApi.integrations.whatsapp.devices.disconnect(scannerState.sessionId);
       }
+      setScannerState((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: "DISCONNECTED",
+              connectedPhone: "",
+              qrCodeDataUrl: undefined,
+              pairingCode: undefined,
+            }
+          : null
+      );
+      setBanner({ tone: "success", text: "WhatsApp session disconnected." });
+    } catch (err: any) {
+      setBanner({ tone: "error", text: err?.message || "Failed to disconnect." });
     } finally {
       setBusyAction(null);
     }
@@ -729,28 +747,12 @@ export function ContactsHub({
     setBusyAction("complete_scan");
     setBanner(null);
     try {
-      const res = await fetch("/api/sales/whatsapp-scanner", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tenantId,
-          action: "complete_scan",
-          accountType: personalWhatsAppOnly ? "WHATSAPP_PERSONAL" : waAccountType,
-          syncMode: waSyncMode,
-          visibilityMode: personalWhatsAppOnly ? "PRIVATE" : waVisibility,
-          connectedPhone: waConnectedPhoneInput,
-          includeGroups: waIncludeGroups,
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setScannerState(data.scanner);
-        setBanner({ tone: "success", text: data.message });
-        await loadAllContactsAndIntegrations();
-        onRefreshDashboard?.();
-      } else {
-        setBanner({ tone: "error", text: data.error || "WhatsApp sync failed." });
-      }
+      const syncRes = await aicloserApi.integrations.whatsapp.devices.importAll();
+      setBanner({ tone: "success", text: `WhatsApp sync completed: ${syncRes.count || 0} leads synced across ${syncRes.devicesCount || 1} devices.` });
+      await loadAllContactsAndIntegrations();
+      onRefreshDashboard?.();
+    } catch (err: any) {
+      setBanner({ tone: "error", text: err?.message || "WhatsApp sync failed." });
     } finally {
       setBusyAction(null);
     }

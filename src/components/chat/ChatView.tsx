@@ -37,6 +37,7 @@ interface ConversationItem {
   isReassignable?: boolean;
   lastMessage: string;
   lastMessageTime: string;
+  lastMessageAt?: string;
   updatedAt?: string;
   unreadCount: number;
   assignedTo: string;
@@ -109,6 +110,10 @@ function getConversationTimestamp(c: ConversationItem): number {
       const t = new Date(lastMsg.createdAt).getTime();
       if (!isNaN(t) && t > 0) return t;
     }
+  }
+  if (c.lastMessageAt) {
+    const t = new Date(c.lastMessageAt).getTime();
+    if (!isNaN(t) && t > 0) return t;
   }
   if (c.updatedAt) {
     const t = new Date(c.updatedAt).getTime();
@@ -434,6 +439,15 @@ export function ChatView() {
 
   // Unified Lead Profile: uses activeLead or falls back to activeChat info
   // Ensures the right drawer is ALWAYS present when showRightDrawer is true
+  const isChatActiveNow = useMemo(() => {
+    if (!activeChat) return false;
+    const lastMsg = activeChat.messages?.[activeChat.messages.length - 1];
+    const ts = lastMsg?.createdAt || (activeChat as any).lastMessageAt || activeChat.updatedAt;
+    if (!ts) return false;
+    const diffMs = Date.now() - new Date(ts).getTime();
+    return !isNaN(diffMs) && diffMs < 1000 * 60 * 30; // Active within last 30 minutes
+  }, [activeChat]);
+
   const activeLeadProfile = useMemo(() => {
     if (activeLead) return { ...activeLead, stage: chatStage };
     if (!activeChat) return null;
@@ -720,8 +734,9 @@ export function ChatView() {
               isPersonalQr: isQrScanner,
               isReassignable: c.isReassignable !== false,
               lastMessage: c.lastMessageSnippet || c.lastMessage?.body || "Conversation active",
-              lastMessageTime: formatMessageTime(c.updatedAt || c.lastMessageTime),
-              updatedAt: c.updatedAt,
+              lastMessageTime: formatMessageTime(c.lastMessage?.createdAt || c.lastMessageAt || c.updatedAt || c.lastMessageTime),
+              lastMessageAt: c.lastMessage?.createdAt || c.lastMessageAt || c.updatedAt,
+              updatedAt: c.lastMessage?.createdAt || c.lastMessageAt || c.updatedAt,
               unreadCount: c.id === selectedChatId ? 0 : (c.unreadCount || 0),
               assignedTo:
                 c.assignedFreelancerName ||
@@ -1036,29 +1051,39 @@ export function ChatView() {
               ...c,
               lastMessage: newChatMessage.text,
               lastMessageTime: newChatMessage.time,
+              lastMessageAt: newChatMessage.createdAt,
               updatedAt: newChatMessage.createdAt,
               unreadCount: isCurrentActive ? 0 : (c.unreadCount || 0) + 1,
             };
           });
 
-          return updated.sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
+          return updated.sort((a, b) => getConversationTimestamp(b) - getConversationTimestamp(a));
         });
       } else if (type === "chat.status_updated") {
         const { wamid, status } = payload;
-        if (wamid && status && activeChat?.id) {
+        if (wamid && status) {
           const mappedStatus =
             status.toLowerCase() === "read" ? "read" : status.toLowerCase() === "delivered" ? "delivered" : "sent";
           setConversations((prev) =>
-            prev.map((c) => {
-              if (c.id !== activeChat.id) return c;
+            prev.map((c) => ({
+              ...c,
+              messages: c.messages.map((m) =>
+                m.id === wamid || m.externalMessageId === wamid ? { ...m, status: mappedStatus } : m
+              ),
+            }))
+          );
+          if (activeChat?.id) {
+            setMessagesCache((prev) => {
+              const currentCache = prev[activeChat.id];
+              if (!currentCache) return prev;
               return {
-                ...c,
-                messages: c.messages.map((m) =>
+                ...prev,
+                [activeChat.id]: currentCache.map((m) =>
                   m.id === wamid || m.externalMessageId === wamid ? { ...m, status: mappedStatus } : m
                 ),
               };
-            })
-          );
+            });
+          }
         }
       }
     };
@@ -1602,7 +1627,7 @@ export function ChatView() {
 
   const assignableTeamMembers = useMemo(() => {
     const list = effectiveTeamMembers.filter((m) => {
-      const r = (m.role || "").toUpperCase().replace(/\s+/g, "_");
+      const r = (m.role || "").trim().toUpperCase().replace(/\s+/g, "_");
       // Mandatory B2B SaaS rule: Platform Super Admin & Workspace Admins are STRICTLY excluded from assignment
       if (r === "SUPER_ADMIN" || r.includes("SUPER") || r === "ADMIN" || r === "WORKSPACE_ADMIN" || r === "OWNER") return false;
       return true;
@@ -2055,8 +2080,8 @@ export function ChatView() {
                         position: "absolute",
                         bottom: "-2px",
                         right: "-2px",
-                        background: chat.channel === "whatsapp" ? "#25D366" : "var(--accent)",
-                        color: "#fff",
+                        background: chat.channel === "whatsapp" ? "var(--success)" : "var(--accent)",
+                        color: "var(--ink-text)",
                         borderRadius: "50%",
                         width: "16px",
                         height: "16px",
@@ -2071,28 +2096,55 @@ export function ChatView() {
                   {/* Details */}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                      <span style={{ fontWeight: 650, fontSize: "var(--fs-meta)", color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <span style={{ fontWeight: chat.unreadCount > 0 ? 750 : 650, fontSize: "var(--fs-meta)", color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {chat.customerName}
                       </span>
-                      <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>{chat.lastMessageTime}</span>
+                      <span style={{ fontSize: "11px", color: chat.unreadCount > 0 ? "var(--success)" : "var(--text-tertiary)", fontWeight: chat.unreadCount > 0 ? 600 : 400 }}>
+                        {chat.lastMessageTime}
+                      </span>
                     </div>
 
                     <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: "1px" }}>
                       {chat.company}
                     </div>
 
-                    <p
-                      style={{
-                        fontSize: "var(--fs-caption)",
-                        color: isSelected ? "var(--text)" : "var(--text-secondary)",
-                        margin: "3px 0 0 0",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {chat.lastMessage}
-                    </p>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", marginTop: "3px" }}>
+                      <p
+                        style={{
+                          fontSize: "var(--fs-caption)",
+                          color: chat.unreadCount > 0 ? "var(--text)" : (isSelected ? "var(--text)" : "var(--text-secondary)"),
+                          fontWeight: chat.unreadCount > 0 ? 600 : 400,
+                          margin: 0,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          flex: 1,
+                        }}
+                      >
+                        {chat.lastMessage}
+                      </p>
+                      {chat.unreadCount > 0 && (
+                        <span
+                          style={{
+                            background: "#25D366",
+                            color: "#ffffff",
+                            borderRadius: "10px",
+                            minWidth: "18px",
+                            height: "18px",
+                            padding: "0 5px",
+                            fontSize: "11px",
+                            fontWeight: 700,
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                            lineHeight: 1,
+                          }}
+                        >
+                          {chat.unreadCount}
+                        </span>
+                      )}
+                    </div>
 
                     {/* Channel Source & Closer Badges (Scrollable horizontally without wrapping) */}
                     <div
@@ -2129,23 +2181,6 @@ export function ChatView() {
                       {chat.assignedTo && chat.assignedTo !== "Unassigned" && (
                         <span className="chip" data-tone="neutral" style={{ fontSize: "10px", padding: "1px 6px", height: "18px", flexShrink: 0, whiteSpace: "nowrap" }}>
                           {chat.assignedTo}
-                        </span>
-                      )}
-
-                      {chat.unreadCount > 0 && (
-                        <span
-                          style={{
-                            marginLeft: "auto",
-                            background: "var(--accent-strong)",
-                            color: "#fff",
-                            borderRadius: "10px",
-                            padding: "1px 6px",
-                            fontSize: "11px",
-                            fontWeight: 700,
-                            flexShrink: 0,
-                          }}
-                        >
-                          {chat.unreadCount}
                         </span>
                       )}
                     </div>
@@ -2218,11 +2253,16 @@ export function ChatView() {
                     </span>
                   )}
                 </div>
-                <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", marginTop: "2px" }}>
-                  {activeChat.company} • {activeChat.phone}
+                <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", marginTop: "2px", display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                  <span>{activeChat.company} • {activeChat.phone}</span>
                   {activeChat.assignedTo && activeChat.assignedTo !== "Unassigned" && (
                     <span> • Assigned to: <strong style={{ color: "var(--text)" }}>{activeChat.assignedTo}</strong></span>
                   )}
+                  <span>•</span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", color: isChatActiveNow ? "var(--success)" : "var(--text-tertiary)" }}>
+                    <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: isChatActiveNow ? "#25D366" : "var(--text-tertiary)", display: "inline-block" }} />
+                    {isChatActiveNow ? "Online" : `Last seen ${activeChat.lastMessageTime || "recently"}`}
+                  </span>
                 </div>
               </div>
             </div>
@@ -2443,7 +2483,7 @@ export function ChatView() {
                         <span>{msg.time}</span>
                         {isCloser && (
                           <span
-                            title={msg.status === "read" ? "Read by customer" : msg.status === "delivered" ? "Delivered to device" : "Sent"}
+                            title={msg.status === "read" ? "Read by customer (Blue ticks)" : msg.status === "delivered" ? "Delivered to customer's phone" : "Sent"}
                             style={{
                               color: msg.status === "read" ? "#53bdeb" : "var(--text-tertiary)",
                               fontWeight: 700,
@@ -2451,6 +2491,7 @@ export function ChatView() {
                               lineHeight: 1,
                               display: "inline-flex",
                               alignItems: "center",
+                              marginLeft: "2px",
                             }}
                           >
                             {msg.status === "sent" ? "✓" : "✓✓"}

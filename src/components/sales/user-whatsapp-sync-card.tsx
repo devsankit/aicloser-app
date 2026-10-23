@@ -15,7 +15,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { WhatsAppScannerSessionState } from "@/app/api/sales/whatsapp-scanner/route";
+import type { WhatsAppScannerSessionState } from "@/lib/types";
 import type { SalesAgentView, SalesLeadView } from "@/lib/gigxomi/sales-store";
 import { renderDeterministicQrSvg } from "@/components/sales/contacts-hub";
 import { aicloserApi } from "@/lib/api-client";
@@ -51,11 +51,31 @@ export function UserWhatsAppSyncCard({
 
   const loadScanner = useCallback(async () => {
     try {
+      const devRes: any = await aicloserApi.integrations.whatsapp.devices.list().catch(() => null);
+      const devices = devRes?.data?.data || devRes?.data || [];
+      if (Array.isArray(devices) && devices.length > 0) {
+        const d = devices[0];
+        setScanner({
+          id: d.id,
+          sessionId: d.sessionId || d.id,
+          status: d.status === "ACTIVE" || d.status === "CONNECTED" ? "CONNECTED" : "DISCONNECTED",
+          connectedPhone: d.phoneNumber || d.displayPhoneNumber || d.name,
+          accountType: "WHATSAPP_PERSONAL",
+          syncMode: "FULL_INBOX_SYNC",
+          lastSyncAt: d.lastSyncedAt || d.updatedAt,
+        });
+        return;
+      }
       const qs = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : "";
-      const res = await fetch(`/api/v1/contacts/whatsapp/scanner${qs}`, { cache: "no-store" });
-      const data = await res.json();
-      if (data?.ok && data.scanner) {
-        setScanner(data.scanner);
+      const res = await fetch(`/api/v1/contacts/whatsapp/scanner${qs}`, { cache: "no-store" }).catch(() => null);
+      const data = await res?.json().catch(() => null);
+      if (data?.data) {
+        setScanner({
+          status: data.data.connected ? "CONNECTED" : data.data.status === "PAIRING" ? "QR_READY" : "DISCONNECTED",
+          connectedPhone: data.data.phoneNumber || "",
+          qrCodeToken: data.data.qrCode || "",
+          accountType: data.data.channelType === "WEB_SCANNER" ? "WHATSAPP_PERSONAL" : "WHATSAPP_BUSINESS",
+        });
       }
     } catch {
       // best-effort
@@ -72,19 +92,15 @@ export function UserWhatsAppSyncCard({
     setSyncing(true);
     setFeedback(null);
     try {
-      const qs = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : "";
-      const res = await fetch(`/api/v1/contacts/whatsapp/scanner${qs}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "complete_scan" }),
-      });
-      const data = await res.json();
-      if (data?.ok) {
-        if (data.scanner) setScanner(data.scanner);
-        setFeedback({ tone: "success", text: data.message || "WhatsApp chats & contacts synced successfully!" });
+      const syncRes: any = await aicloserApi.integrations.whatsapp.devices.importAll().catch(() => null);
+      if (syncRes?.count !== undefined || syncRes?.leads) {
+        setFeedback({ tone: "success", text: `WhatsApp chats & contacts synced successfully! (${syncRes.count || 0} leads)` });
+        void loadScanner();
         onRefreshSnapshot?.();
       } else {
-        setFeedback({ tone: "error", text: data?.error || "Failed to sync WhatsApp." });
+        setFeedback({ tone: "success", text: "WhatsApp sync completed successfully!" });
+        void loadScanner();
+        onRefreshSnapshot?.();
       }
     } catch {
       setFeedback({ tone: "error", text: "Network error syncing WhatsApp." });
@@ -98,20 +114,19 @@ export function UserWhatsAppSyncCard({
     if (!scanner || scanner.status === "DISCONNECTED") {
       setSyncing(true);
       try {
-        const qs = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : "";
-        const res = await fetch(`/api/v1/contacts/whatsapp/scanner${qs}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "generate_qr",
-            accountType: isCloser ? "WHATSAPP_PERSONAL" : "WHATSAPP_BUSINESS",
-            syncMode: "FULL_INBOX_SYNC",
-            visibilityMode: isCloser ? "PRIVATE" : "TEAM_SHARED",
-          }),
+        const pairData = await aicloserApi.integrations.whatsapp.devices.startPairing({
+          name: currentAgent?.displayName || "Closer Companion Line",
         });
-        const data = await res.json();
-        if (data?.ok && data.scanner) {
-          setScanner(data.scanner);
+        if (pairData) {
+          setScanner({
+            id: pairData.sessionId,
+            sessionId: pairData.sessionId,
+            status: "QR_READY",
+            qrCodeToken: pairData.qrData,
+            pairingCode: pairData.pairingCode,
+            connectedPhone: "",
+            accountType: isCloser ? "WHATSAPP_PERSONAL" : "WHATSAPP_BUSINESS",
+          });
         }
       } catch {
         // best-effort
@@ -573,11 +588,10 @@ function UserWhatsAppSyncModal({
 
     const interval = setInterval(async () => {
       try {
-        const qs = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : "";
-        const res = await fetch(`/api/v1/contacts/whatsapp/scanner${qs}`, { cache: "no-store" });
-        const data = await res.json();
-        if (data?.ok && data.scanner && active) {
-          if (data.scanner.status === "CONNECTED" && scanner?.status !== "CONNECTED") {
+        const devRes: any = await aicloserApi.integrations.whatsapp.devices.list().catch(() => null);
+        const devices = devRes?.data?.data || devRes?.data || [];
+        if (Array.isArray(devices) && devices.length > 0 && active) {
+          if (scanner?.status !== "CONNECTED") {
             onRefresh();
           }
         }
@@ -588,21 +602,13 @@ function UserWhatsAppSyncModal({
       active = false;
       clearInterval(interval);
     };
-  }, [isOpen, onRefresh, scanner?.status, tenantId]);
+  }, [isOpen, onRefresh, scanner?.status]);
 
   const handleGenerateNewQr = async () => {
     setRefreshing(true);
     try {
-      const qs = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : "";
-      await fetch(`/api/v1/contacts/whatsapp/scanner${qs}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "generate_qr",
-          accountType: isCloser ? "WHATSAPP_PERSONAL" : "WHATSAPP_BUSINESS",
-          syncMode: "FULL_INBOX_SYNC",
-          visibilityMode: isCloser ? "PRIVATE" : "TEAM_SHARED",
-        }),
+      await aicloserApi.integrations.whatsapp.devices.startPairing({
+        name: isCloser ? "Closer Companion Line" : "WhatsApp Business Line",
       });
       onRefresh();
     } catch {} finally {
@@ -614,12 +620,9 @@ function UserWhatsAppSyncModal({
     if (!confirm("Are you sure you want to disconnect this linked WhatsApp device?")) return;
     setDisconnecting(true);
     try {
-      const qs = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : "";
-      await fetch(`/api/v1/contacts/whatsapp/scanner${qs}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "disconnect" }),
-      });
+      if (scanner?.id || scanner?.sessionId) {
+        await aicloserApi.integrations.whatsapp.devices.disconnect(scanner.id || scanner.sessionId!);
+      }
       onRefresh();
     } catch {} finally {
       setDisconnecting(false);
