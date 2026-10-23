@@ -86,11 +86,14 @@ export function DashboardView() {
     const followUpsPending = leads.filter((l) => l.stage === "follow_up" || l.tags?.includes("callback")).length;
     const newPendingLeads = (liveSummary?.stageCounts?.NEW ?? leads.filter((l) => l.stage === "new").length);
 
+    const calculatedOpenVal = open.reduce((s, l) => s + l.value, 0);
+    const calculatedWonVal = won.reduce((s, l) => s + l.value, 0);
+
     return {
-      openValue: liveSummary?.pipelineValue ?? open.reduce((s, l) => s + l.value, 0),
+      openValue: typeof liveSummary?.pipelineValue === "number" ? liveSummary.pipelineValue : calculatedOpenVal,
       openCount: open.length,
-      wonValue: liveSummary?.wonAmount ?? won.reduce((s, l) => s + l.value, 0),
-      wonCount: liveSummary?.wonCount ?? won.length,
+      wonValue: typeof liveSummary?.wonAmount === "number" ? liveSummary.wonAmount : calculatedWonVal,
+      wonCount: typeof liveSummary?.wonCount === "number" ? liveSummary.wonCount : won.length,
       newCount: newPendingLeads,
       touched: week.length,
       winRate: liveSummary?.conversionRate ?? (decided ? Math.round((won.length / decided) * 100) : 0),
@@ -276,7 +279,7 @@ export function DashboardView() {
           </div>
           <strong className="stat-value">{stats.missedCount}</strong>
           <span className="stat-foot" data-tone={stats.missedCount > 0 ? "danger" : undefined}>
-            {stats.missedCount > 0 ? `${stats.missedCount} pool leads expired without claim` : "Zero missed pool leads"}
+            {stats.missedCount > 0 ? `${stats.missedCount} pool leads expired today` : "Zero missed pool leads today"}
           </span>
         </div>
 
@@ -295,17 +298,17 @@ export function DashboardView() {
       </section>
 
       {/* Closer Break Activity & Daily Quota Records */}
-      <section className="card" style={{ marginBottom: "20px" }}>
-        <div className="card-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <section className="card card-section-break">
+        <div className="card-head">
           <div className="card-title-group">
-            <span className="card-title" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <span className="card-title">
               <Icon name="coffee" size={16} /> Closer Break Logs & Time Records
             </span>
             <span className="card-sub">
               Daily allowed break quota (30 mins), cumulative time taken, and active break sessions
             </span>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <div className="break-head-actions">
             <span className="chip" data-tone={breakSummary.isOnBreak ? "warning" : "success"}>
               <span className="dot" />
               {breakSummary.isOnBreak ? "Currently On Break" : "Active / Receiving Leads"}
@@ -325,39 +328,32 @@ export function DashboardView() {
 
         <div className="card-body">
           {/* Mini Stat Pills */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "12px", marginBottom: "16px" }}>
-            <div style={{ padding: "10px 14px", background: "var(--bg-soft)", borderRadius: "var(--r-md)", border: "1px solid var(--border)" }}>
-              <div style={{ fontSize: "11px", textTransform: "uppercase", color: "var(--text-tertiary)", fontWeight: 600 }}>
-                Daily Quota
-              </div>
-              <div style={{ fontSize: "18px", fontWeight: 700, color: "var(--text)", marginTop: "2px" }}>
-                {breakSummary.allowedMinutes} mins
-              </div>
+          <div className="break-quota-grid">
+            <div className="break-quota-pill">
+              <div className="break-quota-label">Daily Quota</div>
+              <div className="break-quota-value">{breakSummary.allowedMinutes} mins</div>
             </div>
 
-            <div style={{ padding: "10px 14px", background: "var(--bg-soft)", borderRadius: "var(--r-md)", border: "1px solid var(--border)" }}>
-              <div style={{ fontSize: "11px", textTransform: "uppercase", color: "var(--text-tertiary)", fontWeight: 600 }}>
-                Time Used Today
-              </div>
-              <div style={{ fontSize: "18px", fontWeight: 700, color: "var(--accent)", marginTop: "2px" }}>
+            <div className="break-quota-pill">
+              <div className="break-quota-label">Time Used Today</div>
+              <div className="break-quota-value" data-tone="accent">
                 {formatDurationSec(breakSummary.usedSeconds)}
               </div>
             </div>
 
-            <div style={{ padding: "10px 14px", background: "var(--bg-soft)", borderRadius: "var(--r-md)", border: "1px solid var(--border)" }}>
-              <div style={{ fontSize: "11px", textTransform: "uppercase", color: "var(--text-tertiary)", fontWeight: 600 }}>
-                Remaining Quota
-              </div>
-              <div style={{ fontSize: "18px", fontWeight: 700, color: breakSummary.remainingSeconds > 0 ? "var(--success)" : "var(--danger)", marginTop: "2px" }}>
+            <div className="break-quota-pill">
+              <div className="break-quota-label">Remaining Quota</div>
+              <div
+                className="break-quota-value"
+                data-tone={breakSummary.remainingSeconds > 0 ? "success" : "danger"}
+              >
                 {formatDurationSec(breakSummary.remainingSeconds)}
               </div>
             </div>
 
-            <div style={{ padding: "10px 14px", background: "var(--bg-soft)", borderRadius: "var(--r-md)", border: "1px solid var(--border)" }}>
-              <div style={{ fontSize: "11px", textTransform: "uppercase", color: "var(--text-tertiary)", fontWeight: 600 }}>
-                Sessions Today
-              </div>
-              <div style={{ fontSize: "18px", fontWeight: 700, color: "var(--text)", marginTop: "2px" }}>
+            <div className="break-quota-pill">
+              <div className="break-quota-label">Sessions Today</div>
+              <div className="break-quota-value">
                 {breakSummary.totalBreaksToday} {breakSummary.totalBreaksToday === 1 ? "session" : "sessions"}
               </div>
             </div>
@@ -365,7 +361,7 @@ export function DashboardView() {
 
           {/* Table of Break Session Logs */}
           {breakLogs.length === 0 ? (
-            <div className="empty" style={{ padding: "20px 0" }}>
+            <div className="empty">
               <span className="empty-icon">
                 <Icon name="coffee" size={20} />
               </span>
@@ -374,40 +370,37 @@ export function DashboardView() {
             </div>
           ) : (
             <div className="table-wrap">
-              <table style={{ width: "100%", fontSize: "12px", borderCollapse: "collapse" }}>
+              <table className="break-log-table">
                 <thead>
-                  <tr style={{ borderBottom: "1px solid var(--border)", color: "var(--text-tertiary)", textTransform: "uppercase", fontSize: "11px" }}>
-                    <th style={{ padding: "8px 12px", textAlign: "left" }}>Closer</th>
-                    <th style={{ padding: "8px 12px", textAlign: "left" }}>Started At</th>
-                    <th style={{ padding: "8px 12px", textAlign: "left" }}>Ended At</th>
-                    <th style={{ padding: "8px 12px", textAlign: "left" }}>Duration Taken</th>
-                    <th style={{ padding: "8px 12px", textAlign: "left" }}>Status</th>
+                  <tr>
+                    <th>Closer</th>
+                    <th>Started At</th>
+                    <th>Ended At</th>
+                    <th>Duration Taken</th>
+                    <th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {breakLogs.map((log) => {
                     const isLive = log.status === "IN_PROGRESS";
                     return (
-                      <tr key={log.id} style={{ borderBottom: "1px solid var(--border)" }}>
-                        <td style={{ padding: "10px 12px", fontWeight: 600, color: "var(--text)" }}>
-                          {log.userName}
-                        </td>
-                        <td style={{ padding: "10px 12px", color: "var(--text-secondary)" }}>
+                      <tr key={log.id}>
+                        <td>{log.userName}</td>
+                        <td>
                           {new Date(log.startedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true })}
                         </td>
-                        <td style={{ padding: "10px 12px", color: "var(--text-secondary)" }}>
-                          {log.endedAt
-                            ? new Date(log.endedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true })
-                            : <span style={{ color: "var(--accent)", fontWeight: 600 }}>Active Now...</span>}
+                        <td>
+                          {log.endedAt ? (
+                            new Date(log.endedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true })
+                          ) : (
+                            <span className="chip" data-tone="accent">Active Now...</span>
+                          )}
                         </td>
-                        <td style={{ padding: "10px 12px", fontFamily: "var(--mono)", fontWeight: 600 }}>
-                          {formatDurationSec(log.durationSeconds)}
-                        </td>
-                        <td style={{ padding: "10px 12px" }}>
+                        <td>{formatDurationSec(log.durationSeconds)}</td>
+                        <td>
                           <span
                             className="chip"
                             data-tone={isLive ? "warning" : log.status === "EXPIRED" ? "danger" : "success"}
-                            style={{ fontSize: "11px" }}
                           >
                             {isLive ? "In Progress" : log.status === "EXPIRED" ? "Quota Expired" : "Completed / Paused"}
                           </span>
