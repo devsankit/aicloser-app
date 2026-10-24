@@ -2640,10 +2640,9 @@ export function ChatView() {
       aicloserApi.workspace
         .getSettings()
         .then((res: any) => {
-          if (res?.settings) {
-            setWorkspaceSettings((prev) => ({ ...prev, ...res.settings }));
-          } else if (res && typeof res === "object") {
-            setWorkspaceSettings((prev) => ({ ...prev, ...res }));
+          const live = res?.data || res?.settings || (res && typeof res === "object" && !Array.isArray(res) ? res : null);
+          if (live) {
+            setWorkspaceSettings((prev) => ({ ...prev, ...live }));
           }
         })
         .catch(() => undefined);
@@ -2651,8 +2650,10 @@ export function ChatView() {
 
     readSettings();
     window.addEventListener("aicloser:workspace_settings_updated", readSettings);
+    window.addEventListener("aicloser:permissions_updated", readSettings);
     return () => {
       window.removeEventListener("aicloser:workspace_settings_updated", readSettings);
+      window.removeEventListener("aicloser:permissions_updated", readSettings);
     };
   }, []);
 

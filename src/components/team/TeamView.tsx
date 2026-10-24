@@ -275,10 +275,22 @@ export function TeamView() {
     aicloserApi.workspace
       .getSettings()
       .then((res: any) => {
-        if (res?.settings) {
-          setWorkspaceSettings((prev) => ({ ...prev, ...res.settings }));
-        } else if (res && typeof res === "object") {
-          setWorkspaceSettings((prev) => ({ ...prev, ...res }));
+        const live = res?.data || res?.settings || (res && typeof res === "object" && !Array.isArray(res) ? res : null);
+        if (live) {
+          setWorkspaceSettings((prev) => ({ ...prev, ...live }));
+          try {
+            localStorage.setItem("closer.workspace.settings.v1", JSON.stringify({ ...DEFAULT_WORKSPACE_SETTINGS, ...live }));
+          } catch {}
+          if (typeof live.closerChatSharingEnabled === "boolean") {
+            setPermissions((prev) => prev.map((p) => (p.id === "chat:share" ? { ...p, closer: live.closerChatSharingEnabled } : p)));
+          }
+          if (typeof live.closerLeadReassignmentEnabled === "boolean") {
+            setPermissions((prev) => prev.map((p) => (p.id === "leads:reassign" ? { ...p, closer: live.closerLeadReassignmentEnabled } : p)));
+          }
+          if (typeof live.managerLeadDeletionEnabled === "boolean" || typeof live.allowManagerLeadDeletion === "boolean") {
+            const delVal = Boolean(live.managerLeadDeletionEnabled ?? live.allowManagerLeadDeletion);
+            setPermissions((prev) => prev.map((p) => (p.id === "leads:delete" ? { ...p, manager: delVal } : p)));
+          }
         }
       })
       .catch(() => undefined);
@@ -428,9 +440,10 @@ export function TeamView() {
       .permissionsMatrix()
       .then((data: any) => {
         if (!active || !data) return;
-        if (Array.isArray(data.catalog) && data.catalog.length > 0) {
-          const roleDefs = data.roleDefaults || {};
-          const rows: PermissionRow[] = data.catalog.map((cat: any) => ({
+        const matrixData = data?.data || data;
+        if (Array.isArray(matrixData.catalog) && matrixData.catalog.length > 0) {
+          const roleDefs = matrixData.roleDefaults || {};
+          const rows: PermissionRow[] = matrixData.catalog.map((cat: any) => ({
             id: cat.key,
             category: cat.category || "General",
             label: cat.label,
@@ -440,6 +453,23 @@ export function TeamView() {
             closer: Boolean(roleDefs.SALES_AGENT?.[cat.key] ?? roleDefs.CLOSER?.[cat.key] ?? true),
           }));
           setPermissions(rows);
+
+          const closerShare = roleDefs.SALES_AGENT?.["chat:share"] ?? roleDefs.CLOSER?.["chat:share"];
+          const closerReassign = roleDefs.SALES_AGENT?.["leads:reassign"] ?? roleDefs.CLOSER?.["leads:reassign"];
+          const managerDelete = roleDefs.MANAGER?.["leads:delete"];
+
+          setWorkspaceSettings((prev) => {
+            const next = {
+              ...prev,
+              ...(typeof closerShare === "boolean" ? { closerChatSharingEnabled: closerShare } : {}),
+              ...(typeof closerReassign === "boolean" ? { closerLeadReassignmentEnabled: closerReassign } : {}),
+              ...(typeof managerDelete === "boolean" ? { managerLeadDeletionEnabled: managerDelete, allowManagerLeadDeletion: managerDelete } : {}),
+            };
+            try {
+              localStorage.setItem("closer.workspace.settings.v1", JSON.stringify(next));
+            } catch {}
+            return next;
+          });
         }
       })
       .catch(() => {});
@@ -619,9 +649,14 @@ export function TeamView() {
     );
     setPermissions(updated);
 
+    const isNowChecked = !permissions.find((p) => p.id === id)?.[role];
+
     if (role === "closer") {
-      const isNowChecked = !permissions.find((p) => p.id === id)?.closer;
-      if (id === "whatsapp_bulk_marketing") {
+      if (id === "chat:share") {
+        setWorkspaceSettings((prev) => ({ ...prev, closerChatSharingEnabled: isNowChecked }));
+      } else if (id === "leads:reassign") {
+        setWorkspaceSettings((prev) => ({ ...prev, closerLeadReassignmentEnabled: isNowChecked }));
+      } else if (id === "whatsapp_bulk_marketing") {
         setCloserMenuVisibility((prev) => ({ ...prev, "/whatsapp": isNowChecked }));
       } else if (id === "plugins_channels_hub") {
         setCloserMenuVisibility((prev) => ({ ...prev, "/channels": isNowChecked }));
@@ -629,6 +664,14 @@ export function TeamView() {
         setCloserMenuVisibility((prev) => ({ ...prev, "/forms": isNowChecked }));
       } else if (id === "lead_import") {
         setCloserMenuVisibility((prev) => ({ ...prev, "/lead-import": isNowChecked }));
+      }
+    } else if (role === "manager") {
+      if (id === "leads:delete") {
+        setWorkspaceSettings((prev) => ({
+          ...prev,
+          managerLeadDeletionEnabled: isNowChecked,
+          allowManagerLeadDeletion: isNowChecked,
+        }));
       }
     }
   };
@@ -649,8 +692,23 @@ export function TeamView() {
       },
     };
 
+    const syncWorkspaceSettings: WorkspaceGovernanceSettings = {
+      ...workspaceSettings,
+      closerChatSharingEnabled: closerPermissions["chat:share"] ?? workspaceSettings.closerChatSharingEnabled,
+      closerLeadReassignmentEnabled: closerPermissions["leads:reassign"] ?? workspaceSettings.closerLeadReassignmentEnabled,
+      managerLeadDeletionEnabled: managerPermissions["leads:delete"] ?? workspaceSettings.managerLeadDeletionEnabled,
+      allowManagerLeadDeletion: managerPermissions["leads:delete"] ?? workspaceSettings.managerLeadDeletionEnabled,
+    };
+    setWorkspaceSettings(syncWorkspaceSettings);
+
     try {
-      await aicloserApi.team.savePermissionsMatrix(matrixPayload as any);
+      await Promise.all([
+        aicloserApi.team.savePermissionsMatrix(matrixPayload as any),
+        aicloserApi.workspace.updateSettings(syncWorkspaceSettings),
+      ]);
+      localStorage.setItem("closer.workspace.settings.v1", JSON.stringify(syncWorkspaceSettings));
+      window.dispatchEvent(new Event("aicloser:workspace_settings_updated"));
+      window.dispatchEvent(new Event("aicloser:permissions_updated"));
       setSavedBanner("Role capabilities & matrix permissions saved to live API!");
     } catch (err: any) {
       console.warn("Failed to save permissions matrix to API:", err);
@@ -801,14 +859,48 @@ export function TeamView() {
 
   const handleSaveWorkspaceSettings = async () => {
     setIsSavingSettings(true);
+    // Symmetrically update permissions state in memory
+    const updatedPermissions = permissions.map((p) => {
+      if (p.id === "chat:share") {
+        return { ...p, closer: workspaceSettings.closerChatSharingEnabled };
+      }
+      if (p.id === "leads:reassign") {
+        return { ...p, closer: workspaceSettings.closerLeadReassignmentEnabled };
+      }
+      if (p.id === "leads:delete") {
+        return { ...p, manager: workspaceSettings.managerLeadDeletionEnabled };
+      }
+      return p;
+    });
+    setPermissions(updatedPermissions);
+
+    const managerPermissions: Record<string, boolean> = {};
+    const closerPermissions: Record<string, boolean> = {};
+    updatedPermissions.forEach((p) => {
+      managerPermissions[p.id] = p.manager;
+      closerPermissions[p.id] = p.closer;
+    });
+
+    const matrixPayload = {
+      roles: {
+        MANAGER: managerPermissions,
+        SALES_AGENT: closerPermissions,
+      },
+    };
+
     try {
-      await aicloserApi.workspace.updateSettings(workspaceSettings);
+      await Promise.all([
+        aicloserApi.workspace.updateSettings(workspaceSettings),
+        aicloserApi.team.savePermissionsMatrix(matrixPayload as any),
+      ]);
       localStorage.setItem("closer.workspace.settings.v1", JSON.stringify(workspaceSettings));
       window.dispatchEvent(new Event("aicloser:workspace_settings_updated"));
+      window.dispatchEvent(new Event("aicloser:permissions_updated"));
       setSavedBanner("Workspace governance controls saved successfully!");
     } catch (err: any) {
       localStorage.setItem("closer.workspace.settings.v1", JSON.stringify(workspaceSettings));
       window.dispatchEvent(new Event("aicloser:workspace_settings_updated"));
+      window.dispatchEvent(new Event("aicloser:permissions_updated"));
       setSavedBanner("Workspace governance controls saved locally.");
     } finally {
       setIsSavingSettings(false);
@@ -1933,24 +2025,30 @@ export function TeamView() {
                   <button
                     type="button"
                     data-on={workspaceSettings.closerLeadReassignmentEnabled}
-                    onClick={() =>
+                    onClick={() => {
                       setWorkspaceSettings((prev) => ({
                         ...prev,
                         closerLeadReassignmentEnabled: true,
-                      }))
-                    }
+                      }));
+                      setPermissions((prev) =>
+                        prev.map((p) => (p.id === "leads:reassign" ? { ...p, closer: true } : p))
+                      );
+                    }}
                   >
                     Permitted
                   </button>
                   <button
                     type="button"
                     data-on={!workspaceSettings.closerLeadReassignmentEnabled}
-                    onClick={() =>
+                    onClick={() => {
                       setWorkspaceSettings((prev) => ({
                         ...prev,
                         closerLeadReassignmentEnabled: false,
-                      }))
-                    }
+                      }));
+                      setPermissions((prev) =>
+                        prev.map((p) => (p.id === "leads:reassign" ? { ...p, closer: false } : p))
+                      );
+                    }}
                   >
                     Blocked
                   </button>
@@ -1971,24 +2069,30 @@ export function TeamView() {
                   <button
                     type="button"
                     data-on={workspaceSettings.closerChatSharingEnabled}
-                    onClick={() =>
+                    onClick={() => {
                       setWorkspaceSettings((prev) => ({
                         ...prev,
                         closerChatSharingEnabled: true,
-                      }))
-                    }
+                      }));
+                      setPermissions((prev) =>
+                        prev.map((p) => (p.id === "chat:share" ? { ...p, closer: true } : p))
+                      );
+                    }}
                   >
                     Permitted
                   </button>
                   <button
                     type="button"
                     data-on={!workspaceSettings.closerChatSharingEnabled}
-                    onClick={() =>
+                    onClick={() => {
                       setWorkspaceSettings((prev) => ({
                         ...prev,
                         closerChatSharingEnabled: false,
-                      }))
-                    }
+                      }));
+                      setPermissions((prev) =>
+                        prev.map((p) => (p.id === "chat:share" ? { ...p, closer: false } : p))
+                      );
+                    }}
                   >
                     Restricted
                   </button>
@@ -2009,24 +2113,32 @@ export function TeamView() {
                   <button
                     type="button"
                     data-on={workspaceSettings.managerLeadDeletionEnabled}
-                    onClick={() =>
+                    onClick={() => {
                       setWorkspaceSettings((prev) => ({
                         ...prev,
                         managerLeadDeletionEnabled: true,
-                      }))
-                    }
+                        allowManagerLeadDeletion: true,
+                      }));
+                      setPermissions((prev) =>
+                        prev.map((p) => (p.id === "leads:delete" ? { ...p, manager: true } : p))
+                      );
+                    }}
                   >
                     Authorized
                   </button>
                   <button
                     type="button"
                     data-on={!workspaceSettings.managerLeadDeletionEnabled}
-                    onClick={() =>
+                    onClick={() => {
                       setWorkspaceSettings((prev) => ({
                         ...prev,
                         managerLeadDeletionEnabled: false,
-                      }))
-                    }
+                        allowManagerLeadDeletion: false,
+                      }));
+                      setPermissions((prev) =>
+                        prev.map((p) => (p.id === "leads:delete" ? { ...p, manager: false } : p))
+                      );
+                    }}
                   >
                     Admins Only
                   </button>
