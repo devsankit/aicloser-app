@@ -616,68 +616,11 @@ export function ChatView() {
 
   const isOfficialChat = Boolean(
     activeChat &&
-      (activeChat.isOfficialApi || activeChat.channelSource === "OFFICIAL_API") &&
-      activeChat.channel === "whatsapp"
+      activeChat.channel === "whatsapp" &&
+      (selectedDispatchChannel === "OFFICIAL_API" ||
+        (selectedDispatchChannel !== "PERSONAL" &&
+          (activeChat.isOfficialApi || activeChat.channelSource === "OFFICIAL_API")))
   );
-
-  const isAdLead = useMemo(() => {
-    if (!activeChat) return false;
-    if (activeLead?.source === "Ads" || (activeLead?.rawSource || "").toLowerCase().includes("ad")) return true;
-    if (activeChat.payload?.source === "Ads" || activeChat.payload?.leadSource === "Ads") return true;
-    if (activeChat.payload?.referral?.source_type === "ad") return true;
-    if ((activeChat as any).isAdLead === true) return true;
-    return false;
-  }, [activeChat, activeLead]);
-
-  const windowInfo = useMemo(() => {
-    if (!activeChat) return { isOpen: true, hours: 24, remainingMs: 0, remainingText: "" };
-    if (!isOfficialChat) return { isOpen: true, hours: 0, remainingMs: 0, remainingText: "" };
-
-    const windowHours = isAdLead ? 72 : 24;
-    const limitMs = windowHours * 60 * 60 * 1000;
-
-    // Check backend-computed expiration
-    if (activeChat.windowExpiresAt) {
-      const expTime = new Date(activeChat.windowExpiresAt).getTime();
-      const now = Date.now();
-      const rem = expTime - now;
-      if (rem > 0) {
-        const h = Math.floor(rem / (1000 * 60 * 60));
-        const m = Math.floor((rem % (1000 * 60 * 60)) / (1000 * 60));
-        return { isOpen: true, hours: windowHours, remainingMs: rem, remainingText: `${h}h ${m}m remaining` };
-      } else {
-        return { isOpen: false, hours: windowHours, remainingMs: 0, remainingText: "Expired" };
-      }
-    }
-
-    // Inspect messages for last customer inbound
-    const msgs = activeChat.messages || [];
-    const inboundMsgs = msgs.filter(
-      (m: any) =>
-        m.sender === "customer" ||
-        m.sender === "user" ||
-        m.senderRole === "customer" ||
-        m.senderRole === "CUSTOMER" ||
-        (!m.fromMe && m.direction !== "OUTBOUND" && m.sender !== "closer")
-    );
-    if (inboundMsgs.length === 0) {
-      return { isOpen: false, hours: windowHours, remainingMs: 0, remainingText: "No customer message yet" };
-    }
-    const lastInbound = inboundMsgs[inboundMsgs.length - 1];
-    if (!lastInbound?.createdAt) {
-      return { isOpen: false, hours: windowHours, remainingMs: 0, remainingText: "Expired" };
-    }
-    const elapsed = Date.now() - new Date(lastInbound.createdAt).getTime();
-    const rem = limitMs - elapsed;
-    if (rem > 0) {
-      const h = Math.floor(rem / (1000 * 60 * 60));
-      const m = Math.floor((rem % (1000 * 60 * 60)) / (1000 * 60));
-      return { isOpen: true, hours: windowHours, remainingMs: rem, remainingText: `${h}h ${m}m remaining` };
-    }
-    return { isOpen: false, hours: windowHours, remainingMs: 0, remainingText: "Expired" };
-  }, [activeChat, isOfficialChat, isAdLead]);
-
-  const is24HourWindowOpen = windowInfo.isOpen;
 
   const fetchTemplates = useCallback(async () => {
     setLoadingTemplates(true);
@@ -797,6 +740,65 @@ export function ChatView() {
       return false;
     }) || null;
   }, [activeChat, state.leads]);
+
+  const isAdLead = useMemo(() => {
+    if (!activeChat) return false;
+    if (activeLead?.source === "Ads" || (activeLead?.rawSource || "").toLowerCase().includes("ad")) return true;
+    if (activeChat.payload?.source === "Ads" || activeChat.payload?.leadSource === "Ads") return true;
+    if (activeChat.payload?.referral?.source_type === "ad") return true;
+    if ((activeChat as any).isAdLead === true) return true;
+    return false;
+  }, [activeChat, activeLead]);
+
+  const windowInfo = useMemo(() => {
+    if (!activeChat) return { isOpen: true, hours: 24, remainingMs: 0, remainingText: "" };
+    if (!isOfficialChat) return { isOpen: true, hours: 0, remainingMs: 0, remainingText: "" };
+
+    const windowHours = isAdLead ? 72 : 24;
+    const limitMs = windowHours * 60 * 60 * 1000;
+
+    // Check backend-computed expiration
+    if (activeChat.windowExpiresAt) {
+      const expTime = new Date(activeChat.windowExpiresAt).getTime();
+      const now = Date.now();
+      const rem = expTime - now;
+      if (rem > 0) {
+        const h = Math.floor(rem / (1000 * 60 * 60));
+        const m = Math.floor((rem % (1000 * 60 * 60)) / (1000 * 60));
+        return { isOpen: true, hours: windowHours, remainingMs: rem, remainingText: `${h}h ${m}m remaining` };
+      } else {
+        return { isOpen: false, hours: windowHours, remainingMs: 0, remainingText: "Expired" };
+      }
+    }
+
+    // Inspect messages for last customer inbound
+    const msgs = activeChat.messages || [];
+    const inboundMsgs = msgs.filter(
+      (m: any) =>
+        m.sender === "customer" ||
+        m.sender === "user" ||
+        m.senderRole === "customer" ||
+        m.senderRole === "CUSTOMER" ||
+        (!m.fromMe && m.direction !== "OUTBOUND" && m.sender !== "closer")
+    );
+    if (inboundMsgs.length === 0) {
+      return { isOpen: false, hours: windowHours, remainingMs: 0, remainingText: "No customer message yet" };
+    }
+    const lastInbound = inboundMsgs[inboundMsgs.length - 1];
+    if (!lastInbound?.createdAt) {
+      return { isOpen: false, hours: windowHours, remainingMs: 0, remainingText: "Expired" };
+    }
+    const elapsed = Date.now() - new Date(lastInbound.createdAt).getTime();
+    const rem = limitMs - elapsed;
+    if (rem > 0) {
+      const h = Math.floor(rem / (1000 * 60 * 60));
+      const m = Math.floor((rem % (1000 * 60 * 60)) / (1000 * 60));
+      return { isOpen: true, hours: windowHours, remainingMs: rem, remainingText: `${h}h ${m}m remaining` };
+    }
+    return { isOpen: false, hours: windowHours, remainingMs: 0, remainingText: "Expired" };
+  }, [activeChat, isOfficialChat, isAdLead]);
+
+  const is24HourWindowOpen = windowInfo.isOpen;
 
   // Synchronize chatStage whenever active lead or active chat changes
   useEffect(() => {
@@ -4139,7 +4141,12 @@ export function ChatView() {
                   <button
                     type="button"
                     data-on={selectedDispatchChannel === "OFFICIAL_API"}
-                    onClick={() => setSelectedDispatchChannel("OFFICIAL_API")}
+                    onClick={() => {
+                      setSelectedDispatchChannel("OFFICIAL_API");
+                      if (draftChat) {
+                        setDraftChat((prev) => prev ? { ...prev, channelSource: "OFFICIAL_API", isOfficialApi: true, isPersonalQr: false, channelSourceLabel: "Official WhatsApp Cloud API (Draft)" } : null);
+                      }
+                    }}
                     title="Send via Official Meta WhatsApp Cloud API"
                   >
                     <Icon name="bolt" size={12} />
@@ -4150,6 +4157,9 @@ export function ChatView() {
                     data-on={selectedDispatchChannel === "PERSONAL"}
                     onClick={() => {
                       setSelectedDispatchChannel("PERSONAL");
+                      if (draftChat) {
+                        setDraftChat((prev) => prev ? { ...prev, channelSource: "QR_SCANNER", isOfficialApi: false, isPersonalQr: true, channelSourceLabel: "Personal WhatsApp QR (Draft)" } : null);
+                      }
                       if (hasConnectedCompanion === false) {
                         handleOpenQrModal();
                       }
