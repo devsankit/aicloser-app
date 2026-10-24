@@ -75,7 +75,7 @@ interface AppApi {
   toggleGlobalAiBot: () => Promise<boolean>;
   setGlobalAiBotEnabled: (enabled: boolean) => void;
   moveLead: (id: string, stage: StageId, targetLeadId?: string) => void;
-  updateLead: (id: string, patch: Partial<Lead>) => void;
+  updateLead: (id: string, patch: Partial<Lead>, options?: { skipApi?: boolean }) => void;
   addLead: (lead: Omit<Lead, "id" | "updatedAt" | "code">) => Promise<Lead>;
   deleteLead: (id: string) => Promise<void> | void;
   claimLead: (id: string, closerName?: string) => void;
@@ -743,14 +743,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [state.apiConnected]);
 
-  const updateLead = useCallback((id: string, patch: Partial<Lead>) => {
+  const updateLead = useCallback((id: string, patch: Partial<Lead>, options?: { skipApi?: boolean }) => {
     setState((prev) => ({
       ...prev,
       leads: prev.leads.map((l) =>
         l.id === id ? { ...l, ...patch, id: l.id, updatedAt: new Date().toISOString() } : l,
       ),
     }));
-    if (state.apiConnected) {
+    if (state.apiConnected && !options?.skipApi) {
       aicloserApi.leads.update(id, uiLeadToBackendPayload(patch)).catch((err) => {
         console.error("Failed to update lead on API:", err);
         if (typeof window !== "undefined") {

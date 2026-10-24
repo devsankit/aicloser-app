@@ -34,7 +34,7 @@ function toDateTimeLocalValue(isoStr?: string | null): string {
 }
 
 export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void }) {
-  const { moveLead, updateLead, deleteLead, state, setLayout, claimLead } = useApp();
+  const { moveLead, updateLead, deleteLead, state, setLayout, claimLead, refreshLeads } = useApp();
   const userRole = (
     state.user?.role ||
     state.workspaceAuth?.user?.role ||
@@ -119,9 +119,13 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
 
       await aicloserApi.leads.transfer(lead.id, finalId, "Transferred from Lead Drawer");
       setDraft((d) => ({ ...d, owner: targetName, assignedAgentId: finalId }));
-      updateLead(lead.id, { owner: targetName, assignedAgentId: finalId });
+      updateLead(lead.id, { owner: targetName, assignedAgentId: finalId }, { skipApi: true });
       setTransferToast(`✓ Transferred to ${targetName}`);
-      setTimeout(() => setTransferToast(null), 3000);
+      setTimeout(() => {
+        setTransferToast(null);
+        refreshLeads?.().catch?.(() => {});
+        onClose();
+      }, 1200);
     } catch (err: any) {
       setTransferToast(err?.message || "Failed to transfer lead");
       setTimeout(() => setTransferToast(null), 3500);
@@ -602,11 +606,14 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                   const targetId = member?.id || member?.userId || targetVal;
                   const targetName = member?.name || member?.displayName || targetVal;
                   setDraft((d) => ({ ...d, owner: targetName, assignedAgentId: targetId }));
-                  updateLead(lead.id, { owner: targetName, assignedAgentId: targetId });
                   try {
                     await aicloserApi.leads.transfer(lead.id, targetId, "Reassigned via Assignee dropdown");
+                    updateLead(lead.id, { owner: targetName, assignedAgentId: targetId }, { skipApi: true });
                     setTransferToast(`✓ Assigned to ${targetName}`);
-                    setTimeout(() => setTransferToast(null), 2500);
+                    setTimeout(() => {
+                      setTransferToast(null);
+                      refreshLeads?.().catch?.(() => {});
+                    }, 1200);
                   } catch (err: any) {
                     console.warn("Transfer failed:", err);
                     setTransferToast(err?.message || "Failed to reassign");
