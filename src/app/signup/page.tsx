@@ -66,7 +66,13 @@ export default function SignupPage() {
         {/* Brand / Header */}
         <div className="auth-header">
           <div className="auth-brand-badge">
-            <Icon name="sparkle" size={22} />
+            <img
+              src="/assets/closer-icon.png"
+              alt="AI Closer"
+              width={48}
+              height={48}
+              className="auth-brand-logo-img"
+            />
           </div>
           <h1 className="auth-title">Create Your AI Closer Workspace</h1>
           <p className="auth-subtitle">

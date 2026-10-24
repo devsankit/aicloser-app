@@ -65,7 +65,13 @@ export default function LoginPage() {
         {/* Brand / Header */}
         <div className="auth-header">
           <div className="auth-brand-badge">
-            <Icon name="sparkle" size={22} />
+            <img
+              src="/assets/closer-icon.png"
+              alt="AI Closer"
+              width={48}
+              height={48}
+              className="auth-brand-logo-img"
+            />
           </div>
           <h1 className="auth-title">Sign in to AI Closer</h1>
           <p className="auth-subtitle">
