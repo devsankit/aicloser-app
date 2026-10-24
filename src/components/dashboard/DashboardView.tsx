@@ -17,7 +17,18 @@ export function DashboardView() {
   // Attempt live API fetch with fallback to loaded state
   useEffect(() => {
     let cancelled = false;
-    aicloserApi.leads.getDashboardSummary()
+    let assignedAgentId: string | undefined;
+    if (state.scope === "mine" && state.user?.userId) {
+      assignedAgentId = (state.user as any)?.agentProfileId || state.user?.userId;
+    } else if (state.scope.startsWith("agent:")) {
+      const agentName = state.scope.slice(6).trim();
+      const member = state.teamMembers.find(
+        (m) => m.name.toLowerCase() === agentName.toLowerCase() || m.displayName.toLowerCase() === agentName.toLowerCase()
+      );
+      if (member) assignedAgentId = member.id;
+    }
+
+    aicloserApi.leads.getDashboardSummary(assignedAgentId ? { assignedAgentId } : undefined)
       .then((data) => {
         if (!cancelled && data) setLiveSummary(data);
       })
@@ -27,7 +38,7 @@ export function DashboardView() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [state.scope, state.user?.userId, state.teamMembers]);
 
   const [breakLogs, setBreakLogs] = useState<Array<{
     id: string;
@@ -83,20 +94,22 @@ export function DashboardView() {
     const totalCalls = (liveSummary as any)?.metrics?.totalCalls ?? 0;
     const connectedCalls = (liveSummary as any)?.metrics?.connectedCalls ?? 0;
     const connectRate = totalCalls > 0 ? Math.round((connectedCalls / totalCalls) * 100) : 0;
-    const followUpsPending = leads.filter((l) => l.stage === "follow_up" || l.tags?.includes("callback")).length;
-    const newPendingLeads = (liveSummary?.stageCounts?.NEW ?? leads.filter((l) => l.stage === "new").length);
+    const followUpsPending = leads.filter(
+      (l) => l.stage === "follow_up" || l.tags?.includes("callback") || Boolean(l.followUp)
+    ).length;
+    const newPendingLeads = leads.length > 0 ? leads.filter((l) => l.stage === "new").length : (liveSummary?.stageCounts?.NEW ?? 0);
 
     const calculatedOpenVal = open.reduce((s, l) => s + l.value, 0);
     const calculatedWonVal = won.reduce((s, l) => s + l.value, 0);
 
     return {
-      openValue: typeof liveSummary?.pipelineValue === "number" ? liveSummary.pipelineValue : calculatedOpenVal,
+      openValue: leads.length > 0 ? calculatedOpenVal : (liveSummary?.pipelineValue ?? 0),
       openCount: open.length,
-      wonValue: typeof liveSummary?.wonAmount === "number" ? liveSummary.wonAmount : calculatedWonVal,
-      wonCount: typeof liveSummary?.wonCount === "number" ? liveSummary.wonCount : won.length,
+      wonValue: leads.length > 0 ? calculatedWonVal : (liveSummary?.wonAmount ?? 0),
+      wonCount: won.length,
       newCount: newPendingLeads,
       touched: week.length,
-      winRate: liveSummary?.conversionRate ?? (decided ? Math.round((won.length / decided) * 100) : 0),
+      winRate: decided > 0 ? Math.round((won.length / decided) * 100) : (liveSummary?.conversionRate ?? 0),
       totalCalls,
       connectedCalls,
       connectRate,
@@ -110,16 +123,26 @@ export function DashboardView() {
       STAGES.map((stage) => {
         const rows = leads.filter((l) => l.stage === stage.id);
         const stageUpper = stage.id.toUpperCase();
-        const apiCount = liveSummary?.stageCounts?.[stageUpper];
+        const stageCount = leads.length > 0
+          ? rows.length
+          : (liveSummary?.stageCounts?.[stageUpper] ??
+             (stageUpper === "WON" ? liveSummary?.stageCounts?.CLOSED_WON : undefined) ??
+             (stageUpper === "LOST" ? liveSummary?.stageCounts?.CLOSED_LOST : undefined) ??
+             (stageUpper === "DEMO" ? (liveSummary?.stageCounts?.DEMO || liveSummary?.stageCounts?.DEMO_SCHEDULED) : undefined) ??
+             0);
+
+        const stageValue = rows.reduce((s, l) => s + l.value, 0);
+
         return {
           ...stage,
-          count: apiCount ?? rows.length,
-          value: rows.reduce((s, l) => s + l.value, 0),
+          count: stageCount,
+          value: stageValue,
         };
       }),
     [leads, liveSummary],
   );
 
+  const maxCount = Math.max(1, ...perStage.map((s) => s.count));
   const maxStage = Math.max(1, ...perStage.map((s) => s.value));
 
   const activity = useMemo(
@@ -320,7 +343,7 @@ export function DashboardView() {
                     <span className="funnel-label-text">{s.label}</span>
                   </span>
                   <div className="funnel-bar">
-                    <span style={{ width: `${Math.max(3, (s.value / maxStage) * 100)}%` }} />
+                    <span style={{ width: `${s.count > 0 ? Math.max(6, Math.round((s.count / maxCount) * 100)) : 0}%` }} />
                   </div>
                   <span className="funnel-count">{s.count}</span>
                   <span className="funnel-value">{s.value ? compactMoney(s.value) : "—"}</span>
