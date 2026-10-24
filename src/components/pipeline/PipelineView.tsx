@@ -92,6 +92,27 @@ export function PipelineView() {
     return () => clearInterval(interval);
   }, []);
 
+  // Cross-component synchronizer for break state changes
+  useEffect(() => {
+    const handleBreakSync = (e: any) => {
+      const detail = e?.detail;
+      if (!detail) return;
+      if (typeof detail.isOnBreak === "boolean") {
+        setIsOnBreak(detail.isOnBreak);
+      }
+      if (typeof detail.remainingSeconds === "number") {
+        setBreakRemainingSec(detail.remainingSeconds);
+      }
+      if (detail.isOnBreak && detail.expiresAt) {
+        setBreakExpiresAt(new Date(detail.expiresAt).toISOString());
+      } else if (detail.isOnBreak === false) {
+        setBreakExpiresAt(null);
+      }
+    };
+    window.addEventListener("aicloser:break-updated", handleBreakSync);
+    return () => window.removeEventListener("aicloser:break-updated", handleBreakSync);
+  }, []);
+
   useEffect(() => {
     if (!isOnBreak || !breakExpiresAt) {
       setBreakCountdown("00:00");
@@ -114,17 +135,26 @@ export function PipelineView() {
   }, [isOnBreak, breakExpiresAt]);
 
   const handleTakeBreak = async () => {
+    if (breakLoading) return;
     setBreakLoading(true);
     try {
       const res: any = await aicloserApi.team.startBreak();
-      if (res?.success) {
+      const payload = res?.data || res;
+      if (payload?.success || payload?.isOnBreak) {
         setIsOnBreak(true);
-        if (res?.breakExpiresAt) setBreakExpiresAt(res.breakExpiresAt);
-        if (typeof res?.remainingSeconds === "number") setBreakRemainingSec(res.remainingSeconds);
-      } else if (res?.error === "DailyBreakLimitExceeded") {
+        const rem = typeof payload?.remainingSeconds === "number" ? payload.remainingSeconds : (breakRemainingSec || 1800);
+        setBreakRemainingSec(rem);
+        const expMs = Date.now() + rem * 1000;
+        setBreakExpiresAt(new Date(expMs).toISOString());
+        localStorage.setItem("aicloser_on_break", "true");
+        localStorage.setItem("aicloser_break_expires", String(expMs));
+        window.dispatchEvent(new CustomEvent("aicloser:break-updated", {
+          detail: { isOnBreak: true, remainingSeconds: rem, expiresAt: expMs }
+        }));
+      } else if (payload?.error === "DailyBreakLimitExceeded") {
         setClaimFeedback({
           status: "quota_limit",
-          message: res.message || "Daily break limit reached for today.",
+          message: payload.message || "Daily break limit reached for today.",
         });
         setTimeout(() => setClaimFeedback(null), 4000);
       }
@@ -134,27 +164,35 @@ export function PipelineView() {
         message: err?.message || "Failed to start break mode. Please retry.",
       });
       setTimeout(() => setClaimFeedback(null), 4000);
+    } finally {
+      setBreakLoading(false);
     }
-    setBreakLoading(false);
   };
 
   const handleEndBreak = async () => {
+    if (breakLoading) return;
     setBreakLoading(true);
     try {
       const res: any = await aicloserApi.team.endBreak();
+      const payload = res?.data || res;
       setIsOnBreak(false);
       setBreakExpiresAt(null);
-      if (typeof res?.remainingSeconds === "number") {
-        setBreakRemainingSec(res.remainingSeconds);
-      }
+      localStorage.removeItem("aicloser_on_break");
+      localStorage.removeItem("aicloser_break_expires");
+      const rem = typeof payload?.remainingSeconds === "number" ? payload.remainingSeconds : breakRemainingSec;
+      setBreakRemainingSec(rem);
+      window.dispatchEvent(new CustomEvent("aicloser:break-updated", {
+        detail: { isOnBreak: false, remainingSeconds: rem }
+      }));
     } catch (err: any) {
       setClaimFeedback({
         status: "already_claimed",
         message: err?.message || "Failed to end break mode. Please retry.",
       });
       setTimeout(() => setClaimFeedback(null), 4000);
+    } finally {
+      setBreakLoading(false);
     }
-    setBreakLoading(false);
   };
 
   // Lead Grab Pool State

@@ -2335,23 +2335,26 @@ export const aicloserApi = {
           method: 'POST',
           body: JSON.stringify({ durationMinutes }),
         });
-        return res?.data ?? res;
-      } catch {
-        return { success: true, startedAt: new Date().toISOString(), durationMinutes };
+        const payload = res?.data ?? res;
+        return { success: true, ...payload };
+      } catch (err: any) {
+        return { success: false, error: err?.message || 'Failed to start break' };
       }
     },
     async endBreak() {
       try {
         const res = await request<any>('/team/break/end', { method: 'POST' });
-        return res?.data ?? res;
-      } catch {
-        return { success: true, endedAt: new Date().toISOString() };
+        const payload = res?.data ?? res;
+        return { success: true, ...payload };
+      } catch (err: any) {
+        return { success: false, error: err?.message || 'Failed to end break' };
       }
     },
     async getBreakStatus() {
       try {
         const res = await request<any>('/team/break/status');
-        return res?.data ?? res;
+        const payload = res?.data ?? res;
+        return payload ? { success: true, ...payload } : null;
       } catch {
         return null;
       }

@@ -64,21 +64,27 @@ export function DashboardView() {
   const fetchBreakLogs = useCallback(async () => {
     setBreakLoading(true);
     try {
-      const scope = state.user?.role === "ADMIN" || state.user?.role === "SUPER_ADMIN" || state.user?.role === "MANAGER"
-        ? "all"
-        : "mine";
+      // Strictly scope to the logged-in user's own break records & quota
+      const scope = "mine";
       const res = await aicloserApi.team.getBreakLogs(scope);
       if (res?.logs) setBreakLogs(res.logs);
       if (res?.summary) setBreakSummary(res.summary);
     } catch {} finally {
       setBreakLoading(false);
     }
-  }, [state.user?.role]);
+  }, []);
 
   useEffect(() => {
     fetchBreakLogs();
-    const t = setInterval(fetchBreakLogs, 20000);
-    return () => clearInterval(t);
+    const t = setInterval(fetchBreakLogs, 15000);
+    const handleBreakSync = () => {
+      fetchBreakLogs();
+    };
+    window.addEventListener("aicloser:break-updated", handleBreakSync);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener("aicloser:break-updated", handleBreakSync);
+    };
   }, [fetchBreakLogs]);
 
   const stats = useMemo(() => {

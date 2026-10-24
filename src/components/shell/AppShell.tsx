@@ -270,6 +270,7 @@ export function AppShell({
     }
     return 1800; // default 30 mins (1800s) quota
   });
+  const [breakLoading, setBreakLoading] = useState<boolean>(false);
 
   useEffect(() => {
     aicloserApi.team.getBreakStatus().then((rawStatus: any) => {
@@ -290,6 +291,29 @@ export function AppShell({
         }
       }
     }).catch(() => {});
+  }, []);
+
+  // Cross-component synchronizer for break state changes
+  useEffect(() => {
+    const handleBreakSync = (e: any) => {
+      const detail = e?.detail;
+      if (!detail) return;
+      if (typeof detail.isOnBreak === "boolean") {
+        setIsOnBreak(detail.isOnBreak);
+      }
+      if (typeof detail.remainingSeconds === "number") {
+        setBreakRemainingSec(detail.remainingSeconds);
+      }
+      if (detail.isOnBreak && detail.expiresAt) {
+        localStorage.setItem("aicloser_on_break", "true");
+        localStorage.setItem("aicloser_break_expires", String(detail.expiresAt));
+      } else if (detail.isOnBreak === false) {
+        localStorage.removeItem("aicloser_on_break");
+        localStorage.removeItem("aicloser_break_expires");
+      }
+    };
+    window.addEventListener("aicloser:break-updated", handleBreakSync);
+    return () => window.removeEventListener("aicloser:break-updated", handleBreakSync);
   }, []);
 
   useEffect(() => {
@@ -321,6 +345,9 @@ export function AppShell({
         localStorage.removeItem("aicloser_on_break");
         localStorage.removeItem("aicloser_break_expires");
         aicloserApi.team.endBreak().catch(() => {});
+        window.dispatchEvent(new CustomEvent("aicloser:break-updated", {
+          detail: { isOnBreak: false, remainingSeconds: 0 }
+        }));
       } else {
         setBreakRemainingSec(diff);
       }
@@ -333,38 +360,45 @@ export function AppShell({
   const formattedBreakRemaining = `${String(breakMins).padStart(2, "0")}:${String(breakSecs).padStart(2, "0")}`;
 
   const handleToggleBreak = async () => {
-    if (isOnBreak) {
-      try {
+    if (breakLoading) return;
+    setBreakLoading(true);
+    try {
+      if (isOnBreak) {
         const rawRes: any = await aicloserApi.team.endBreak();
         const res = rawRes?.data || rawRes;
         setIsOnBreak(false);
         localStorage.removeItem("aicloser_on_break");
         localStorage.removeItem("aicloser_break_expires");
-        if (res && typeof res.remainingSeconds === "number") {
-          setBreakRemainingSec(res.remainingSeconds);
+        const rem = typeof res?.remainingSeconds === "number" ? res.remainingSeconds : breakRemainingSec;
+        setBreakRemainingSec(rem);
+        window.dispatchEvent(new CustomEvent("aicloser:break-updated", {
+          detail: { isOnBreak: false, remainingSeconds: rem }
+        }));
+      } else {
+        if (breakRemainingSec <= 5 && breakRemainingSec > 0) {
+          alert("Daily break quota (30m) exhausted for today.");
+          return;
         }
-      } catch {}
-    } else {
-      if (breakRemainingSec <= 5 && breakRemainingSec > 0) {
-        alert("Daily break limit reached for today.");
-        return;
-      }
-      try {
         const rawRes: any = await aicloserApi.team.startBreak();
         const res = rawRes?.data || rawRes;
-        if (res?.success) {
+        if (res?.success || res?.isOnBreak) {
           setIsOnBreak(true);
           const rem = typeof res.remainingSeconds === "number" ? res.remainingSeconds : (breakRemainingSec || 1800);
           setBreakRemainingSec(rem);
           const expiresAt = Date.now() + rem * 1000;
           localStorage.setItem("aicloser_on_break", "true");
           localStorage.setItem("aicloser_break_expires", String(expiresAt));
+          window.dispatchEvent(new CustomEvent("aicloser:break-updated", {
+            detail: { isOnBreak: true, remainingSeconds: rem, expiresAt }
+          }));
         } else if (res?.error === "DailyBreakLimitExceeded") {
-          alert(res.message || "Daily break limit reached for today.");
+          alert(res.message || "Daily break quota (30m) exhausted for today.");
         }
-      } catch (err: any) {
-        alert(err?.message || "Daily break limit reached for today.");
       }
+    } catch (err: any) {
+      alert(err?.message || "Failed to toggle break mode.");
+    } finally {
+      setBreakLoading(false);
     }
   };
 
@@ -1158,6 +1192,7 @@ export function AppShell({
               className="break-badge"
               data-active={isOnBreak}
               onClick={handleToggleBreak}
+              disabled={breakLoading || (!isOnBreak && breakRemainingSec <= 0)}
               title={
                 isOnBreak
                   ? `Currently on break (${formattedBreakRemaining} remaining). Click to resume work.`
@@ -1167,13 +1202,24 @@ export function AppShell({
               }
               aria-label="Toggle Break Mode"
             >
-              <Icon name="coffee" size={13} />
+              {isOnBreak ? (
+                <span className="break-pulse-dot" />
+              ) : (
+                <Icon name="coffee" size={13} />
+              )}
               <span>
                 {isOnBreak
-                  ? `On Break (${formattedBreakRemaining})`
+                  ? "On Break"
                   : breakRemainingSec <= 0
                   ? "Break Used"
-                  : `Take Break (${Math.ceil(breakRemainingSec / 60)}m)`}
+                  : "Take Break"}
+              </span>
+              <span className="timer-num">
+                {isOnBreak
+                  ? `(${formattedBreakRemaining})`
+                  : breakRemainingSec <= 0
+                  ? ""
+                  : `(${Math.ceil(breakRemainingSec / 60)}m)`}
               </span>
             </button>
           )}
