@@ -1578,7 +1578,28 @@ export function PipelineView() {
                             <span className="chip" data-tone={src.tone}>
                               <Icon name={src.icon} size={11} /> {src.label}
                             </span>
-
+                            {lead.phone && (
+                              <div className="lead-quick-actions" onClick={(e) => e.stopPropagation()}>
+                                <a
+                                  href={`/chat?leadId=${lead.id}&phone=${encodeURIComponent(lead.phone)}&channel=api`}
+                                  className="icon-btn"
+                                  data-size="sm"
+                                  title="Chat via Official WhatsApp Cloud API"
+                                  aria-label="Chat via WhatsApp API"
+                                >
+                                  <Icon name="bolt" size={11} />
+                                </a>
+                                <a
+                                  href={`/chat?leadId=${lead.id}&phone=${encodeURIComponent(lead.phone)}&channel=mine`}
+                                  className="icon-btn"
+                                  data-size="sm"
+                                  title="Chat via Personal WhatsApp (Companion)"
+                                  aria-label="Chat via Personal WhatsApp"
+                                >
+                                  <Icon name="whatsapp" size={11} />
+                                </a>
+                              </div>
+                            )}
                           </div>
                           <div className="lead-foot">
                             <span className={`mini-avatar ${lead.owner === "Unassigned" ? "is-empty" : ""}`}>

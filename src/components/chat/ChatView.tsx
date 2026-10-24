@@ -202,6 +202,9 @@ export function ChatView() {
   const [qrPhoneInput, setQrPhoneInput] = useState("");
   const [waDeviceStatus, setWaDeviceStatus] = useState<string>("DISCONNECTED");
   const [connectedPhone, setConnectedPhone] = useState<string>("");
+  const [hasConnectedCompanion, setHasConnectedCompanion] = useState<boolean | null>(null);
+  const [userCompanionPhone, setUserCompanionPhone] = useState<string>("");
+  const [checkingCompanion, setCheckingCompanion] = useState<boolean>(false);
   const [qrLoading, setQrLoading] = useState(false);
   const [isRequestingCode, setIsRequestingCode] = useState(false);
   const [qrSuccess, setQrSuccess] = useState<string | null>(null);
@@ -209,6 +212,41 @@ export function ChatView() {
   const [refreshCount, setRefreshCount] = useState(0);
   const [selectedDispatchChannel, setSelectedDispatchChannel] = useState<"AUTO" | "OFFICIAL_API" | "PERSONAL">("AUTO");
   const urlResolvedRef = useRef<boolean>(false);
+
+  // Check personal companion WhatsApp connection for current user
+  const checkCompanionConnection = useCallback(async () => {
+    try {
+      setCheckingCompanion(true);
+      const res: any = await aicloserApi.integrations.whatsapp.devices.list().catch(() => null);
+      const list = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+      const myUserId = state.user?.userId;
+      const roleUpper = String(state.user?.role || "").toUpperCase();
+      const isAdmin = roleUpper === "ADMIN" || roleUpper === "SUPER_ADMIN";
+
+      const connectedDev = list.find((d: any) =>
+        d.status === "connected" && (isAdmin || !d.scannedByUserId || d.scannedByUserId === myUserId)
+      );
+
+      if (connectedDev) {
+        setHasConnectedCompanion(true);
+        setUserCompanionPhone(connectedDev.phoneNumber || "");
+        setWaDeviceStatus("CONNECTED");
+        setConnectedPhone(connectedDev.phoneNumber || "");
+      } else {
+        setHasConnectedCompanion(false);
+        setUserCompanionPhone("");
+        setWaDeviceStatus("DISCONNECTED");
+      }
+    } catch {
+      setHasConnectedCompanion(false);
+    } finally {
+      setCheckingCompanion(false);
+    }
+  }, [state.user?.userId, state.user?.role]);
+
+  useEffect(() => {
+    checkCompanionConnection();
+  }, [checkCompanionConnection]);
 
   // Virtual Draft Conversation (Prevents blank/ghost conversations in DB until first message)
   const [draftChat, setDraftChat] = useState<ConversationItem | null>(null);
@@ -233,6 +271,8 @@ export function ChatView() {
       if (statusRes?.status === "CONNECTED" && statusRes.connectedPhone) {
         setWaDeviceStatus("CONNECTED");
         setConnectedPhone(statusRes.connectedPhone);
+        setHasConnectedCompanion(true);
+        setUserCompanionPhone(statusRes.connectedPhone);
         setQrLoading(false);
         return;
       }
@@ -307,6 +347,8 @@ export function ChatView() {
       await aicloserApi.integrations.whatsapp.devices.disconnectDaemon();
       setWaDeviceStatus("DISCONNECTED");
       setConnectedPhone("");
+      setHasConnectedCompanion(false);
+      setUserCompanionPhone("");
       setQrCodeDataUrl("");
       setQrPairingCode("");
       setQrSuccess("WhatsApp line disconnected successfully.");
@@ -354,6 +396,8 @@ export function ChatView() {
           setConnectedPhone(res.connectedPhone);
         }
         if (res.status === "CONNECTED") {
+          setHasConnectedCompanion(true);
+          setUserCompanionPhone(res.connectedPhone || "");
           setQrSuccess(`WhatsApp Connected (${res.connectedPhone || "Line"})! Syncing chats...`);
           aicloserApi.integrations.whatsapp.devices.syncLive().catch(() => {});
           setRefreshCount((c) => c + 1);
@@ -379,8 +423,10 @@ export function ChatView() {
       const urlChannel = sp.get("channel");
       if (urlChannel === "api") {
         setScopeFilter("api");
+        setSelectedDispatchChannel("OFFICIAL_API");
       } else if (urlChannel === "mine") {
         setScopeFilter("mine");
+        setSelectedDispatchChannel("PERSONAL");
       }
       const urlId = sp.get("id") || sp.get("chatId");
       if (urlId) setSelectedChatId(urlId);
@@ -574,25 +620,64 @@ export function ChatView() {
       activeChat.channel === "whatsapp"
   );
 
-  const is24HourWindowOpen = useMemo(() => {
-    if (!activeChat) return true;
-    if (!isOfficialChat) return true;
-    if (typeof activeChat.is24HourWindowOpen === "boolean") {
-      return activeChat.is24HourWindowOpen;
+  const isAdLead = useMemo(() => {
+    if (!activeChat) return false;
+    if (activeLead?.source === "Ads" || (activeLead?.rawSource || "").toLowerCase().includes("ad")) return true;
+    if (activeChat.payload?.source === "Ads" || activeChat.payload?.leadSource === "Ads") return true;
+    if (activeChat.payload?.referral?.source_type === "ad") return true;
+    if ((activeChat as any).isAdLead === true) return true;
+    return false;
+  }, [activeChat, activeLead]);
+
+  const windowInfo = useMemo(() => {
+    if (!activeChat) return { isOpen: true, hours: 24, remainingMs: 0, remainingText: "" };
+    if (!isOfficialChat) return { isOpen: true, hours: 0, remainingMs: 0, remainingText: "" };
+
+    const windowHours = isAdLead ? 72 : 24;
+    const limitMs = windowHours * 60 * 60 * 1000;
+
+    // Check backend-computed expiration
+    if (activeChat.windowExpiresAt) {
+      const expTime = new Date(activeChat.windowExpiresAt).getTime();
+      const now = Date.now();
+      const rem = expTime - now;
+      if (rem > 0) {
+        const h = Math.floor(rem / (1000 * 60 * 60));
+        const m = Math.floor((rem % (1000 * 60 * 60)) / (1000 * 60));
+        return { isOpen: true, hours: windowHours, remainingMs: rem, remainingText: `${h}h ${m}m remaining` };
+      } else {
+        return { isOpen: false, hours: windowHours, remainingMs: 0, remainingText: "Expired" };
+      }
     }
+
     // Inspect messages for last customer inbound
     const msgs = activeChat.messages || [];
     const inboundMsgs = msgs.filter(
-      (m: any) => m.sender === "customer" || m.sender === "user" || m.senderRole === "CUSTOMER"
+      (m: any) =>
+        m.sender === "customer" ||
+        m.sender === "user" ||
+        m.senderRole === "customer" ||
+        m.senderRole === "CUSTOMER" ||
+        (!m.fromMe && m.direction !== "OUTBOUND" && m.sender !== "closer")
     );
     if (inboundMsgs.length === 0) {
-      return false;
+      return { isOpen: false, hours: windowHours, remainingMs: 0, remainingText: "No customer message yet" };
     }
     const lastInbound = inboundMsgs[inboundMsgs.length - 1];
-    if (!lastInbound?.createdAt) return false;
+    if (!lastInbound?.createdAt) {
+      return { isOpen: false, hours: windowHours, remainingMs: 0, remainingText: "Expired" };
+    }
     const elapsed = Date.now() - new Date(lastInbound.createdAt).getTime();
-    return elapsed < 24 * 60 * 60 * 1000;
-  }, [activeChat, isOfficialChat]);
+    const rem = limitMs - elapsed;
+    if (rem > 0) {
+      const h = Math.floor(rem / (1000 * 60 * 60));
+      const m = Math.floor((rem % (1000 * 60 * 60)) / (1000 * 60));
+      return { isOpen: true, hours: windowHours, remainingMs: rem, remainingText: `${h}h ${m}m remaining` };
+    }
+    return { isOpen: false, hours: windowHours, remainingMs: 0, remainingText: "Expired" };
+  }, [activeChat, isOfficialChat, isAdLead]);
+
+  const is24HourWindowOpen = windowInfo.isOpen;
 
   const fetchTemplates = useCallback(async () => {
     setLoadingTemplates(true);
@@ -748,13 +833,21 @@ export function ChatView() {
 
   // Unified Lead Profile: uses activeLead or falls back to activeChat info
   // Ensures the right drawer is ALWAYS present when showRightDrawer is true
-  const isChatActiveNow = useMemo(() => {
-    if (!activeChat) return false;
-    const lastMsg = activeChat.messages?.[activeChat.messages.length - 1];
-    const ts = lastMsg?.createdAt || (activeChat as any).lastMessageAt || activeChat.updatedAt;
-    if (!ts) return false;
-    const diffMs = Date.now() - new Date(ts).getTime();
-    return !isNaN(diffMs) && diffMs < 1000 * 60 * 30; // Active within last 30 minutes
+  // Real customer presence: checks if customer has messaged recently
+  const isCustomerRecentlyActive = useMemo(() => {
+    if (!activeChat?.messages?.length) return false;
+    const customerMsgs = activeChat.messages.filter(
+      (m: any) =>
+        m.sender === "customer" ||
+        m.senderRole === "customer" ||
+        m.senderRole === "CUSTOMER" ||
+        (!m.fromMe && m.direction !== "OUTBOUND" && m.sender !== "closer")
+    );
+    if (!customerMsgs.length) return false;
+    const lastCustomerMsg = customerMsgs[customerMsgs.length - 1];
+    if (!lastCustomerMsg?.createdAt) return false;
+    const diffMs = Date.now() - new Date(lastCustomerMsg.createdAt).getTime();
+    return !isNaN(diffMs) && diffMs < 1000 * 60 * 10; // Customer active within last 10 minutes
   }, [activeChat]);
 
   const isReadOnlyShare = useMemo(() => {
@@ -2095,10 +2188,20 @@ export function ChatView() {
   const handleSendMessage = async () => {
     if (!inputText.trim() || !activeChat || isReadOnlyShare) return;
 
-    if (isOfficialChat && !is24HourWindowOpen && selectedDispatchChannel === "OFFICIAL_API") {
+    // Gate 1: Check Personal Companion WhatsApp connection
+    if (selectedDispatchChannel === "PERSONAL") {
+      if (hasConnectedCompanion === false) {
+        showToast("Personal WhatsApp is not connected. Please scan your QR code first.");
+        handleOpenQrModal();
+        return;
+      }
+    }
+
+    // Gate 2: Check Meta Cloud API 24h / 72h service window
+    if (isOfficialChat && !windowInfo.isOpen && selectedDispatchChannel === "OFFICIAL_API") {
       setShowTemplateModal(true);
       fetchTemplates();
-      showToast("Meta 24-Hour Service Window closed. You must send an approved template.");
+      showToast(`Meta ${windowInfo.hours}h customer service window is closed. Please send an approved template.`);
       return;
     }
 
@@ -2184,22 +2287,34 @@ export function ChatView() {
         }
       })
       .catch((err: any) => {
-        const errMsg = err?.message || "Failed to deliver message";
+        const errMsg = err?.message || err?.error || "Failed to deliver message";
+        const errCode = err?.code || "";
+
+        // Mark message as failed so it never fakes delivery
+        setMessagesCache((prev) => ({
+          ...prev,
+          [targetConvId]: (prev[targetConvId] || []).map((m) =>
+            m.id === newMsg.id ? { ...m, status: "failed" } : m
+          ),
+        }));
+
         if (
-          String(errMsg).toLowerCase().includes("24-hour") ||
-          String(errMsg).toLowerCase().includes("service window") ||
-          String(errMsg).includes("131047") ||
-          String(errMsg).includes("meta24hourwindowclosed")
+          errCode === "PERSONAL_WA_NOT_CONNECTED" ||
+          String(errMsg).toLowerCase().includes("personal whatsapp is not connected")
         ) {
-          setMessagesCache((prev) => ({
-            ...prev,
-            [targetConvId]: (prev[targetConvId] || []).map((m) =>
-              m.id === newMsg.id ? { ...m, status: "failed" } : m
-            ),
-          }));
+          setHasConnectedCompanion(false);
+          handleOpenQrModal();
+          showToast("Personal WhatsApp is not connected. Scan QR code to connect device.");
+        } else if (
+          errCode === "META_WINDOW_CLOSED" ||
+          String(errMsg).toLowerCase().includes("24-hour") ||
+          String(errMsg).toLowerCase().includes("72-hour") ||
+          String(errMsg).toLowerCase().includes("service window") ||
+          String(errMsg).includes("131047")
+        ) {
           setShowTemplateModal(true);
           fetchTemplates();
-          showToast("Meta 24-Hour window expired. Please send an approved template.");
+          showToast(`Meta service window expired. Please select an approved template.`);
         } else {
           showToast(errMsg);
         }
@@ -3564,13 +3679,31 @@ export function ChatView() {
                     </span>
                   )}
                   {activeChat.isOfficialApi || activeChat.channelSource === "OFFICIAL_API" ? (
-                    <span className="chip" data-tone="accent" style={{ fontSize: "11px", padding: "1px 8px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                      <Icon name="whatsapp" size={12} /> {activeChat.channelSourceLabel || "Official Meta Cloud API"}
+                    <span
+                      className="chip"
+                      data-tone={windowInfo.isOpen ? (isAdLead ? "accent" : "success") : "warning"}
+                      style={{ fontSize: "11px", padding: "1px 8px", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                      title={windowInfo.isOpen ? `Meta ${isAdLead ? "72h Ad" : "24h"} messaging window is open (${windowInfo.remainingText})` : `Meta ${windowInfo.hours}h messaging window is closed (template required)`}
+                    >
+                      <Icon name="bolt" size={12} /> {activeChat.channelSourceLabel || "Official API"} • {windowInfo.isOpen ? `${isAdLead ? "Ad Window" : "Window"}: ${windowInfo.remainingText}` : "Window Closed"}
                     </span>
                   ) : activeChat.isPersonalQr || activeChat.channelSource === "QR_SCANNER" ? (
-                    <span className="chip" data-tone="success" style={{ fontSize: "11px", padding: "1px 8px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                      <Icon name="smartphone" size={12} /> Personal Line ({activeChat.scannedByName ? `Scanned by ${activeChat.scannedByName}` : "WhatsApp QR"})
-                    </span>
+                    hasConnectedCompanion === false ? (
+                      <button
+                        type="button"
+                        className="chip"
+                        data-tone="danger"
+                        onClick={handleOpenQrModal}
+                        title="Your personal WhatsApp is not connected. Click to scan QR code."
+                        style={{ cursor: "pointer", fontSize: "11px", padding: "1px 8px", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                      >
+                        <Icon name="smartphone" size={12} /> Personal Line (Not Connected — Scan QR)
+                      </button>
+                    ) : (
+                      <span className="chip" data-tone="success" style={{ fontSize: "11px", padding: "1px 8px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                        <Icon name="smartphone" size={12} /> Personal Line ({userCompanionPhone ? `+${userCompanionPhone}` : (activeChat.scannedByName ? `Scanned by ${activeChat.scannedByName}` : "Active")})
+                      </span>
+                    )
                   ) : activeChat.channel === "instagram" ? (
                     <span className="chip" data-tone="warning" style={{ fontSize: "11px", padding: "1px 8px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
                       <Icon name="sparkle" size={12} /> Instagram DM
@@ -3592,9 +3725,9 @@ export function ChatView() {
                     </span>
                   )}
                   <span>•</span>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", color: isChatActiveNow ? "var(--success)" : "var(--text-tertiary)" }}>
-                    <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: isChatActiveNow ? "#25D366" : "var(--text-tertiary)", display: "inline-block" }} />
-                    {isChatActiveNow ? "Online" : `Last seen ${activeChat.lastMessageTime || "recently"}`}
+                  <span className="chat-status-indicator" style={{ color: isCustomerRecentlyActive ? "var(--success)" : "var(--text-tertiary)" }}>
+                    <span className="chat-status-dot" data-status={isCustomerRecentlyActive ? "active" : "offline"} />
+                    {isCustomerRecentlyActive ? "Customer active now" : (activeChat.lastMessageTime && activeChat.lastMessageTime !== "Draft" ? `Last activity ${activeChat.lastMessageTime}` : "Direct Contact")}
                   </span>
                 </div>
               </div>
@@ -3842,16 +3975,62 @@ export function ChatView() {
             </button>
           </div>
 
-          {/* 24-Hour Meta Service Window Closed Banner */}
-          {isOfficialChat && !is24HourWindowOpen && (
+          {/* Personal WhatsApp Not Connected Banner */}
+          {selectedDispatchChannel === "PERSONAL" && hasConnectedCompanion === false && (
+            <div className="chat-companion-alert" data-tone="danger">
+              <div className="chat-window-alert-content">
+                <div className="chat-window-alert-icon">
+                  <Icon name="smartphone" size={16} />
+                </div>
+                <div className="chat-window-alert-text">
+                  <strong>Personal WhatsApp Not Connected:</strong> You have not scanned your WhatsApp QR code on this account. Messages cannot be sent until you link your device.
+                </div>
+              </div>
+              <div className="chat-window-alert-actions">
+                <button
+                  type="button"
+                  className="btn"
+                  data-size="sm"
+                  data-variant="accent"
+                  onClick={handleOpenQrModal}
+                >
+                  <Icon name="qr" size={13} /> Scan QR Code
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Official API Service Window Open Indicator */}
+          {selectedDispatchChannel === "OFFICIAL_API" && isOfficialChat && windowInfo.isOpen && (
+            <div style={{ padding: "6px 18px", background: isAdLead ? "var(--accent-soft)" : "var(--success-soft)", borderTop: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "var(--fs-caption)" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", color: isAdLead ? "var(--accent)" : "var(--success)", fontWeight: 500 }}>
+                <Icon name="bolt" size={12} />
+                Meta {isAdLead ? "72h Ad" : "24h"} Messaging Window Open: <strong>{windowInfo.remainingText}</strong> • Direct reply enabled
+              </span>
+              <button
+                type="button"
+                className="btn"
+                data-size="sm"
+                data-variant="ghost"
+                onClick={() => {
+                  setShowTemplateModal(true);
+                  fetchTemplates();
+                }}
+              >
+                <Icon name="sparkle" size={12} /> Template
+              </button>
+            </div>
+          )}
+
+          {/* Official API Service Window Closed Banner */}
+          {selectedDispatchChannel === "OFFICIAL_API" && isOfficialChat && !windowInfo.isOpen && (
             <div className="chat-window-alert">
               <div className="chat-window-alert-content">
                 <div className="chat-window-alert-icon">
                   <Icon name="alert-circle" size={16} />
                 </div>
                 <div className="chat-window-alert-text">
-                  <strong>Meta 24-Hour Service Window Closed.</strong>
-                  {" "}Free-form messages cannot be delivered via Official WhatsApp Cloud API until the customer responds. Send an approved template to re-engage, or switch to your Personal WhatsApp line.
+                  <strong>Meta {windowInfo.hours}h Service Window Closed:</strong> Free-form messaging is locked by WhatsApp. You must send an approved template to start or re-engage this customer.
                 </div>
               </div>
               <div className="chat-window-alert-actions">
@@ -3865,19 +4044,22 @@ export function ChatView() {
                     fetchTemplates();
                   }}
                 >
-                  <Icon name="sparkle" size={12} /> Send Template
+                  <Icon name="sparkle" size={12} /> Select Template
                 </button>
-                {(activeChat.isPersonalQr || activeChat.channelSource === "QR_SCANNER" || !activeChat.isOfficialApi) && (
-                  <button
-                    type="button"
-                    className="btn"
-                    data-size="sm"
-                    data-variant="outline"
-                    onClick={() => setSelectedDispatchChannel("PERSONAL")}
-                  >
-                    <Icon name="whatsapp" size={12} /> Switch to Personal
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="btn"
+                  data-size="sm"
+                  data-variant="outline"
+                  onClick={() => {
+                    setSelectedDispatchChannel("PERSONAL");
+                    if (hasConnectedCompanion === false) {
+                      handleOpenQrModal();
+                    }
+                  }}
+                >
+                  <Icon name="whatsapp" size={12} /> Switch to Personal
+                </button>
               </div>
             </div>
           )}
@@ -3917,7 +4099,10 @@ export function ChatView() {
                 <textarea
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
-                  disabled={selectedDispatchChannel === "OFFICIAL_API" && isOfficialChat && !is24HourWindowOpen}
+                  disabled={
+                    (selectedDispatchChannel === "OFFICIAL_API" && isOfficialChat && !windowInfo.isOpen) ||
+                    (selectedDispatchChannel === "PERSONAL" && hasConnectedCompanion === false)
+                  }
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
@@ -3928,8 +4113,10 @@ export function ChatView() {
                     }
                   }}
                   placeholder={
-                    selectedDispatchChannel === "OFFICIAL_API" && isOfficialChat && !is24HourWindowOpen
-                      ? "24h window closed — click 'Send Approved Template' or switch dispatch channel"
+                    selectedDispatchChannel === "PERSONAL" && hasConnectedCompanion === false
+                      ? "Personal WhatsApp not connected — click 'Connect WA' to link your phone"
+                      : selectedDispatchChannel === "OFFICIAL_API" && isOfficialChat && !windowInfo.isOpen
+                      ? `Meta ${windowInfo.hours}h window closed — click 'Template' to send an approved template`
                       : "Type your reply... (Press Enter to send, Shift+Enter for new line)"
                   }
                   style={{
@@ -3945,7 +4132,7 @@ export function ChatView() {
                     fontSize: "var(--fs-body)",
                     resize: "none",
                     outline: "none",
-                    opacity: (selectedDispatchChannel === "OFFICIAL_API" && isOfficialChat && !is24HourWindowOpen) ? 0.6 : 1,
+                    opacity: ((selectedDispatchChannel === "OFFICIAL_API" && isOfficialChat && !windowInfo.isOpen) || (selectedDispatchChannel === "PERSONAL" && hasConnectedCompanion === false)) ? 0.6 : 1,
                   }}
                 />
                 <div className="seg" data-size="sm" title="Message Dispatch Channel">
@@ -3961,14 +4148,29 @@ export function ChatView() {
                   <button
                     type="button"
                     data-on={selectedDispatchChannel === "PERSONAL"}
-                    onClick={() => setSelectedDispatchChannel("PERSONAL")}
+                    onClick={() => {
+                      setSelectedDispatchChannel("PERSONAL");
+                      if (hasConnectedCompanion === false) {
+                        handleOpenQrModal();
+                      }
+                    }}
                     title="Send via Personal Scanned WhatsApp (Direct Companion Phone)"
                   >
                     <Icon name="whatsapp" size={12} />
                     <span>Personal</span>
                   </button>
                 </div>
-                {selectedDispatchChannel === "OFFICIAL_API" && isOfficialChat && !is24HourWindowOpen ? (
+                {selectedDispatchChannel === "PERSONAL" && hasConnectedCompanion === false ? (
+                  <button
+                    type="button"
+                    className="btn"
+                    data-variant="accent"
+                    onClick={handleOpenQrModal}
+                    style={{ height: "46px", padding: "0 18px", fontWeight: 600 }}
+                  >
+                    <Icon name="qr" size={14} /> Connect WA
+                  </button>
+                ) : selectedDispatchChannel === "OFFICIAL_API" && isOfficialChat && !windowInfo.isOpen ? (
                   <button
                     type="button"
                     className="btn"
@@ -3979,7 +4181,7 @@ export function ChatView() {
                     }}
                     style={{ height: "46px", padding: "0 18px", fontWeight: 600 }}
                   >
-                    <Icon name="sparkle" size={14} /> Send Template
+                    <Icon name="sparkle" size={14} /> Template
                   </button>
                 ) : (
                   <button

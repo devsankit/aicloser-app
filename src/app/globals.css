@@ -7000,6 +7000,82 @@ button.list-prio:hover {
   word-break: break-word;
 }
 
+/* WhatsApp Companion & Messaging Window Badges */
+.chat-companion-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--warning-soft);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: var(--fs-caption);
+  flex-wrap: wrap;
+}
+
+.chat-companion-alert[data-tone="danger"] {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: var(--danger-border);
+}
+
+.chat-window-open-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--r-full);
+  font-size: var(--fs-caption);
+  font-weight: 500;
+  background: var(--success-soft);
+  color: var(--success);
+  border: 1px solid var(--success-border);
+}
+
+.chat-window-open-pill[data-ad="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent-border);
+}
+
+.chat-status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-caption);
+}
+
+.chat-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.chat-status-dot[data-status="active"] {
+  background: #25d366;
+}
+
+.chat-status-dot[data-status="offline"] {
+  background: var(--text-tertiary);
+}
+
+.chat-status-dot[data-status="disconnected"] {
+  background: var(--danger);
+}
+
+.lead-quick-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+
+
 
 
 
