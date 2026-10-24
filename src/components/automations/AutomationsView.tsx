@@ -434,6 +434,22 @@ Your objective:
         if (active) setActiveClosers([]);
       });
 
+    // Load Live Round Robin & Lead Distribution Settings from backend engine
+    aicloserApi.roundRobin.get()
+      .then((res: any) => {
+        if (!active) return;
+        const s = res?.settings || res?.data?.settings || res;
+        if (s) {
+          if (s.mode === "LOAD_BALANCED") setDistributionStrategy("LOAD_BALANCED");
+          else if (s.mode === "STRICT_ROUND_ROBIN") setDistributionStrategy("STRICT_ROUND_ROBIN");
+          else if (s.mode === "MANUAL") setDistributionStrategy("MANUAL");
+          else if (s.mode === "ROUND_ROBIN_GRAB") setDistributionStrategy("ROUND_ROBIN_GRAB");
+          if (s.maxActiveLeadsPerCloser) setMaxLeadsPerCloser(Number(s.maxActiveLeadsPerCloser));
+          if (s.maxVisibleToCloser) setGrabSlaMinutes(Number(s.maxVisibleToCloser));
+        }
+      })
+      .catch(() => {});
+
     return () => {
       active = false;
     };
@@ -1433,20 +1449,37 @@ Your objective:
               </div>
             </div>
 
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <button
-                type="button"
-                className="btn"
-                data-variant="primary"
-                onClick={() => {
-                  setDistributionNotice("✓ Lead distribution strategies and source routing permissions saved successfully.");
-                  setTimeout(() => setDistributionNotice(null), 4000);
-                }}
-                style={{ display: "flex", alignItems: "center", gap: "6px" }}
-              >
-                <Icon name="check" size={13} />
-                <span>Save Lead Distribution Settings</span>
-              </button>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px", marginTop: "8px", padding: "12px 14px", background: "var(--bg-soft)", borderRadius: "var(--r-sm)", border: "1px solid var(--border)" }}>
+              <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)" }}>
+                Core routing engine parameters (Grab Pool capacity, closer break timers, and personal WhatsApp QR routing) are configured centrally in <strong style={{ color: "var(--text)" }}>Team & Users &gt; Routing &amp; Capacity Rules</strong>.
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <a href="/team" className="btn" data-size="sm" data-variant="outline">
+                  Open Team Routing Rules &rarr;
+                </a>
+                <button
+                  type="button"
+                  className="btn"
+                  data-variant="primary"
+                  onClick={async () => {
+                    try {
+                      await aicloserApi.roundRobin.update({
+                        mode: distributionStrategy === "LOAD_BALANCED" ? "LOAD_BALANCED" : distributionStrategy === "MANUAL" ? "MANUAL" : "STRICT_ROUND_ROBIN",
+                        maxActiveLeadsPerCloser: Number(maxLeadsPerCloser),
+                        maxVisibleToCloser: Number(grabSlaMinutes),
+                      });
+                      setDistributionNotice("✓ Lead distribution settings saved to live backend routing engine.");
+                    } catch (err: any) {
+                      setDistributionNotice("Failed to save to routing engine: " + (err?.message || String(err)));
+                    }
+                    setTimeout(() => setDistributionNotice(null), 4000);
+                  }}
+                  style={{ display: "flex", alignItems: "center", gap: "6px" }}
+                >
+                  <Icon name="check" size={13} />
+                  <span>Save Lead Distribution Settings</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
