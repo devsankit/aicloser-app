@@ -5,7 +5,7 @@ import { Icon, type IconName } from "@/components/ui/Icon";
 import { CURRENT_USER, useApp } from "@/lib/store";
 import { STAGES, type StageId, type Priority, stageMeta, PRIORITY_LABEL } from "@/lib/types";
 import { aicloserApi } from "@/lib/api-client";
-import { isScannedWhatsAppLead, stageIdToBackendStage } from "@/lib/lead-mapper";
+import { isScannedWhatsAppLead, stageIdToBackendStage, normalizeStageId } from "@/lib/lead-mapper";
 import { LeadCommandHistory, isManualNote } from "@/components/pipeline/LeadCommandHistory";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { ResizeHandle } from "@/components/ui/ResizeHandle";
@@ -1003,6 +1003,7 @@ export function ChatView() {
     const cleanPhone = activeChat.phone ? activeChat.phone.replace(/\D/g, "").slice(-10) : "";
     return state.leads.find((l) => {
       if (activeChat.leadId && l.id === activeChat.leadId) return true;
+      if (activeChat.id && l.id === activeChat.id) return true;
       if (cleanPhone && l.phone) {
         return l.phone.replace(/\D/g, "").slice(-10) === cleanPhone;
       }
@@ -1073,10 +1074,14 @@ export function ChatView() {
   useEffect(() => {
     if (activeLead?.stage) {
       setChatStage(activeLead.stage);
+    } else if (activeChat?.stage) {
+      setChatStage(activeChat.stage);
+    } else if ((activeChat as any)?.leadStage) {
+      setChatStage(normalizeStageId((activeChat as any).leadStage));
     } else {
       setChatStage("new");
     }
-  }, [activeLead?.id, activeLead?.stage, activeChat?.id]);
+  }, [activeLead?.id, activeLead?.stage, activeChat?.id, activeChat?.stage, (activeChat as any)?.leadStage]);
 
   // Synchronize outbound dispatch channel when active chat switches
   useEffect(() => {
@@ -1268,6 +1273,7 @@ export function ChatView() {
       return (
         state.leads.find((l) => {
           if (c.leadId && l.id === c.leadId) return true;
+          if (c.id && l.id === c.id) return true;
           if (cleanPhone && l.phone && l.phone.replace(/\D/g, "").slice(-10) === cleanPhone) return true;
           return false;
         }) || null
@@ -1413,22 +1419,29 @@ export function ChatView() {
     try {
       const backendStage = stageIdToBackendStage(stageId);
       const lead = getLinkedLead(chat);
-      const targetLeadId = lead?.id || chat.leadId;
+      const targetLeadId = lead?.id || chat.leadId || (!chat.id.startsWith("conv-") ? chat.id : null);
 
       if (targetLeadId) {
         moveLead(targetLeadId, stageId);
-        aicloserApi.leads.update(targetLeadId, { stage: backendStage }).catch(() => {});
+        await aicloserApi.leads.update(targetLeadId, { stage: backendStage }).catch(() => {});
       }
       if (chat.id === activeChat?.id) {
         setChatStage(stageId);
       }
 
-      await aicloserApi.conversations.updateStage(chat.id, backendStage);
+      const convId = (chat.id && chat.id.startsWith("conv-"))
+        ? chat.id
+        : (chat as any).conversationId;
+      if (convId) {
+        await aicloserApi.conversations.updateStage(convId, backendStage).catch(() => {});
+      } else {
+        await aicloserApi.conversations.updateStage(chat.id, backendStage).catch(() => {});
+      }
 
       setConversations((prev) =>
         prev.map((c) => (c.id === chat.id ? { ...c, stage: stageId, leadStage: stageId } : c))
       );
-      void refreshLeads();
+      await refreshLeads();
 
       const meta = stageMeta(stageId);
       showToast(`Stage updated to ${meta.label}`);
@@ -2795,15 +2808,23 @@ export function ChatView() {
     if (isReadOnlyShare) return;
     setChatStage(newStage);
     const backendStage = stageIdToBackendStage(newStage);
-    const targetLeadId = activeLead?.id || activeChat?.leadId;
+    const targetLeadId = activeLead?.id || activeChat?.leadId || (activeChat && !activeChat.id.startsWith("conv-") ? activeChat.id : null);
 
     if (targetLeadId) {
       moveLead(targetLeadId, newStage);
-      aicloserApi.leads.update(targetLeadId, { stage: backendStage }).catch(() => {});
+      await aicloserApi.leads.update(targetLeadId, { stage: backendStage }).catch(() => {});
     }
 
     if (activeChat) {
-      aicloserApi.conversations.updateStage(activeChat.id, backendStage).catch(() => {});
+      const convId = (activeChat.id && activeChat.id.startsWith("conv-"))
+        ? activeChat.id
+        : (activeChat as any).conversationId;
+
+      if (convId) {
+        await aicloserApi.conversations.updateStage(convId, backendStage).catch(() => {});
+      } else if (activeChat.id) {
+        await aicloserApi.conversations.updateStage(activeChat.id, backendStage).catch(() => {});
+      }
 
       const sysMsg: ChatMessage = {
         id: `sys-${Date.now()}`,
@@ -2817,7 +2838,7 @@ export function ChatView() {
           c.id === activeChat.id ? { ...c, stage: newStage, leadStage: newStage, messages: [...c.messages, sysMsg] } : c
         )
       );
-      void refreshLeads();
+      await refreshLeads();
       setTimeout(() => scrollToBottom("smooth"), 30);
     }
   };

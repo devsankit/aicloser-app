@@ -1330,7 +1330,7 @@ export function useScopedLeads() {
           (myId && (l as any).assignedAgentId === myId)
       );
     }
-    if (state.scope === "unassigned") return state.leads.filter((l) => (!l.owner || l.owner === "Unassigned") && !isTeammateScannedWhatsAppLead(l));
+    if (state.scope === "unassigned") return state.leads.filter((l) => !l.owner || l.owner === "Unassigned");
     if (state.scope.startsWith("agent:")) {
       const targetAgent = state.scope.slice(6).trim().toLowerCase();
       return state.leads.filter(
@@ -1338,9 +1338,8 @@ export function useScopedLeads() {
       );
     }
     // Default "all" scope (All team leads):
-    // Strictly isolate teammates' scanned WhatsApp chats from the general company Kanban/leads pool.
-    // Teammate scanned WhatsApp chats will only appear when viewing that teammate specifically.
-    return state.leads.filter((l) => !isTeammateScannedWhatsAppLead(l));
+    // Display all active CRM leads in the pipeline and contacts table
+    return state.leads;
   }, [state.leads, state.scope, state.user]);
 }
 
