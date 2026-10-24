@@ -30,6 +30,7 @@ export function AddLeadDialog({
   const [owners, setOwners] = useState<string[]>([currentUserName, "Unassigned"]);
   const [ownerAgentMap, setOwnerAgentMap] = useState<Record<string, string>>({});
 
+  const [dynamicStages, setDynamicStages] = useState<Array<{ id: string; label: string }>>([]);
   const [workspaceLabels, setWorkspaceLabels] = useState<any[]>([]);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
@@ -49,38 +50,98 @@ export function AddLeadDialog({
   });
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch real team members to populate owner options
+  // Synchronously seed team members from store and asynchronously fetch fresh members + stages + labels
   useEffect(() => {
     let mounted = true;
+
+    // 1. Seed owners from state.teamMembers immediately
+    const initialMap: Record<string, string> = {};
+    const initialNames = new Set<string>();
+    if (currentUserName) initialNames.add(currentUserName);
+
+    if (state.teamMembers && state.teamMembers.length > 0) {
+      state.teamMembers.forEach((m: any) => {
+        const name = m.displayName || m.name;
+        const agentId = m.id || m.userId;
+        if (name) {
+          initialNames.add(name);
+          if (agentId) initialMap[name] = agentId;
+        }
+      });
+      initialNames.add("Unassigned");
+      setOwners(Array.from(initialNames));
+      setOwnerAgentMap(initialMap);
+    }
+
+    // 2. Fetch fresh team roster from real API
     aicloserApi.team
       .listMembers()
-      .then((members: any) => {
-        if (!mounted || !Array.isArray(members)) return;
-        const map: Record<string, string> = {};
-        const names = new Set<string>();
-        if (currentUserName) names.add(currentUserName);
+      .then((teamRes: any) => {
+        if (!mounted) return;
+        const rawMembers = Array.isArray(teamRes)
+          ? teamRes
+          : Array.isArray(teamRes?.members)
+          ? teamRes.members
+          : Array.isArray(teamRes?.data?.members)
+          ? teamRes.data.members
+          : [];
 
-        members.forEach((m: any) => {
-          const name = m.displayName || m.user?.displayName || m.name || m.email;
-          const agentId = m.id || m.userId;
-          if (name) {
-            names.add(name);
-            if (agentId) map[name] = agentId;
-          }
-        });
-        names.add("Unassigned");
+        if (rawMembers.length > 0) {
+          const freshMap: Record<string, string> = {};
+          const freshNames = new Set<string>();
+          if (currentUserName) freshNames.add(currentUserName);
 
-        setOwners(Array.from(names));
-        setOwnerAgentMap(map);
+          rawMembers.forEach((m: any) => {
+            const name = m.displayName || m.user?.displayName || m.name || m.email;
+            const agentId = m.id || m.userId;
+            if (name) {
+              freshNames.add(name);
+              if (agentId) freshMap[name] = agentId;
+            }
+          });
+          freshNames.add("Unassigned");
+
+          setOwners(Array.from(freshNames));
+          setOwnerAgentMap(freshMap);
+        }
       })
       .catch(() => {});
 
-    // Fetch existing workspace labels for autocomplete
+    // 3. Fetch dynamic stages from real API
+    aicloserApi.stages
+      .list()
+      .then((stagesRes: any) => {
+        if (!mounted) return;
+        const list = Array.isArray(stagesRes)
+          ? stagesRes
+          : Array.isArray(stagesRes?.stages)
+          ? stagesRes.stages
+          : Array.isArray(stagesRes?.data)
+          ? stagesRes.data
+          : [];
+
+        if (list.length > 0) {
+          const mapped = list.map((s: any) => ({
+            id: (s.key || s.id || "").toLowerCase(),
+            label: s.label || s.key || s.id,
+          }));
+          setDynamicStages(mapped);
+        }
+      })
+      .catch(() => {});
+
+    // 4. Fetch existing workspace labels for autocomplete
     aicloserApi.labels
       .list()
       .then((res: any) => {
         if (!mounted) return;
-        const list = res?.data || res || [];
+        const list = Array.isArray(res)
+          ? res
+          : Array.isArray(res?.data)
+          ? res.data
+          : Array.isArray(res?.labels)
+          ? res.labels
+          : [];
         if (Array.isArray(list)) setWorkspaceLabels(list);
       })
       .catch(() => {});
@@ -88,7 +149,7 @@ export function AddLeadDialog({
     return () => {
       mounted = false;
     };
-  }, [currentUserName]);
+  }, [currentUserName, state.teamMembers]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -98,11 +159,21 @@ export function AddLeadDialog({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  const stagesList = dynamicStages.length > 0
+    ? dynamicStages
+    : STAGES.map((s) => ({ id: s.id, label: s.label }));
+
   const handleAddTag = (tagToAdd: string) => {
     const trimmed = tagToAdd.trim().replace(/^#/, "");
     if (!trimmed || selectedTags.includes(trimmed)) return;
     setSelectedTags((prev) => [...prev, trimmed]);
     setTagInput("");
+
+    // Persist new label to workspace if not already present
+    const exists = workspaceLabels.some((l: any) => (l.name || l).toLowerCase() === trimmed.toLowerCase());
+    if (!exists) {
+      aicloserApi.labels.create({ name: trimmed }).catch(() => {});
+    }
   };
 
   const handleRemoveTag = (tagToRemove: string) => {
@@ -249,13 +320,14 @@ export function AddLeadDialog({
                 value={form.stage}
                 onChange={(e) => setForm({ ...form, stage: e.target.value as StageId })}
               >
-                {STAGES.map((s) => (
+                {stagesList.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.label}
                   </option>
                 ))}
               </select>
             </div>
+
             <div className="field">
               <label htmlFor="a-source">Source</label>
               <select
@@ -376,6 +448,29 @@ export function AddLeadDialog({
                   <Icon name="plus" size={12} /> Add
                 </button>
               </div>
+              {workspaceLabels.length > 0 && (
+                <div className="chip-row" style={{ marginTop: "6px", flexWrap: "wrap", gap: "4px" }}>
+                  <span className="caption" style={{ color: "var(--text-tertiary)", fontSize: "11px", marginRight: "4px" }}>
+                    Quick suggestions:
+                  </span>
+                  {workspaceLabels
+                    .filter((l: any) => !selectedTags.includes(l.name || l))
+                    .slice(0, 5)
+                    .map((lbl: any) => (
+                      <button
+                        key={lbl.id || lbl.name}
+                        type="button"
+                        className="chip"
+                        data-size="sm"
+                        onClick={() => handleAddTag(lbl.name || lbl)}
+                        title={`Add tag "${lbl.name || lbl}"`}
+                        style={{ cursor: "pointer" }}
+                      >
+                        <Icon name="plus" size={10} /> {lbl.name || lbl}
+                      </button>
+                    ))}
+                </div>
+              )}
             </div>
           </div>
 

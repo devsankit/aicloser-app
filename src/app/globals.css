@@ -1309,12 +1309,30 @@ select,
   color: var(--text);
   border: 1px solid var(--border-input);
   border-radius: var(--r-sm);
+  font-family: inherit;
+  font-size: var(--fs-meta, 13px);
+  line-height: 1.4;
+  transition: border-color var(--speed) ease, box-shadow var(--speed) ease, background-color var(--speed) ease;
+}
+
+select:hover,
+.select:hover {
+  border-color: var(--border-strong);
 }
 
 select option,
 .select option {
   background-color: var(--bg-panel, #18191c);
   color: var(--text, #f7f8f8);
+  font-family: inherit;
+  font-size: var(--fs-meta, 13px);
+  padding: 6px 10px;
+}
+
+[data-theme="light"] select option,
+[data-theme="light"] .select option {
+  background-color: #ffffff;
+  color: #1e293b;
 }
 
 /* ---------- chips / badges ---------- */
@@ -2119,6 +2137,55 @@ select option,
   font-size: var(--fs-meta);
   font-weight: 600;
   margin-top: 2px;
+}
+
+.drawer-label-box {
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  margin-top: 4px;
+}
+
+.drawer-label-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.drawer-label-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.drawer-color-dots {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.drawer-color-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  cursor: pointer;
+  padding: 0;
+  border: 1px solid transparent;
+}
+
+.drawer-color-dot[data-selected="true"] {
+  border: 2px solid var(--text);
+}
+
+.drawer-danger-footer {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .form-error {

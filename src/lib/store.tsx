@@ -554,7 +554,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
           : undefined;
 
         // Cleanly map leads and ALWAYS update state.leads (even if [] for a fresh workspace)
-        const mapped = (apiLeads || []).map(backendLeadToUiLead);
+        const activeMembers = teamMembers.length > 0 ? teamMembers : [];
+        const mapped = (apiLeads || []).map((lead: any) => {
+          const uiLead = backendLeadToUiLead(lead);
+          if ((uiLead.owner === "Unassigned" || !uiLead.owner) && uiLead.assignedAgentId && activeMembers.length > 0) {
+            const foundMember = activeMembers.find(
+              (m: any) => m.id === uiLead.assignedAgentId || m.userId === uiLead.assignedAgentId
+            );
+            if (foundMember) {
+              uiLead.owner = foundMember.displayName || foundMember.name;
+            }
+          }
+          return uiLead;
+        });
         setState((p) => ({
           ...p,
           leads: mapped,

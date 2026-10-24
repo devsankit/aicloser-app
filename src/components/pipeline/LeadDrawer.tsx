@@ -582,10 +582,11 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                   );
                 })}
                 {showAddLabel ? (
-                  <div className="card" style={{ padding: "8px 10px", display: "flex", flexDirection: "column", gap: "8px", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--r-sm)", marginTop: "4px" }}>
-                    <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                  <div className="drawer-label-box">
+                    <div className="drawer-label-row">
                       <input
                         className="input"
+                        data-size="sm"
                         value={newLabelInput}
                         onChange={(e) => setNewLabelInput(e.target.value)}
                         onKeyDown={(e) => {
@@ -597,12 +598,12 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                           }
                         }}
                         placeholder="Label name..."
-                        style={{ height: "28px", fontSize: "12px", flex: 1 }}
                         autoFocus
                       />
                       {availableWorkspaceLabels.length > 0 && (
                         <select
                           className="select"
+                          data-size="sm"
                           value=""
                           onChange={(e) => {
                             if (e.target.value) {
@@ -611,7 +612,6 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                             }
                           }}
                           aria-label="Pick existing workspace label"
-                          style={{ height: "28px", fontSize: "11px", maxWidth: "120px" }}
                         >
                           <option value="">Existing…</option>
                           {availableWorkspaceLabels.map((l) => (
@@ -622,34 +622,27 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                         </select>
                       )}
                     </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+                    <div className="drawer-label-bar">
+                      <div className="drawer-color-dots">
                         {["#F97316", "#10B981", "#3B82F6", "#8B5CF6", "#EC4899", "#EAB308", "#64748B"].map((c) => (
                           <button
                             key={c}
                             type="button"
+                            className="drawer-color-dot"
+                            data-selected={selectedTagColor === c}
                             onClick={() => setSelectedTagColor(c)}
                             title={`Select color ${c}`}
-                            style={{
-                              width: "16px",
-                              height: "16px",
-                              borderRadius: "50%",
-                              background: c,
-                              border: selectedTagColor === c ? "2px solid var(--text)" : "1px solid transparent",
-                              cursor: "pointer",
-                              padding: 0,
-                            }}
+                            style={{ background: c }}
                           />
                         ))}
                       </div>
-                      <div style={{ display: "flex", gap: "4px" }}>
+                      <div className="drawer-label-row">
                         <button
                           type="button"
                           className="btn"
                           data-size="sm"
                           data-variant="ghost"
                           onClick={() => setShowAddLabel(false)}
-                          style={{ height: "24px", fontSize: "11px", padding: "0 6px" }}
                         >
                           Cancel
                         </button>
@@ -659,7 +652,6 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                           data-size="sm"
                           data-variant="primary"
                           onClick={() => addTag(newLabelInput, selectedTagColor)}
-                          style={{ height: "24px", fontSize: "11px", padding: "0 8px" }}
                         >
                           Add
                         </button>
@@ -673,7 +665,6 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                     data-size="sm"
                     data-variant="ghost"
                     onClick={() => setShowAddLabel(true)}
-                    style={{ height: "24px", fontSize: "11px", padding: "0 6px" }}
                   >
                     <Icon name="plus" size={11} /> Add label
                   </button>
@@ -760,18 +751,18 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
 
         <footer className="drawer-foot">
           {confirmDelete ? (
-            <div style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+            <div className="drawer-danger-footer">
+              <div className="field-group">
                 <span className="hint">
                   Delete {lead.code} permanently?
                 </span>
                 {deleteError && (
-                  <span className="chip" data-tone="danger" style={{ fontSize: "11px" }}>
+                  <span className="chip" data-tone="danger" data-size="sm">
                     {deleteError}
                   </span>
                 )}
               </div>
-              <div style={{ display: "flex", gap: "6px" }}>
+              <div className="drawer-label-row">
                 <button
                   className="btn"
                   data-size="sm"

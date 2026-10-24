@@ -3,6 +3,7 @@ import type { Lead as UiLead, Priority, Segment, Source, StageId } from "./types
 
 export function normalizeStageId(stage?: string | null): StageId {
   const s = (stage || "").toLowerCase().replace(/[\s-]+/g, "_");
+  if (!s) return "new";
   if (s.includes("new") || s === "assigned") return "new";
   if (s.includes("demo") || s.includes("webinar") || s.includes("qualif")) return "demo";
   if (s.includes("follow")) return "follow_up";
@@ -11,7 +12,7 @@ export function normalizeStageId(stage?: string | null): StageId {
   if (s.includes("lost") || s.includes("closed_lost") || s.includes("not_reach") || s.includes("recycled")) return "lost";
   if (s.includes("progress")) return "in_progress";
   if (s.includes("contact") || s.includes("interest")) return "contacted";
-  return "new";
+  return s as StageId;
 }
 
 export function stageIdToBackendStage(stage: StageId): string {
@@ -33,7 +34,7 @@ export function stageIdToBackendStage(stage: StageId): string {
     case "lost":
       return "CLOSED_LOST";
     default:
-      return "NEW";
+      return stage ? String(stage).toUpperCase().replace(/[\s-]+/g, "_") : "NEW";
   }
 }
 
