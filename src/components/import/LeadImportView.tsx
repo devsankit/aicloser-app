@@ -6,10 +6,9 @@ import * as XLSX from "xlsx";
 import { Icon } from "@/components/ui/Icon";
 import { useApp } from "@/lib/store";
 import { aicloserApi } from "@/lib/api-client";
-import { renderDeterministicQrSvg } from "@/components/sales/contacts-hub";
 import { OWNERS, STAGES, type Priority, type Segment, type Source, type StageId } from "@/lib/types";
 
-export type ImportChannel = "csv" | "excel" | "sheets" | "whatsapp_qr" | "email" | "indiamart" | "justdial";
+export type ImportChannel = "csv" | "excel" | "sheets" | "indiamart" | "justdial";
 
 interface ImportBatch {
   id: string;
@@ -51,10 +50,6 @@ export function LeadImportView() {
   const [sheetTabName, setSheetTabName] = useState("Sheet1");
   const [sheetAutoSync, setSheetAutoSync] = useState(true);
   const [isFetchingSheet, setIsFetchingSheet] = useState(false);
-
-  // Inbound Email state
-  const inboundEmailAddress = "leads+enterprise@inbound.aicloser.in";
-  const [emailCopied, setEmailCopied] = useState(false);
 
   // IndiaMART & JustDial states
   const [imCrmKey, setImCrmKey] = useState<string>(() => (typeof window !== "undefined" ? localStorage.getItem("aicloser_indiamart_crm_key") || "" : ""));
@@ -262,142 +257,6 @@ export function LeadImportView() {
     }
   };
 
-  const [scannerState, setScannerState] = useState<any>(null);
-  const [scannerQrModal, setScannerQrModal] = useState(false);
-  const [scannerPairingCode, setScannerPairingCode] = useState("");
-  const [scannerQrData, setScannerQrData] = useState("");
-  const [scannerPhoneInput, setScannerPhoneInput] = useState("");
-  const [scannerIsLinking, setScannerIsLinking] = useState(false);
-  const [scannerPairingMethod, setScannerPairingMethod] = useState<"qr" | "code">("qr");
-  const [scannerSuccessMsg, setScannerSuccessMsg] = useState<string | null>(null);
-  const [scannerErrorMsg, setScannerErrorMsg] = useState<string | null>(null);
-
-  const loadScannerState = async () => {
-    try {
-      const res = await aicloserApi.integrations.whatsapp.devices.list();
-      const firstConnected = (res?.data || []).find((d: any) => d.status === "connected");
-      if (firstConnected) {
-        setScannerState({
-          connectedPhone: firstConnected.phoneNumber || firstConnected.name,
-          platform: "MULTI_DEVICE",
-          lastSync: new Date().toISOString(),
-          discoveredChats: [],
-        } as any);
-      }
-    } catch {
-      // ignore
-    }
-  };
-
-  useEffect(() => {
-    if (channel === "whatsapp_qr") {
-      void loadScannerState();
-    }
-  }, [channel]);
-
-  const handleStartScanner = async () => {
-    setScannerQrModal(true);
-    setScannerErrorMsg(null);
-    setScannerSuccessMsg(null);
-    try {
-      const res: any = await aicloserApi.integrations.whatsapp.devices.startPairing({
-        name: state.user?.displayName || "Admin WhatsApp Line",
-      });
-      if (res?.qrData || res?.qrDataUrl || res?.qrCode) {
-        setScannerQrData(res.qrData || res.qrDataUrl || res.qrCode);
-      }
-      if (res?.pairingCode) {
-        setScannerPairingCode(res.pairingCode);
-      }
-    } catch (err: any) {
-      setScannerErrorMsg(err?.message || "Failed to initialize WhatsApp pairing session.");
-    }
-  };
-
-  const handleConfirmScannerPairing = async () => {
-    if (!scannerPhoneInput.trim()) {
-      setScannerErrorMsg("Please enter your WhatsApp phone number");
-      return;
-    }
-    setScannerIsLinking(true);
-    setScannerErrorMsg(null);
-    try {
-      const res: any = await aicloserApi.integrations.whatsapp.devices.confirmPairing({
-        phoneNumber: scannerPhoneInput.trim(),
-        name: state.user?.displayName || "Admin WhatsApp Line",
-      });
-      if (res?.id || res?.status === "connected" || (res as any)?.success) {
-        setScannerSuccessMsg(`✓ Linked WhatsApp number ${scannerPhoneInput.trim()} successfully!`);
-        setTimeout(() => {
-          setScannerQrModal(false);
-          setScannerSuccessMsg(null);
-          setScannerPhoneInput("");
-          void loadScannerState();
-        }, 1500);
-      }
-    } catch (err: any) {
-      setScannerErrorMsg(err?.message || "Failed to confirm WhatsApp pairing.");
-    } finally {
-      setScannerIsLinking(false);
-    }
-  };
-
-  const handleExtractWhatsAppChats = async () => {
-    setIsProcessing(true);
-    try {
-      const res: any = await aicloserApi.integrations.whatsapp.devices.importAll().catch(() => null);
-      const discovered = res?.leads || [];
-      if (discovered.length > 0) {
-        const headers = ["Contact Name", "Phone", "Last Message", "Labels"];
-        const rows = discovered.map((c: any) => ({
-          "Contact Name": c.name || "WhatsApp Customer",
-          Phone: c.phone || "",
-          "Last Message": c.lastMessagePreview || "",
-          Labels: (c.labels || []).join(", ") || "Active Chat",
-        }));
-        applyDetectedRows("WhatsApp Linked Companion Chats", `${rows.length} Active Phone Threads`, headers, rows, "WhatsApp QR");
-        return;
-      }
-
-      // Check real conversations from conversations API
-      const convRes = await fetch("/api/v1/conversations?limit=50", { cache: "no-store" }).catch(() => null);
-      const convData = await convRes?.json().catch(() => null);
-      const conversations = convData?.data?.conversations || convData?.conversations || [];
-      if (conversations.length > 0) {
-        const headers = ["Contact Name", "Phone", "Last Message", "Channel"];
-        const rows = conversations.map((c: any) => ({
-          "Contact Name": c.customerName || c.title || "WhatsApp Customer",
-          Phone: c.customerPhone || c.phone || "",
-          "Last Message": c.lastMessageSnippet || c.snippet || "",
-          Channel: "WhatsApp",
-        }));
-        applyDetectedRows("WhatsApp Live Inbound Conversations", `${rows.length} Real Active Threads`, headers, rows, "WhatsApp QR");
-        return;
-      }
-
-      alert("No active WhatsApp conversations found. Please link your phone via QR scanner.");
-      setScannerQrModal(true);
-    } catch (err: any) {
-      alert(err.message || "Failed to extract WhatsApp chats.");
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleSimulateInboundEmail = () => {
-    setIsProcessing(true);
-    setTimeout(() => {
-      setIsProcessing(false);
-      const headers = ["Sender Name", "Business Entity", "Sender Phone", "Inbound Email", "Requirement Summary", "Budget Range"];
-      const rows = [
-        { "Sender Name": "Alok Mathur", "Business Entity": "Mathur FinServ (IndiaMART Lead)", "Sender Phone": "+91 98112 55443", "Inbound Email": "alok@mathurfinserv.com", "Requirement Summary": "Forwarded IndiaMART RFQ for CRM with SIM telephony", "Budget Range": "165000" },
-        { "Sender Name": "Bhavna Trivedi", "Business Entity": "Trivedi Textiles (Justdial Lead)", "Sender Phone": "+91 98791 22334", "Inbound Email": "bhavna@trivedisilk.in", "Requirement Summary": "Justdial SMS/Email verified lead for Sales Tracker", "Budget Range": "110000" },
-        { "Sender Name": "Farhan Qureshi", "Business Entity": "FlyEasy Aviation Tours", "Sender Phone": "+91 98209 77889", "Inbound Email": "farhan@flyeasy.in", "Requirement Summary": "Inquiry form submission from corporate website", "Budget Range": "240000" },
-      ];
-      applyDetectedRows("Inbound Forwarded Email Ingestion", "3 Webhook Parsed Emails", headers, rows, "Email");
-    }, 500);
-  };
-
   const handleExecuteImport = () => {
     setIsProcessing(true);
     setTimeout(() => {
@@ -502,7 +361,7 @@ export function LeadImportView() {
             Multi-Source Lead Import & Ingestion
           </h1>
           <p className="page-sub" style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
-            Ingest leads across multi-channel sources: CSV, Excel, Google Sheets, WhatsApp QR Scanner, Inbound Email, IndiaMART, and JustDial.
+            Ingest leads across multi-channel sources: CSV, Excel, Google Sheets, IndiaMART, and JustDial.
           </p>
         </div>
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
@@ -679,54 +538,6 @@ export function LeadImportView() {
 
                 <button
                   type="button"
-                  onClick={() => setChannel("whatsapp_qr")}
-                  className="card"
-                  style={{
-                    padding: "14px",
-                    textAlign: "left",
-                    cursor: "pointer",
-                    border: channel === "whatsapp_qr" ? "2px solid var(--accent)" : "1px solid var(--border)",
-                    background: channel === "whatsapp_qr" ? "var(--accent-soft)" : "var(--bg-soft)",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "12px",
-                  }}
-                >
-                  <div style={{ width: "36px", height: "36px", borderRadius: "8px", background: "rgba(34, 197, 94, 0.15)", color: "var(--success)", display: "grid", placeItems: "center" }}>
-                    <Icon name="whatsapp" size={18} />
-                  </div>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: "var(--fs-meta)" }}>4. WhatsApp Linked QR</div>
-                    <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Extract phone chats</div>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setChannel("email")}
-                  className="card"
-                  style={{
-                    padding: "14px",
-                    textAlign: "left",
-                    cursor: "pointer",
-                    border: channel === "email" ? "2px solid var(--accent)" : "1px solid var(--border)",
-                    background: channel === "email" ? "var(--accent-soft)" : "var(--bg-soft)",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "12px",
-                  }}
-                >
-                  <div style={{ width: "36px", height: "36px", borderRadius: "8px", background: "rgba(168, 85, 247, 0.15)", color: "var(--accent)", display: "grid", placeItems: "center" }}>
-                    <Icon name="mail" size={18} />
-                  </div>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: "var(--fs-meta)" }}>5. Inbound Email</div>
-                    <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Forwarding webhook</div>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
                   onClick={() => setChannel("indiamart")}
                   className="card"
                   style={{
@@ -744,7 +555,7 @@ export function LeadImportView() {
                     <Icon name="building" size={18} />
                   </div>
                   <div>
-                    <div style={{ fontWeight: 600, fontSize: "var(--fs-meta)" }}>6. IndiaMART</div>
+                    <div style={{ fontWeight: 600, fontSize: "var(--fs-meta)" }}>4. IndiaMART</div>
                     <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>B2B catalog sync &amp; poll</div>
                   </div>
                 </button>
@@ -768,7 +579,7 @@ export function LeadImportView() {
                     <Icon name="plug-2" size={18} />
                   </div>
                   <div>
-                    <div style={{ fontWeight: 600, fontSize: "var(--fs-meta)" }}>7. JustDial</div>
+                    <div style={{ fontWeight: 600, fontSize: "var(--fs-meta)" }}>5. JustDial</div>
                     <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Inbound webhook push</div>
                   </div>
                 </button>
@@ -922,258 +733,7 @@ export function LeadImportView() {
                 </section>
               )}
 
-              {/* Channel 4: WhatsApp Linked Device QR Extraction */}
-              {channel === "whatsapp_qr" && (
-                <section className="card" style={{ padding: "28px 24px", background: "var(--bg-soft)" }}>
-                  <div style={{ display: "flex", alignItems: "flex-start", gap: "14px", marginBottom: "20px" }}>
-                    <div style={{ width: "42px", height: "42px", borderRadius: "10px", background: "rgba(34, 197, 94, 0.15)", color: "var(--success)", display: "grid", placeItems: "center", flex: "0 0 auto" }}>
-                      <Icon name="whatsapp" size={22} />
-                    </div>
-                    <div>
-                      <h2 style={{ fontSize: "var(--fs-title)", fontWeight: 650 }}>WhatsApp Companion Linked Device (Multi-Account QR)</h2>
-                      <p style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "3px" }}>
-                        Connect one or multiple WhatsApp accounts to scan and ingest active customer chat threads directly into Closer leads.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Live Device Status Card */}
-                  <div className="card" style={{ padding: "16px", background: "var(--bg)", border: "1px solid var(--border)", marginBottom: "18px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                        <div style={{ width: "32px", height: "32px", borderRadius: "50%", background: scannerState?.status === "CONNECTED" ? "rgba(34, 197, 94, 0.15)" : "var(--bg-soft)", color: scannerState?.status === "CONNECTED" ? "var(--success)" : "var(--text-tertiary)", display: "grid", placeItems: "center" }}>
-                          <Icon name="smartphone" size={16} />
-                        </div>
-                        <div>
-                          <div style={{ fontWeight: 600, fontSize: "var(--fs-meta)" }}>
-                            {scannerState?.status === "CONNECTED" ? (scannerState.connectedDisplayName || scannerState.connectedPhone || "Connected WhatsApp") : "No WhatsApp Account Connected"}
-                          </div>
-                          <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
-                            {scannerState?.status === "CONNECTED" ? `Phone: ${scannerState.connectedPhone} • Protocol: Multi-Device Sync` : "Scan QR code or use pairing code to link a WhatsApp number"}
-                          </div>
-                        </div>
-                      </div>
-                      <span className="chip" data-tone={scannerState?.status === "CONNECTED" ? "success" : "neutral"} style={{ fontSize: "11px" }}>
-                        {scannerState?.status === "CONNECTED" ? "Connected" : "Not Linked"}
-                      </span>
-                    </div>
-
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px", marginTop: "14px", paddingTop: "12px", borderTop: "1px solid var(--border)" }}>
-                      <div>
-                        <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Connected Account</div>
-                        <div style={{ fontSize: "var(--fs-body)", fontWeight: 600, color: "var(--text)" }}>
-                          {scannerState?.status === "CONNECTED" ? (scannerState.connectedPhone || "Active") : "0 Linked"}
-                        </div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Discovered Chats</div>
-                        <div style={{ fontSize: "var(--fs-body)", fontWeight: 600, color: "var(--accent)" }}>
-                          {scannerState?.discoveredChats?.length || 0} Ready to Import
-                        </div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Multi-Account</div>
-                        <div style={{ fontSize: "var(--fs-body)", fontWeight: 600, color: "var(--text)" }}>
-                          Enabled
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                    <button
-                      type="button"
-                      className="btn"
-                      data-variant="primary"
-                      onClick={handleExtractWhatsAppChats}
-                      disabled={isProcessing}
-                      style={{ display: "flex", alignItems: "center", gap: "6px" }}
-                    >
-                      <Icon name="whatsapp" size={13} />
-                      {isProcessing ? "Extracting WhatsApp Chats..." : "Extract & Import Active WhatsApp Chats"}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn"
-                      onClick={handleStartScanner}
-                      style={{ display: "flex", alignItems: "center", gap: "6px" }}
-                    >
-                      <Icon name="scan" size={13} />
-                      {scannerState?.status === "CONNECTED" ? "Scan / Link Another WhatsApp" : "Scan WhatsApp QR Code"}
-                    </button>
-                  </div>
-
-                  {/* QR Scanner Modal (Floating Dialog) */}
-                  {scannerQrModal && (
-                    <div className="overlay" data-kind="dialog" onClick={() => setScannerQrModal(false)}>
-                      <div className="dialog" style={{ maxWidth: 460, width: "100%", maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
-                        <header className="dialog-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <h3 style={{ fontSize: "var(--fs-title)", fontWeight: 650, display: "flex", alignItems: "center", gap: 8, margin: 0 }}>
-                            <Icon name="whatsapp" size={18} /> Link WhatsApp Account
-                          </h3>
-                          <button type="button" className="icon-btn" onClick={() => setScannerQrModal(false)}>
-                            <Icon name="close" size={14} />
-                          </button>
-                        </header>
-                        <div className="dialog-body" style={{ padding: "16px 20px" }}>
-                          <p style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginBottom: 14, lineHeight: 1.4 }}>
-                            Link your WhatsApp number to auto-ingest incoming customer leads and threads directly into the CRM.
-                          </p>
-
-                          {/* Pairing Method Switcher */}
-                          <div className="seg" style={{ width: "100%", justifyContent: "center", marginBottom: 16 }}>
-                            <button
-                              type="button"
-                              data-on={scannerPairingMethod === "qr"}
-                              onClick={() => setScannerPairingMethod("qr")}
-                              style={{ flex: 1 }}
-                            >
-                              QR Code Scanner
-                            </button>
-                            <button
-                              type="button"
-                              data-on={scannerPairingMethod === "code"}
-                              onClick={() => setScannerPairingMethod("code")}
-                              style={{ flex: 1 }}
-                            >
-                              Pairing Code
-                            </button>
-                          </div>
-
-                          {scannerPairingMethod === "qr" ? (
-                            <div style={{ textAlign: "center", margin: "10px 0" }}>
-                              {scannerQrData ? (
-                                /* eslint-disable-next-line @next/next/no-img-element */
-                                <img
-                                  src={scannerQrData}
-                                  alt="WhatsApp QR Code"
-                                  style={{ width: 220, height: 220, margin: "0 auto", borderRadius: 8, border: "1px solid var(--border)", background: "#fff", padding: 8 }}
-                                />
-                              ) : (
-                                <div style={{ display: "inline-block", border: "1px solid var(--border)", borderRadius: "8px", padding: "8px", background: "#fff" }}>
-                                  {renderDeterministicQrSvg(scannerPairingCode || "wa-companion-scanner")}
-                                </div>
-                              )}
-                              <div style={{ fontSize: "11.5px", color: "var(--text-secondary)", marginTop: 8 }}>
-                                Open WhatsApp &gt; <strong>Linked Devices</strong> &gt; <strong>Link a Device</strong>, then scan this QR code.
-                              </div>
-                            </div>
-                          ) : (
-                            <div style={{ textAlign: "center", padding: "16px 12px", background: "var(--bg-soft)", borderRadius: 8, margin: "10px 0", border: "1px dashed var(--border-strong)" }}>
-                              <div style={{ fontSize: "11px", textTransform: "uppercase", fontWeight: 700, color: "var(--text-tertiary)" }}>
-                                Your WhatsApp 8-Digit Pairing Code
-                              </div>
-                              <div style={{ fontSize: "24px", fontWeight: 700, letterSpacing: "4px", color: "var(--accent)", marginTop: 6, fontFamily: "monospace" }}>
-                                {scannerPairingCode || "7482-9104"}
-                              </div>
-                              <div style={{ fontSize: "11.5px", color: "var(--text-secondary)", marginTop: 6 }}>
-                                In WhatsApp on your phone, choose <strong>Link with phone number instead</strong> and enter this code.
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Mobile Number Link Field */}
-                          <div className="field" style={{ marginTop: 14 }}>
-                            <label style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
-                              WhatsApp Mobile Number
-                            </label>
-                            <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
-                              <input
-                                type="tel"
-                                className="input"
-                                placeholder="+91 98765 43210"
-                                value={scannerPhoneInput}
-                                onChange={(e) => setScannerPhoneInput(e.target.value)}
-                                style={{ flex: 1 }}
-                              />
-                              <button
-                                type="button"
-                                className="btn"
-                                data-variant="primary"
-                                disabled={scannerIsLinking || !scannerPhoneInput.trim()}
-                                onClick={handleConfirmScannerPairing}
-                              >
-                                {scannerIsLinking ? "Linking..." : "Confirm & Link"}
-                              </button>
-                            </div>
-                          </div>
-
-                          {scannerSuccessMsg && (
-                            <div className="chip" data-tone="success" style={{ padding: "6px 10px", fontSize: "12px", marginTop: 10, width: "100%", justifyContent: "center" }}>
-                              {scannerSuccessMsg}
-                            </div>
-                          )}
-                          {scannerErrorMsg && (
-                            <p className="form-error" style={{ margin: "8px 0 0", fontSize: "11.5px" }}>{scannerErrorMsg}</p>
-                          )}
-                        </div>
-
-                        <footer className="dialog-foot" style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "14px 20px" }}>
-                          <button type="button" className="btn" onClick={() => void handleStartScanner()}>Refresh QR</button>
-                          <button type="button" className="btn" data-variant="primary" onClick={() => { setScannerQrModal(false); void loadScannerState(); }}>Done</button>
-                        </footer>
-                      </div>
-                    </div>
-                  )}
-                </section>
-              )}
-
-              {/* Channel 5: Inbound Email Forwarding */}
-              {channel === "email" && (
-                <section className="card" style={{ padding: "28px 24px", background: "var(--bg-soft)" }}>
-                  <div style={{ display: "flex", alignItems: "flex-start", gap: "14px", marginBottom: "20px" }}>
-                    <div style={{ width: "42px", height: "42px", borderRadius: "10px", background: "rgba(168, 85, 247, 0.15)", color: "#a855f7", display: "grid", placeItems: "center", flex: "0 0 auto" }}>
-                      <Icon name="mail" size={22} />
-                    </div>
-                    <div>
-                      <h2 style={{ fontSize: "var(--fs-title)", fontWeight: 650 }}>Inbound Email Lead Forwarding Webhook</h2>
-                      <p style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "3px" }}>
-                        Auto-ingest leads from IndiaMART, Justdial, 99acres, TradeIndia, or website contact forms by forwarding emails here.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="card" style={{ padding: "16px", background: "var(--bg)", border: "1px solid var(--border)", marginBottom: "18px" }}>
-                    <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", fontWeight: 600 }}>Your Dedicated Inbound Email Address:</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "6px" }}>
-                      <code style={{ fontSize: "var(--fs-body)", fontWeight: 600, color: "var(--accent)", background: "var(--bg-soft)", padding: "6px 12px", borderRadius: "6px", flex: 1, border: "1px solid var(--border)" }}>
-                        {inboundEmailAddress}
-                      </code>
-                      <button
-                        type="button"
-                        className="btn"
-                        data-variant="ghost"
-                        onClick={() => {
-                          navigator.clipboard?.writeText(inboundEmailAddress);
-                          setEmailCopied(true);
-                          setTimeout(() => setEmailCopied(false), 2000);
-                        }}
-                      >
-                        <Icon name={emailCopied ? "check" : "copy"} size={13} />
-                        {emailCopied ? "Copied" : "Copy Address"}
-                      </button>
-                    </div>
-
-                    <div style={{ marginTop: "14px", fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.5 }}>
-                      <b>How it works:</b> Set up an automatic email forwarding rule in your Gmail/Outlook for sender emails from <code>inquiry@indiamart.com</code> or <code>leads@justdial.com</code> to this address. The Closer AI Parser extracts the client name, phone number, and buyer notes automatically.
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    className="btn"
-                    data-variant="primary"
-                    onClick={handleSimulateInboundEmail}
-                    disabled={isProcessing}
-                    style={{ display: "flex", alignItems: "center", gap: "6px" }}
-                  >
-                    <Icon name="sparkle" size={13} />
-                    {isProcessing ? "Parsing Inbound Emails..." : "Simulate Incoming Forwarded Leads (3 Portal Inquiries)"}
-                  </button>
-                </section>
-              )}
-
-              {/* Channel 6: IndiaMART Catalog Sync */}
+              {/* Channel 4: IndiaMART Catalog Sync */}
               {channel === "indiamart" && (
                 <section className="card" style={{ padding: "28px 24px", background: "var(--bg-soft)" }}>
                   <div style={{ display: "flex", alignItems: "flex-start", gap: "14px", marginBottom: "20px" }}>
