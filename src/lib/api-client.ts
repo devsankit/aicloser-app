@@ -924,7 +924,8 @@ export const aicloserApi = {
 
     async import(payload: {
       source: string;
-      rows: Array<{ customerName: string; customerPhone?: string; customerEmail?: string; serviceInterest?: string; notes?: string; customFields?: Record<string, unknown> }>;
+      targetStage?: string;
+      rows: Array<{ customerName: string; customerPhone?: string; customerEmail?: string; serviceInterest?: string; notes?: string; stage?: string; customFields?: Record<string, unknown> }>;
       distributionMode?: 'AUTO' | 'ROUND_ROBIN' | 'POOL' | 'MANUAL';
       duplicateAction?: 'SKIP' | 'UPDATE' | 'OVERWRITE';
     }) {
@@ -1338,6 +1339,22 @@ export const aicloserApi = {
       const res = await requestConversation('/conversations/' + encodeURIComponent(conversationId) + '/stage', {
         method: 'PATCH',
         body: JSON.stringify({ stage }),
+      });
+      return res.data;
+    },
+
+    async updatePriority(conversationId: string, priority: string) {
+      const res = await requestConversation('/conversations/' + encodeURIComponent(conversationId) + '/priority', {
+        method: 'PATCH',
+        body: JSON.stringify({ priority }),
+      });
+      return res.data;
+    },
+
+    async updateLabels(conversationId: string, labels: string[]) {
+      const res = await requestConversation('/conversations/' + encodeURIComponent(conversationId) + '/labels', {
+        method: 'PATCH',
+        body: JSON.stringify({ labels }),
       });
       return res.data;
     },

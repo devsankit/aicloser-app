@@ -6,7 +6,8 @@ import * as XLSX from "xlsx";
 import { Icon } from "@/components/ui/Icon";
 import { useApp } from "@/lib/store";
 import { aicloserApi } from "@/lib/api-client";
-import { OWNERS, STAGES, type Priority, type Segment, type Source, type StageId } from "@/lib/types";
+import { OWNERS, STAGES, stageMeta, type Priority, type Segment, type Source, type StageId } from "@/lib/types";
+import { stageIdToBackendStage } from "@/lib/lead-mapper";
 
 export type ImportChannel = "csv" | "excel" | "sheets" | "indiamart" | "justdial";
 
@@ -24,7 +25,7 @@ interface ImportBatch {
 }
 
 export function LeadImportView() {
-  const { addLead, state } = useApp();
+  const { addLead, refreshLeads, state } = useApp();
   const router = useRouter();
   const isAdmin = state.user?.role === "ADMIN" || state.user?.role === "SUPER_ADMIN";
   const isManager = state.user?.role === "MANAGER";
@@ -129,17 +130,18 @@ export function LeadImportView() {
   // Column Mappings
   const [mappings, setMappings] = useState({
     name: "name",
-    company: "company",
     phone: "phone",
     email: "email",
-    value: "value",
-    source: "source",
-    segment: "segment",
+    service: "",
+    company: "",
+    value: "",
+    source: "",
+    segment: "",
     notes: "",
   });
 
   const findHeader = (headers: string[], candidates: string[]) =>
-    headers.find((h) => candidates.some((c) => h.toLowerCase().includes(c.toLowerCase()))) || headers[0] || "";
+    headers.find((h) => candidates.some((c) => h.toLowerCase().trim() === c.toLowerCase() || h.toLowerCase().includes(c.toLowerCase()))) || "";
 
   const applyDetectedRows = (name: string, sizeLabel: string, headers: string[], rows: Record<string, string>[], sourceDefault: Source) => {
     setDetectedHeaders(headers);
@@ -151,15 +153,24 @@ export function LeadImportView() {
     });
     setTargetSource(sourceDefault);
 
+    const nameCol = findHeader(headers, ["name", "full_name", "client", "contact", "customer", "student", "lead"]);
+    const phoneCol = findHeader(headers, ["phone", "mobile", "sim", "tel", "whatsapp", "contact_number", "number"]);
+    const emailCol = findHeader(headers, ["email", "mail"]);
+    const serviceCol = findHeader(headers, ["classroom", "service", "requirement", "interest", "course", "batch", "class", "product", "program", "inquiry"]);
+    const companyCol = findHeader(headers, ["company", "business", "organization", "firm", "account", "institute", "school", "college", "agency"]);
+    const valueCol = findHeader(headers, ["value", "budget", "amount", "deal", "price", "fee", "cost"]);
+    const notesCol = findHeader(headers, ["notes", "note", "remarks", "comment", "details", "description"]);
+
     setMappings({
-      name: findHeader(headers, ["name", "full_name", "client", "contact", "customer"]),
-      company: findHeader(headers, ["company", "business", "organization", "firm", "account"]),
-      phone: findHeader(headers, ["phone", "mobile", "sim", "tel", "whatsapp", "contact"]),
-      email: findHeader(headers, ["email", "mail"]),
-      value: findHeader(headers, ["value", "budget", "amount", "deal", "price"]),
-      source: findHeader(headers, ["source", "channel"]),
-      segment: findHeader(headers, ["segment", "type", "industry"]),
-      notes: headers.find((h) => ["notes", "note", "remarks", "comment", "requirement"].some((c) => h.toLowerCase().includes(c))) || "",
+      name: nameCol || headers[0] || "",
+      phone: phoneCol,
+      email: emailCol,
+      service: serviceCol,
+      company: companyCol,
+      value: valueCol,
+      source: "",
+      segment: "",
+      notes: notesCol,
     });
 
     setStep(2);
@@ -259,73 +270,74 @@ export function LeadImportView() {
     }
   };
 
-  const handleExecuteImport = () => {
+  const handleExecuteImport = async () => {
     setIsProcessing(true);
-    setTimeout(() => {
-      // Rotation closers: STRICTLY EXCLUDE ADMIN
-      const eligibleClosers = [state.user?.displayName || "Active Closer Desk"];
-      let closerIdx = 0;
-
-      parsedRows.forEach((item) => {
-        const name = item[mappings.name] || item["name"] || item["Name"] || item["Customer Name"] || item["Client Name"] || "Imported Lead";
-        const company = item[mappings.company] || item["company"] || item["Company"] || item["Business Account"] || item["Organization"] || "Independent Firm";
-        const phone = item[mappings.phone] || item["phone"] || item["Phone"] || item["Mobile Number"] || item["WhatsApp Phone"] || item["Contact Number"] || "";
-        const email = item[mappings.email] || item["email"] || item["Email"] || item["Email Address"] || "";
-        const val = Number(item[mappings.value] || item["value"] || item["Value"] || item["Amount"] || item["Budget"] || 0) || 0;
-
-        let finalOwner = targetOwner;
-        if (targetOwner === "Round-Robin") {
-          finalOwner = eligibleClosers[closerIdx % eligibleClosers.length];
-          closerIdx++;
-        } else if (targetOwner === "Unassigned") {
-          finalOwner = "Unassigned";
-        }
-
-        addLead({
-          name,
-          company,
-          phone,
-          email,
-          value: val,
-          source: (item[mappings.source] as Source) || targetSource,
-          segment: (item[mappings.segment] as Segment) || "SMB",
-          stage: targetStage,
-          owner: finalOwner,
-          priority: "medium" as Priority,
-          followUp: "",
-          tags: ["imported-batch", targetSource.toLowerCase().replace(/\s+/g, "-")],
-          notes: (mappings.notes && item[mappings.notes]) || item["notes"] || item["Notes"] || item["remarks"] || item["Remarks"] || "",
+    try {
+      const backendStage = stageIdToBackendStage(targetStage);
+      const rowsPayload = parsedRows.map((item) => {
+        // Collect custom fields for all unmapped columns
+        const customFields: Record<string, any> = {};
+        detectedHeaders.forEach((h) => {
+          if (
+            h !== mappings.name &&
+            h !== mappings.phone &&
+            h !== mappings.email &&
+            h !== mappings.company &&
+            h !== mappings.service &&
+            h !== mappings.notes &&
+            h !== mappings.value
+          ) {
+            customFields[h] = item[h];
+          }
         });
+
+        const customerName = item[mappings.name] || item["name"] || item["Name"] || item["Customer Name"] || item["Client Name"] || "Imported Lead";
+        const customerPhone = item[mappings.phone] || item["phone"] || item["Phone"] || item["Mobile Number"] || item["WhatsApp Phone"] || item["Contact Number"] || "";
+        const customerEmail = item[mappings.email] || item["email"] || item["Email"] || item["Email Address"] || "";
+        const serviceInterest = item[mappings.service] || item["classroom"] || item["Classroom"] || item[mappings.company] || item["company"] || "";
+        const notes = (mappings.notes && item[mappings.notes]) || item["notes"] || item["Notes"] || item["remarks"] || item["Remarks"] || "";
+        const budgetAmount = Number(item[mappings.value] || item["value"] || item["Value"] || item["Amount"] || item["Budget"] || 0) || 0;
+
+        return {
+          customerName,
+          customerPhone,
+          customerEmail,
+          serviceInterest,
+          budgetAmount,
+          notes,
+          stage: backendStage,
+          customFields,
+        };
       });
 
-      // Dispatch to Live API
-      aicloserApi.leads
-        .import({
-          source: targetSource,
-          rows: parsedRows.map((item) => ({
-            customerName: item[mappings.name] || item["name"] || "Imported Lead",
-            customerPhone: item[mappings.phone] || item["phone"] || "",
-            customerEmail: item[mappings.email] || item["email"] || "",
-            serviceInterest: item[mappings.company] || item["company"] || "",
-            notes: (mappings.notes && item[mappings.notes]) || item["notes"] || item["Notes"] || item["remarks"] || item["Remarks"] || "",
-          })),
-          duplicateAction: dedupMode === "overwrite" ? "OVERWRITE" : "SKIP",
-          distributionMode:
-            targetOwner === "Round-Robin"
-              ? "ROUND_ROBIN"
-              : targetOwner === "Unassigned"
-              ? "POOL"
-              : "MANUAL",
-        })
-        .catch(() => {});
+      const distMode = targetOwner === "Round-Robin"
+        ? "ROUND_ROBIN"
+        : targetOwner === "Unassigned"
+        ? "POOL"
+        : "MANUAL";
+
+      const res = await aicloserApi.leads.import({
+        source: targetSource,
+        targetStage: backendStage,
+        rows: rowsPayload,
+        duplicateAction: dedupMode === "overwrite" ? "OVERWRITE" : "SKIP",
+        distributionMode: distMode,
+      });
+
+      // Synchronize pipeline leads immediately
+      await refreshLeads();
+
+      const createdCount = Number(res?.createdCount ?? parsedRows.length);
+      const skippedCount = Number(res?.skippedDuplicates ?? 0);
+      const updatedCount = Number(res?.updatedCount ?? 0);
 
       const newBatch: ImportBatch = {
         id: `BAT-${Math.floor(100 + Math.random() * 900)}`,
         filename: uploadedFile?.name || "imported_leads",
         channel,
         totalRows: parsedRows.length,
-        importedCount: parsedRows.length,
-        duplicateCount: 0,
+        importedCount: createdCount + updatedCount,
+        duplicateCount: skippedCount,
         assignedOwner:
           targetOwner === "Round-Robin"
             ? "Automated Round-Robin"
@@ -337,14 +349,20 @@ export function LeadImportView() {
         status: "completed",
       };
 
-      setBatches([newBatch, ...batches]);
-      setIsProcessing(false);
+      setBatches((prev) => [newBatch, ...prev]);
       setStep(1);
       setUploadedFile(null);
       setParsedRows([]);
-      setImportSuccessBanner(`Successfully ingested ${newBatch.importedCount} leads from ${targetSource} into the pipeline!`);
-      setTimeout(() => setImportSuccessBanner(null), 4500);
-    }, 700);
+      setImportSuccessBanner(
+        `Successfully imported ${createdCount} leads from ${targetSource} into ${stageMeta(targetStage).label}!${skippedCount > 0 ? ` (${skippedCount} duplicates skipped)` : ""}`
+      );
+      setTimeout(() => setImportSuccessBanner(null), 5000);
+    } catch (err: any) {
+      console.error("Import failed:", err);
+      alert("Failed to import leads: " + (err.message || String(err)));
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleRollback = (batchId: string) => {
@@ -983,45 +1001,15 @@ export function LeadImportView() {
                         {parsedRows[0]?.[mappings.name] || "—"}
                       </td>
                       <td style={{ textAlign: "right" }}>
-                        <span className="chip" data-tone={mappings.name ? "success" : "neutral"} style={{ fontSize: "11px" }}>
-                          {mappings.name ? "Mapped" : "Unmapped"}
+                        <span className="chip" data-tone={mappings.name ? "success" : "danger"} style={{ fontSize: "11px" }}>
+                          {mappings.name ? "Mapped" : "Required"}
                         </span>
                       </td>
                     </tr>
 
                     <tr>
                       <td>
-                        <div style={{ fontWeight: 600 }}>Company / Business</div>
-                        <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Organization or account</div>
-                      </td>
-                      <td>
-                        <select
-                          className="select"
-                          value={mappings.company}
-                          onChange={(e) => setMappings({ ...mappings, company: e.target.value })}
-                          style={{ width: "100%" }}
-                        >
-                          <option value="">Select column</option>
-                          {detectedHeaders.map((h) => (
-                            <option key={h} value={h}>
-                              {h}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td style={{ color: "var(--text-secondary)" }}>
-                        {parsedRows[0]?.[mappings.company] || "—"}
-                      </td>
-                      <td style={{ textAlign: "right" }}>
-                        <span className="chip" data-tone={mappings.company ? "success" : "neutral"} style={{ fontSize: "11px" }}>
-                          {mappings.company ? "Mapped" : "Unmapped"}
-                        </span>
-                      </td>
-                    </tr>
-
-                    <tr>
-                      <td>
-                        <div style={{ fontWeight: 600 }}>Phone (Mobile) *</div>
+                        <div style={{ fontWeight: 600 }}>Phone (Mobile / WhatsApp) *</div>
                         <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Primary calling SIM / WhatsApp</div>
                       </td>
                       <td>
@@ -1043,8 +1031,8 @@ export function LeadImportView() {
                         {parsedRows[0]?.[mappings.phone] || "—"}
                       </td>
                       <td style={{ textAlign: "right" }}>
-                        <span className="chip" data-tone={mappings.phone ? "success" : "neutral"} style={{ fontSize: "11px" }}>
-                          {mappings.phone ? "Mapped" : "Unmapped"}
+                        <span className="chip" data-tone={mappings.phone ? "success" : "danger"} style={{ fontSize: "11px" }}>
+                          {mappings.phone ? "Mapped" : "Required"}
                         </span>
                       </td>
                     </tr>
@@ -1061,7 +1049,7 @@ export function LeadImportView() {
                           onChange={(e) => setMappings({ ...mappings, email: e.target.value })}
                           style={{ width: "100%" }}
                         >
-                          <option value="">Select column</option>
+                          <option value="">(Unmapped / Skip)</option>
                           {detectedHeaders.map((h) => (
                             <option key={h} value={h}>
                               {h}
@@ -1079,9 +1067,163 @@ export function LeadImportView() {
                       </td>
                     </tr>
 
+                    <tr>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>Service / Classroom / Course</div>
+                        <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Service interest, course, classroom or inquiry</div>
+                      </td>
+                      <td>
+                        <select
+                          className="select"
+                          value={mappings.service}
+                          onChange={(e) => setMappings({ ...mappings, service: e.target.value })}
+                          style={{ width: "100%" }}
+                        >
+                          <option value="">(Unmapped / Skip)</option>
+                          {detectedHeaders.map((h) => (
+                            <option key={h} value={h}>
+                              {h}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td style={{ color: "var(--accent)", fontWeight: 550 }}>
+                        {parsedRows[0]?.[mappings.service] || "—"}
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        <span className="chip" data-tone={mappings.service ? "accent" : "neutral"} style={{ fontSize: "11px" }}>
+                          {mappings.service ? "Mapped" : "Unmapped"}
+                        </span>
+                      </td>
+                    </tr>
 
+                    <tr>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>Company / Business Account</div>
+                        <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Organization, firm or institution</div>
+                      </td>
+                      <td>
+                        <select
+                          className="select"
+                          value={mappings.company}
+                          onChange={(e) => setMappings({ ...mappings, company: e.target.value })}
+                          style={{ width: "100%" }}
+                        >
+                          <option value="">(Unmapped / Skip)</option>
+                          {detectedHeaders.map((h) => (
+                            <option key={h} value={h}>
+                              {h}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td style={{ color: "var(--text-secondary)" }}>
+                        {parsedRows[0]?.[mappings.company] || "—"}
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        <span className="chip" data-tone={mappings.company ? "success" : "neutral"} style={{ fontSize: "11px" }}>
+                          {mappings.company ? "Mapped" : "Unmapped"}
+                        </span>
+                      </td>
+                    </tr>
+
+                    <tr>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>Deal Value / Fee (₹)</div>
+                        <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Expected amount or course budget</div>
+                      </td>
+                      <td>
+                        <select
+                          className="select"
+                          value={mappings.value}
+                          onChange={(e) => setMappings({ ...mappings, value: e.target.value })}
+                          style={{ width: "100%" }}
+                        >
+                          <option value="">(Unmapped / Skip)</option>
+                          {detectedHeaders.map((h) => (
+                            <option key={h} value={h}>
+                              {h}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td style={{ color: "var(--success)", fontWeight: 550 }}>
+                        {parsedRows[0]?.[mappings.value] || "—"}
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        <span className="chip" data-tone={mappings.value ? "success" : "neutral"} style={{ fontSize: "11px" }}>
+                          {mappings.value ? "Mapped" : "Unmapped"}
+                        </span>
+                      </td>
+                    </tr>
+
+                    <tr>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>Notes / Remarks</div>
+                        <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Client comments, requirements or extra notes</div>
+                      </td>
+                      <td>
+                        <select
+                          className="select"
+                          value={mappings.notes}
+                          onChange={(e) => setMappings({ ...mappings, notes: e.target.value })}
+                          style={{ width: "100%" }}
+                        >
+                          <option value="">(Unmapped / Skip)</option>
+                          {detectedHeaders.map((h) => (
+                            <option key={h} value={h}>
+                              {h}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td style={{ color: "var(--text-secondary)" }}>
+                        {parsedRows[0]?.[mappings.notes] || "—"}
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        <span className="chip" data-tone={mappings.notes ? "success" : "neutral"} style={{ fontSize: "11px" }}>
+                          {mappings.notes ? "Mapped" : "Unmapped"}
+                        </span>
+                      </td>
+                    </tr>
                   </tbody>
                 </table>
+              </div>
+
+              {/* Live Data Preview: First 5 Rows */}
+              <div style={{ padding: "16px 20px", borderTop: "1px solid var(--border)", background: "var(--bg-soft)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+                  <div style={{ fontWeight: 600, fontSize: "var(--fs-meta)" }}>Live Data Preview (First 5 Rows from Spreadsheet)</div>
+                  <span className="chip" data-tone="neutral" style={{ fontSize: "11px" }}>
+                    {parsedRows.length} total records detected
+                  </span>
+                </div>
+                <div className="table-wrap" style={{ maxHeight: "200px", overflowY: "auto", border: "1px solid var(--border)", borderRadius: "var(--r-sm)" }}>
+                  <table className="table" style={{ width: "100%", fontSize: "12px" }}>
+                    <thead>
+                      <tr>
+                        <th style={{ width: "40px" }}>#</th>
+                        {detectedHeaders.map((h) => (
+                          <th key={h} style={{ whiteSpace: "nowrap" }}>
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {parsedRows.slice(0, 5).map((row, idx) => (
+                        <tr key={idx}>
+                          <td style={{ color: "var(--text-tertiary)" }}>{idx + 1}</td>
+                          {detectedHeaders.map((h) => (
+                            <td key={h} style={{ maxWidth: "220px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {row[h] || <span style={{ color: "var(--text-tertiary)" }}>—</span>}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </section>
           )}
@@ -1155,9 +1297,9 @@ export function LeadImportView() {
 
               {/* Deduplication Card */}
               <div className="card" style={{ padding: "16px", background: "var(--bg-soft)", marginBottom: "20px" }}>
-                <div style={{ fontWeight: 600, fontSize: "var(--fs-meta)" }}>Duplicate Phone Number Detection</div>
+                <div style={{ fontWeight: 600, fontSize: "var(--fs-meta)" }}>Duplicate Contact Prevention (Phone-Primary)</div>
                 <p style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "2px" }}>
-                  What happens when a lead in this batch shares a phone number with an existing CRM record?
+                  Deduplication checks against existing workspace phone numbers. Distinct phone numbers are always created as independent leads, even if email is shared or placeholder.
                 </p>
                 <div style={{ display: "flex", gap: "12px", marginTop: "12px" }}>
                   <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "var(--fs-caption)" }}>

@@ -1201,14 +1201,25 @@ export function ChatView() {
 
   const handleQuickStageChange = async (chat: ConversationItem, stageId: StageId) => {
     try {
+      const backendStage = stageIdToBackendStage(stageId);
       const lead = getLinkedLead(chat);
-      if (lead?.id) {
-        moveLead(lead.id, stageId);
+      const targetLeadId = lead?.id || chat.leadId;
+
+      if (targetLeadId) {
+        moveLead(targetLeadId, stageId);
+        aicloserApi.leads.update(targetLeadId, { stage: backendStage }).catch(() => {});
       }
       if (chat.id === activeChat?.id) {
         setChatStage(stageId);
       }
-      aicloserApi.conversations.updateStage(chat.id, stageId).catch(() => {});
+
+      await aicloserApi.conversations.updateStage(chat.id, backendStage);
+
+      setConversations((prev) =>
+        prev.map((c) => (c.id === chat.id ? { ...c, stage: stageId, leadStage: stageId } : c))
+      );
+      void refreshLeads();
+
       const meta = stageMeta(stageId);
       showToast(`Stage updated to ${meta.label}`);
       setMenuChatId(null);
@@ -1218,12 +1229,21 @@ export function ChatView() {
     }
   };
 
-  const handleQuickPriorityChange = (chat: ConversationItem, priority: Priority) => {
+  const handleQuickPriorityChange = async (chat: ConversationItem, priority: Priority) => {
     try {
       const lead = getLinkedLead(chat);
-      if (lead?.id) {
-        updateLead(lead.id, { priority });
+      const targetLeadId = lead?.id || chat.leadId;
+      if (targetLeadId) {
+        updateLead(targetLeadId, { priority });
+        aicloserApi.leads.update(targetLeadId, { priority }).catch(() => {});
       }
+      await aicloserApi.conversations.updatePriority(chat.id, priority).catch(() => {});
+
+      setConversations((prev) =>
+        prev.map((c) => (c.id === chat.id ? { ...c, priority } : c))
+      );
+      void refreshLeads();
+
       showToast(`Priority updated to ${PRIORITY_LABEL[priority]}`);
       setMenuChatId(null);
       setMenuSubView("root");
@@ -2520,15 +2540,19 @@ export function ChatView() {
     }
   };
 
-  const handleStageChange = (newStage: StageId) => {
+  const handleStageChange = async (newStage: StageId) => {
     if (isReadOnlyShare) return;
     setChatStage(newStage);
-    if (activeLead) {
-      moveLead(activeLead.id, newStage);
-      aicloserApi.leads.update(activeLead.id, { stage: newStage }).catch(() => {});
+    const backendStage = stageIdToBackendStage(newStage);
+    const targetLeadId = activeLead?.id || activeChat?.leadId;
+
+    if (targetLeadId) {
+      moveLead(targetLeadId, newStage);
+      aicloserApi.leads.update(targetLeadId, { stage: backendStage }).catch(() => {});
     }
+
     if (activeChat) {
-      aicloserApi.conversations.updateStage(activeChat.id, newStage).catch(() => {});
+      aicloserApi.conversations.updateStage(activeChat.id, backendStage).catch(() => {});
 
       const sysMsg: ChatMessage = {
         id: `sys-${Date.now()}`,
@@ -2539,9 +2563,10 @@ export function ChatView() {
       };
       setConversations((prev) =>
         prev.map((c) =>
-          c.id === activeChat.id ? { ...c, messages: [...c.messages, sysMsg] } : c
+          c.id === activeChat.id ? { ...c, stage: newStage, leadStage: newStage, messages: [...c.messages, sysMsg] } : c
         )
       );
+      void refreshLeads();
       setTimeout(() => scrollToBottom("smooth"), 30);
     }
   };

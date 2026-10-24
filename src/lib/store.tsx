@@ -615,13 +615,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
             });
           } else if (
             (event.type === "lead.updated" || event.type === "lead.stage_changed") &&
-            event.payload?.id
+            (event.payload?.id || event.payload?.leadId)
           ) {
-            const updated = backendLeadToUiLead(event.payload);
+            const targetId = event.payload.id || event.payload.leadId;
             setState((prev) => ({
               ...prev,
-              leads: prev.leads.map((l) => (l.id === updated.id ? updated : l)),
+              leads: prev.leads.map((l) => {
+                if (l.id === targetId) {
+                  return {
+                    ...l,
+                    ...(event.payload.stage ? { stage: normalizeStageId(event.payload.stage) } : {}),
+                    ...(event.payload.priority ? { priority: event.payload.priority } : {}),
+                    ...(event.payload.tags ? { tags: event.payload.tags } : {}),
+                    ...(event.payload.followUpAt ? { followUp: event.payload.followUpAt } : {}),
+                    ...(event.payload.assignedAgentId ? { owner: event.payload.assignedFreelancerName || event.payload.assignedTo || l.owner } : {}),
+                    updatedAt: new Date().toISOString(),
+                  };
+                }
+                return l;
+              }),
             }));
+            void refreshLeads();
           } else if (event.type === "lead.deleted" && event.payload?.id) {
             setState((prev) => ({
               ...prev,
