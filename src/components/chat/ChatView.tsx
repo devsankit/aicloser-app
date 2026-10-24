@@ -162,7 +162,7 @@ function renderMessageContent(text: string, isCloser: boolean) {
 }
 
 export function ChatView() {
-  const { state, moveLead, updateLead, reassignLead, setScope, deleteLead } = useApp();
+  const { state, moveLead, updateLead, reassignLead, refreshLeads, setScope, deleteLead } = useApp();
 
   // Channel filter: all, whatsapp, instagram, website
   const [channelFilter, setChannelFilter] = useState<string>("all");
@@ -2977,17 +2977,14 @@ export function ChatView() {
       const targetAgentId = targetMember?.id || assignTargetCloser;
       const assignedDisplayName = targetMember?.name || assignTargetCloser;
 
-      // 1. Live API: assign conversation on Central API with handover note
+      // 1. Live API: assign conversation on Central API with handover note (this symmetrically reassigns the lead, conversation, and adds timeline + activity logs)
       const res: any = await aicloserApi.conversations.assign(activeChat.id, targetAgentId, assignHandoverNote);
       if (res && res.success === false) {
         throw new Error(res.message || "Failed to assign conversation");
       }
 
-      // 2. Symmetrically update linked lead and team state
-      const linkedLeadId = activeLead?.id || activeChat.leadId;
-      if (linkedLeadId) {
-        await reassignLead(linkedLeadId, targetAgentId, assignHandoverNote);
-      }
+      // 2. Refresh leads so Pipeline, Contacts and counts update immediately
+      refreshLeads?.().catch(() => {});
 
       // 3. Add system message in conversation thread and messagesCache
       const sysMsg: ChatMessage = {
@@ -3007,10 +3004,14 @@ export function ChatView() {
       const isRegularCloser = state.user?.role === "SALES_AGENT" || (state.user?.role as string) === "CLOSER";
       if (isRegularCloser) {
         setConversations((prev) => prev.filter((c) => c.id !== activeChat.id));
+        setSelectedChatId(null);
+        if (typeof window !== "undefined") {
+          window.history.replaceState({}, "", "/chat");
+        }
         showToast(`Lead & Chat transferred to ${assignedDisplayName}`);
         setTimeout(() => {
           setShowAssignModal(false);
-        }, 800);
+        }, 500);
       } else {
         setConversations((prev) =>
           prev.map((c) =>
