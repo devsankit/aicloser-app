@@ -4524,6 +4524,12 @@ button.list-prio:hover {
   flex: 1 1 auto;
 }
 
+.quick-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .quick-info span {
   font-weight: 600;
   font-size: 13.5px;

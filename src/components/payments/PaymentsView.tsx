@@ -33,7 +33,7 @@ export interface PaymentTransaction {
 }
 
 export function PaymentsView() {
-  const { state, moveLead } = useApp();
+  const { state, moveLead, updateLead } = useApp();
   const isAdmin = state.user?.role === "ADMIN" || state.user?.role === "SUPER_ADMIN";
   const [tab, setTab] = useState<"links" | "proofs" | "settings">("links");
   const [transactions, setTransactions] = useState<PaymentTransaction[]>([]);
@@ -301,6 +301,9 @@ export function PaymentsView() {
         setBanner(`Dynamic UPI payment link generated for ₹${amountNum.toLocaleString("en-IN")}`);
         setTimeout(() => setBanner(null), 4000);
         await loadPayments();
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("aicloser:payment-updated"));
+        }
       });
     } catch (err: any) {
       setBanner(err?.message || "Failed to generate UPI payment link.");
@@ -367,6 +370,9 @@ export function PaymentsView() {
         setBanner(`Payment link #${editingTx.id.slice(-6)} updated to ₹${amountNum.toLocaleString("en-IN")}`);
         setTimeout(() => setBanner(null), 3500);
         await loadPayments();
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("aicloser:payment-updated"));
+        }
       });
     } catch (err: any) {
       setBanner(err?.message || "Failed to update payment link.");
@@ -386,6 +392,9 @@ export function PaymentsView() {
         setBanner(`Payment link #${tx.id.slice(-6)} has been cancelled.`);
         setTimeout(() => setBanner(null), 3500);
         await loadPayments();
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("aicloser:payment-updated"));
+        }
       });
     } catch (err: any) {
       setBanner(err?.message || "Failed to cancel payment link.");
@@ -402,13 +411,13 @@ export function PaymentsView() {
       startTransition(async () => {
         await aicloserApi.payments.approve(txId);
 
-        // Auto-advance lead to Won in CRM store if matched
+        // Auto-advance lead to Won and synchronize exact payment value in CRM store if matched
         if (tx.leadId) {
-          moveLead(tx.leadId, "won");
+          updateLead(tx.leadId, { stage: "won", value: tx.amount });
         } else {
           const matchedLead = state.leads.find((l) => l.code === tx.leadCode || l.name === tx.customerName);
           if (matchedLead) {
-            moveLead(matchedLead.id, "won");
+            updateLead(matchedLead.id, { stage: "won", value: tx.amount });
           }
         }
 
@@ -416,6 +425,9 @@ export function PaymentsView() {
         setBanner(`Payment of ₹${tx.amount.toLocaleString("en-IN")} verified! Deal automatically advanced to Closed Won.`);
         setTimeout(() => setBanner(null), 4500);
         await loadPayments();
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("aicloser:payment-updated"));
+        }
       });
     } catch (err: any) {
       setBanner(err?.message || "Failed to approve payment proof.");
@@ -432,6 +444,9 @@ export function PaymentsView() {
         setBanner("Payment proof rejected. Notification dispatched for re-upload.");
         setTimeout(() => setBanner(null), 4000);
         await loadPayments();
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("aicloser:payment-updated"));
+        }
       });
     } catch (err: any) {
       setBanner(err?.message || "Failed to reject payment proof.");

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { Icon } from "@/components/ui/Icon";
-import { compactMoney, relativeTime, useApp, useScopedLeads } from "@/lib/store";
+import { compactMoney, money, relativeTime, useApp, useScopedLeads } from "@/lib/store";
 import { STAGES, stageMeta, sourceMeta, isOpenStage, isWonStage, isLostStage } from "@/lib/types";
 import { aicloserApi, type DashboardSummaryResponse } from "@/lib/api-client";
 
@@ -14,9 +14,8 @@ export function DashboardView() {
   const leads = useScopedLeads();
   const [liveSummary, setLiveSummary] = useState<DashboardSummaryResponse | null>(null);
 
-  // Attempt live API fetch with fallback to loaded state
-  useEffect(() => {
-    let cancelled = false;
+  // Live API fetch with periodic polling and real-time event updates
+  const fetchLiveSummary = useCallback(async () => {
     let assignedAgentId: string | undefined;
     if (state.scope === "mine" && state.user?.userId) {
       assignedAgentId = (state.user as any)?.agentProfileId || state.user?.userId;
@@ -28,17 +27,30 @@ export function DashboardView() {
       if (member) assignedAgentId = member.id;
     }
 
-    aicloserApi.leads.getDashboardSummary(assignedAgentId ? { assignedAgentId } : undefined)
-      .then((data) => {
-        if (!cancelled && data) setLiveSummary(data);
-      })
-      .catch(() => {
-        // Fallback quietly to locally hydrated state when offline or unauthenticated
-      });
-    return () => {
-      cancelled = true;
-    };
+    try {
+      const data = await aicloserApi.leads.getDashboardSummary(assignedAgentId ? { assignedAgentId } : undefined);
+      if (data) setLiveSummary(data);
+    } catch {
+      // Fallback quietly to locally hydrated state when offline or unauthenticated
+    }
   }, [state.scope, state.user?.userId, state.teamMembers]);
+
+  useEffect(() => {
+    fetchLiveSummary();
+    const interval = setInterval(fetchLiveSummary, 15000);
+    const handleSync = () => {
+      fetchLiveSummary();
+    };
+
+    window.addEventListener("aicloser:payment-updated", handleSync);
+    window.addEventListener("aicloser:break-updated", handleSync);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("aicloser:payment-updated", handleSync);
+      window.removeEventListener("aicloser:break-updated", handleSync);
+    };
+  }, [fetchLiveSummary]);
 
   const [breakLogs, setBreakLogs] = useState<Array<{
     id: string;
@@ -108,11 +120,21 @@ export function DashboardView() {
     const calculatedOpenVal = open.reduce((s, l) => s + l.value, 0);
     const calculatedWonVal = won.reduce((s, l) => s + l.value, 0);
 
+    // Dynamic Settled Revenue from payment ledger with fallback
+    const settledRevenue = (liveSummary?.settledRevenue !== undefined && liveSummary.settledRevenue > 0)
+      ? liveSummary.settledRevenue
+      : (liveSummary?.wonAmount && liveSummary.wonAmount > 0 ? liveSummary.wonAmount : calculatedWonVal);
+
     return {
       openValue: leads.length > 0 ? calculatedOpenVal : (liveSummary?.pipelineValue ?? 0),
       openCount: open.length,
       wonValue: leads.length > 0 ? calculatedWonVal : (liveSummary?.wonAmount ?? 0),
-      wonCount: won.length,
+      settledRevenue,
+      pendingVerificationCount: liveSummary?.pendingVerificationCount ?? 0,
+      pendingVerificationAmount: liveSummary?.pendingVerificationAmount ?? 0,
+      openLinksCount: liveSummary?.openLinksCount ?? 0,
+      openLinksAmount: liveSummary?.openLinksAmount ?? 0,
+      wonCount: liveSummary?.wonCount !== undefined ? liveSummary.wonCount : won.length,
       newCount: newPendingLeads,
       touched: week.length,
       winRate: decided > 0 ? Math.round((won.length / decided) * 100) : (liveSummary?.conversionRate ?? 0),
@@ -319,9 +341,12 @@ export function DashboardView() {
               <Icon name="trophy" size={15} />
             </span>
           </div>
-          <strong className="stat-value">{compactMoney(stats.wonValue)}</strong>
+          <strong className="stat-value">{money(stats.settledRevenue)}</strong>
           <span className="stat-foot" data-tone="success">
             {stats.wonCount} won · {stats.openCount} open ({compactMoney(stats.openValue)})
+            {stats.pendingVerificationCount > 0 && (
+              <> · {stats.pendingVerificationCount} proof{stats.pendingVerificationCount > 1 ? "s" : ""} awaiting ({money(stats.pendingVerificationAmount)})</>
+            )}
           </span>
         </div>
       </section>
@@ -515,8 +540,19 @@ export function DashboardView() {
                   <Icon name="receipt" size={18} />
                 </div>
                 <div className="quick-info">
-                  <span>UPI Payments</span>
-                  <small>Razorpay & dynamic QR codes</small>
+                  <div className="quick-title-row">
+                    <span>UPI Payments</span>
+                    {stats.pendingVerificationCount > 0 && (
+                      <span className="chip" data-size="sm" data-tone="warning">
+                        {stats.pendingVerificationCount} pending proof
+                      </span>
+                    )}
+                  </div>
+                  <small>
+                    {stats.settledRevenue > 0
+                      ? `${money(stats.settledRevenue)} settled · Razorpay & QR`
+                      : "Razorpay & dynamic QR codes"}
+                  </small>
                 </div>
                 <Icon name="chevron-right" size={14} className="quick-arrow" />
               </Link>

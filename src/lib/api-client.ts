@@ -75,11 +75,18 @@ export interface DashboardSummaryResponse {
   followUpsPending: number;
   wonCount: number;
   wonAmount: number;
+  settledRevenue?: number;
   lostCount: number;
   pipelineValue: number;
   pendingPaymentLinksCount?: number;
+  pendingPaymentLinksAmount?: number;
+  pendingVerificationCount?: number;
+  pendingVerificationAmount?: number;
+  openLinksCount?: number;
+  openLinksAmount?: number;
   conversionRate: number;
   stageCounts: Record<string, number>;
+  missedCount?: number;
 }
 
 export interface ApiResponse<T> {
