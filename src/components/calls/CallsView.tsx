@@ -73,8 +73,24 @@ export function CallsView() {
 
   const loadData = useCallback(async () => {
     try {
-      const cRes: any = await aicloserApi.calls.list({ limit: 250 }).catch(() => null);
-      if (cRes?.calls?.length) {
+      let queryAgentId: string | undefined = undefined;
+      if (state.scope.startsWith("agent:")) {
+        const targetAgentName = state.scope.slice(6).trim();
+        const member = state.teamMembers?.find(
+          (m: any) =>
+            (m.name || "").trim().toLowerCase() === targetAgentName.toLowerCase() ||
+            (m.displayName || "").trim().toLowerCase() === targetAgentName.toLowerCase()
+        );
+        queryAgentId = member?.id || (member as any)?.userId;
+      } else if (state.scope === "mine" || (!isAdmin && !isManager)) {
+        queryAgentId = (state.user as any)?.userId || (state.user as any)?.id;
+      }
+
+      const params: any = { limit: 250 };
+      if (queryAgentId) params.agentId = queryAgentId;
+
+      const cRes: any = await aicloserApi.calls.list(params).catch(() => null);
+      if (cRes?.calls) {
         const mapped: CallRecord[] = cRes.calls.map((c: any) => ({
           id: c.id,
           leadCode: c.assignment?.id ? `CLO-${c.assignment.id.slice(-4).toUpperCase()}` : "CLO-LIVE",
@@ -108,7 +124,7 @@ export function CallsView() {
     } catch {
       // Non-blocking
     }
-  }, []);
+  }, [state.scope, state.teamMembers, state.user, isAdmin, isManager]);
 
   useEffect(() => {
     loadData();

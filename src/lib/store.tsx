@@ -520,15 +520,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
           aicloserApi.team.listMembers().catch(() => []),
         ]);
         const poolList = Array.isArray(poolRes) ? poolRes : ((poolRes as any)?.items || []);
-        const poolCount = poolList.length;
+        const totalPool = typeof (poolRes as any)?.totalPoolCount === "number" ? (poolRes as any).totalPoolCount : poolList.length;
+        const poolCount = totalPool;
         const poolQuota: PoolQuotaInfo | null =
-          poolRes && typeof (poolRes as any).grabCapacity === "number"
+          poolRes && (typeof (poolRes as any).grabCapacity === "number" || typeof (poolRes as any).totalPoolCount === "number")
             ? {
                 initialStageCount: (poolRes as any).initialStageCount,
                 grabCapacity: (poolRes as any).grabCapacity,
                 availableSlots: (poolRes as any).availableSlots,
                 isAtQuota: (poolRes as any).isAtQuota,
                 initialStageLabel: (poolRes as any).initialStageLabel || "New Lead",
+                totalPoolCount: totalPool,
+                mySlottedCount: (poolRes as any).mySlottedCount,
               }
             : null;
         const rawTeam = Array.isArray(teamData)
@@ -652,6 +655,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
               ...prev,
               leads: prev.leads.filter((l) => l.id !== event.payload.id),
             }));
+          } else if (event.type === "lead.restored" && (event.payload?.id || event.payload?.leadId)) {
+            void refreshLeads();
           } else if (event.type === "lead.claimed" && event.payload) {
             const poolId = event.payload.poolItemId || event.payload.id;
             setState((prev) => ({
