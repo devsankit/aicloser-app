@@ -1177,308 +1177,35 @@ Your objective:
             </div>
           </div>
 
-          {/* Card 2: Distribution Engine & Mandatory Admin Exclusion Policy */}
-          <div className="card" style={{ padding: "20px" }}>
-            <div style={{ marginBottom: "16px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <span className="chip" data-tone="accent" style={{ fontSize: "11px" }}>Engine & SLA</span>
-                <h2 style={{ fontSize: "var(--fs-body)", fontWeight: 650 }}>Closer Distribution Strategy & Allocation Modes</h2>
-              </div>
-              <p style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
-                Select how leads are assigned to team closers, configure the open lead grab pool, and enforce availability rules.
-              </p>
-            </div>
-
-            {/* MANDATORY ADMIN EXCLUSION BANNER */}
-            <div
-              style={{
-                padding: "14px 16px",
-                background: "rgba(244, 97, 42, 0.08)",
-                border: "1px solid var(--accent-border)",
-                borderRadius: "var(--r-sm)",
-                marginBottom: "20px",
-                display: "flex",
-                alignItems: "center",
-                gap: "12px",
-              }}
-            >
-              <div style={{ width: "36px", height: "36px", borderRadius: "50%", background: "var(--accent-soft)", color: "var(--accent)", display: "grid", placeItems: "center", flex: "0 0 auto" }}>
-                <Icon name="shield" size={18} />
-              </div>
-              <div>
-                <div style={{ fontWeight: 650, color: "var(--text)", fontSize: "var(--fs-meta)" }}>
-                  Mandatory Platform Rule: Company Admin & Super Admin Strictly Excluded
+          {/* Card 2: Centralized Lead Routing & Capacity Engine Bridge */}
+          <div className="card" style={{ padding: "24px", background: "var(--bg-soft)", border: "1px solid var(--border)", borderRadius: "var(--r-md)" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: "16px" }}>
+              <div style={{ maxWidth: "680px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+                  <span className="chip" data-tone="accent" style={{ fontSize: "11px" }}>Single Source of Truth</span>
+                  <h2 style={{ fontSize: "var(--fs-body)", fontWeight: 650, margin: 0 }}>Live Closer Distribution & Grab Pool Engine</h2>
                 </div>
-                <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "2px" }}>
-                  Admin accounts are permanently excluded from round-robin distribution and will never receive automated lead assignments or be counted as billable closer seats in your subscription plan.
+                <p style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", lineHeight: 1.6, margin: "0 0 12px 0" }}>
+                  To maintain strict data integrity and eliminate competing configurations, all lead distribution algorithms (Strict Round-Robin, Capacity-Based, Performance-Weighted), Grab Pool visibility limits, closer break timers, and personal WhatsApp QR routing are configured centrally under <strong style={{ color: "var(--text)" }}>Team &amp; Users &gt; Routing &amp; Capacity Rules</strong>.
+                </p>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px", fontSize: "12px", color: "var(--text-tertiary)" }}>
+                  <span>🛡️ Admins permanently excluded</span>
+                  <span>•</span>
+                  <span>⚡ 10-Min Dynamic Rotation</span>
+                  <span>•</span>
+                  <span>📞 SIM Telephony Exemption</span>
                 </div>
               </div>
-            </div>
-
-            {/* Strategy Radio Grid */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "20px" }}>
-              <label
-                style={{
-                  border: distributionStrategy === "ROUND_ROBIN_GRAB" ? "2px solid var(--accent)" : "1px solid var(--border)",
-                  background: distributionStrategy === "ROUND_ROBIN_GRAB" ? "var(--accent-soft)" : "var(--bg-soft)",
-                  padding: "14px",
-                  borderRadius: "var(--r-sm)",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "flex-start",
-                  gap: "10px",
-                }}
-              >
-                <input
-                  type="radio"
-                  name="strategy"
-                  checked={distributionStrategy === "ROUND_ROBIN_GRAB"}
-                  onChange={() => setDistributionStrategy("ROUND_ROBIN_GRAB")}
-                  style={{ accentColor: "var(--accent)", marginTop: "3px" }}
-                />
-                <div>
-                  <div style={{ fontWeight: 650, fontSize: "var(--fs-meta)" }}>
-                    Round-Robin + Open Lead Grab Pool <span className="chip" data-tone="accent" style={{ fontSize: "10px", padding: "1px 6px", marginLeft: "4px" }}>Recommended</span>
-                  </div>
-                  <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
-                    Leads are assigned equally to active closers. If uncontacted within the SLA timer (15 mins), the lead moves to the Open Lead Grab Pool for any active closer to claim.
-                  </div>
-                </div>
-              </label>
-
-              <label
-                style={{
-                  border: distributionStrategy === "STRICT_ROUND_ROBIN" ? "2px solid var(--accent)" : "1px solid var(--border)",
-                  background: distributionStrategy === "STRICT_ROUND_ROBIN" ? "var(--accent-soft)" : "var(--bg-soft)",
-                  padding: "14px",
-                  borderRadius: "var(--r-sm)",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "flex-start",
-                  gap: "10px",
-                }}
-              >
-                <input
-                  type="radio"
-                  name="strategy"
-                  checked={distributionStrategy === "STRICT_ROUND_ROBIN"}
-                  onChange={() => setDistributionStrategy("STRICT_ROUND_ROBIN")}
-                  style={{ accentColor: "var(--accent)", marginTop: "3px" }}
-                />
-                <div>
-                  <div style={{ fontWeight: 650, fontSize: "var(--fs-meta)" }}>
-                    Strict Round-Robin (Equal Rotation)
-                  </div>
-                  <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
-                    Standard cyclic rotation. Lead 1 to Closer A, Lead 2 to Closer B. Never expires to open grab.
-                  </div>
-                </div>
-              </label>
-
-              <label
-                style={{
-                  border: distributionStrategy === "LOAD_BALANCED" ? "2px solid var(--accent)" : "1px solid var(--border)",
-                  background: distributionStrategy === "LOAD_BALANCED" ? "var(--accent-soft)" : "var(--bg-soft)",
-                  padding: "14px",
-                  borderRadius: "var(--r-sm)",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "flex-start",
-                  gap: "10px",
-                }}
-              >
-                <input
-                  type="radio"
-                  name="strategy"
-                  checked={distributionStrategy === "LOAD_BALANCED"}
-                  onChange={() => setDistributionStrategy("LOAD_BALANCED")}
-                  style={{ accentColor: "var(--accent)", marginTop: "3px" }}
-                />
-                <div>
-                  <div style={{ fontWeight: 650, fontSize: "var(--fs-meta)" }}>
-                    Load Balanced (Least Active Leads)
-                  </div>
-                  <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
-                    Routes each incoming lead to the closer who currently has the fewest open pipeline leads.
-                  </div>
-                </div>
-              </label>
-
-              <label
-                style={{
-                  border: distributionStrategy === "MANUAL" ? "2px solid var(--accent)" : "1px solid var(--border)",
-                  background: distributionStrategy === "MANUAL" ? "var(--accent-soft)" : "var(--bg-soft)",
-                  padding: "14px",
-                  borderRadius: "var(--r-sm)",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "flex-start",
-                  gap: "10px",
-                }}
-              >
-                <input
-                  type="radio"
-                  name="strategy"
-                  checked={distributionStrategy === "MANUAL"}
-                  onChange={() => setDistributionStrategy("MANUAL")}
-                  style={{ accentColor: "var(--accent)", marginTop: "3px" }}
-                />
-                <div>
-                  <div style={{ fontWeight: 650, fontSize: "var(--fs-meta)" }}>
-                    Manual Admin Assignment Only
-                  </div>
-                  <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
-                    Automated distribution disabled. All incoming leads land in the Unassigned Pool for manager dispatch.
-                  </div>
-                </div>
-              </label>
-            </div>
-
-            {/* Granular Rules & Sliders */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "20px" }}>
-              <div className="card" style={{ padding: "16px", background: "var(--bg-soft)" }}>
-                <div style={{ fontWeight: 600, fontSize: "var(--fs-meta)", marginBottom: "8px" }}>Lead Grab Pool SLA Timer</div>
-                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                  <select
-                    className="select"
-                    value={grabSlaMinutes}
-                    onChange={(e) => setGrabSlaMinutes(Number(e.target.value))}
-                    style={{ width: "160px" }}
-                  >
-                    <option value={5}>5 minutes</option>
-                    <option value={10}>10 minutes</option>
-                    <option value={15}>15 minutes (Standard)</option>
-                    <option value={30}>30 minutes</option>
-                    <option value={60}>60 minutes (1 hour)</option>
-                  </select>
-                  <span style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)" }}>
-                    If assigned closer takes no action, deal becomes claimable by all team members.
-                  </span>
-                </div>
-              </div>
-
-              <div className="card" style={{ padding: "16px", background: "var(--bg-soft)" }}>
-                <div style={{ fontWeight: 600, fontSize: "var(--fs-meta)", marginBottom: "8px" }}>Max Active Leads / Closer Quota</div>
-                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                  <input
-                    type="number"
-                    className="input"
-                    value={maxLeadsPerCloser}
-                    onChange={(e) => setMaxLeadsPerCloser(Number(e.target.value))}
-                    style={{ width: "100px" }}
-                  />
-                  <span style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)" }}>
-                    Prevents individual closers from hoarding leads beyond their calling capacity.
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Operational Toggles */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "22px" }}>
-              <label style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}>
-                <input
-                  type="checkbox"
-                  checked={allowCloserReassign}
-                  onChange={(e) => setAllowCloserReassign(e.target.checked)}
-                  style={{ accentColor: "var(--accent)", width: "16px", height: "16px" }}
-                />
-                <div>
-                  <span style={{ fontWeight: 600, fontSize: "var(--fs-meta)" }}>Allow Closer-to-Closer Lead Reassignment</span>
-                  <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Closers can transfer leads among themselves with handover notes if language or domain expertise is needed.</div>
-                </div>
-              </label>
-
-              <label style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}>
-                <input
-                  type="checkbox"
-                  checked={skipLeaveClosers}
-                  onChange={(e) => setSkipLeaveClosers(e.target.checked)}
-                  style={{ accentColor: "var(--accent)", width: "16px", height: "16px" }}
-                />
-                <div>
-                  <span style={{ fontWeight: 600, fontSize: "var(--fs-meta)" }}>Skip Closers Marked &apos;On Leave&apos; or &apos;Offline&apos;</span>
-                  <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>Automatically pauses lead allocation for closers who toggled their availability status in Team settings.</div>
-                </div>
-              </label>
-            </div>
-
-            {/* Eligible Active Closers Pool Table */}
-            <div style={{ borderTop: "1px solid var(--border)", paddingTop: "16px", marginBottom: "16px" }}>
-              <div style={{ fontWeight: 600, fontSize: "var(--fs-meta)", marginBottom: "8px" }}>Eligible Closers in Active Pool</div>
-              <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-                {activeClosers.length === 0 ? (
-                  <div style={{ fontSize: "12px", color: "var(--text-secondary)", padding: "6px 0" }}>
-                    No assigned closers configured in pool. Add team closers from Team Settings to activate distribution.
-                  </div>
-                ) : (
-                  activeClosers.map((closer) => {
-                    const initials = (closer.name || closer.email || "CL")
-                      .split(" ")
-                      .map((w: string) => w[0])
-                      .slice(0, 2)
-                      .join("")
-                      .toUpperCase();
-                    const isAdmin = closer.role === "admin" || closer.role === "SUPER_ADMIN" || closer.role === "ADMIN";
-                    return (
-                      <div
-                        key={closer.id || closer.email}
-                        className="card"
-                        style={{
-                          padding: "10px 14px",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "10px",
-                          background: "var(--bg-soft)",
-                          opacity: isAdmin ? 0.7 : 1,
-                        }}
-                      >
-                        <span className="avatar" style={{ width: 28, height: 28, fontSize: 11, background: isAdmin ? "var(--border)" : undefined }}>
-                          {initials}
-                        </span>
-                        <div>
-                          <div style={{ fontWeight: 600, fontSize: "var(--fs-caption)" }}>{closer.name || closer.email}</div>
-                          <div style={{ fontSize: "11px", color: isAdmin ? "var(--text-tertiary)" : "var(--success)" }}>
-                            {isAdmin ? "🛡️ Excluded (Company Admin Rule)" : "● Active in Round-Robin"}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px", marginTop: "8px", padding: "12px 14px", background: "var(--bg-soft)", borderRadius: "var(--r-sm)", border: "1px solid var(--border)" }}>
-              <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)" }}>
-                Core routing engine parameters (Grab Pool capacity, closer break timers, and personal WhatsApp QR routing) are configured centrally in <strong style={{ color: "var(--text)" }}>Team & Users &gt; Routing &amp; Capacity Rules</strong>.
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <a href="/team" className="btn" data-size="sm" data-variant="outline">
-                  Open Team Routing Rules &rarr;
-                </a>
-                <button
-                  type="button"
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <a
+                  href="/team?tab=routing"
                   className="btn"
                   data-variant="primary"
-                  onClick={async () => {
-                    try {
-                      await aicloserApi.roundRobin.update({
-                        mode: distributionStrategy === "LOAD_BALANCED" ? "LOAD_BALANCED" : distributionStrategy === "MANUAL" ? "MANUAL" : "STRICT_ROUND_ROBIN",
-                        maxActiveLeadsPerCloser: Number(maxLeadsPerCloser),
-                        maxVisibleToCloser: Number(grabSlaMinutes),
-                      });
-                      setDistributionNotice("✓ Lead distribution settings saved to live backend routing engine.");
-                    } catch (err: any) {
-                      setDistributionNotice("Failed to save to routing engine: " + (err?.message || String(err)));
-                    }
-                    setTimeout(() => setDistributionNotice(null), 4000);
-                  }}
-                  style={{ display: "flex", alignItems: "center", gap: "6px" }}
+                  style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontWeight: 600, padding: "8px 16px" }}
                 >
-                  <Icon name="check" size={13} />
-                  <span>Save Lead Distribution Settings</span>
-                </button>
+                  <Icon name="users" size={14} />
+                  <span>Open Team Routing Rules &rarr;</span>
+                </a>
               </div>
             </div>
           </div>

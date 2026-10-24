@@ -890,7 +890,16 @@ export function TeamView() {
 
     try {
       await Promise.all([
-        aicloserApi.workspace.updateSettings(workspaceSettings),
+        aicloserApi.workspace.updateSettings({
+          ...workspaceSettings,
+          allowManagerLeadDeletion: workspaceSettings.managerLeadDeletionEnabled,
+          allowQrLeadsRoundRobin: workspaceSettings.companionScannerRouting === "ROUND_ROBIN",
+        }),
+        aicloserApi.roundRobin.update({
+          allowManagerLeadDeletion: workspaceSettings.managerLeadDeletionEnabled,
+          allowQrLeadsRoundRobin: workspaceSettings.companionScannerRouting === "ROUND_ROBIN",
+          companionScannerRouting: workspaceSettings.companionScannerRouting,
+        }).catch(() => {}),
         aicloserApi.team.savePermissionsMatrix(matrixPayload as any),
       ]);
       localStorage.setItem("closer.workspace.settings.v1", JSON.stringify(workspaceSettings));
@@ -1817,6 +1826,71 @@ export function TeamView() {
               >
                 <Icon name="check" size={13} /> Save Routing Rules
               </button>
+            </div>
+
+            {/* Active Closers in Rotation Queue */}
+            <div style={{ marginTop: "24px", paddingTop: "20px", borderTop: "1px solid var(--border)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
+                <div>
+                  <h3 style={{ fontSize: "var(--fs-meta)", fontWeight: 650, margin: 0 }}>
+                    Active Closers in Rotation Queue ({members.filter(m => m.inRoundRobin && m.role !== "ADMIN").length})
+                  </h3>
+                  <p style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", margin: "2px 0 0 0" }}>
+                    Closers actively receiving automated lead allocations. Admins and Super Admins are automatically excluded per platform policy.
+                  </p>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "10px" }}>
+                {members.map((m) => {
+                  const isWorkspaceAdmin = m.role === "ADMIN";
+                  return (
+                    <div
+                      key={m.id}
+                      className="card"
+                      style={{
+                        padding: "12px 14px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        background: isWorkspaceAdmin ? "var(--bg-soft)" : m.inRoundRobin ? "var(--bg-card)" : "var(--bg-soft)",
+                        border: m.inRoundRobin && !isWorkspaceAdmin ? "1px solid var(--accent-border, var(--border))" : "1px solid var(--border)",
+                        borderRadius: "var(--r-sm)",
+                        opacity: isWorkspaceAdmin ? 0.65 : 1,
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                        <span className="avatar" style={{ width: 32, height: 32, fontSize: 12 }}>
+                          {(m.name || "CL").slice(0, 2).toUpperCase()}
+                        </span>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: "var(--fs-caption)" }}>{m.name}</div>
+                          <div style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
+                            {isWorkspaceAdmin ? (
+                              <span style={{ color: "var(--text-tertiary)" }}>🛡️ Admin Excluded</span>
+                            ) : (
+                              <span>Active Deals: {m.activeLeads || 0} / {m.maxQuota || 15}</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {!isWorkspaceAdmin && (
+                        <button
+                          type="button"
+                          className="btn"
+                          data-size="sm"
+                          data-variant={m.inRoundRobin ? "primary" : "outline"}
+                          onClick={() => toggleRoundRobin(m.id)}
+                          style={{ fontSize: "11px", height: "26px", padding: "0 10px" }}
+                        >
+                          {m.inRoundRobin ? "In Queue" : "Excluded"}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </section>
