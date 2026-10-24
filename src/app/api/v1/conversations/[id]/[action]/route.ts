@@ -1,28 +1,37 @@
 import { NextResponse } from "next/server";
 import { CentralApiError, centralApiRequest } from "@/lib/central-api-server";
 
-const SUPPORTED_GET_ACTIONS = new Set(["messages", "360", "drip"]);
-const SUPPORTED_POST_ACTIONS = new Set(["messages", "read", "typing", "notes", "callback", "drip", "assign", "ai-auto-reply", "payment-request"]);
-const SUPPORTED_PATCH_ACTIONS = new Set(["stage"]);
+function isValidAction(action: string): boolean {
+  return Boolean(action && /^[a-zA-Z0-9_-]+$/.test(action));
+}
 
-export async function DELETE(_request: Request, context: { params: Promise<{ id: string; action: string }> }) {
+export async function DELETE(request: Request, context: { params: Promise<{ id: string; action: string }> }) {
   const { id, action } = await context.params;
-  if (action !== "assign") return NextResponse.json({ success: false, error: "Unsupported action" }, { status: 404 });
+  if (!isValidAction(action)) {
+    return NextResponse.json({ success: false, error: "Invalid action" }, { status: 400 });
+  }
   try {
-    return NextResponse.json(await centralApiRequest(`/conversations/${encodeURIComponent(id)}/assign`, { method: "DELETE" }));
+    const query = new URL(request.url).searchParams.toString();
+    const payload = await centralApiRequest(`/conversations/${encodeURIComponent(id)}/${encodeURIComponent(action)}${query ? `?${query}` : ""}`, {
+      method: "DELETE",
+    });
+    return NextResponse.json(payload);
   } catch (error) {
-    return NextResponse.json({ success: false, error: error instanceof Error ? error.message : "Unable to unassign" }, { status: error instanceof CentralApiError ? error.status : 502 });
+    return NextResponse.json(
+      { success: false, error: error instanceof Error ? error.message : "Unable to delete conversation action" },
+      { status: error instanceof CentralApiError ? error.status : 502 },
+    );
   }
 }
 
 export async function GET(request: Request, context: { params: Promise<{ id: string; action: string }> }) {
   const { id, action } = await context.params;
-  if (!SUPPORTED_GET_ACTIONS.has(action)) {
-    return NextResponse.json({ success: false, data: null, error: "Unsupported conversation action." }, { status: 404 });
+  if (!isValidAction(action)) {
+    return NextResponse.json({ success: false, data: null, error: "Invalid conversation action." }, { status: 400 });
   }
   try {
     const query = new URL(request.url).searchParams.toString();
-    const payload = await centralApiRequest(`/conversations/${encodeURIComponent(id)}/${action}${query ? `?${query}` : ""}`);
+    const payload = await centralApiRequest(`/conversations/${encodeURIComponent(id)}/${encodeURIComponent(action)}${query ? `?${query}` : ""}`);
     return NextResponse.json(payload);
   } catch (error) {
     return NextResponse.json(
@@ -34,12 +43,12 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
 
 export async function POST(request: Request, context: { params: Promise<{ id: string; action: string }> }) {
   const { id, action } = await context.params;
-  if (!SUPPORTED_POST_ACTIONS.has(action)) {
-    return NextResponse.json({ success: false, data: null, error: "Unsupported conversation action." }, { status: 404 });
+  if (!isValidAction(action)) {
+    return NextResponse.json({ success: false, data: null, error: "Invalid conversation action." }, { status: 400 });
   }
   try {
     const body = action === "read" ? undefined : await request.json().catch(() => ({}));
-    const payload = await centralApiRequest(`/conversations/${encodeURIComponent(id)}/${action}`, {
+    const payload = await centralApiRequest(`/conversations/${encodeURIComponent(id)}/${encodeURIComponent(action)}`, {
       method: "POST",
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
@@ -54,12 +63,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string; action: string }> }) {
   const { id, action } = await context.params;
-  if (!SUPPORTED_PATCH_ACTIONS.has(action)) {
-    return NextResponse.json({ success: false, data: null, error: "Unsupported conversation action." }, { status: 404 });
+  if (!isValidAction(action)) {
+    return NextResponse.json({ success: false, data: null, error: "Invalid conversation action." }, { status: 400 });
   }
   try {
     const body = await request.json().catch(() => ({}));
-    const payload = await centralApiRequest(`/conversations/${encodeURIComponent(id)}/${action}`, {
+    const payload = await centralApiRequest(`/conversations/${encodeURIComponent(id)}/${encodeURIComponent(action)}`, {
       method: "PATCH",
       body: JSON.stringify(body),
     });

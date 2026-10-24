@@ -614,7 +614,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
               return { ...prev, leads: [newLead, ...prev.leads] };
             });
           } else if (
-            (event.type === "lead.updated" || event.type === "lead.stage_changed") &&
+            (event.type === "lead.updated" ||
+              event.type === "lead.stage_changed" ||
+              event.type === "lead.assigned" ||
+              event.type === "lead.reassigned") &&
             (event.payload?.id || event.payload?.leadId)
           ) {
             const targetId = event.payload.id || event.payload.leadId;
@@ -628,7 +631,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
                     ...(event.payload.priority ? { priority: event.payload.priority } : {}),
                     ...(event.payload.tags ? { tags: event.payload.tags } : {}),
                     ...(event.payload.followUpAt ? { followUp: event.payload.followUpAt } : {}),
-                    ...(event.payload.assignedAgentId ? { owner: event.payload.assignedFreelancerName || event.payload.assignedTo || l.owner } : {}),
+                    ...(event.payload.assignedAgentId || event.payload.assignedFreelancerName || event.payload.assignedTo || event.payload.agentCode
+                      ? {
+                          owner:
+                            event.payload.assignedFreelancerName ||
+                            event.payload.assignedTo ||
+                            event.payload.agentCode ||
+                            l.owner,
+                        }
+                      : {}),
                     updatedAt: new Date().toISOString(),
                   };
                 }
