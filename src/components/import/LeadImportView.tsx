@@ -47,7 +47,7 @@ export function LeadImportView() {
   const [importSuccessBanner, setImportSuccessBanner] = useState<string | null>(null);
 
   // Google Sheets state
-  const [sheetUrl, setSheetUrl] = useState("https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit");
+  const [sheetUrl, setSheetUrl] = useState("");
   const [sheetTabName, setSheetTabName] = useState("Sheet1");
   const [sheetAutoSync, setSheetAutoSync] = useState(true);
   const [isFetchingSheet, setIsFetchingSheet] = useState(false);
@@ -874,7 +874,7 @@ export function LeadImportView() {
                         className="input"
                         value={sheetUrl}
                         onChange={(e) => setSheetUrl(e.target.value)}
-                        placeholder="https://docs.google.com/spreadsheets/d/.../edit"
+                        placeholder="https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit"
                         style={{ width: "100%", marginTop: "4px" }}
                       />
                     </div>
