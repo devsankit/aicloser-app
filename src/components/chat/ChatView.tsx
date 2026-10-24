@@ -5,7 +5,7 @@ import { Icon, type IconName } from "@/components/ui/Icon";
 import { CURRENT_USER, useApp } from "@/lib/store";
 import { STAGES, type StageId, type Priority, stageMeta, PRIORITY_LABEL } from "@/lib/types";
 import { aicloserApi } from "@/lib/api-client";
-import { isScannedWhatsAppLead } from "@/lib/lead-mapper";
+import { isScannedWhatsAppLead, stageIdToBackendStage } from "@/lib/lead-mapper";
 import { LeadCommandHistory, isManualNote } from "@/components/pipeline/LeadCommandHistory";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { ResizeHandle } from "@/components/ui/ResizeHandle";
