@@ -401,7 +401,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setState((prev) => ({
       ...prev,
       hydrated: true,
-      leads: saved?.leads?.length ? saved.leads : prev.leads,
+      leads: prev.leads,
       theme: saved?.theme === "dark" || saved?.theme === "light" ? saved.theme : "light",
       density: saved?.density === "compact" ? "compact" : "comfortable",
       accent: normalizeAccent(saved?.accent),
@@ -440,7 +440,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     saveTimer.current = setTimeout(() => {
       try {
         const payload: Persisted = {
-          leads: state.leads,
+          leads: [], // Do NOT persist volatile CRM leads to localStorage; always hydrate from live database
           theme: state.theme,
           density: state.density,
           accent: state.accent,

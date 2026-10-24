@@ -120,21 +120,37 @@ export function DashboardView() {
     const calculatedOpenVal = open.reduce((s, l) => s + l.value, 0);
     const calculatedWonVal = won.reduce((s, l) => s + l.value, 0);
 
-    // Dynamic Settled Revenue from payment ledger with fallback
-    const settledRevenue = (liveSummary?.settledRevenue !== undefined && liveSummary.settledRevenue > 0)
+    // Dynamic Settled Revenue strictly from immutable payment ledger
+    const settledRevenue = typeof liveSummary?.settledRevenue === "number"
       ? liveSummary.settledRevenue
-      : (liveSummary?.wonAmount && liveSummary.wonAmount > 0 ? liveSummary.wonAmount : calculatedWonVal);
+      : 0;
+
+    const wonCount = typeof liveSummary?.wonCount === "number"
+      ? liveSummary.wonCount
+      : won.length;
+
+    const wonValue = typeof liveSummary?.wonAmount === "number"
+      ? liveSummary.wonAmount
+      : calculatedWonVal;
+
+    const openCount = typeof liveSummary?.totalLeads === "number"
+      ? Math.max(0, liveSummary.totalLeads - wonCount - (liveSummary?.lostCount ?? 0))
+      : open.length;
+
+    const openValue = typeof liveSummary?.pipelineValue === "number"
+      ? liveSummary.pipelineValue
+      : calculatedOpenVal;
 
     return {
-      openValue: leads.length > 0 ? calculatedOpenVal : (liveSummary?.pipelineValue ?? 0),
-      openCount: open.length,
-      wonValue: leads.length > 0 ? calculatedWonVal : (liveSummary?.wonAmount ?? 0),
+      openValue,
+      openCount,
+      wonValue,
       settledRevenue,
       pendingVerificationCount: liveSummary?.pendingVerificationCount ?? 0,
       pendingVerificationAmount: liveSummary?.pendingVerificationAmount ?? 0,
       openLinksCount: liveSummary?.openLinksCount ?? 0,
       openLinksAmount: liveSummary?.openLinksAmount ?? 0,
-      wonCount: liveSummary?.wonCount !== undefined ? liveSummary.wonCount : won.length,
+      wonCount,
       newCount: newPendingLeads,
       touched: week.length,
       winRate: decided > 0 ? Math.round((won.length / decided) * 100) : (liveSummary?.conversionRate ?? 0),
