@@ -6406,16 +6406,20 @@ button.list-prio:hover {
 }
 
 .locked-owner-chip {
-  padding: 8px 12px;
+  padding: 0 10px;
+  height: 32px;
   width: 100%;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  box-sizing: border-box;
+  border-radius: var(--r-sm);
 }
 
 .owner-locked-tag {
   font-size: 11px;
   opacity: 0.8;
+  white-space: nowrap;
 }
 
 /* ---------- Payment proof viewer & modal (ITEM-53, ITEM-54) ---------- */

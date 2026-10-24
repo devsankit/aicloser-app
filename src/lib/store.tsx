@@ -774,10 +774,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const created = await aicloserApi.leads.create(uiLeadToBackendPayload(input));
         if (created?.id) {
           const finalLead = backendLeadToUiLead(created);
-          setState((prev) => ({
-            ...prev,
-            leads: prev.leads.map((l) => (l.id === tempId ? finalLead : l)),
-          }));
+          // Preserve input metadata if backend response omits them
+          if (!created.assignedAgent && input.owner) {
+            finalLead.owner = input.owner;
+          }
+          if (input.stage) {
+            finalLead.stage = input.stage;
+          }
+          if (input.source) {
+            finalLead.source = input.source;
+          }
+          setState((prev) => {
+            const exists = prev.leads.some((l) => l.id === created.id && l.id !== tempId);
+            if (exists) {
+              return {
+                ...prev,
+                leads: prev.leads.filter((l) => l.id !== tempId).map((l) => (l.id === created.id ? finalLead : l)),
+              };
+            }
+            return {
+              ...prev,
+              leads: prev.leads.map((l) => (l.id === tempId ? finalLead : l)),
+            };
+          });
+          void refreshLeads();
           return finalLead;
         }
       } catch (err) {
@@ -789,7 +809,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     }
     return optimisticLead!;
-  }, [state.apiConnected]);
+  }, [state.apiConnected, refreshLeads]);
 
   const deleteLead = useCallback(async (id: string) => {
     setState((prev) => ({ ...prev, leads: prev.leads.filter((l) => l.id !== id) }));

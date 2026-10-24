@@ -167,6 +167,7 @@ export function AddLeadDialog({
     <div className="overlay" data-kind="dialog" onClick={onClose} role="presentation">
       <div
         className="dialog"
+        data-size="lg"
         role="dialog"
         aria-modal="true"
         aria-labelledby="add-lead-title"
@@ -271,15 +272,28 @@ export function AddLeadDialog({
               </select>
             </div>
 
-          </div>
+            <div className="field">
+              <label htmlFor="a-priority">Priority</label>
+              <select
+                id="a-priority"
+                className="select"
+                value={form.priority}
+                onChange={(e) => setForm({ ...form, priority: e.target.value as Priority })}
+              >
+                {(Object.keys(PRIORITY_LABEL) as Priority[]).map((p) => (
+                  <option key={p} value={p}>
+                    {PRIORITY_LABEL[p]}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <div className="drawer-grid">
             <div className="field">
               <label htmlFor="a-owner">Assigned Closer / Owner</label>
-              {state.user?.role === "SALES_AGENT" || (state.user?.role as any) === "CLOSER" ? (
-                <div className="chip locked-owner-chip" data-tone="accent">
-                  <span><Icon name="user" size={12} /> {currentUserName} (You)</span>
-                  <span className="owner-locked-tag">Auto-locked to Creator</span>
+              {isCloserRole ? (
+                <div className="chip locked-owner-chip" data-tone="accent" title={`Auto-locked to creator ${currentUserName}`}>
+                  <span><Icon name="user" size={12} /> {currentUserName}</span>
+                  <span className="owner-locked-tag">Auto-locked</span>
                 </div>
               ) : (
                 <select
@@ -296,21 +310,7 @@ export function AddLeadDialog({
                 </select>
               )}
             </div>
-            <div className="field">
-              <label htmlFor="a-priority">Priority</label>
-              <select
-                id="a-priority"
-                className="select"
-                value={form.priority}
-                onChange={(e) => setForm({ ...form, priority: e.target.value as Priority })}
-              >
-                {(Object.keys(PRIORITY_LABEL) as Priority[]).map((p) => (
-                  <option key={p} value={p}>
-                    {PRIORITY_LABEL[p]}
-                  </option>
-                ))}
-              </select>
-            </div>
+
             <div className="field">
               <label htmlFor="a-followup">Next Callback / Follow-up</label>
               <input
