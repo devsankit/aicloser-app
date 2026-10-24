@@ -88,6 +88,17 @@
   --mono: "SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   --fs-caption: 12px;
+
+  /* Compatibility aliases for CRM components */
+  --crm-primary: var(--accent);
+  --crm-primary-soft: var(--accent-soft);
+  --crm-primary-border: var(--accent-border);
+  --crm-surface: var(--bg-surface);
+  --crm-surface-soft: var(--bg-soft);
+  --crm-border: var(--border);
+  --crm-text-secondary: var(--text-secondary);
+  --crm-success: var(--success);
+  --crm-info: var(--info);
   --fs-meta: 13px;
   --fs-body: 14px;
   --fs-title: 16px;

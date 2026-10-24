@@ -1611,18 +1611,27 @@ export function ChatView() {
           ))
         );
 
+        const isExplicitlyAssignedToOther = Boolean(
+          assigned &&
+          assigned !== "Unassigned" &&
+          assigned !== myName &&
+          !assigned.includes(myName) &&
+          c.assignedFreelancerId &&
+          (currentProfileId ? c.assignedFreelancerId !== currentProfileId : true) &&
+          (currentUserId ? c.assignedFreelancerId !== currentUserId : true)
+        );
+
         const belongsToMe =
+          isSharedWithMe ||
           assigned === myName ||
           assigned.includes(myName) ||
           c.assignedTo === CURRENT_USER ||
-          scannedBy === myName ||
-          scannedBy.includes(myName) ||
           Boolean(c.assignedFreelancerName && c.assignedFreelancerName.toLowerCase() === myName) ||
           Boolean(c.assignedFreelancerId && (
             (currentUserId && c.assignedFreelancerId === currentUserId) ||
             (currentProfileId && c.assignedFreelancerId === currentProfileId)
           )) ||
-          isSharedWithMe;
+          (!isExplicitlyAssignedToOther && (scannedBy === myName || scannedBy.includes(myName)));
 
         if (scopeFilter === "mine") {
           // Strictly personal scanned QR WhatsApp companion chats
@@ -1658,10 +1667,15 @@ export function ChatView() {
         }
       } else if (scopeFilter === "mine") {
         // Strictly personal QR WhatsApp chats (scanned by or linked to logged-in user)
+        const isExplicitlyAssignedToOther = Boolean(
+          assigned &&
+          assigned !== "Unassigned" &&
+          assigned !== myName &&
+          !assigned.includes(myName)
+        );
         const belongsToMe =
-          scannedBy === myName ||
-          scannedBy.includes(myName) ||
-          (isQrChannel && (assigned === myName || assigned.includes(myName)));
+          (isQrChannel && (assigned === myName || assigned.includes(myName))) ||
+          (!isExplicitlyAssignedToOther && (scannedBy === myName || scannedBy.includes(myName)));
         matchScope = (c.isPersonalQr || c.channelSource === "QR_SCANNER" || (!c.isOfficialApi && c.channelSource !== "OFFICIAL_API")) && belongsToMe;
       } else if (scopeFilter === "unassigned") {
         matchScope = c.assignedTo === "Unassigned";
@@ -1782,60 +1796,6 @@ export function ChatView() {
     let active = true;
 
     const fetchAllConversations = () => {
-      // Build scanned WhatsApp conversations from state.leads (Strictly isolated by closer role)
-      const scannedList: ConversationItem[] = state.leads
-        .filter((l) => {
-          if (!isScannedWhatsAppLead(l)) return false;
-          // Sales Agents can ONLY see personal scanned leads that they personally scanned or own
-          if (state.user?.role === "SALES_AGENT" || (state.user?.role as any) === "CLOSER") {
-            const myName = state.user?.displayName || "";
-            if (l.owner && l.owner !== "Unassigned" && l.owner !== myName) {
-              return false;
-            }
-          }
-          return true;
-        })
-        .map((l) => {
-          const cleanPhone = l.phone || "";
-          const rawNote = l.notes || "";
-          const snippet =
-            rawNote.replace(/^Synced with chat history via WA Business Scanner:\s*"?|"?$/g, "") ||
-            "Recent WhatsApp conversation";
-          const actualConvId =
-            (l as any).conversationId ||
-            (l.id.startsWith("sales-conversation-") ? l.id.replace(/^sales-conversation-/, "") : l.id);
-          const scannedByName = l.owner && l.owner !== "Unassigned" ? l.owner : (state.user?.displayName || "Closer");
-          return {
-            id: actualConvId,
-            leadId: l.id,
-            customerName: l.name && !l.name.startsWith("+") ? l.name : cleanPhone || "WhatsApp Contact",
-            company: l.company || "WhatsApp Business Lead",
-            phone: cleanPhone,
-            channel: "whatsapp" as const,
-            channelSource: "QR_SCANNER" as const,
-            channelSourceLabel: `QR: ${scannedByName}`,
-            scannedByName,
-            isOfficialApi: false,
-            isPersonalQr: true,
-            isReassignable: false,
-            lastMessage: snippet,
-            lastMessageTime: formatMessageTime(l.updatedAt),
-            updatedAt: l.updatedAt,
-            unreadCount: 0,
-            assignedTo: scannedByName,
-            messages: [
-              {
-                id: `msg-${l.id}-1`,
-                sender: "customer" as const,
-                text: snippet,
-                time: formatMessageTime(l.updatedAt),
-                createdAt: l.updatedAt || new Date().toISOString(),
-                status: "read" as const,
-              },
-            ],
-          };
-        });
-
       const apiParams: any = { limit: 200 };
       const isCloser = (state.user?.role as string) === "CLOSER" || state.user?.role === "SALES_AGENT";
       if (state.scope.startsWith("agent:")) {
@@ -1864,9 +1824,9 @@ export function ChatView() {
           if (!active) return;
           const apiMapped: ConversationItem[] = (res?.conversations || [])
             .filter((c: any) => {
-              const isQrScanner = c.channelSource === "QR_SCANNER" || c.serviceSlug === "whatsapp-companion" || c.isPersonalQr === true;
+              const isQrScanner = c.channelSource === "QR_SCANNER" || c.serviceSlug === "whatsapp-companion" || c.serviceSlug === "manual-chat" || c.isPersonalQr === true;
               if (isQrScanner && (state.user?.role === "SALES_AGENT" || (state.user?.role as any) === "CLOSER")) {
-                const scannerName = c.scannedByName || c.payload?.scannedByName || c.assignedFreelancerName;
+                const scannerName = c.scannedByName || c.payload?.scannedByName;
                 const myName = state.user?.displayName;
                 const currentUserId = state.user?.userId || (state.user as any)?.id;
                 const currentProfileId = (state.user as any)?.agentProfileId || (state.user as any)?.profileId;
@@ -1881,7 +1841,23 @@ export function ChatView() {
                     !s.revokedAt && (s.userId === currentUserId || s.agentProfileId === currentProfileId || s.userId === myName)
                   ))
                 );
-                if (scannerName && myName && scannerName !== myName && !isSharedWithMe) {
+
+                const isAssignedToMe = Boolean(
+                  (currentProfileId && c.assignedFreelancerId === currentProfileId) ||
+                  (myName && c.assignedFreelancerName && c.assignedFreelancerName.toLowerCase() === myName.toLowerCase()) ||
+                  (currentUserId && c.payload?.assignedUserId === currentUserId)
+                );
+
+                const isAssignedToOther = Boolean(
+                  c.assignedFreelancerId &&
+                  !isAssignedToMe &&
+                  c.assignedFreelancerId !== "Unassigned"
+                );
+                if (isAssignedToOther && !isSharedWithMe) {
+                  return false;
+                }
+
+                if (!isAssignedToMe && !isSharedWithMe && scannerName && myName && scannerName !== myName) {
                   return false;
                 }
               }
@@ -1967,16 +1943,6 @@ export function ChatView() {
             });
 
           const combined = [...apiMapped];
-          const seenIds = new Set<string>();
-          for (const c of apiMapped) {
-            seenIds.add(c.id);
-          }
-          for (const sc of scannedList) {
-            if (!seenIds.has(sc.id)) {
-              seenIds.add(sc.id);
-              combined.push(sc);
-            }
-          }
 
           // Sort conversations strictly by newest message timestamp descending
           combined.sort((a, b) => getConversationTimestamp(b) - getConversationTimestamp(a));
@@ -2057,8 +2023,8 @@ export function ChatView() {
         })
         .catch(() => {
           if (!active) return;
-          setConversations(scannedList);
-          setSelectedChatId((current) => (current ? current : scannedList[0]?.id || null));
+          setConversations([]);
+          setSelectedChatId((current) => current || null);
         });
     };
 
@@ -2377,6 +2343,30 @@ export function ChatView() {
               };
             });
           }
+        }
+      } else if (type === "lead.stage_changed" || type === "lead.updated" || type === "lead.reassigned") {
+        const targetId = payload.id || payload.leadId;
+        const nextStage = payload.stage ? normalizeStageId(payload.stage) : null;
+        setConversations((prev) =>
+          prev.map((c) => {
+            const isMatch =
+              c.id === targetId ||
+              c.leadId === targetId ||
+              (c as any).salesLeadId === targetId ||
+              (payload.customerPhone && c.phone && c.phone.replace(/\D/g, "").slice(-10) === payload.customerPhone.replace(/\D/g, "").slice(-10));
+            if (!isMatch) return c;
+            return {
+              ...c,
+              ...(nextStage ? { stage: nextStage, leadStage: nextStage } : {}),
+              ...(payload.priority ? { priority: payload.priority } : {}),
+              ...(payload.tags ? { tags: payload.tags } : {}),
+              ...(payload.assignedAgentName || payload.assignedTo ? { assignedTo: payload.assignedAgentName || payload.assignedTo } : {}),
+              ...(payload.assignedAgentId ? { assignedFreelancerId: payload.assignedAgentId } : {}),
+            };
+          })
+        );
+        if (nextStage && (activeChat?.id === targetId || activeChat?.leadId === targetId || (activeChat as any)?.salesLeadId === targetId)) {
+          setChatStage(nextStage);
         }
       } else if (
         type === "conversation.shared" ||
@@ -2812,10 +2802,8 @@ export function ChatView() {
 
     if (targetLeadId) {
       moveLead(targetLeadId, newStage);
-      await aicloserApi.leads.update(targetLeadId, { stage: backendStage }).catch(() => {});
-    }
-
-    if (activeChat) {
+      updateLead(targetLeadId, { stage: newStage });
+    } else if (activeChat) {
       const convId = (activeChat.id && activeChat.id.startsWith("conv-"))
         ? activeChat.id
         : (activeChat as any).conversationId;
@@ -2825,7 +2813,9 @@ export function ChatView() {
       } else if (activeChat.id) {
         await aicloserApi.conversations.updateStage(activeChat.id, backendStage).catch(() => {});
       }
+    }
 
+    if (activeChat) {
       const sysMsg: ChatMessage = {
         id: `sys-${Date.now()}`,
         sender: "system",
@@ -2838,7 +2828,6 @@ export function ChatView() {
           c.id === activeChat.id ? { ...c, stage: newStage, leadStage: newStage, messages: [...c.messages, sysMsg] } : c
         )
       );
-      await refreshLeads();
       setTimeout(() => scrollToBottom("smooth"), 30);
     }
   };

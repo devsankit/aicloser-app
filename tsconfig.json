@@ -24,7 +24,7 @@
     ],
     "paths": {
       "@/lib/gigxomi/*": [
-        "./src/lib/_quarantine_gigxomi/*"
+        "./archive_legacy/_quarantine_gigxomi/*"
       ],
       "@/app/api/sales/*": [
         "./src/app/api/_quarantine/sales/*",
@@ -47,6 +47,8 @@
   ],
   "exclude": [
     "node_modules",
+    "archive_legacy",
+    "archive_legacy/**",
     "src/lib/_quarantine_gigxomi/**",
     "src/app/api/_quarantine/**",
     "src/components/chat/chat-workspace.tsx",

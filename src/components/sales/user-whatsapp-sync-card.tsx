@@ -17,8 +17,77 @@ import {
 } from "lucide-react";
 import type { WhatsAppScannerSessionState } from "@/lib/types";
 import type { SalesAgentView, SalesLeadView } from "@/lib/gigxomi/sales-store";
-import { renderDeterministicQrSvg } from "@/components/sales/contacts-hub";
 import { aicloserApi } from "@/lib/api-client";
+
+export function renderDeterministicQrSvg(seed: string) {
+  const size = 21;
+  const cells: boolean[][] = Array.from({ length: size }, () => Array(size).fill(false));
+
+  const drawFinder = (r0: number, c0: number) => {
+    for (let r = 0; r < 7; r++) {
+      for (let c = 0; c < 7; c++) {
+        const isBorder = r === 0 || r === 6 || c === 0 || c === 6;
+        const isInner = r >= 2 && r <= 4 && c >= 2 && c <= 4;
+        cells[r0 + r][c0 + c] = isBorder || isInner;
+      }
+    }
+  };
+
+  drawFinder(0, 0);
+  drawFinder(0, size - 7);
+  drawFinder(size - 7, 0);
+
+  let hash = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    hash ^= seed.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      const inFinder =
+        (r < 8 && c < 8) ||
+        (r < 8 && c >= size - 8) ||
+        (r >= size - 8 && c < 8);
+      if (inFinder) continue;
+      hash ^= (r * 31 + c * 17) & 0xff;
+      hash = Math.imul(hash, 16777619);
+      cells[r][c] = (Math.abs(hash) % 10) < 5;
+    }
+  }
+
+  return (
+    <svg
+      viewBox={`0 0 ${size} ${size}`}
+      width="176"
+      height="176"
+      style={{
+        background: "#ffffff",
+        padding: 10,
+        borderRadius: 14,
+        border: "2px solid rgba(16, 185, 129, 0.35)",
+        boxShadow: "0 10px 28px rgba(0,0,0,0.18)",
+      }}
+      aria-label="WhatsApp Linked Device QR Code"
+    >
+      {cells.map((row, rIdx) =>
+        row.map((filled, cIdx) =>
+          filled ? (
+            <rect
+              key={`${rIdx}-${cIdx}`}
+              x={cIdx}
+              y={rIdx}
+              width={0.92}
+              height={0.92}
+              rx={0.15}
+              fill="#0f172a"
+            />
+          ) : null,
+        ),
+      )}
+    </svg>
+  );
+}
 
 type UserWhatsAppSyncCardProps = {
   tenantId?: string;
