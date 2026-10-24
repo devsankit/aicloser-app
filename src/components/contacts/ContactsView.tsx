@@ -151,6 +151,7 @@ export function ContactsView() {
 
   const [query, setQuery] = useState("");
   const [stage, setStage] = useState<StageId | "">("");
+  const [ownerFilter, setOwnerFilter] = useState<string>("");
   const [sort, setSort] = useState<SortKey>("updated");
   const [collapsed, setCollapsed] = useState<Set<StageId>>(new Set());
   const [cursor, setCursor] = useState(0);
@@ -369,6 +370,16 @@ export function ContactsView() {
     const filtered = leads.filter((l) => {
       if (!l) return false;
       if (stage && l.stage !== stage) return false;
+      if (ownerFilter) {
+        if (ownerFilter === "__unassigned__") {
+          const rawOwner = (l.owner || "").trim().toLowerCase();
+          if (rawOwner && rawOwner !== "unassigned" && rawOwner !== "system") return false;
+        } else {
+          const lOwner = (l.owner || "").toLowerCase();
+          const filterVal = ownerFilter.toLowerCase();
+          if (lOwner !== filterVal && !lOwner.includes(filterVal)) return false;
+        }
+      }
       if (!q) return true;
       const leadPhone = l.phone || "";
       const leadPhoneDigits = leadPhone.replace(/\D/g, "");
@@ -396,7 +407,7 @@ export function ContactsView() {
       const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
       return bTime - aTime;
     });
-  }, [leads, query, stage, sort]);
+  }, [leads, query, stage, ownerFilter, sort]);
 
   const flat = rows;
 
@@ -633,6 +644,21 @@ export function ContactsView() {
           ))}
         </select>
 
+        <select
+          className="select pipe-select"
+          value={ownerFilter}
+          onChange={(e) => setOwnerFilter(e.target.value)}
+          aria-label="Filter by assigned closer or unassigned"
+        >
+          <option value="">All Closers</option>
+          <option value="__unassigned__">⚠️ Unassigned Leads</option>
+          {state.teamMembers.map((m) => (
+            <option key={m.id} value={m.displayName || m.name}>
+              {m.displayName || m.name} ({m.role || "Closer"})
+            </option>
+          ))}
+        </select>
+
         {/* Flexible Column Customization Popover */}
         <div className="col-picker-wrap" ref={colPickerRef}>
           <button
@@ -719,6 +745,14 @@ export function ContactsView() {
           <span className="chip-x">
             Status <b>{stageMeta(stage).label}</b>
             <button className="x" onClick={() => setStage("")} aria-label="Clear stage filter">
+              <Icon name="close" size={11} />
+            </button>
+          </span>
+        ) : null}
+        {ownerFilter ? (
+          <span className="chip-x">
+            Closer <b>{ownerFilter === "__unassigned__" ? "Unassigned" : ownerFilter}</b>
+            <button className="x" onClick={() => setOwnerFilter("")} aria-label="Clear closer filter">
               <Icon name="close" size={11} />
             </button>
           </span>

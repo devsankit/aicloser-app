@@ -5139,6 +5139,12 @@ button.list-prio:hover {
   background: rgba(239, 68, 68, 0.08);
 }
 
+.pool-card[data-selected="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
 /* ============================================================ */
 /* SUPER ADMIN & FORM DIALOG DESIGN TOKENS                      */
 /* ============================================================ */

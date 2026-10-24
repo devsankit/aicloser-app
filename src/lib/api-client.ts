@@ -864,6 +864,14 @@ export const aicloserApi = {
       return res.data;
     },
 
+    async bulkClaimFromPool(poolItemIds: string[], assignedAgentId: string) {
+      const res = await requestConversation<{ success: boolean; count: number; message: string; data?: any }>('/leads/pool/bulk-claim', {
+        method: 'POST',
+        body: JSON.stringify({ poolItemIds, assignedAgentId }),
+      });
+      return res.data;
+    },
+
     async getMissed() {
       const res = await requestConversation<{
         totalMissed: number;

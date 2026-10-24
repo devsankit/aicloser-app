@@ -363,6 +363,68 @@ export function PipelineView() {
     }
   };
 
+  // Multi-select for unassigned pool cards
+  const [selectedPoolIds, setSelectedPoolIds] = useState<Set<string>>(new Set());
+  const [isBulkAssigningPool, setIsBulkAssigningPool] = useState(false);
+
+  const handleBulkAssignPool = async (targetCloser: string, assignedAgentId?: string) => {
+    if (!targetCloser || selectedPoolIds.size === 0 || isBulkAssigningPool) return;
+    setIsBulkAssigningPool(true);
+    const poolIds = Array.from(selectedPoolIds);
+    const cleanCloser = targetCloser.split(" (")[0];
+
+    try {
+      if (assignedAgentId) {
+        const res = await aicloserApi.leads.bulkClaimFromPool(poolIds, assignedAgentId);
+        if (res && (res as any).success) {
+          poolIds.forEach((id) => setDisappearedIds((prev) => new Set(prev).add(id)));
+          setSelectedPoolIds(new Set());
+          setIsBulkAssigningPool(false);
+          setClaimFeedback({
+            status: "success",
+            message: `Successfully assigned ${res.count || poolIds.length} unassigned leads to ${cleanCloser}. Added to New Leads.`,
+          });
+          setTimeout(() => setClaimFeedback(null), 5000);
+          void refreshLeads();
+          return;
+        }
+      }
+    } catch (bulkErr) {
+      console.warn("Direct bulkClaimFromPool failed, running sequential fallback:", bulkErr);
+    }
+
+    let successCount = 0;
+    for (const id of poolIds) {
+      try {
+        const res = await claimFromPool(id, cleanCloser, assignedAgentId);
+        if (res.success) {
+          successCount++;
+          setDisappearedIds((prev) => new Set(prev).add(id));
+        }
+      } catch (err) {
+        console.warn("Failed to claim pool lead:", id, err);
+      }
+    }
+
+    setSelectedPoolIds(new Set());
+    setIsBulkAssigningPool(false);
+
+    if (successCount > 0) {
+      setClaimFeedback({
+        status: "success",
+        message: `Successfully assigned ${successCount} unassigned lead${successCount === 1 ? "" : "s"} to ${cleanCloser}. Added to New Leads.`,
+      });
+      setTimeout(() => setClaimFeedback(null), 5000);
+      void refreshLeads();
+    } else {
+      setClaimFeedback({
+        status: "already_claimed",
+        message: "Failed to assign selected leads. They may have already been claimed or removed.",
+      });
+      setTimeout(() => setClaimFeedback(null), 4000);
+    }
+  };
+
   const loadRecycleBin = async () => {
     setLoadingRecycle(true);
     try {
@@ -951,7 +1013,74 @@ export function PipelineView() {
                 ))}
               </div>
             ) : null}
+
+            {isAdmin && openPoolList.length > 0 ? (
+              <button
+                type="button"
+                className="btn"
+                data-size="sm"
+                data-variant={selectedPoolIds.size === openPoolList.length ? "accent" : "ghost"}
+                onClick={() => {
+                  if (selectedPoolIds.size === openPoolList.length) {
+                    setSelectedPoolIds(new Set());
+                  } else {
+                    setSelectedPoolIds(new Set(openPoolList.map((p) => p.id)));
+                  }
+                }}
+                title="Select or deselect all unassigned leads"
+              >
+                <Icon name="check" size={12} />
+                {selectedPoolIds.size === openPoolList.length ? "Deselect All" : `Select All (${openPoolList.length})`}
+              </button>
+            ) : null}
           </div>
+
+          {/* Bulk Action Bar for Unassigned Pool */}
+          {isAdmin && selectedPoolIds.size > 0 && (
+            <div className="bulk" style={{ marginBottom: "12px" }}>
+              <span>
+                <b>{selectedPoolIds.size}</b> unassigned lead{selectedPoolIds.size > 1 ? "s" : ""} selected
+              </span>
+              <select
+                className="select"
+                disabled={isBulkAssigningPool}
+                defaultValue=""
+                onChange={(e) => {
+                  if (e.target.value) {
+                    const val = e.target.value;
+                    const [agentId, agentName] = val.includes("::") ? val.split("::") : ["", val];
+                    void handleBulkAssignPool(agentName, agentId || undefined);
+                    e.target.value = "";
+                  }
+                }}
+                aria-label="Assign selected unassigned leads to closer"
+              >
+                <option value="" disabled>
+                  {isBulkAssigningPool ? "Assigning leads..." : "👤 Assign Selected to Closer..."}
+                </option>
+                {activeClosers.length > 0
+                  ? activeClosers.map((closer) => (
+                      <option key={closer.id} value={`${closer.id}::${closer.name}`}>
+                        {closer.name} {closer.role ? `(${closer.role})` : ""}
+                      </option>
+                    ))
+                  : availableClosers.map((closer) => (
+                      <option key={closer} value={`::${closer}`}>
+                        {closer}
+                      </option>
+                    ))}
+              </select>
+              <button
+                type="button"
+                className="btn"
+                data-size="sm"
+                disabled={isBulkAssigningPool}
+                onClick={() => setSelectedPoolIds(new Set())}
+              >
+                Clear
+              </button>
+            </div>
+          )}
 
           {/* Lead Cards Grid */}
           {openPoolList.length > 0 ? (
@@ -968,11 +1097,29 @@ export function PipelineView() {
                     key={item.id}
                     className="pool-card"
                     data-disappearing={isDisappearing}
+                    data-selected={selectedPoolIds.has(item.id)}
                   >
                     <div>
                       {/* Top Row: Source badge + Name + Arrived */}
                       <div className="pool-card-top">
                         <div className="pool-card-lead-info">
+                          {isAdmin && (
+                            <input
+                              type="checkbox"
+                              className="checkbox"
+                              checked={selectedPoolIds.has(item.id)}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                setSelectedPoolIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(item.id)) next.delete(item.id);
+                                  else next.add(item.id);
+                                  return next;
+                                });
+                              }}
+                              aria-label={`Select lead ${item.customerName || "Customer"}`}
+                            />
+                          )}
                           <span className="stage-icon-badge" data-tone={src.tone}>
                             <Icon name={src.icon} size={15} />
                           </span>
