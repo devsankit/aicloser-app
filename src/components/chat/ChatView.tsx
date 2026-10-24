@@ -217,32 +217,42 @@ export function ChatView() {
   const checkCompanionConnection = useCallback(async () => {
     try {
       setCheckingCompanion(true);
+      const myUserId = (state.user as any)?.userId || (state.user as any)?.id;
+
+      // 1. Check live Baileys daemon status
+      const statusRes = await aicloserApi.integrations.whatsapp.devices.getStatus().catch(() => null);
+      const isDaemonConnected = statusRes?.status === "CONNECTED" && Boolean(statusRes.connectedPhone);
+
+      // 2. Check registered devices list
       const res: any = await aicloserApi.integrations.whatsapp.devices.list().catch(() => null);
       const list = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
-      const myUserId = state.user?.userId;
-      const roleUpper = String(state.user?.role || "").toUpperCase();
-      const isAdmin = roleUpper === "ADMIN" || roleUpper === "SUPER_ADMIN";
 
-      const connectedDev = list.find((d: any) =>
-        d.status === "connected" && (isAdmin || !d.scannedByUserId || d.scannedByUserId === myUserId)
+      // A user ONLY has a connected personal companion if:
+      // - The daemon is live CONNECTED
+      // - AND the device was scanned by THIS specific user (d.scannedByUserId === myUserId)
+      const userDevice = list.find((d: any) =>
+        d.status === "connected" && d.scannedByUserId && d.scannedByUserId === myUserId
       );
 
-      if (connectedDev) {
+      if (isDaemonConnected && userDevice) {
         setHasConnectedCompanion(true);
-        setUserCompanionPhone(connectedDev.phoneNumber || "");
+        setUserCompanionPhone(userDevice.phoneNumber || statusRes.connectedPhone || "");
         setWaDeviceStatus("CONNECTED");
-        setConnectedPhone(connectedDev.phoneNumber || "");
+        setConnectedPhone(userDevice.phoneNumber || statusRes.connectedPhone || "");
       } else {
         setHasConnectedCompanion(false);
         setUserCompanionPhone("");
-        setWaDeviceStatus("DISCONNECTED");
+        setWaDeviceStatus(statusRes?.status || "DISCONNECTED");
+        if (statusRes?.qrCodeDataUrl) {
+          setQrCodeDataUrl(statusRes.qrCodeDataUrl);
+        }
       }
     } catch {
       setHasConnectedCompanion(false);
     } finally {
       setCheckingCompanion(false);
     }
-  }, [state.user?.userId, state.user?.role]);
+  }, [state.user]);
 
   useEffect(() => {
     checkCompanionConnection();
@@ -433,6 +443,17 @@ export function ChatView() {
     }
   }, []);
 
+  // Automatically open QR modal when user navigates to Personal WhatsApp channel but has not connected their device
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const sp = new URLSearchParams(window.location.search);
+      const urlChannel = sp.get("channel");
+      if (urlChannel === "mine" && hasConnectedCompanion === false && !checkingCompanion) {
+        handleOpenQrModal();
+      }
+    }
+  }, [hasConnectedCompanion, checkingCompanion]);
+
   // When admin selects a closer from the header dropdown, automatically activate that closer's chats tab
   useEffect(() => {
     if (state.scope.startsWith("agent:")) {
@@ -621,6 +642,19 @@ export function ChatView() {
         (selectedDispatchChannel !== "PERSONAL" &&
           (activeChat.isOfficialApi || activeChat.channelSource === "OFFICIAL_API")))
   );
+
+  const isPersonalChat = Boolean(
+    activeChat &&
+      (activeChat.isPersonalQr ||
+        activeChat.channelSource === "QR_SCANNER" ||
+        (activeChat as any).serviceSlug === "manual-chat" ||
+        scopeFilter === "mine" ||
+        selectedDispatchChannel === "PERSONAL")
+  );
+
+  const isPersonalDispatch =
+    selectedDispatchChannel === "PERSONAL" ||
+    (selectedDispatchChannel === "AUTO" && isPersonalChat);
 
   const fetchTemplates = useCallback(async () => {
     setLoadingTemplates(true);
@@ -2190,8 +2224,18 @@ export function ChatView() {
   const handleSendMessage = async () => {
     if (!inputText.trim() || !activeChat || isReadOnlyShare) return;
 
+    const isPersonalChat = Boolean(
+      activeChat.isPersonalQr ||
+      activeChat.channelSource === "QR_SCANNER" ||
+      (activeChat as any).serviceSlug === "manual-chat" ||
+      scopeFilter === "mine"
+    );
+    const isPersonalDispatch =
+      selectedDispatchChannel === "PERSONAL" ||
+      (selectedDispatchChannel === "AUTO" && isPersonalChat);
+
     // Gate 1: Check Personal Companion WhatsApp connection
-    if (selectedDispatchChannel === "PERSONAL") {
+    if (isPersonalDispatch) {
       if (hasConnectedCompanion === false) {
         showToast("Personal WhatsApp is not connected. Please scan your QR code first.");
         handleOpenQrModal();
@@ -2200,7 +2244,7 @@ export function ChatView() {
     }
 
     // Gate 2: Check Meta Cloud API 24h / 72h service window
-    if (isOfficialChat && !windowInfo.isOpen && selectedDispatchChannel === "OFFICIAL_API") {
+    if (isOfficialChat && !windowInfo.isOpen && (selectedDispatchChannel === "OFFICIAL_API" || (!isPersonalDispatch && selectedDispatchChannel === "AUTO"))) {
       setShowTemplateModal(true);
       fetchTemplates();
       showToast(`Meta ${windowInfo.hours}h customer service window is closed. Please send an approved template.`);
@@ -2304,6 +2348,21 @@ export function ChatView() {
           errCode === "PERSONAL_WA_NOT_CONNECTED" ||
           String(errMsg).toLowerCase().includes("personal whatsapp is not connected")
         ) {
+          // Immediately purge the optimistic message from cache so it never appears sent or delivered!
+          setMessagesCache((prev) => ({
+            ...prev,
+            [targetConvId]: (prev[targetConvId] || []).filter((m) => m.id !== newMsg.id),
+          }));
+          setConversations((prev) =>
+            prev.map((c) =>
+              c.id === targetConvId
+                ? {
+                    ...c,
+                    messages: (c.messages || []).filter((m) => m.id !== newMsg.id),
+                  }
+                : c
+            )
+          );
           setHasConnectedCompanion(false);
           handleOpenQrModal();
           showToast("Personal WhatsApp is not connected. Scan QR code to connect device.");
@@ -3689,7 +3748,7 @@ export function ChatView() {
                     >
                       <Icon name="bolt" size={12} /> {activeChat.channelSourceLabel || "Official API"} • {windowInfo.isOpen ? `${isAdLead ? "Ad Window" : "Window"}: ${windowInfo.remainingText}` : "Window Closed"}
                     </span>
-                  ) : activeChat.isPersonalQr || activeChat.channelSource === "QR_SCANNER" ? (
+                  ) : activeChat.isPersonalQr || activeChat.channelSource === "QR_SCANNER" || isPersonalChat ? (
                     hasConnectedCompanion === false ? (
                       <button
                         type="button"
@@ -3978,7 +4037,7 @@ export function ChatView() {
           </div>
 
           {/* Personal WhatsApp Not Connected Banner */}
-          {selectedDispatchChannel === "PERSONAL" && hasConnectedCompanion === false && (
+          {isPersonalDispatch && hasConnectedCompanion === false && (
             <div className="chat-companion-alert" data-tone="danger">
               <div className="chat-window-alert-content">
                 <div className="chat-window-alert-icon">
@@ -4103,7 +4162,7 @@ export function ChatView() {
                   onChange={(e) => setInputText(e.target.value)}
                   disabled={
                     (selectedDispatchChannel === "OFFICIAL_API" && isOfficialChat && !windowInfo.isOpen) ||
-                    (selectedDispatchChannel === "PERSONAL" && hasConnectedCompanion === false)
+                    (isPersonalDispatch && hasConnectedCompanion === false)
                   }
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
@@ -4115,8 +4174,8 @@ export function ChatView() {
                     }
                   }}
                   placeholder={
-                    selectedDispatchChannel === "PERSONAL" && hasConnectedCompanion === false
-                      ? "Personal WhatsApp not connected — click 'Connect WA' to link your phone"
+                    isPersonalDispatch && hasConnectedCompanion === false
+                      ? "Personal WhatsApp not connected — click 'Scan QR Code' to link your phone"
                       : selectedDispatchChannel === "OFFICIAL_API" && isOfficialChat && !windowInfo.isOpen
                       ? `Meta ${windowInfo.hours}h window closed — click 'Template' to send an approved template`
                       : "Type your reply... (Press Enter to send, Shift+Enter for new line)"
@@ -4134,7 +4193,7 @@ export function ChatView() {
                     fontSize: "var(--fs-body)",
                     resize: "none",
                     outline: "none",
-                    opacity: ((selectedDispatchChannel === "OFFICIAL_API" && isOfficialChat && !windowInfo.isOpen) || (selectedDispatchChannel === "PERSONAL" && hasConnectedCompanion === false)) ? 0.6 : 1,
+                    opacity: ((selectedDispatchChannel === "OFFICIAL_API" && isOfficialChat && !windowInfo.isOpen) || (isPersonalDispatch && hasConnectedCompanion === false)) ? 0.6 : 1,
                   }}
                 />
                 <div className="seg" data-size="sm" title="Message Dispatch Channel">
@@ -4170,7 +4229,7 @@ export function ChatView() {
                     <span>Personal</span>
                   </button>
                 </div>
-                {selectedDispatchChannel === "PERSONAL" && hasConnectedCompanion === false ? (
+                {isPersonalDispatch && hasConnectedCompanion === false ? (
                   <button
                     type="button"
                     className="btn"
@@ -4178,7 +4237,7 @@ export function ChatView() {
                     onClick={handleOpenQrModal}
                     style={{ height: "46px", padding: "0 18px", fontWeight: 600 }}
                   >
-                    <Icon name="qr" size={14} /> Connect WA
+                    <Icon name="qr" size={14} /> Scan QR Code
                   </button>
                 ) : selectedDispatchChannel === "OFFICIAL_API" && isOfficialChat && !windowInfo.isOpen ? (
                   <button
