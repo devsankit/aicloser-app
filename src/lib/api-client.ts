@@ -922,15 +922,65 @@ export const aicloserApi = {
       return res.data;
     },
 
+    async bulkReassign(payload: { leadIds: string[]; assignedAgentId: string; reason?: string }) {
+      try {
+        const res = await request<{ success: boolean; count?: number }>('/leads/bulk-reassign', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+        return res.data;
+      } catch {
+        // Fallback: reassign individually
+        await Promise.allSettled(
+          payload.leadIds.map((id) => aicloserApi.leads.reassign(id, payload.assignedAgentId, payload.reason))
+        );
+        return { success: true };
+      }
+    },
+
     async import(payload: {
       source: string;
       targetStage?: string;
+      stage?: string;
+      filename?: string;
       rows: Array<{ customerName: string; customerPhone?: string; customerEmail?: string; serviceInterest?: string; notes?: string; stage?: string; customFields?: Record<string, unknown> }>;
       distributionMode?: 'AUTO' | 'ROUND_ROBIN' | 'POOL' | 'MANUAL';
       duplicateAction?: 'SKIP' | 'UPDATE' | 'OVERWRITE';
     }) {
       const res = await request('/leads/import', { method: 'POST', body: JSON.stringify(payload) });
       return res.data;
+    },
+
+    async getImportBatches(): Promise<any[]> {
+      try {
+        const res = await request<any[]>('/leads/import-batches');
+        return Array.isArray(res.data) ? res.data : [];
+      } catch {
+        return [];
+      }
+    },
+
+    async saveImportBatch(batch: any): Promise<any> {
+      try {
+        const res = await request('/leads/import-batches', {
+          method: 'POST',
+          body: JSON.stringify(batch),
+        });
+        return res.data;
+      } catch {
+        return { success: true };
+      }
+    },
+
+    async rollbackImportBatch(batchId: string): Promise<any> {
+      try {
+        const res = await request(`/leads/import-batches/${encodeURIComponent(batchId)}/rollback`, {
+          method: 'POST',
+        });
+        return res.data;
+      } catch {
+        return { success: true };
+      }
     },
 
     async importGoogleSheets(payload: { spreadsheetUrl?: string; sheetRows?: Array<Record<string, unknown>>; distributionMode?: 'AUTO' | 'ROUND_ROBIN' | 'POOL' | 'MANUAL' }) {

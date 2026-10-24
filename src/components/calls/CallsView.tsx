@@ -14,6 +14,8 @@ export interface CallRecord {
   company: string;
   phone: string;
   closerName: string;
+  closerAgentId?: string;
+  closerUserId?: string;
   simSlot: string;
   direction: CallDirection;
   durationSeconds: number;
@@ -71,7 +73,7 @@ export function CallsView() {
 
   const loadData = useCallback(async () => {
     try {
-      const cRes: any = await aicloserApi.calls.list({ limit: 100 }).catch(() => null);
+      const cRes: any = await aicloserApi.calls.list({ limit: 250 }).catch(() => null);
       if (cRes?.calls?.length) {
         const mapped: CallRecord[] = cRes.calls.map((c: any) => ({
           id: c.id,
@@ -79,7 +81,9 @@ export function CallsView() {
           customerName: c.assignment?.customerName || c.phoneNumber || "Direct Caller",
           company: c.assignment?.stage || "Direct Line",
           phone: c.phoneNumber || c.assignment?.customerPhone || "",
-          closerName: c.agent?.user?.displayName || "Closer Agent",
+          closerName: c.agent?.user?.displayName || c.agent?.agentCode || "Closer Agent",
+          closerAgentId: c.agentId || c.agent?.id || "",
+          closerUserId: c.agent?.userId || c.agent?.user?.id || "",
           simSlot: c.device?.deviceName || "SIM Relay",
           direction:
             c.direction === "INBOUND"
@@ -124,8 +128,10 @@ export function CallsView() {
           customerName: c.assignment?.customerName || "Customer",
           company: c.assignment?.stage || "Direct Line",
           phone: c.phoneNumber || c.assignment?.customerPhone || "",
-          closerName: c.agent?.user?.displayName || "Closer Agent",
-          simSlot: "Jio SIM 1",
+          closerName: c.agent?.user?.displayName || c.agent?.agentCode || "Closer Agent",
+          closerAgentId: c.agentId || c.agent?.id || "",
+          closerUserId: c.agent?.userId || c.agent?.user?.id || "",
+          simSlot: c.device?.deviceName || "SIM Relay",
           direction:
             c.direction === "INBOUND"
               ? "inbound"
@@ -207,21 +213,64 @@ export function CallsView() {
     }
   };
 
+  // 1. Scoped Calls based on Global Topbar "Viewing" Scope (state.scope)
+  const scopedCalls = useMemo(() => {
+    const isCloser = (state.user?.role as string) === "CLOSER" || state.user?.role === "SALES_AGENT";
+    const myName = (state.user?.displayName || "").trim().toLowerCase();
+    const myId = (state.user as any)?.userId || (state.user as any)?.id;
+
+    // Helper to test if a call matches a given target name or ID
+    const matchesAgent = (c: CallRecord, targetName: string, targetId?: string) => {
+      const closer = (c.closerName || "").trim().toLowerCase();
+      const target = targetName.trim().toLowerCase();
+      if (!closer && !c.closerAgentId && !c.closerUserId) return false;
+      if (target && closer && (closer === target || closer.includes(target) || target.includes(closer))) {
+        return true;
+      }
+      if (targetId && (c.closerUserId === targetId || c.closerAgentId === targetId)) {
+        return true;
+      }
+      return false;
+    };
+
+    if (isCloser || state.scope === "mine") {
+      return calls.filter((c) => matchesAgent(c, myName, myId));
+    }
+
+    if (state.scope === "unassigned") {
+      return [];
+    }
+
+    if (state.scope.startsWith("agent:")) {
+      const targetAgentName = state.scope.slice(6).trim();
+      const member = state.teamMembers?.find(
+        (m: any) =>
+          (m.name || "").trim().toLowerCase() === targetAgentName.toLowerCase() ||
+          (m.displayName || "").trim().toLowerCase() === targetAgentName.toLowerCase()
+      );
+      const targetMemberId = member?.id || (member as any)?.userId;
+
+      return calls.filter((c) => matchesAgent(c, targetAgentName, targetMemberId));
+    }
+
+    // Default "all" scope (All team leads):
+    if (callerScope === "mine" && myName) {
+      return calls.filter((c) => matchesAgent(c, myName, myId));
+    }
+
+    return calls;
+  }, [calls, state.scope, state.user, state.teamMembers, callerScope]);
+
+  // 2. Filtered calls after Search & Direction filter
   const filteredCalls = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const currentCloserName = (state.user?.displayName || "").toLowerCase();
 
-    return calls.filter((c) => {
+    return scopedCalls.filter((c) => {
       const matchDir =
         directionFilter === "ALL" ||
         (directionFilter === "INBOUND" && c.direction === "inbound") ||
         (directionFilter === "OUTBOUND" && c.direction === "outbound") ||
         (directionFilter === "MISSED" && c.direction === "missed");
-
-      const matchScope =
-        callerScope === "all" ||
-        !currentCloserName ||
-        c.closerName.toLowerCase().includes(currentCloserName);
 
       const matchSearch =
         !q ||
@@ -231,9 +280,9 @@ export function CallsView() {
         c.closerName.toLowerCase().includes(q) ||
         c.disposition.toLowerCase().includes(q);
 
-      return matchDir && matchScope && matchSearch;
+      return matchDir && matchSearch;
     });
-  }, [calls, directionFilter, search, callerScope, state.user]);
+  }, [scopedCalls, directionFilter, search]);
 
   const groupedCalls = useMemo(() => {
     const groups: Record<
@@ -271,17 +320,61 @@ export function CallsView() {
     return Object.values(groups);
   }, [filteredCalls]);
 
-  const missedCalls = calls.filter((c) => c.direction === "missed" && c.callbackPending);
-  const totalDurationSum = calls.reduce((acc, c) => acc + c.durationSeconds, 0);
+  // Scoped metrics
+  const scopedMissedCalls = useMemo(() => {
+    return scopedCalls.filter((c) => c.direction === "missed" && c.callbackPending);
+  }, [scopedCalls]);
+
+  const scopedTotalDuration = useMemo(() => {
+    return scopedCalls.reduce((acc, c) => acc + c.durationSeconds, 0);
+  }, [scopedCalls]);
+
+  const scopedOutboundCount = useMemo(() => {
+    return scopedCalls.filter((c) => c.direction === "outbound").length;
+  }, [scopedCalls]);
+
+  const scopedInboundCount = useMemo(() => {
+    return scopedCalls.filter((c) => c.direction === "inbound").length;
+  }, [scopedCalls]);
+
+  const scopedDevices = useMemo(() => {
+    if (!state.scope || state.scope === "all") return devices;
+    if (state.scope === "mine") {
+      const myName = (state.user?.displayName || "").trim().toLowerCase();
+      return devices.filter((d) => (d.closer || "").trim().toLowerCase() === myName || (d.closer || "").toLowerCase().includes(myName));
+    }
+    if (state.scope.startsWith("agent:")) {
+      const targetAgent = state.scope.slice(6).trim().toLowerCase();
+      return devices.filter((d) => (d.closer || "").trim().toLowerCase() === targetAgent || (d.closer || "").toLowerCase().includes(targetAgent));
+    }
+    return [];
+  }, [devices, state.scope, state.user]);
 
   return (
     <div style={{ padding: "20px 24px", maxWidth: "1280px", margin: "0 auto" }}>
       {/* Header */}
       <header className="page-head" style={{ marginBottom: "20px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
-          <h1 className="page-title" style={{ fontSize: "var(--fs-page)", fontWeight: 650, letterSpacing: "-0.02em" }}>
-            Call Recordings & Missed Calls
-          </h1>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+            <h1 className="page-title" style={{ fontSize: "var(--fs-page)", fontWeight: 650, letterSpacing: "-0.02em" }}>
+              Call Recordings & Missed Calls
+            </h1>
+            {state.scope.startsWith("agent:") && (
+              <span className="chip" data-tone="accent" style={{ fontSize: "12px", display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                <Icon name="users" size={12} /> Viewing: {state.scope.slice(6)}
+              </span>
+            )}
+            {state.scope === "mine" && (
+              <span className="chip" data-tone="accent" style={{ fontSize: "12px", display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                <Icon name="target" size={12} /> Viewing: My Calls ({state.user?.displayName || "Me"})
+              </span>
+            )}
+            {state.scope === "unassigned" && (
+              <span className="chip" style={{ fontSize: "12px", display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                <Icon name="target" size={12} /> Viewing: Unassigned Pool
+              </span>
+            )}
+          </div>
           <p className="page-sub" style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
             Real-time physical SIM call logs, inline audio playback, speech-to-text AI transcripts, and missed-call SLA queue.
           </p>
@@ -315,10 +408,10 @@ export function CallsView() {
             Total Calls Logged
           </div>
           <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px" }}>
-            {totals?.totalCalls ?? calls.length} <span style={{ fontSize: "var(--fs-body)", fontWeight: 400, color: "var(--text-tertiary)" }}>recorded</span>
+            {scopedCalls.length} <span style={{ fontSize: "var(--fs-body)", fontWeight: 400, color: "var(--text-tertiary)" }}>recorded</span>
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
-            {totals?.outboundCalls ?? calls.filter((c) => c.direction === "outbound").length} Outbound • {totals?.inboundCalls ?? calls.filter((c) => c.direction === "inbound").length} Inbound
+            {scopedOutboundCount} Outbound • {scopedInboundCount} Inbound
           </div>
         </div>
 
@@ -326,11 +419,11 @@ export function CallsView() {
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", fontWeight: 550, textTransform: "uppercase", letterSpacing: "0.04em" }}>
             Missed Call Queue
           </div>
-          <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px", color: (totals?.missedCalls ?? missedCalls.length) > 0 ? "var(--warning)" : "var(--success)" }}>
-            {totals?.missedCalls ?? missedCalls.length} <span style={{ fontSize: "var(--fs-body)", fontWeight: 400, color: "var(--text-tertiary)" }}>pending</span>
+          <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px", color: scopedMissedCalls.length > 0 ? "var(--warning)" : "var(--success)" }}>
+            {scopedMissedCalls.length} <span style={{ fontSize: "var(--fs-body)", fontWeight: 400, color: "var(--text-tertiary)" }}>pending</span>
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", marginTop: "4px", display: "flex", alignItems: "center", gap: "4px" }}>
-            <span className="dot" style={{ background: (totals?.missedCalls ?? missedCalls.length) > 0 ? "var(--warning)" : "var(--success)" }} /> Unanswered calls requiring callback
+            <span className="dot" style={{ background: scopedMissedCalls.length > 0 ? "var(--warning)" : "var(--success)" }} /> Unanswered calls requiring callback
           </div>
         </div>
 
@@ -339,10 +432,10 @@ export function CallsView() {
             Total Talk Time
           </div>
           <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px" }}>
-            {Math.floor((totals?.talkTimeSeconds ?? totalDurationSum) / 60)}m {(totals?.talkTimeSeconds ?? totalDurationSum) % 60}s
+            {Math.floor(scopedTotalDuration / 60)}m {scopedTotalDuration % 60}s
           </div>
           <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
-            {calls.length > 0 ? `Avg duration: ~${Math.round((totals?.talkTimeSeconds ?? totalDurationSum) / calls.length)}s per call` : "Live SIM call sync"}
+            {scopedCalls.length > 0 ? `Avg duration: ~${Math.round(scopedTotalDuration / scopedCalls.length)}s per call` : "Live SIM call sync"}
           </div>
         </div>
 
@@ -351,11 +444,11 @@ export function CallsView() {
             <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-tertiary)", fontWeight: 550, textTransform: "uppercase", letterSpacing: "0.04em" }}>
               SIM Telephony Engine
             </div>
-            <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px", color: devices.length > 0 ? "var(--success)" : "var(--text-tertiary)" }}>
-              {devices.filter((d) => d.recordingService === "active").length} / {devices.length} Active
+            <div style={{ fontSize: "var(--fs-metric)", fontWeight: 650, marginTop: "4px", color: scopedDevices.length > 0 ? "var(--success)" : "var(--text-tertiary)" }}>
+              {scopedDevices.filter((d) => d.recordingService === "active").length} / {scopedDevices.length} Active
             </div>
             <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)", marginTop: "4px" }}>
-              {devices.length > 0 ? "Direct Android audio background sync" : "No devices connected"}
+              {scopedDevices.length > 0 ? "Direct Android audio background sync" : "No devices connected"}
             </div>
           </div>
         )}
@@ -365,14 +458,14 @@ export function CallsView() {
       <div style={{ display: "flex", gap: "8px", borderBottom: "1px solid var(--border)", paddingBottom: "12px", marginBottom: "16px" }}>
         <div className="seg">
           <button data-on={tab === "all"} onClick={() => setTab("all")}>
-            <Icon name="phone" size={13} /> Call History ({calls.length})
+            <Icon name="phone" size={13} /> Call History ({scopedCalls.length})
           </button>
           <button data-on={tab === "missed"} onClick={() => setTab("missed")}>
-            <Icon name="clock" size={13} /> Missed Call Queue ({missedCalls.length})
+            <Icon name="clock" size={13} /> Missed Call Queue ({scopedMissedCalls.length})
           </button>
           {canViewDevices && (
             <button data-on={tab === "devices"} onClick={() => setTab("devices")}>
-              <Icon name="plug" size={13} /> Connected SIM Devices ({devices.length})
+              <Icon name="plug" size={13} /> Connected SIM Devices ({scopedDevices.length})
             </button>
           )}
         </div>
@@ -599,9 +692,17 @@ export function CallsView() {
                       <div style={{ display: "inline-flex", padding: 12, borderRadius: "50%", background: "var(--bg-soft)", marginBottom: 8 }}>
                         <Icon name="phone" size={20} />
                       </div>
-                      <div style={{ fontWeight: 600, color: "var(--text)" }}>No call recordings found</div>
+                      <div style={{ fontWeight: 600, color: "var(--text)" }}>
+                        {state.scope.startsWith("agent:")
+                          ? `No call recordings found for ${state.scope.slice(6)}`
+                          : state.scope === "mine"
+                          ? "No call recordings found for your account"
+                          : "No call recordings found"}
+                      </div>
                       <div style={{ fontSize: "12px", color: "var(--text-tertiary)", marginTop: 4 }}>
-                        Real inbound and outbound SIM calls from connected closer devices will appear here automatically.
+                        {state.scope.startsWith("agent:")
+                          ? `Calls logged by ${state.scope.slice(6)} on their connected SIM devices will appear here.`
+                          : "Real inbound and outbound SIM calls from connected closer devices will appear here automatically."}
                       </div>
                     </td>
                   </tr>
@@ -734,7 +835,7 @@ export function CallsView() {
               </p>
             </div>
             <span className="chip" data-tone="warning">
-              {missedCalls.length} requiring immediate attention
+              {scopedMissedCalls.length} requiring immediate attention
             </span>
           </div>
 
@@ -751,7 +852,7 @@ export function CallsView() {
                 </tr>
               </thead>
               <tbody>
-                {missedCalls.map((c) => (
+                {scopedMissedCalls.map((c) => (
                   <tr key={c.id}>
                     <td>
                       <div style={{ fontWeight: 600, color: "var(--text)" }}>{c.customerName}</div>
@@ -779,7 +880,7 @@ export function CallsView() {
                     </td>
                   </tr>
                 ))}
-                {missedCalls.length === 0 && (
+                {scopedMissedCalls.length === 0 && (
                   <tr>
                     <td colSpan={6} style={{ textAlign: "center", padding: "32px", color: "var(--text-tertiary)" }}>
                       ✓ All missed calls have been resolved and returned!
@@ -803,7 +904,7 @@ export function CallsView() {
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "16px", padding: "18px" }}>
-            {devices.length === 0 ? (
+            {scopedDevices.length === 0 ? (
               <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "36px 16px", color: "var(--text-tertiary)" }}>
                 <Icon name="phone" size={28} style={{ opacity: 0.4, marginBottom: 8 }} />
                 <div style={{ fontWeight: 600, color: "var(--text)" }}>No Physical SIM Android Devices Connected</div>
@@ -812,7 +913,7 @@ export function CallsView() {
                 </div>
               </div>
             ) : (
-              devices.map((d) => (
+              scopedDevices.map((d) => (
                 <div key={d.id} className="card" style={{ padding: "14px", background: "var(--bg-soft)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                     <div>

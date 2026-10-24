@@ -7237,6 +7237,308 @@ button.list-prio:hover {
   margin-left: auto;
 }
 
+/* ==========================================================================
+   Contacts View: Assign to Closer Dropdown & Header Menu
+   ========================================================================== */
+.bulk-assign-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.top-assign-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 200px;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
+  padding: 4px;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.top-assign-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: var(--fs-caption);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--speed) ease;
+}
+
+.top-assign-item:hover {
+  background: var(--bg-soft);
+}
+
+.top-assign-item .assign-name {
+  font-weight: 550;
+  color: var(--text);
+}
+
+.top-assign-item .assign-role {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+/* ==========================================================================
+   Chat View: WhatsApp-like Rich Media & Document Viewer
+   ========================================================================== */
+.chat-media-image-wrap {
+  position: relative;
+  display: inline-block;
+  margin: 4px 0;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  cursor: pointer;
+  max-width: 100%;
+}
+
+.chat-media-image {
+  display: block;
+  width: auto;
+  max-width: 280px;
+  max-height: 240px;
+  border-radius: var(--r-md);
+  object-fit: cover;
+  transition: transform var(--speed) ease, opacity var(--speed) ease;
+}
+
+.chat-media-image:hover {
+  transform: scale(1.015);
+  opacity: 0.95;
+}
+
+.chat-media-doc {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  margin: 4px 0;
+  max-width: 320px;
+  text-decoration: none;
+  color: inherit;
+  transition: background var(--speed) ease;
+}
+
+.chat-bubble[data-sender="closer"] .chat-media-doc {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.chat-doc-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-sm);
+  background: #ef4444;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.chat-doc-icon[data-ext="doc"],
+.chat-doc-icon[data-ext="docx"] {
+  background: #2563eb;
+}
+
+.chat-doc-icon[data-ext="xls"],
+.chat-doc-icon[data-ext="xlsx"],
+.chat-doc-icon[data-ext="csv"] {
+  background: #16a34a;
+}
+
+.chat-doc-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chat-doc-name {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-doc-meta {
+  font-size: 11px;
+  opacity: 0.8;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chat-doc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-sm);
+  background: var(--bg-surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: all var(--speed) ease;
+}
+
+.chat-doc-btn:hover {
+  background: var(--bg-soft);
+}
+
+.chat-bubble-emojis-only {
+  font-size: 32px;
+  line-height: 1.25;
+  letter-spacing: 0.05em;
+  padding: 4px 0;
+}
+
+/* Lightbox Modal for Full Zoom */
+.chat-media-lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.82);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  backdrop-filter: blur(4px);
+}
+
+.chat-media-lightbox-content {
+  position: relative;
+  max-width: 90vw;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.chat-media-lightbox-img {
+  max-width: 100%;
+  max-height: 80vh;
+  object-fit: contain;
+  border-radius: var(--r-md);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+}
+
+.chat-media-lightbox-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* Staged Attachment Upload Preview Bar */
+.chat-attachment-preview-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  margin-bottom: 6px;
+}
+
+.chat-attachment-preview-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.chat-attachment-preview-thumb {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-sm);
+  object-fit: cover;
+  border: 1px solid var(--border);
+}
+
+.chat-attachment-preview-details {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.chat-attachment-preview-name {
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-attachment-preview-size {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+/* Emoji Tray Popover */
+.chat-emoji-tray {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
+  padding: 10px;
+  z-index: 110;
+  width: 290px;
+}
+
+.chat-emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+}
+
+.chat-emoji-btn {
+  background: transparent;
+  border: none;
+  font-size: 18px;
+  padding: 4px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform var(--speed) ease, background var(--speed) ease;
+}
+
+.chat-emoji-btn:hover {
+  background: var(--bg-soft);
+  transform: scale(1.2);
+}
+
+
 
 
 

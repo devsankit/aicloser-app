@@ -80,6 +80,36 @@ export function backendLeadToUiLead(b: BackendLead): UiLead {
   const code = (b as any).leadCode || `CLO-${b.id ? b.id.slice(-4).toUpperCase() : "101"}`;
   const assignedAgentId = (b as any).assignedAgentId || b.assignedAgent?.id || (b as any).assignedAgent?.userId;
 
+  const realPaymentAmount =
+    typeof (b as any).realPaymentAmount === "number"
+      ? (b as any).realPaymentAmount
+      : typeof (b as any).paymentAmount === "number"
+      ? (b as any).paymentAmount
+      : typeof (b as any).settledAmount === "number"
+      ? (b as any).settledAmount
+      : typeof (b as any).collectedAmount === "number"
+      ? (b as any).collectedAmount
+      : Array.isArray((b as any).payments) && (b as any).payments.length > 0
+      ? (b as any).payments.reduce(
+          (sum: number, p: any) =>
+            sum +
+            (p.status === "PAID" || p.status === "SETTLED" || p.status === "APPROVED"
+              ? Number(p.totalAmount || p.amount || 0)
+              : 0),
+          0
+        )
+      : typeof (custom as any).realPaymentAmount === "number"
+      ? (custom as any).realPaymentAmount
+      : typeof (custom as any).paymentAmount === "number"
+      ? (custom as any).paymentAmount
+      : undefined;
+
+  const paymentStatus =
+    (b as any).paymentStatus ||
+    (Array.isArray((b as any).payments) && (b as any).payments[0]?.status) ||
+    (custom as any).paymentStatus ||
+    undefined;
+
   return {
     id: b.id,
     code,
@@ -88,6 +118,9 @@ export function backendLeadToUiLead(b: BackendLead): UiLead {
     phone: b.customerPhone || "",
     email: b.customerEmail || "",
     value: typeof b.budgetAmount === "number" ? b.budgetAmount : 0,
+    realPaymentAmount,
+    paymentAmount: realPaymentAmount,
+    paymentStatus,
     source: normalizeSource(b.source),
     rawSource: b.source,
     serviceInterest: b.serviceInterest,

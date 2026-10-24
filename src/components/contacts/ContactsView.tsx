@@ -48,7 +48,7 @@ export const CONTACT_COLUMNS: ContactColumnDef[] = [
   { id: "notes", label: "Notes", description: "Latest notes & communication logs" },
   { id: "callback", label: "Next Callback", description: "Follow-up schedule and SLA badge" },
   { id: "owner", label: "Assigned Closer", description: "Assigned sales rep" },
-  { id: "value", label: "Deal Value", description: "Estimated lead budget" },
+  { id: "value", label: "Payment Collection", description: "Real collected payment & status" },
   { id: "source", label: "Source", description: "Lead acquisition channel" },
   { id: "email", label: "Email", description: "Customer email address" },
   { id: "tags", label: "Tags", description: "Custom tags & badges" },
@@ -123,6 +123,21 @@ function formatCallbackInfo(followUpIso?: string) {
   };
 }
 
+function extractLatestNote(rawNotes: any): { snippet: string; full: string } {
+  if (!rawNotes) return { snippet: "", full: "" };
+  const full = typeof rawNotes === "string" ? rawNotes : JSON.stringify(rawNotes);
+  const trimmed = full.trim();
+  if (!trimmed) return { snippet: "", full: "" };
+
+  const parts = trimmed
+    .split(/(?:\r?\n\s*---\s*\r?\n|\r?\n|---)/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const snippet = parts.length > 0 ? parts[parts.length - 1] : trimmed;
+  return { snippet, full: trimmed };
+}
+
 export function ContactsView() {
   const { state, moveLead, updateLead, deleteLead, refreshLeads } = useApp();
   const isAdmin = state.user?.role === "ADMIN" || state.user?.role === "SUPER_ADMIN" || state.user?.role === "MANAGER";
@@ -145,6 +160,8 @@ export function ContactsView() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [showColPicker, setShowColPicker] = useState(false);
   const colPickerRef = useRef<HTMLDivElement | null>(null);
+  const [showTopAssignDropdown, setShowTopAssignDropdown] = useState(false);
+  const topAssignRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
 
   // Column preferences
@@ -205,8 +222,8 @@ export function ContactsView() {
     try {
       await aicloserApi.leads.restore(leadId);
       setRecycleLeads((prev) => prev.filter((l) => l.id !== leadId));
-      setToastMessage("Lead restored to New Leads.");
-      void refreshLeads();
+      setToastMessage("Lead restored to original stage successfully.");
+      await refreshLeads();
     } catch (e: any) {
       setToastMessage("Failed to restore lead: " + (e.message || String(e)));
     } finally {
@@ -262,18 +279,54 @@ export function ContactsView() {
     }
   }, []);
 
-  // Close column popover when clicking outside
+  // Close column popover & assign popover when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (colPickerRef.current && !colPickerRef.current.contains(e.target as Node)) {
         setShowColPicker(false);
       }
+      if (topAssignRef.current && !topAssignRef.current.contains(e.target as Node)) {
+        setShowTopAssignDropdown(false);
+      }
     };
-    if (showColPicker) {
+    if (showColPicker || showTopAssignDropdown) {
       document.addEventListener("mousedown", handleClickOutside);
       return () => document.removeEventListener("mousedown", handleClickOutside);
     }
-  }, [showColPicker]);
+  }, [showColPicker, showTopAssignDropdown]);
+
+  // Bulk assign leads to closer
+  const handleBulkAssign = async (targetId: string) => {
+    if (!targetId || selection.size === 0) return;
+    const targetMember = state.teamMembers.find(
+      (m: any) => m.id === targetId || m.userId === targetId || (m.displayName || m.name) === targetId
+    );
+    const targetName = targetMember?.displayName || targetMember?.name || targetId;
+    const leadIds = Array.from(selection);
+    const count = leadIds.length;
+
+    // Symmetrically update local state immediately
+    leadIds.forEach((id) => {
+      updateLead(id, { owner: targetName, assignedAgentId: targetId });
+    });
+
+    setToastMessage(`Assigned ${count} leads to ${targetName}`);
+    setSelection(new Set());
+    setShowTopAssignDropdown(false);
+
+    try {
+      await aicloserApi.leads.bulkReassign({ leadIds, assignedAgentId: targetId });
+      void refreshLeads();
+    } catch (err) {
+      console.warn("Bulk reassign API fallback:", err);
+      for (const id of leadIds) {
+        try {
+          await aicloserApi.leads.reassign(id, targetId);
+        } catch {}
+      }
+      void refreshLeads();
+    }
+  };
 
   // Auto clear toast
   useEffect(() => {
@@ -334,7 +387,11 @@ export function ContactsView() {
     });
     return filtered.sort((a, b) => {
       if (sort === "name") return (a.name || "").localeCompare(b.name || "");
-      if (sort === "value") return (Number(b.value) || 0) - (Number(a.value) || 0);
+      if (sort === "value") {
+        const valA = Number(a.realPaymentAmount ?? a.paymentAmount ?? 0);
+        const valB = Number(b.realPaymentAmount ?? b.paymentAmount ?? 0);
+        return valB - valA;
+      }
       const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
       const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
       return bTime - aTime;
@@ -391,7 +448,15 @@ export function ContactsView() {
       ?.scrollIntoView({ block: "nearest" });
   }, [cursor]);
 
-  const total = rows.reduce((s, l) => s + (Number(l.value) || 0), 0);
+  const totalPaid = rows.reduce((s, l) => {
+    const isPaid =
+      (l.paymentStatus || "").toUpperCase() === "PAID" ||
+      (l.paymentStatus || "").toUpperCase() === "SETTLED" ||
+      (l.paymentStatus || "").toUpperCase() === "APPROVED" ||
+      l.stage === "won";
+    const amt = Number(l.realPaymentAmount ?? l.paymentAmount ?? 0);
+    return s + (isPaid || l.realPaymentAmount ? amt : 0);
+  }, 0);
   const active = leads.find((l) => l.id === selected) ?? null;
 
   const bulkMove = (to: StageId) => {
@@ -441,12 +506,50 @@ export function ContactsView() {
           <p className="page-sub">
             {activeTab === "recycle"
               ? `Recycle Bin · ${recycleLeads.length} soft-deleted leads · Leads can be restored to active contacts or permanently deleted.`
-              : `${rows.length} contacts · ${compactMoney(total)} total pipeline value`}
+              : `${rows.length} contacts · Total Paid: ${money(totalPaid)}`}
           </p>
         </div>
         <div className="page-actions">
           {activeTab === "contacts" ? (
             <>
+              {selection.size > 0 && (
+                <div className="bulk-assign-wrap" ref={topAssignRef}>
+                  <button
+                    type="button"
+                    className="btn"
+                    data-variant="accent"
+                    onClick={() => setShowTopAssignDropdown((v) => !v)}
+                    title={`Assign ${selection.size} selected leads`}
+                  >
+                    <Icon name="users" size={14} /> Assign ({selection.size})
+                    <Icon name="chevron-down" size={11} />
+                  </button>
+                  {showTopAssignDropdown && (
+                    <div className="top-assign-dropdown" role="menu">
+                      <div style={{ padding: "6px 8px", fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase" }}>
+                        Assign to Closer
+                      </div>
+                      {state.teamMembers.length === 0 ? (
+                        <div style={{ padding: "8px", fontSize: "12px", color: "var(--text-tertiary)" }}>
+                          No team members found
+                        </div>
+                      ) : (
+                        state.teamMembers.map((m) => (
+                          <button
+                            key={m.id}
+                            type="button"
+                            className="top-assign-item"
+                            onClick={() => void handleBulkAssign(m.id)}
+                          >
+                            <span className="assign-name">{m.displayName || m.name}</span>
+                            <span className="assign-role">{m.role || "Closer"}</span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
               <select
                 className="select pipe-select"
                 value={sort}
@@ -455,7 +558,7 @@ export function ContactsView() {
               >
                 <option value="updated">Sort: last activity</option>
                 <option value="name">Sort: name</option>
-                <option value="value">Sort: deal value</option>
+                <option value="value">Sort: payment</option>
               </select>
               {isAdmin && (
                 <button
@@ -647,6 +750,21 @@ export function ContactsView() {
           <select
             className="select"
             value=""
+            onChange={(e) => {
+              if (e.target.value) void handleBulkAssign(e.target.value);
+            }}
+            aria-label="Assign selected leads to closer"
+          >
+            <option value="">👤 Assign to Closer...</option>
+            {state.teamMembers.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.displayName || m.name} ({m.role || "Closer"})
+              </option>
+            ))}
+          </select>
+          <select
+            className="select"
+            value=""
             onChange={(e) => e.target.value && bulkMove(e.target.value as StageId)}
             aria-label="Move selected leads to stage"
           >
@@ -698,7 +816,7 @@ export function ContactsView() {
                 {isColVisible("notes") && <th style={{ minWidth: 190 }}>Notes</th>}
                 {isColVisible("callback") && <th style={{ minWidth: 140 }}>Next Callback</th>}
                 {isColVisible("owner") && <th className="table-col-owner">Assigned Closer</th>}
-                {isColVisible("value") && <th className="table-col-value">Deal Value</th>}
+                {isColVisible("value") && <th className="table-col-value">Payment Collection</th>}
                 {isColVisible("source") && <th style={{ minWidth: 110 }}>Source</th>}
                 {isColVisible("email") && <th style={{ minWidth: 150 }}>Email</th>}
                 {isColVisible("tags") && <th style={{ minWidth: 120 }}>Tags</th>}
@@ -900,16 +1018,17 @@ export function ContactsView() {
                     {/* Notes */}
                     {isColVisible("notes") && (
                       <td>
-                        {lead.notes ? (
-                          <div className="contact-note-cell" title={typeof lead.notes === "string" ? lead.notes : JSON.stringify(lead.notes)}>
-                            <Icon name="message" size={12} className="note-icon" />
-                            <span className="note-text">
-                              {typeof lead.notes === "string" ? lead.notes : JSON.stringify(lead.notes)}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="cell-muted">—</span>
-                        )}
+                        {(() => {
+                          const { snippet, full } = extractLatestNote(lead.notes);
+                          return snippet ? (
+                            <div className="contact-note-cell" title={full}>
+                              <Icon name="message" size={12} className="note-icon" />
+                              <span className="note-text">{snippet}</span>
+                            </div>
+                          ) : (
+                            <span className="cell-muted">—</span>
+                          );
+                        })()}
                       </td>
                     )}
 
@@ -949,19 +1068,37 @@ export function ContactsView() {
                     {/* Deal Value */}
                     {isColVisible("value") && (
                       <td className="cell-mono">
-                        <div className="chip-row">
-                          <span>{money(Number(lead.value) || 0)}</span>
-                          {((lead as any).paymentStatus === "PENDING" || (lead as any).paymentStatus === "PAYMENT_PENDING") && (
-                            <span className="chip" data-tone="warning">
-                              Pending
-                            </span>
-                          )}
-                          {(lead as any).paymentStatus === "PAID" && (
-                            <span className="chip" data-tone="success">
-                              Paid
-                            </span>
-                          )}
-                        </div>
+                        {(() => {
+                          const realAmt = lead.realPaymentAmount ?? lead.paymentAmount;
+                          const hasRealPayment = typeof realAmt === "number" && !isNaN(realAmt) && realAmt > 0;
+                          const status = (lead.paymentStatus || "").toUpperCase();
+
+                          if (!hasRealPayment && !status) {
+                            return <span className="cell-muted">—</span>;
+                          }
+
+                          const isPaid = status === "PAID" || status === "SETTLED" || status === "APPROVED" || lead.stage === "won";
+                          const isProof = status === "PROOF_UPLOADED" || status === "PROOF_REVIEW" || status === "UNDER_REVIEW";
+                          const isExpired = status === "EXPIRED";
+
+                          return (
+                            <div className="chip-row">
+                              <span>{hasRealPayment ? money(realAmt) : "—"}</span>
+                              {isPaid && (
+                                <span className="chip" data-tone="success">Paid</span>
+                              )}
+                              {isProof && (
+                                <span className="chip" data-tone="warning">Proof Review</span>
+                              )}
+                              {isExpired && (
+                                <span className="chip">Expired</span>
+                              )}
+                              {!isPaid && !isProof && !isExpired && status && (
+                                <span className="chip">{status}</span>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
                     )}
 

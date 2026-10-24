@@ -54,6 +54,9 @@ export interface Lead {
   phone: string;
   email: string;
   value: number;
+  realPaymentAmount?: number;
+  paymentAmount?: number;
+  paymentStatus?: "PAID" | "PROOF_UPLOADED" | "PROOF_REVIEW" | "PENDING" | "EXPIRED" | string;
   source: Source;
   rawSource?: string;
   serviceInterest?: string;

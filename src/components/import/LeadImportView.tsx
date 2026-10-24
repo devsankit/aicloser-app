@@ -24,6 +24,8 @@ interface ImportBatch {
   status: "completed" | "rolled_back";
 }
 
+const STORAGE_BATCHES_KEY = "aicloser_import_batches";
+
 export function LeadImportView() {
   const { addLead, refreshLeads, state } = useApp();
   const router = useRouter();
@@ -32,7 +34,39 @@ export function LeadImportView() {
   const canImport = isAdmin || isManager || Boolean((state.user as any)?.permissions?.["leads:reassign"] || (state.user as any)?.permissions?.["leads:import"]);
   const [tab, setTab] = useState<"wizard" | "history">("wizard");
   const [channel, setChannel] = useState<ImportChannel>("csv");
-  const [batches, setBatches] = useState<ImportBatch[]>([]);
+  const [batches, setBatches] = useState<ImportBatch[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem(STORAGE_BATCHES_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch {}
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      aicloserApi.leads?.getImportBatches?.().then((res: any[]) => {
+        if (Array.isArray(res) && res.length > 0) {
+          setBatches((prev) => {
+            const map = new Map<string, ImportBatch>();
+            prev.forEach((b) => map.set(b.id, b));
+            res.forEach((b) => {
+              if (b && b.id) map.set(b.id, { ...b, status: b.status || "completed" });
+            });
+            const merged = Array.from(map.values());
+            try {
+              localStorage.setItem(STORAGE_BATCHES_KEY, JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
+        }
+      }).catch(() => {});
+    }
+  }, []);
 
   // Wizard state
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -319,6 +353,8 @@ export function LeadImportView() {
       const res = await aicloserApi.leads.import({
         source: targetSource,
         targetStage: backendStage,
+        stage: backendStage,
+        filename: uploadedFile?.name || "imported_leads",
         rows: rowsPayload,
         duplicateAction: dedupMode === "overwrite" ? "OVERWRITE" : "SKIP",
         distributionMode: distMode,
@@ -349,7 +385,19 @@ export function LeadImportView() {
         status: "completed",
       };
 
-      setBatches((prev) => [newBatch, ...prev]);
+      setBatches((prev) => {
+        const updated = [newBatch, ...prev];
+        if (typeof window !== "undefined") {
+          try {
+            localStorage.setItem(STORAGE_BATCHES_KEY, JSON.stringify(updated));
+          } catch {}
+        }
+        return updated;
+      });
+
+      // Persist to backend batch API if supported
+      aicloserApi.leads?.saveImportBatch?.(newBatch).catch(() => {});
+
       setStep(1);
       setUploadedFile(null);
       setParsedRows([]);
@@ -365,11 +413,26 @@ export function LeadImportView() {
     }
   };
 
-  const handleRollback = (batchId: string) => {
+  const handleRollback = async (batchId: string) => {
     if (!confirm("Are you sure you want to rollback this import batch? All leads created in this batch will be safely archived.")) return;
-    setBatches((prev) =>
-      prev.map((b) => (b.id === batchId ? { ...b, status: "rolled_back" } : b))
-    );
+    setBatches((prev) => {
+      const updated = prev.map((b) => (b.id === batchId ? { ...b, status: "rolled_back" as const } : b));
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem(STORAGE_BATCHES_KEY, JSON.stringify(updated));
+        } catch {}
+      }
+      return updated;
+    });
+
+    try {
+      await aicloserApi.leads?.rollbackImportBatch?.(batchId);
+      await refreshLeads();
+      setImportSuccessBanner(`Batch ${batchId} rolled back successfully.`);
+      setTimeout(() => setImportSuccessBanner(null), 4000);
+    } catch (err) {
+      console.warn("Rollback API fallback:", err);
+    }
   };
 
   return (

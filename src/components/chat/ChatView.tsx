@@ -10,6 +10,15 @@ import { LeadCommandHistory, isManualNote } from "@/components/pipeline/LeadComm
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { ResizeHandle } from "@/components/ui/ResizeHandle";
 
+export interface ChatAttachment {
+  id?: string;
+  name: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  url?: string;
+  externalUrl?: string;
+}
+
 interface ChatMessage {
   id: string;
   sender: "customer" | "closer" | "system";
@@ -20,6 +29,10 @@ interface ChatMessage {
   channel?: "whatsapp" | "instagram" | "website";
   status?: "sent" | "delivered" | "read";
   externalMessageId?: string;
+  attachments?: ChatAttachment[];
+  fromMe?: boolean;
+  direction?: string;
+  senderRole?: string;
 }
 
 interface ConversationItem {
@@ -136,14 +149,145 @@ function getConversationTimestamp(c: ConversationItem): number {
  * Linkification helper: Parses text and converts URLs into clickable, copyable anchor tags.
  * Preserves normal text spans so full selection & copy works seamlessly.
  */
-function renderMessageContent(text: string, isCloser: boolean) {
-  if (!text) return null;
+const IMAGE_EXTS = [".png", ".jpg", ".jpeg", ".webp", ".gif"];
+const DOC_EXTS = [".pdf", ".doc", ".docx", ".xlsx", ".xls", ".csv", ".txt"];
+
+function isImageUrl(url: string) {
+  const clean = url.split("?")[0].toLowerCase();
+  return IMAGE_EXTS.some((ext) => clean.endsWith(ext));
+}
+
+function isDocUrl(url: string) {
+  const clean = url.split("?")[0].toLowerCase();
+  return DOC_EXTS.some((ext) => clean.endsWith(ext));
+}
+
+function getFilenameFromUrl(url: string) {
+  const clean = url.split("?")[0];
+  const parts = clean.split("/");
+  return decodeURIComponent(parts[parts.length - 1] || "Document");
+}
+
+const QUICK_EMOJIS = [
+  "👍", "❤️", "😂", "🙏", "👋", "🎉", "🔥", "🚀",
+  "😊", "💼", "📞", "📅", "💰", "⏱️", "✅", "🤝",
+  "🎯", "⭐", "💡", "✨", "📊", "🏆", "👏", "🙌",
+  "💯", "👌", "💪", "📝", "💬", "🟢", "🔴", "⏳",
+];
+
+function renderMessageContent(
+  text: string,
+  isCloser: boolean,
+  attachments?: ChatAttachment[],
+  onZoomImage?: (url: string, title?: string) => void
+) {
+  const renderedAttachments = (attachments || []).map((att, idx) => {
+    const url = att.url || att.externalUrl || "";
+    const isImage = (att.mimeType && att.mimeType.startsWith("image/")) || isImageUrl(att.name) || isImageUrl(url);
+    const ext = (att.name.split(".").pop() || "doc").toLowerCase();
+
+    if (isImage) {
+      return (
+        <div
+          key={`att-img-${idx}`}
+          className="chat-media-image-wrap"
+          onClick={() => onZoomImage?.(url, att.name)}
+          title="Click to view full image"
+        >
+          <img src={url} alt={att.name} className="chat-media-image" loading="lazy" />
+        </div>
+      );
+    }
+
+    return (
+      <a
+        key={`att-doc-${idx}`}
+        href={url}
+        download={att.name}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="chat-media-doc"
+        onClick={(e) => e.stopPropagation()}
+        title={`Download ${att.name}`}
+      >
+        <div className="chat-doc-icon" data-ext={ext}>
+          <Icon name={ext.includes("xls") || ext.includes("csv") ? "sheet" : "clipboard-list"} size={18} />
+        </div>
+        <div className="chat-doc-info">
+          <span className="chat-doc-name">{att.name}</span>
+          <span className="chat-doc-meta">
+            <span>{ext.toUpperCase()}</span>
+            {att.sizeBytes ? <span>• {(att.sizeBytes / 1024).toFixed(0)} KB</span> : null}
+          </span>
+        </div>
+        <div className="chat-doc-btn">
+          <Icon name="download" size={13} />
+        </div>
+      </a>
+    );
+  });
+
+  if (!text) {
+    return renderedAttachments.length > 0 ? <div>{renderedAttachments}</div> : null;
+  }
+
+  // Detect 1-3 emojis only
+  const trimmed = text.trim();
+  const isEmojiOnly =
+    /^(\p{Extended_Pictographic}|\p{Emoji_Presentation}|\s){1,6}$/u.test(trimmed) &&
+    !/[a-zA-Z0-9]/.test(trimmed);
+
+  if (isEmojiOnly && (!attachments || attachments.length === 0)) {
+    return <div className="chat-bubble-emojis-only">{text}</div>;
+  }
+
   const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
   const parts = text.split(urlRegex);
 
-  return parts.map((part, i) => {
+  const renderedText = parts.map((part, i) => {
     if (part.match(/^(https?:\/\/|www\.)/i)) {
       const href = part.toLowerCase().startsWith("www.") ? `https://${part}` : part;
+      if (isImageUrl(href)) {
+        return (
+          <div
+            key={i}
+            className="chat-media-image-wrap"
+            onClick={() => onZoomImage?.(href, getFilenameFromUrl(href))}
+            title="Click to zoom image"
+          >
+            <img src={href} alt="Attached photo" className="chat-media-image" loading="lazy" />
+          </div>
+        );
+      }
+      if (isDocUrl(href)) {
+        const fname = getFilenameFromUrl(href);
+        const ext = (fname.split(".").pop() || "doc").toLowerCase();
+        return (
+          <a
+            key={i}
+            href={href}
+            download={fname}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="chat-media-doc"
+            onClick={(e) => e.stopPropagation()}
+            title={`Download ${fname}`}
+          >
+            <div className="chat-doc-icon" data-ext={ext}>
+              <Icon name={ext.includes("xls") || ext.includes("csv") ? "sheet" : "clipboard-list"} size={18} />
+            </div>
+            <div className="chat-doc-info">
+              <span className="chat-doc-name">{fname}</span>
+              <span className="chat-doc-meta">
+                <span>{ext.toUpperCase()}</span>
+              </span>
+            </div>
+            <div className="chat-doc-btn">
+              <Icon name="download" size={13} />
+            </div>
+          </a>
+        );
+      }
       return (
         <a
           key={i}
@@ -159,6 +303,13 @@ function renderMessageContent(text: string, isCloser: boolean) {
     }
     return <span key={i}>{part}</span>;
   });
+
+  return (
+    <>
+      {renderedAttachments}
+      <div>{renderedText}</div>
+    </>
+  );
 }
 
 const STAGE_FILTER_OPTIONS: Array<{ value: string; label: string; tone?: "accent" | "success" | "warning" | "danger" | "neutral" }> = [
@@ -486,6 +637,65 @@ export function ChatView() {
     }
   }, [state.scope]);
   const [inputText, setInputText] = useState("");
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [stagedAttachment, setStagedAttachment] = useState<{
+    file: File;
+    name: string;
+    size: string;
+    previewUrl?: string;
+    isImage: boolean;
+  } | null>(null);
+  const [zoomedMedia, setZoomedMedia] = useState<{ url: string; title?: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const emojiPickerRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    const handleEmojiOutside = (e: MouseEvent) => {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target as Node)) {
+        setShowEmojiPicker(false);
+      }
+    };
+    if (showEmojiPicker) {
+      document.addEventListener("mousedown", handleEmojiOutside);
+      return () => document.removeEventListener("mousedown", handleEmojiOutside);
+    }
+  }, [showEmojiPicker]);
+
+  const handleInsertEmoji = (emoji: string) => {
+    const el = textareaRef.current;
+    if (!el) {
+      setInputText((prev) => prev + emoji);
+      return;
+    }
+    const start = el.selectionStart ?? inputText.length;
+    const end = el.selectionEnd ?? inputText.length;
+    const nextText = inputText.substring(0, start) + emoji + inputText.substring(end);
+    setInputText(nextText);
+    setTimeout(() => {
+      el.focus();
+      const pos = start + emoji.length;
+      el.setSelectionRange(pos, pos);
+    }, 10);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const isImage = file.type.startsWith("image/");
+    const previewUrl = isImage ? URL.createObjectURL(file) : undefined;
+    const sizeStr = file.size > 1024 * 1024 ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` : `${(file.size / 1024).toFixed(0)} KB`;
+
+    setStagedAttachment({
+      file,
+      name: file.name,
+      size: sizeStr,
+      previewUrl,
+      isImage,
+    });
+    e.target.value = "";
+  };
+
   const [showRightDrawer, setShowRightDrawer] = useState(true);
 
   // Lazy Notification Permission State (ITEM-51)
@@ -1914,23 +2124,28 @@ export function ChatView() {
           const mappedMessages: ChatMessage[] = apiMessages
             .filter((m: any) => Boolean((m.body && m.body.trim()) || (m.text && m.text.trim()) || m.attachments?.length))
             .map((m: any) => {
-              const isOutbound =
-                m.fromMe === true ||
-                m.direction === "OUTBOUND" ||
-                m.senderRole === "sales" ||
-                m.senderRole === "admin" ||
-                m.senderRole === "closer" ||
-                m.senderRole === "agent" ||
-                m.senderRole === "CLOSER" ||
-                m.senderRole === "ADMIN" ||
-                m.senderRole === "ai" ||
-                m.sender === "closer" ||
-                m.sender === "admin" ||
-                (typeof m.senderLabel === "string" &&
-                  (m.senderLabel.toLowerCase() === "admin" ||
-                    m.senderLabel.toLowerCase() === "sales closer"));
-
               const isSystem = m.senderRole === "system" || m.sender === "system";
+              const isOutbound =
+                !isSystem &&
+                (m.fromMe === true ||
+                  m.direction === "OUTBOUND" ||
+                  m.senderRole === "sales" ||
+                  m.senderRole === "admin" ||
+                  m.senderRole === "closer" ||
+                  m.senderRole === "agent" ||
+                  m.senderRole === "CLOSER" ||
+                  m.senderRole === "ADMIN" ||
+                  m.senderRole === "ai" ||
+                  m.sender === "closer" ||
+                  m.sender === "admin" ||
+                  (typeof m.senderLabel === "string" &&
+                    (m.senderLabel.toLowerCase() === "admin" ||
+                      m.senderLabel.toLowerCase() === "sales closer" ||
+                      m.senderLabel.toLowerCase().includes("closer") ||
+                      m.senderLabel.toLowerCase().includes("agent")))) &&
+                m.direction !== "INBOUND";
+
+              const atts = m.attachments || (m.mediaUrl ? [{ name: m.mediaFilename || 'Attachment', url: m.mediaUrl, mimeType: m.mediaType }] : undefined);
 
               return {
                 id: m.id || `msg-${Math.random()}`,
@@ -1944,6 +2159,10 @@ export function ChatView() {
                 channel: activeChat.channel,
                 status: (m.status || m.deliveryStatus || "read") as "sent" | "delivered" | "read",
                 externalMessageId: m.externalMessageId || m.wamid || undefined,
+                attachments: atts,
+                fromMe: isOutbound,
+                direction: isOutbound ? "OUTBOUND" : "INBOUND",
+                senderRole: isOutbound ? "sales" : "customer",
               };
             });
 
@@ -2048,6 +2267,10 @@ export function ChatView() {
           time: formatMessageTime(rawMsg.createdAt || new Date().toISOString()),
           channel: "whatsapp",
           status: (rawMsg.status || rawMsg.deliveryStatus || "delivered") as "sent" | "delivered" | "read",
+          attachments: rawMsg.attachments || (rawMsg.mediaUrl ? [{ name: rawMsg.mediaFilename || 'Attachment', url: rawMsg.mediaUrl, mimeType: rawMsg.mediaType }] : undefined),
+          fromMe: isOutbound,
+          direction: isOutbound ? "OUTBOUND" : "INBOUND",
+          senderRole: isOutbound ? "sales" : "customer",
         };
 
         const activeCleanPhone = (activeChat?.phone || "").replace(/\D/g, "").slice(-10);
@@ -2282,7 +2505,7 @@ export function ChatView() {
   }, [activeChat?.id, activeChat?.messages?.length, scrollToBottom]);
 
   const handleSendMessage = async () => {
-    if (!inputText.trim() || !activeChat || isReadOnlyShare) return;
+    if ((!inputText.trim() && !stagedAttachment) || !activeChat || isReadOnlyShare) return;
 
     const isPersonalChat = Boolean(
       activeChat.isPersonalQr ||
@@ -2344,6 +2567,30 @@ export function ChatView() {
       }
     }
 
+    let sentAttachments: ChatAttachment[] | undefined = undefined;
+    const attachmentToProcess = stagedAttachment;
+    setStagedAttachment(null);
+
+    if (attachmentToProcess) {
+      try {
+        const up = await aicloserApi.conversations.uploadAttachment(targetConvId, attachmentToProcess.file);
+        sentAttachments = [{
+          name: up.name || attachmentToProcess.name,
+          mimeType: up.mimeType || attachmentToProcess.file.type,
+          sizeBytes: up.sizeBytes || attachmentToProcess.file.size,
+          url: up.url || up.externalUrl || attachmentToProcess.previewUrl,
+        }];
+      } catch (uploadErr) {
+        console.warn("Attachment upload fallback:", uploadErr);
+        sentAttachments = [{
+          name: attachmentToProcess.name,
+          mimeType: attachmentToProcess.file.type,
+          sizeBytes: attachmentToProcess.file.size,
+          url: attachmentToProcess.previewUrl,
+        }];
+      }
+    }
+
     const newMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
       sender: "closer",
@@ -2353,6 +2600,10 @@ export function ChatView() {
       time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       channel: activeChat.channel,
       status: "sent",
+      attachments: sentAttachments,
+      fromMe: true,
+      direction: "OUTBOUND",
+      senderRole: "sales",
     };
 
     const updatedMessages = [...(messagesCache[targetConvId] || activeChat.messages || []), newMsg];
@@ -2377,7 +2628,7 @@ export function ChatView() {
 
     // Send to live backend API with selected delivery channel (Official API vs Personal WhatsApp)
     aicloserApi.conversations
-      .sendMessage(targetConvId, textToSend, undefined, selectedDispatchChannel)
+      .sendMessage(targetConvId, textToSend, sentAttachments, selectedDispatchChannel)
       .then((res: any) => {
         const wamid = res?.data?.externalMessageId || res?.externalMessageId;
         if (wamid) {
@@ -4152,7 +4403,11 @@ export function ChatView() {
                   );
                 }
 
-                const isCloser = msg.sender === "closer";
+                const isCloser =
+                  msg.sender === "closer" ||
+                  msg.fromMe === true ||
+                  msg.direction === "OUTBOUND" ||
+                  msg.senderRole === "sales";
                 return (
                   <div key={msg.id}>
                     {showDateHeader && (
@@ -4187,7 +4442,7 @@ export function ChatView() {
                       </div>
 
                       <div className="chat-bubble" data-sender={isCloser ? "closer" : "customer"}>
-                        {renderMessageContent(msg.text, isCloser)}
+                        {renderMessageContent(msg.text, isCloser, msg.attachments, (url, title) => setZoomedMedia({ url, title }))}
                       </div>
 
                       {/* Sender name & WhatsApp ticks */}
@@ -4359,8 +4614,9 @@ export function ChatView() {
               borderTop: "1px solid var(--border)",
               background: "var(--bg-panel)",
               display: "flex",
+              flexDirection: "column",
               gap: "10px",
-              alignItems: "flex-end",
+              alignItems: "stretch",
               flexShrink: 0,
             }}
           >
@@ -4384,9 +4640,90 @@ export function ChatView() {
               </div>
             ) : (
               <>
-                <textarea
-                  value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
+                {/* Staged Attachment Preview */}
+                {stagedAttachment && (
+                  <div className="chat-attachment-preview-bar">
+                    <div className="chat-attachment-preview-file">
+                      {stagedAttachment.isImage && stagedAttachment.previewUrl ? (
+                        <img src={stagedAttachment.previewUrl} alt={stagedAttachment.name} className="chat-attachment-preview-thumb" />
+                      ) : (
+                        <div className="chat-doc-icon" data-ext={stagedAttachment.name.split('.').pop()?.toLowerCase() || 'doc'}>
+                          <Icon name={stagedAttachment.name.endsWith('.xlsx') || stagedAttachment.name.endsWith('.csv') ? "sheet" : "clipboard-list"} size={16} />
+                        </div>
+                      )}
+                      <div className="chat-attachment-preview-details">
+                        <span className="chat-attachment-preview-name">{stagedAttachment.name}</span>
+                        <span className="chat-attachment-preview-size">{stagedAttachment.size}</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      onClick={() => {
+                        if (stagedAttachment.previewUrl) URL.revokeObjectURL(stagedAttachment.previewUrl);
+                        setStagedAttachment(null);
+                      }}
+                      title="Remove attachment"
+                    >
+                      <Icon name="close" size={13} />
+                    </button>
+                  </div>
+                )}
+
+                <div style={{ display: "flex", gap: "8px", alignItems: "flex-end", width: "100%" }}>
+                  {/* Hidden File Input */}
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileSelect}
+                    accept="image/*,.pdf,.doc,.docx,.xlsx,.xls,.csv,.txt"
+                    style={{ display: "none" }}
+                  />
+
+                  {/* Attachment Button */}
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    title="Attach Document or Image"
+                    onClick={() => fileInputRef.current?.click()}
+                    style={{ height: "46px", width: "40px", flexShrink: 0 }}
+                  >
+                    <Icon name="paperclip" size={16} />
+                  </button>
+
+                  {/* Emoji Picker Button */}
+                  <div style={{ position: "relative" }} ref={emojiPickerRef}>
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      title="Insert Emoji"
+                      onClick={() => setShowEmojiPicker((v) => !v)}
+                      style={{ height: "46px", width: "40px", flexShrink: 0 }}
+                    >
+                      <Icon name="smile" size={16} />
+                    </button>
+                    {showEmojiPicker && (
+                      <div className="chat-emoji-tray" role="dialog" aria-label="Emoji Picker">
+                        <div className="chat-emoji-grid">
+                          {QUICK_EMOJIS.map((emoji) => (
+                            <button
+                              key={emoji}
+                              type="button"
+                              className="chat-emoji-btn"
+                              onClick={() => handleInsertEmoji(emoji)}
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <textarea
+                    ref={textareaRef}
+                    value={inputText}
+                    onChange={(e) => setInputText(e.target.value)}
                   disabled={
                     (selectedDispatchChannel === "OFFICIAL_API" && isOfficialChat && !windowInfo.isOpen) ||
                     (isPersonalDispatch && hasConnectedCompanion === false)
@@ -4489,9 +4826,45 @@ export function ChatView() {
                     Send <Icon name="arrow-right" size={14} />
                   </button>
                 )}
+                </div>
               </>
             )}
           </footer>
+
+          {/* Lightbox Modal for Zooming Images */}
+          {zoomedMedia && (
+            <div className="chat-media-lightbox" onClick={() => setZoomedMedia(null)}>
+              <div className="chat-media-lightbox-content" onClick={(e) => e.stopPropagation()}>
+                <img
+                  src={zoomedMedia.url}
+                  alt={zoomedMedia.title || "Image"}
+                  className="chat-media-lightbox-img"
+                />
+                <div className="chat-media-lightbox-bar">
+                  <a
+                    href={zoomedMedia.url}
+                    download={zoomedMedia.title || "image.png"}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn"
+                    data-variant="primary"
+                    data-size="sm"
+                  >
+                    <Icon name="download" size={13} /> Download
+                  </a>
+                  <button
+                    type="button"
+                    className="btn"
+                    data-variant="ghost"
+                    data-size="sm"
+                    onClick={() => setZoomedMedia(null)}
+                  >
+                    <Icon name="close" size={13} /> Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

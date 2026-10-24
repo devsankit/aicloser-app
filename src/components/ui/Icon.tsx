@@ -87,6 +87,8 @@ import {
   RefreshCw,
   Zap,
   Coffee,
+  Paperclip,
+  Smile,
   type LucideIcon,
 } from "lucide-react";
 
@@ -186,9 +188,13 @@ export type IconName =
   | "refresh"
   | "zap"
   | "coffee"
+  | "paperclip"
+  | "smile"
   | "meta";
 
 const LUCIDE_MAP: Record<string, LucideIcon> = {
+  paperclip: Paperclip,
+  smile: Smile,
   coffee: Coffee,
   zap: Zap,
   refresh: RefreshCw,

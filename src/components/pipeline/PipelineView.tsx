@@ -407,9 +407,9 @@ export function PipelineView() {
     try {
       await aicloserApi.leads.restore(leadId);
       setRecycleLeads((prev) => prev.filter((l) => l.id !== leadId));
-      setRecycleFeedback("Lead restored successfully to New Leads column.");
+      setRecycleFeedback("Lead restored to original stage successfully.");
       setTimeout(() => setRecycleFeedback(null), 3000);
-      void refreshLeads();
+      await refreshLeads();
     } catch (e: any) {
       setRecycleFeedback("Failed to restore lead: " + (e.message || String(e)));
       setTimeout(() => setRecycleFeedback(null), 3500);
