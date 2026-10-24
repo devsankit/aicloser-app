@@ -2928,14 +2928,11 @@ export function ChatView() {
         })
       );
       setShareSuccess(`Chat shared with ${displayName}. Access granted.`);
+      showToast(`Chat shared with ${displayName}`);
       setTimeout(() => setShareSuccess(null), 3000);
-    } catch {
-      setActiveShares((prev) => [
-        ...prev.filter((s) => s.userId !== targetParam),
-        shareObj,
-      ]);
-      setShareSuccess(`Chat shared with ${displayName}. Access granted.`);
-      setTimeout(() => setShareSuccess(null), 3000);
+    } catch (err: any) {
+      console.error("Failed to share chat:", err);
+      showToast(`Failed to share conversation: ${err?.message || "Server error"}`);
     } finally {
       setShareLoading(false);
     }
@@ -2974,25 +2971,22 @@ export function ChatView() {
     setAssignSuccess(null);
 
     try {
+      const targetMember = effectiveTeamMembers.find(
+        (m) => m.id === assignTargetCloser || m.name.toLowerCase() === assignTargetCloser.toLowerCase()
+      );
+      const targetAgentId = targetMember?.id || assignTargetCloser;
+      const assignedDisplayName = targetMember?.name || assignTargetCloser;
+
       // 1. Live API: assign conversation on Central API with handover note
-      const res: any = await aicloserApi.conversations.assign(activeChat.id, assignTargetCloser, assignHandoverNote);
+      const res: any = await aicloserApi.conversations.assign(activeChat.id, targetAgentId, assignHandoverNote);
       if (res && res.success === false) {
         throw new Error(res.message || "Failed to assign conversation");
       }
 
-      const targetMember = effectiveTeamMembers.find(
-        (m) => m.id === assignTargetCloser || m.name.toLowerCase() === assignTargetCloser.toLowerCase()
-      );
-      const assignedDisplayName =
-        res?.data?.assignedFreelancerName ||
-        res?.assignedFreelancerName ||
-        targetMember?.name ||
-        assignTargetCloser;
-
-      // 2. If lead is linked in state, update owner symmetrically
+      // 2. Symmetrically update linked lead and team state
       const linkedLeadId = activeLead?.id || activeChat.leadId;
       if (linkedLeadId) {
-        reassignLead(linkedLeadId, assignedDisplayName, assignHandoverNote);
+        await reassignLead(linkedLeadId, targetAgentId, assignHandoverNote);
       }
 
       // 3. Add system message in conversation thread and messagesCache
@@ -3009,26 +3003,35 @@ export function ChatView() {
         [activeChat.id]: [...(prev[activeChat.id] || []), sysMsg],
       }));
 
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === activeChat.id
-            ? {
-                ...c,
-                assignedTo: assignedDisplayName,
-                assignedFreelancerName: assignedDisplayName,
-                assignedFreelancerId: targetMember?.id || assignTargetCloser,
-                messages: [...c.messages, sysMsg],
-              }
-            : c
-        )
-      );
-
-      setAssignSuccess(`Chat assigned to ${assignedDisplayName}.`);
-      showToast(`Assigned to ${assignedDisplayName}`);
-      setTimeout(() => {
-        setAssignSuccess(null);
-        setShowAssignModal(false);
-      }, 1200);
+      // If user is a sales closer (not admin), reassigning completely transfers this chat away!
+      const isRegularCloser = state.user?.role === "SALES_AGENT" || (state.user?.role as string) === "CLOSER";
+      if (isRegularCloser) {
+        setConversations((prev) => prev.filter((c) => c.id !== activeChat.id));
+        showToast(`Lead & Chat transferred to ${assignedDisplayName}`);
+        setTimeout(() => {
+          setShowAssignModal(false);
+        }, 800);
+      } else {
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === activeChat.id
+              ? {
+                  ...c,
+                  assignedTo: assignedDisplayName,
+                  assignedFreelancerName: assignedDisplayName,
+                  assignedFreelancerId: targetAgentId,
+                  messages: [...c.messages, sysMsg],
+                }
+              : c
+          )
+        );
+        setAssignSuccess(`Chat assigned to ${assignedDisplayName}.`);
+        showToast(`Assigned to ${assignedDisplayName}`);
+        setTimeout(() => {
+          setAssignSuccess(null);
+          setShowAssignModal(false);
+        }, 1200);
+      }
     } catch (err: any) {
       console.error("Assignment failed:", err);
       setAssignError(err?.message || "Failed to assign conversation. Please try again.");

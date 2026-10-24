@@ -120,9 +120,17 @@ export function uiLeadToBackendPayload(u: Partial<UiLead>): Partial<BackendLead>
   if (u.tags !== undefined) payload.tags = u.tags;
   if (u.assignedAgentId !== undefined) payload.assignedAgentId = u.assignedAgentId;
   if (u.company !== undefined) payload.serviceInterest = u.company;
+  if (u.owner !== undefined) {
+    payload.customFields = {
+      ...(payload.customFields || {}),
+      owner: u.owner,
+      assignedAgentName: u.owner,
+    };
+  }
   if (u.notes !== undefined || u.company !== undefined) {
     payload.notes = u.notes;
     payload.customFields = {
+      ...(payload.customFields || {}),
       ...(u.company ? { company: u.company } : {}),
       ...(u.notes ? { notes: u.notes } : {}),
     };

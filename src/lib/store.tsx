@@ -1009,12 +1009,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [state.poolLeads, refreshLeads, fetchPoolLeads]
   );
 
-  const reassignLead = useCallback((id: string, newOwner: string, note?: string) => {
-    updateLead(id, {
-      owner: newOwner,
-      notes: note ? note : `Reassigned to ${newOwner}.`,
-    });
-  }, [updateLead]);
+  const reassignLead = useCallback(async (id: string, newOwner: string, note?: string) => {
+    const member = state.teamMembers.find(
+      (m: any) => m.id === newOwner || (m as any).userId === newOwner || m.name.toLowerCase() === newOwner.toLowerCase()
+    );
+    const targetId = member?.id || (member as any)?.userId || newOwner;
+    const targetName = member?.name || newOwner;
+
+    // Symmetrically update local state
+    setState((prev) => ({
+      ...prev,
+      leads: prev.leads.map((l) =>
+        l.id === id ? { ...l, owner: targetName, assignedAgentId: targetId, updatedAt: new Date().toISOString() } : l
+      ),
+    }));
+
+    if (state.apiConnected) {
+      try {
+        await aicloserApi.leads.transfer(id, targetId, note);
+      } catch (err) {
+        console.warn("Direct transfer API call failed, falling back to update:", err);
+        aicloserApi.leads.update(id, { assignedAgentId: targetId, notes: note ? note : `Reassigned to ${targetName}.` } as any).catch(() => {});
+      }
+      refreshLeads().catch(() => {});
+    }
+  }, [state.teamMembers, state.apiConnected, refreshLeads]);
 
   const loginWorkspace = useCallback(
     async (
