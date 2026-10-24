@@ -161,6 +161,30 @@ function renderMessageContent(text: string, isCloser: boolean) {
   });
 }
 
+const STAGE_FILTER_OPTIONS: Array<{ value: string; label: string; tone?: "accent" | "success" | "warning" | "danger" | "neutral" }> = [
+  { value: "all", label: "All Stages" },
+  { value: "new", label: "New", tone: "accent" },
+  { value: "follow_up", label: "Follow-up", tone: "warning" },
+  { value: "qualified", label: "Qualified", tone: "accent" },
+  { value: "won", label: "Won", tone: "success" },
+  { value: "lost", label: "Lost", tone: "danger" },
+];
+
+const PRIORITY_FILTER_OPTIONS: Array<{ value: string; label: string; tone?: "accent" | "success" | "warning" | "danger" | "neutral" }> = [
+  { value: "all", label: "All Priorities" },
+  { value: "urgent", label: "Urgent", tone: "danger" },
+  { value: "high", label: "High", tone: "warning" },
+  { value: "medium", label: "Medium", tone: "accent" },
+  { value: "low", label: "Low", tone: "neutral" },
+];
+
+const CALLBACK_FILTER_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "all", label: "All Follow-ups" },
+  { value: "due_today", label: "Due Today" },
+  { value: "overdue", label: "Overdue" },
+  { value: "has_callback", label: "Has Callback" },
+];
+
 export function ChatView() {
   const { state, moveLead, updateLead, reassignLead, refreshLeads, setScope, deleteLead } = useApp();
 
@@ -176,6 +200,7 @@ export function ChatView() {
   const [callbackFilter, setCallbackFilter] = useState<string>("all");
   const [labelFilter, setLabelFilter] = useState<string>("all");
   const [workspaceLabels, setWorkspaceLabels] = useState<Array<{ id: string; name: string; color?: string }>>([]);
+  const [openFilterDropdown, setOpenFilterDropdown] = useState<"stage" | "priority" | "callback" | "label" | null>(null);
 
   // Multi-Selection & Bulk Delete state
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -1087,6 +1112,21 @@ export function ChatView() {
       document.removeEventListener("mousedown", handleOutsideClick);
     };
   }, [menuChatId]);
+
+  // Click outside listener for inbox filter popovers
+  useEffect(() => {
+    if (!openFilterDropdown) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest(".chat-filter-pill-wrap")) {
+        setOpenFilterDropdown(null);
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, [openFilterDropdown]);
 
   // Action handlers: Single Delete, Bulk Delete, Quick Stage, Quick Priority, Quick Label, Schedule Callback
   const handleConfirmSingleDelete = async () => {
@@ -3048,6 +3088,23 @@ export function ChatView() {
     website: "message",
   };
 
+  const hasActiveFilter =
+    stageFilter !== "all" ||
+    priorityFilter !== "all" ||
+    callbackFilter !== "all" ||
+    labelFilter !== "all";
+
+  const activeStageObj = STAGE_FILTER_OPTIONS.find((o) => o.value === stageFilter);
+  const stageDisplayLabel = activeStageObj ? (stageFilter === "all" ? "All Stages" : activeStageObj.label) : "Stage";
+
+  const activePriorityObj = PRIORITY_FILTER_OPTIONS.find((o) => o.value === priorityFilter);
+  const priorityDisplayLabel = activePriorityObj ? (priorityFilter === "all" ? "All Priorities" : activePriorityObj.label) : "Priority";
+
+  const activeCallbackObj = CALLBACK_FILTER_OPTIONS.find((o) => o.value === callbackFilter);
+  const callbackDisplayLabel = activeCallbackObj ? (callbackFilter === "all" ? "All Follow-ups" : activeCallbackObj.label) : "Follow-ups";
+
+  const labelDisplayLabel = labelFilter === "all" ? "All Labels" : labelFilter;
+
   return (
     <div className="chat-workspace">
       <h1 className="sr-only">Live multi-channel chat</h1>
@@ -3154,102 +3211,242 @@ export function ChatView() {
             />
           </div>
 
-          {/* Header Filter Controls (Status/Stage, Priority, Callback/SLA, Workspace Labels) */}
+          {/* Header Filter Controls (Document-Style Linear Popovers) */}
           <div className="chat-filters-grid">
             {/* 1. Status / Stage Filter */}
-            <select
-              className="chat-filter-select"
-              value={stageFilter}
-              onChange={(e) => setStageFilter(e.target.value)}
-              title="Filter by Lead Stage"
-              aria-label="Filter by Lead Stage"
-            >
-              <option value="all">All Stages</option>
-              <option value="new">New</option>
-              <option value="follow_up">Follow-up</option>
-              <option value="qualified">Qualified</option>
-              <option value="won">Won</option>
-              <option value="lost">Lost</option>
-            </select>
+            <div className="chat-filter-pill-wrap">
+              <button
+                type="button"
+                className="chat-filter-pill"
+                data-open={openFilterDropdown === "stage"}
+                data-active={stageFilter !== "all"}
+                onClick={() => setOpenFilterDropdown((prev) => (prev === "stage" ? null : "stage"))}
+                title="Filter by Lead Stage"
+                aria-label="Filter by Lead Stage"
+              >
+                <span className="chat-filter-pill-left">
+                  {stageFilter !== "all" && activeStageObj?.tone && (
+                    <span className="dot" data-tone={activeStageObj.tone} />
+                  )}
+                  <span className="chat-filter-pill-label">{stageDisplayLabel}</span>
+                </span>
+                <Icon name="chevron-down" size={11} className="chat-filter-pill-arrow" />
+              </button>
+
+              {openFilterDropdown === "stage" && (
+                <div className="chat-filter-popover" data-align="left" role="menu">
+                  {STAGE_FILTER_OPTIONS.map((opt) => {
+                    const isSelected = stageFilter === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        role="menuitem"
+                        className="chat-filter-option"
+                        data-active={isSelected}
+                        onClick={() => {
+                          setStageFilter(opt.value);
+                          setOpenFilterDropdown(null);
+                        }}
+                      >
+                        <span className="chat-filter-option-content">
+                          {opt.tone && <span className="dot" data-tone={opt.tone} />}
+                          <span>{opt.label}</span>
+                        </span>
+                        {isSelected && <Icon name="check" size={12} className="chat-filter-check" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
             {/* 2. Priority Filter */}
-            <select
-              className="chat-filter-select"
-              value={priorityFilter}
-              onChange={(e) => setPriorityFilter(e.target.value)}
-              title="Filter by Lead Priority"
-              aria-label="Filter by Lead Priority"
-            >
-              <option value="all">All Priorities</option>
-              <option value="urgent">Urgent</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-            </select>
+            <div className="chat-filter-pill-wrap">
+              <button
+                type="button"
+                className="chat-filter-pill"
+                data-open={openFilterDropdown === "priority"}
+                data-active={priorityFilter !== "all"}
+                onClick={() => setOpenFilterDropdown((prev) => (prev === "priority" ? null : "priority"))}
+                title="Filter by Lead Priority"
+                aria-label="Filter by Lead Priority"
+              >
+                <span className="chat-filter-pill-left">
+                  {priorityFilter !== "all" && activePriorityObj?.tone && (
+                    <span className="dot" data-tone={activePriorityObj.tone} />
+                  )}
+                  <span className="chat-filter-pill-label">{priorityDisplayLabel}</span>
+                </span>
+                <Icon name="chevron-down" size={11} className="chat-filter-pill-arrow" />
+              </button>
+
+              {openFilterDropdown === "priority" && (
+                <div className="chat-filter-popover" data-align="right" role="menu">
+                  {PRIORITY_FILTER_OPTIONS.map((opt) => {
+                    const isSelected = priorityFilter === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        role="menuitem"
+                        className="chat-filter-option"
+                        data-active={isSelected}
+                        onClick={() => {
+                          setPriorityFilter(opt.value);
+                          setOpenFilterDropdown(null);
+                        }}
+                      >
+                        <span className="chat-filter-option-content">
+                          {opt.tone && <span className="dot" data-tone={opt.tone} />}
+                          <span>{opt.label}</span>
+                        </span>
+                        {isSelected && <Icon name="check" size={12} className="chat-filter-check" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
             {/* 3. Callback / SLA Filter */}
-            <select
-              className="chat-filter-select"
-              value={callbackFilter}
-              onChange={(e) => setCallbackFilter(e.target.value)}
-              title="Filter by Callback / Follow-up"
-              aria-label="Filter by Callback / Follow-up"
-            >
-              <option value="all">All Follow-ups</option>
-              <option value="due_today">Due Today</option>
-              <option value="overdue">Overdue</option>
-              <option value="has_callback">Has Callback</option>
-            </select>
+            <div className="chat-filter-pill-wrap">
+              <button
+                type="button"
+                className="chat-filter-pill"
+                data-open={openFilterDropdown === "callback"}
+                data-active={callbackFilter !== "all"}
+                onClick={() => setOpenFilterDropdown((prev) => (prev === "callback" ? null : "callback"))}
+                title="Filter by Callback / Follow-up"
+                aria-label="Filter by Callback / Follow-up"
+              >
+                <span className="chat-filter-pill-left">
+                  <span className="chat-filter-pill-label">{callbackDisplayLabel}</span>
+                </span>
+                <Icon name="chevron-down" size={11} className="chat-filter-pill-arrow" />
+              </button>
+
+              {openFilterDropdown === "callback" && (
+                <div className="chat-filter-popover" data-align="left" role="menu">
+                  {CALLBACK_FILTER_OPTIONS.map((opt) => {
+                    const isSelected = callbackFilter === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        role="menuitem"
+                        className="chat-filter-option"
+                        data-active={isSelected}
+                        onClick={() => {
+                          setCallbackFilter(opt.value);
+                          setOpenFilterDropdown(null);
+                        }}
+                      >
+                        <span className="chat-filter-option-content">
+                          <span>{opt.label}</span>
+                        </span>
+                        {isSelected && <Icon name="check" size={12} className="chat-filter-check" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
             {/* 4. Label Filter */}
-            <select
-              className="chat-filter-select"
-              value={labelFilter}
-              onChange={(e) => setLabelFilter(e.target.value)}
-              title="Filter by Label"
-              aria-label="Filter by Label"
-            >
-              <option value="all">All Labels</option>
-              {allAvailableLabels.map((lbl) => (
-                <option key={lbl} value={lbl}>
-                  {lbl}
-                </option>
-              ))}
-            </select>
+            <div className="chat-filter-pill-wrap">
+              <button
+                type="button"
+                className="chat-filter-pill"
+                data-open={openFilterDropdown === "label"}
+                data-active={labelFilter !== "all"}
+                onClick={() => setOpenFilterDropdown((prev) => (prev === "label" ? null : "label"))}
+                title="Filter by Label"
+                aria-label="Filter by Label"
+              >
+                <span className="chat-filter-pill-left">
+                  <span className="chat-filter-pill-label">{labelDisplayLabel}</span>
+                </span>
+                <Icon name="chevron-down" size={11} className="chat-filter-pill-arrow" />
+              </button>
+
+              {openFilterDropdown === "label" && (
+                <div className="chat-filter-popover" data-align="right" role="menu">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="chat-filter-option"
+                    data-active={labelFilter === "all"}
+                    onClick={() => {
+                      setLabelFilter("all");
+                      setOpenFilterDropdown(null);
+                    }}
+                  >
+                    <span className="chat-filter-option-content">
+                      <span>All Labels</span>
+                    </span>
+                    {labelFilter === "all" && <Icon name="check" size={12} className="chat-filter-check" />}
+                  </button>
+                  {allAvailableLabels.map((lbl) => {
+                    const isSelected = labelFilter === lbl;
+                    return (
+                      <button
+                        key={lbl}
+                        type="button"
+                        role="menuitem"
+                        className="chat-filter-option"
+                        data-active={isSelected}
+                        onClick={() => {
+                          setLabelFilter(lbl);
+                          setOpenFilterDropdown(null);
+                        }}
+                      >
+                        <span className="chat-filter-option-content">
+                          <Icon name="tag" size={11} />
+                          <span>{lbl}</span>
+                        </span>
+                        {isSelected && <Icon name="check" size={12} className="chat-filter-check" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Channel Filters (Scrollable, Clean Linear Navigation) */}
-          <div
-            style={{
-              display: "flex",
-              gap: "6px",
-              overflowX: "auto",
-              whiteSpace: "nowrap",
-              scrollbarWidth: "none",
-              msOverflowStyle: "none",
-              WebkitOverflowScrolling: "touch",
-              paddingBottom: "2px",
-            }}
-          >
+          {/* Active Filters Clear Bar */}
+          {hasActiveFilter && (
+            <div className="chat-filter-reset-bar">
+              <span className="chat-filter-reset-count">Filters active</span>
+              <button
+                type="button"
+                className="chat-filter-reset-btn"
+                onClick={() => {
+                  setStageFilter("all");
+                  setPriorityFilter("all");
+                  setCallbackFilter("all");
+                  setLabelFilter("all");
+                }}
+                title="Reset all filters"
+              >
+                <Icon name="x-circle" size={11} /> Clear filters
+              </button>
+            </div>
+          )}
+
+          {/* Channel Filters (Segmented Control) */}
+          <div className="seg chat-channel-seg" data-size="sm">
             {[
               { id: "all", label: "All" },
-              { id: "whatsapp", label: "WhatsApp", icon: "whatsapp" },
-              { id: "instagram", label: "Instagram", icon: "sparkle" },
-              { id: "website", label: "Web", icon: "message" },
+              { id: "whatsapp", label: "WhatsApp" },
+              { id: "instagram", label: "Instagram" },
+              { id: "website", label: "Web" },
             ].map((ch) => (
               <button
                 key={ch.id}
-                className="btn"
-                data-size="sm"
-                data-variant={channelFilter === ch.id ? "primary" : "ghost"}
+                type="button"
+                data-on={channelFilter === ch.id}
                 onClick={() => setChannelFilter(ch.id)}
-                style={{
-                  height: "26px",
-                  fontSize: "11px",
-                  padding: "0 10px",
-                  flexShrink: 0,
-                  whiteSpace: "nowrap",
-                }}
               >
                 {ch.label}
               </button>
