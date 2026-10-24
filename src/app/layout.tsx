@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
+import "@/styles/design-tokens.css";
 import "./globals.css";
 import { AppProvider } from "@/lib/store";
 
