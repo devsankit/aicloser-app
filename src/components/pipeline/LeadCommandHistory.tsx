@@ -45,6 +45,34 @@ function toDateTimeLocal(value?: string | null) {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
 
+export function isManualNote(text?: string | null): boolean {
+  if (!text) return false;
+  const s = String(text).trim();
+  if (!s) return false;
+  const lower = s.toLowerCase();
+  if (
+    lower.startsWith("imported via") ||
+    lower.startsWith("claimed from") ||
+    lower.startsWith("⚡ grabbed") ||
+    lower.startsWith("grabbed from") ||
+    lower.startsWith("reassigned to") ||
+    lower.startsWith("transferred to") ||
+    lower.startsWith("assigned to") ||
+    lower.startsWith("submitted via published form") ||
+    lower.startsWith("simulated inbound lead") ||
+    lower.startsWith("auto-created from") ||
+    lower.startsWith("[system]") ||
+    lower.startsWith("system:") ||
+    lower.startsWith("stage changed") ||
+    lower.startsWith("status changed") ||
+    lower.includes("batch processor") ||
+    lower.includes("lead grab pool")
+  ) {
+    return false;
+  }
+  return true;
+}
+
 function formatDateTime(dateStr?: string | null) {
   if (!dateStr) return "Just now";
   try {
@@ -264,13 +292,21 @@ export function LeadCommandHistory({
       const id = `h-${h.id || Math.random()}`;
       const k = String(h.kind || "").toUpperCase();
       let kind: UnifiedEvent["kind"] = "SYSTEM";
-      if (k.includes("NOTE")) kind = "NOTE";
-      else if (k.includes("FOLLOW") || k.includes("CALLBACK")) kind = "CALLBACK";
-      else if (k.includes("CALL")) kind = "CALL";
-      else if (k.includes("PAYMENT")) kind = "PAYMENT";
-      else if (k.includes("STAGE") || k.includes("STATUS")) kind = "STAGE";
-      else if (k.includes("ASSIGN") || k.includes("REASSIGN")) kind = "REASSIGN";
-      else if (k.includes("TASK")) kind = "TASK";
+      if (k.includes("NOTE")) {
+        kind = isManualNote(h.body) ? "NOTE" : "SYSTEM";
+      } else if (k.includes("FOLLOW") || k.includes("CALLBACK")) {
+        kind = "CALLBACK";
+      } else if (k.includes("CALL")) {
+        kind = "CALL";
+      } else if (k.includes("PAYMENT")) {
+        kind = "PAYMENT";
+      } else if (k.includes("STAGE") || k.includes("STATUS")) {
+        kind = "STAGE";
+      } else if (k.includes("ASSIGN") || k.includes("REASSIGN")) {
+        kind = "REASSIGN";
+      } else if (k.includes("TASK")) {
+        kind = "TASK";
+      }
 
       tryAddEvent({
         id,
@@ -344,8 +380,8 @@ export function LeadCommandHistory({
       });
     });
 
-    // 5. Fallback Initial Note if list is empty but initialNotes exists
-    if (list.length === 0 && initialNotes) {
+    // 5. Fallback Initial Note if list is empty but initialNotes exists AND is a manual note
+    if (list.length === 0 && initialNotes && isManualNote(initialNotes)) {
       tryAddEvent({
         id: "init-note",
         kind: "NOTE",
@@ -364,7 +400,7 @@ export function LeadCommandHistory({
     });
   }, [rawHistory, rawNotes, rawCalls, rawPayments, initialNotes]);
 
-  // Dedicated Notes-Only Stream (Deduplicated, Chronological)
+  // Dedicated Notes-Only Stream (Strictly Manual Notes, Deduplicated, Chronological)
   const notesList = useMemo(() => {
     const list: Array<{ id: string; body: string; createdAt: string; authorName: string }> = [];
     const seen = new Set<string>();
@@ -372,7 +408,7 @@ export function LeadCommandHistory({
     (rawNotes || []).forEach((n) => {
       if (!n || !n.body) return;
       const b = typeof n.body === "string" ? n.body.trim() : JSON.stringify(n.body);
-      if (!b) return;
+      if (!b || !isManualNote(b)) return;
       const key = `${b}:${n.createdAt || ""}`;
       if (seen.has(key)) return;
       seen.add(key);
@@ -385,21 +421,23 @@ export function LeadCommandHistory({
       });
     });
 
-    unifiedEvents.filter((e) => e.kind === "NOTE" && e.body).forEach((e) => {
-      const b = typeof e.body === "string" ? e.body.trim() : JSON.stringify(e.body);
-      if (!b) return;
-      const key = `${b}:${e.createdAt || ""}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      list.push({
-        id: e.id,
-        body: b,
-        createdAt: e.createdAt,
-        authorName: e.actorName || "Closer",
+    unifiedEvents
+      .filter((e) => e.kind === "NOTE" && e.body && isManualNote(e.body))
+      .forEach((e) => {
+        const b = typeof e.body === "string" ? e.body.trim() : JSON.stringify(e.body);
+        if (!b || !isManualNote(b)) return;
+        const key = `${b}:${e.createdAt || ""}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        list.push({
+          id: e.id,
+          body: b,
+          createdAt: e.createdAt,
+          authorName: e.actorName || "Closer",
+        });
       });
-    });
 
-    if (list.length === 0 && initialNotes) {
+    if (list.length === 0 && initialNotes && isManualNote(initialNotes)) {
       list.push({
         id: "init-note-item",
         body: typeof initialNotes === "string" ? initialNotes : JSON.stringify(initialNotes),
@@ -720,13 +758,13 @@ export function LeadCommandHistory({
           <div style={{ marginTop: "10px", borderTop: "1px solid var(--border)", paddingTop: "10px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
               <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                Notes History ({notesList.length})
+                Manual Notes History ({notesList.length})
               </span>
               <span className="hint" style={{ fontSize: "10px" }}>Chronological by author</span>
             </div>
             {notesList.length === 0 ? (
               <div style={{ padding: "16px 0", textAlign: "center", color: "var(--text-tertiary)", fontSize: "11px" }}>
-                No notes logged for this lead yet.
+                No manual notes logged for this lead yet.
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: "6px", maxHeight: "240px", overflowY: "auto", paddingRight: "2px" }}>

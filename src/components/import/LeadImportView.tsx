@@ -135,6 +135,7 @@ export function LeadImportView() {
     value: "value",
     source: "source",
     segment: "segment",
+    notes: "",
   });
 
   const findHeader = (headers: string[], candidates: string[]) =>
@@ -158,6 +159,7 @@ export function LeadImportView() {
       value: findHeader(headers, ["value", "budget", "amount", "deal", "price"]),
       source: findHeader(headers, ["source", "channel"]),
       segment: findHeader(headers, ["segment", "type", "industry"]),
+      notes: headers.find((h) => ["notes", "note", "remarks", "comment", "requirement"].some((c) => h.toLowerCase().includes(c))) || "",
     });
 
     setStep(2);
@@ -292,7 +294,7 @@ export function LeadImportView() {
           priority: "medium" as Priority,
           followUp: "",
           tags: ["imported-batch", targetSource.toLowerCase().replace(/\s+/g, "-")],
-          notes: `Imported via ${targetSource} channel (${uploadedFile?.name || "batch"}). Target: ${finalOwner}.`,
+          notes: (mappings.notes && item[mappings.notes]) || item["notes"] || item["Notes"] || item["remarks"] || item["Remarks"] || "",
         });
       });
 
@@ -305,7 +307,7 @@ export function LeadImportView() {
             customerPhone: item[mappings.phone] || item["phone"] || "",
             customerEmail: item[mappings.email] || item["email"] || "",
             serviceInterest: item[mappings.company] || item["company"] || "",
-            notes: `Imported via ${targetSource} batch processor.`,
+            notes: (mappings.notes && item[mappings.notes]) || item["notes"] || item["Notes"] || item["remarks"] || item["Remarks"] || "",
           })),
           duplicateAction: dedupMode === "overwrite" ? "OVERWRITE" : "SKIP",
           distributionMode:

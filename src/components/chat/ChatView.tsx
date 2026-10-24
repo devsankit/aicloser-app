@@ -6,7 +6,7 @@ import { CURRENT_USER, useApp } from "@/lib/store";
 import { STAGES, type StageId, type Priority, stageMeta, PRIORITY_LABEL } from "@/lib/types";
 import { aicloserApi } from "@/lib/api-client";
 import { isScannedWhatsAppLead } from "@/lib/lead-mapper";
-import { LeadCommandHistory } from "@/components/pipeline/LeadCommandHistory";
+import { LeadCommandHistory, isManualNote } from "@/components/pipeline/LeadCommandHistory";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { ResizeHandle } from "@/components/ui/ResizeHandle";
 
@@ -4946,7 +4946,7 @@ export function ChatView() {
               customerName={activeLeadProfile.name}
               customerPhone={activeChat?.phone}
               currentFollowUpAt={activeLead?.followUp}
-              initialNotes={typeof activeLead?.notes === "string" ? activeLead.notes : (activeLead?.notes ? JSON.stringify(activeLead.notes) : "")}
+              initialNotes={isManualNote(activeLead?.notes) ? (typeof activeLead?.notes === "string" ? activeLead.notes : JSON.stringify(activeLead.notes)) : ""}
               activeTab={activeHistoryTab}
               onTabChange={setActiveHistoryTab}
               onFollowUpSaved={(iso) => {

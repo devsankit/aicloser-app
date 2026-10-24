@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { ResizeHandle } from "@/components/ui/ResizeHandle";
-import { LeadCommandHistory } from "./LeadCommandHistory";
+import { LeadCommandHistory, isManualNote } from "./LeadCommandHistory";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { LIMITS, maskPhone, money, relativeTime, slaLabel, useApp } from "@/lib/store";
 import { aicloserApi } from "@/lib/api-client";
@@ -826,7 +826,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
               customerName={draft.name}
               customerPhone={draft.phone}
               currentFollowUpAt={draft.followUp}
-              initialNotes={typeof draft.notes === "string" ? draft.notes : (draft.notes ? JSON.stringify(draft.notes) : "")}
+              initialNotes={isManualNote(draft.notes) ? (typeof draft.notes === "string" ? draft.notes : JSON.stringify(draft.notes)) : ""}
               onFollowUpSaved={(iso) => {
                 performAutoSave({ followUp: iso });
               }}

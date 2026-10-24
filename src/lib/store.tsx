@@ -840,7 +840,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     updateLead(id, {
       owner: finalCloser,
       tags: ["claimed-lead"],
-      notes: `Claimed from open lead grab pool by ${finalCloser}.`,
     });
   }, [updateLead, state.user?.displayName]);
 
@@ -938,7 +937,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               owner: finalCloser,
               followUp: (currentItem as any)?.followUpAt || "",
               tags: ["grabbed-pool", currentItem?.source || "google-sheets"],
-              notes: `⚡ Grabbed from open lead pool by ${finalCloser}.`,
+              notes: (currentItem as any)?.notes || "",
               updatedAt: new Date().toISOString(),
             };
           }
@@ -989,7 +988,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             owner: finalCloser,
             followUp: (currentItem as any)?.followUpAt || "",
             tags: ["grabbed-pool", currentItem?.source || "google-sheets"],
-            notes: `⚡ Grabbed from open lead pool by ${finalCloser}.`,
+            notes: (currentItem as any)?.notes || "",
             updatedAt: new Date().toISOString(),
           };
 
@@ -1029,7 +1028,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         await aicloserApi.leads.transfer(id, targetId, note);
       } catch (err) {
         console.warn("Direct transfer API call failed, falling back to update:", err);
-        aicloserApi.leads.update(id, { assignedAgentId: targetId, notes: note ? note : `Reassigned to ${targetName}.` } as any).catch(() => {});
+        aicloserApi.leads.update(id, { assignedAgentId: targetId, ...(note ? { notes: note } : {}) } as any).catch(() => {});
       }
       refreshLeads().catch(() => {});
     }
