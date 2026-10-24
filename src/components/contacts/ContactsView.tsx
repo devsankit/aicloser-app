@@ -48,7 +48,7 @@ export const CONTACT_COLUMNS: ContactColumnDef[] = [
   { id: "notes", label: "Notes", description: "Latest notes & communication logs" },
   { id: "callback", label: "Next Callback", description: "Follow-up schedule and SLA badge" },
   { id: "owner", label: "Assigned Closer", description: "Assigned sales rep" },
-  { id: "value", label: "Payment Collection", description: "Real collected payment & status" },
+  { id: "value", label: "Payment Amount", description: "Real payment amount & link status" },
   { id: "source", label: "Source", description: "Lead acquisition channel" },
   { id: "email", label: "Email", description: "Customer email address" },
   { id: "tags", label: "Tags", description: "Custom tags & badges" },
@@ -472,7 +472,7 @@ export function ContactsView() {
     const amt = Number(l.realPaymentAmount ?? l.paymentAmount ?? 0);
     return s + (isPaid || l.realPaymentAmount ? amt : 0);
   }, 0);
-  const totalPipelineValue = rows.reduce((s, l) => s + (Number(l.value) || 0), 0);
+  const totalPaymentAmount = rows.reduce((s, l) => s + Number(l.realPaymentAmount ?? l.paymentAmount ?? 0), 0);
   const active = leads.find((l) => l.id === selected) ?? null;
 
   const bulkMove = (to: StageId) => {
@@ -522,7 +522,7 @@ export function ContactsView() {
           <p className="page-sub">
             {activeTab === "recycle"
               ? `Recycle Bin · ${recycleLeads.length} soft-deleted leads · Leads can be restored to active contacts or permanently deleted.`
-              : `${rows.length} contacts · Pipeline Value: ${money(totalPipelineValue)} · Collected: ${money(totalPaid)}`}
+              : `${rows.length} contacts · Total Payments: ${money(totalPaymentAmount)} · Collected: ${money(totalPaid)}`}
           </p>
         </div>
         <div className="page-actions">
@@ -1108,17 +1108,14 @@ export function ContactsView() {
                     {isColVisible("value") && (
                       <td className="cell-mono">
                         {(() => {
-                          const realAmt = lead.realPaymentAmount ?? lead.paymentAmount;
-                          const hasRealPayment = typeof realAmt === "number" && !isNaN(realAmt) && realAmt > 0;
-                          const dealVal = Number(lead.value || 0);
-                          const hasDealVal = !isNaN(dealVal) && dealVal > 0;
+                          const payAmt = lead.realPaymentAmount ?? lead.paymentAmount;
+                          const hasRealPayment = typeof payAmt === "number" && !isNaN(payAmt) && payAmt > 0;
                           const status = (lead.paymentStatus || "").toUpperCase();
 
-                          if (!hasRealPayment && !hasDealVal && !status) {
+                          if (!hasRealPayment && !status) {
                             return <span className="cell-muted">—</span>;
                           }
 
-                          const displayAmt = hasRealPayment ? realAmt : dealVal;
                           const isPaid = status === "PAID" || status === "SETTLED" || status === "APPROVED" || lead.stage === "won";
                           const isProof = status === "PROOF_UPLOADED" || status === "PROOF_REVIEW" || status === "UNDER_REVIEW";
                           const isExpired = status === "EXPIRED";
@@ -1126,7 +1123,7 @@ export function ContactsView() {
 
                           return (
                             <div className="chip-row">
-                              <span>{displayAmt > 0 ? money(displayAmt) : "—"}</span>
+                              <span>{hasRealPayment ? money(payAmt) : "—"}</span>
                               {isPaid && (
                                 <span className="chip" data-tone="success">Paid</span>
                               )}

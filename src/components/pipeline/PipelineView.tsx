@@ -510,7 +510,7 @@ export function PipelineView() {
       "Phone": l.phone || "",
       "Email": l.email || "",
       "Stage": l.stage || "",
-      "Deal Value (INR)": l.value || 0,
+      "Payment Amount (INR)": Number(l.realPaymentAmount ?? (l as any).paymentAmount ?? 0),
       "Payment Status": (l as any).paymentStatus || "",
       "Assigned Closer": l.owner || "Unassigned",
       "Source Channel": l.source || "",
@@ -653,7 +653,9 @@ export function PipelineView() {
         const aPending = isPendingPayment(a) ? 1 : 0;
         const bPending = isPendingPayment(b) ? 1 : 0;
         if (aPending !== bPending) return bPending - aPending;
-        return b.value - a.value || a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
+        const aPay = Number(a.realPaymentAmount ?? (a as any).paymentAmount ?? 0);
+        const bPay = Number(b.realPaymentAmount ?? (b as any).paymentAmount ?? 0);
+        return bPay - aPay || a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
       }
       if (sort === "priority") {
         const aHasCallback = Boolean(a.followUp && a.stage !== "won" && a.stage !== "lost");
@@ -1444,7 +1446,7 @@ export function PipelineView() {
               </button>
 
               <button data-on={sort === "value"} onClick={() => setSort("value")} aria-pressed={sort === "value"}>
-                <Icon name="tag" size={12} /> Value
+                <Icon name="card" size={12} /> Payment
               </button>
             </div>
 
@@ -1627,11 +1629,20 @@ export function PipelineView() {
                       {stage.label}
                     </h2>
                     <span className="col-count">{cards.length}</span>
-                    {cards.reduce((sum, c) => sum + (Number(c.value) || 0), 0) > 0 && (
-                      <span className="chip" data-tone="accent">
-                        {money(cards.reduce((sum, c) => sum + (Number(c.value) || 0), 0))}
-                      </span>
-                    )}
+                    {(() => {
+                      const colPayment = cards.reduce((sum, c) => {
+                        const p = Number(c.realPaymentAmount ?? (c as any).paymentAmount ?? 0);
+                        return sum + (p > 0 ? p : 0);
+                      }, 0);
+                      if (colPayment > 0) {
+                        return (
+                          <span className="chip" data-tone="accent">
+                            {money(colPayment)}
+                          </span>
+                        );
+                      }
+                      return null;
+                    })()}
                     <button
                       className="icon-btn col-add"
                       onClick={() => setAddStage(stage.id)}
@@ -1733,16 +1744,16 @@ export function PipelineView() {
                               <Icon name={src.icon} size={11} /> {src.label}
                             </span>
                             {(() => {
-                              const val = Number(lead.realPaymentAmount || (lead as any).paymentAmount || lead.value || 0);
+                              const payAmt = Number(lead.realPaymentAmount ?? (lead as any).paymentAmount ?? 0);
                               const pStatus = ((lead as any).paymentStatus || "").toUpperCase();
                               const isPaid = pStatus === "PAID" || pStatus === "SETTLED" || pStatus === "APPROVED" || lead.stage === "won";
                               const isPending = pStatus === "PENDING" || pStatus === "PAYMENT_PENDING";
                               const isProof = pStatus === "PROOF_UPLOADED" || pStatus === "PROOF_REVIEW";
-                              if (val > 0 || isPending || isPaid || isProof) {
-                                if (isPaid) return <span className="chip" data-tone="success">✓ {money(val)} Paid</span>;
-                                if (isProof) return <span className="chip" data-tone="warning">⏱️ {money(val)} Review</span>;
-                                if (isPending) return <span className="chip" data-tone="warning">⏱️ {money(val)} Link Sent</span>;
-                                if (val > 0) return <span className="chip" data-tone="neutral">{money(val)}</span>;
+                              if (payAmt > 0 || isPending || isPaid || isProof) {
+                                if (isPaid) return <span className="chip" data-tone="success">✓ {payAmt > 0 ? money(payAmt) : ""} Paid</span>;
+                                if (isProof) return <span className="chip" data-tone="warning">⏱️ {payAmt > 0 ? money(payAmt) : ""} Review</span>;
+                                if (isPending) return <span className="chip" data-tone="warning">⏱️ {payAmt > 0 ? money(payAmt) : ""} Link Sent</span>;
+                                if (payAmt > 0) return <span className="chip" data-tone="accent">{money(payAmt)}</span>;
                               }
                               return null;
                             })()}

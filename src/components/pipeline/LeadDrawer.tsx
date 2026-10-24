@@ -561,36 +561,49 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
 
             <div className="field-row">
               <span className="field-label">
-                <Icon name="tag" size={14} /> Deal Value
+                <Icon name="card" size={14} /> Payment
               </span>
               <div className="chip-row">
-                <input
-                  className="input"
-                  type="number"
-                  min="0"
-                  step="100"
-                  placeholder="₹ 0"
-                  value={draft.value !== undefined && draft.value !== null && draft.value !== 0 ? draft.value : ""}
-                  onChange={(e) => {
-                    const num = e.target.value === "" ? 0 : Number(e.target.value);
-                    handleDebouncedTextChange("value", num);
-                  }}
-                  onBlur={() => handleFieldBlur("value")}
-                  aria-label="Deal Value in Rupees"
-                />
                 {(() => {
-                  const val = Number(draft.realPaymentAmount || (draft as any).paymentAmount || draft.value || 0);
+                  const payAmt = Number(draft.realPaymentAmount ?? (draft as any).paymentAmount ?? 0);
                   const pStatus = ((draft as any).paymentStatus || "").toUpperCase();
-                  if (pStatus === "PAID" || pStatus === "SETTLED" || pStatus === "APPROVED" || draft.stage === "won") {
-                    return <span className="chip" data-tone="success">✓ {val > 0 ? money(val) : ""} Paid</span>;
+                  const isPaid = pStatus === "PAID" || pStatus === "SETTLED" || pStatus === "APPROVED" || draft.stage === "won";
+                  const isProof = pStatus === "PROOF_UPLOADED" || pStatus === "PROOF_REVIEW";
+                  const isPending = pStatus === "PENDING" || pStatus === "PAYMENT_PENDING";
+
+                  if (payAmt > 0 || isPending || isPaid || isProof) {
+                    return (
+                      <>
+                        <span className="cell-mono font-bold">{payAmt > 0 ? money(payAmt) : "—"}</span>
+                        {isPaid && <span className="chip" data-tone="success">✓ Paid</span>}
+                        {isProof && <span className="chip" data-tone="warning">⏱️ Proof Review</span>}
+                        {isPending && <span className="chip" data-tone="warning">⏱️ Link Sent</span>}
+                        <a
+                          href={`/payments?leadId=${lead.id}&phone=${encodeURIComponent(draft.phone)}&name=${encodeURIComponent(draft.name)}`}
+                          className="btn"
+                          data-size="sm"
+                          data-variant="outline"
+                          title="View Payment"
+                        >
+                          View Payment
+                        </a>
+                      </>
+                    );
                   }
-                  if (pStatus === "PROOF_UPLOADED" || pStatus === "PROOF_REVIEW") {
-                    return <span className="chip" data-tone="warning">⏱️ Proof Review</span>;
-                  }
-                  if (pStatus === "PENDING" || pStatus === "PAYMENT_PENDING") {
-                    return <span className="chip" data-tone="warning">⏱️ Link Sent</span>;
-                  }
-                  return null;
+
+                  return (
+                    <>
+                      <span className="cell-muted">No payment link</span>
+                      <a
+                        href={`/payments?leadId=${lead.id}&phone=${encodeURIComponent(draft.phone)}&name=${encodeURIComponent(draft.name)}`}
+                        className="btn"
+                        data-size="sm"
+                        data-variant="accent"
+                      >
+                        + Create Payment Link
+                      </a>
+                    </>
+                  );
                 })()}
               </div>
             </div>
