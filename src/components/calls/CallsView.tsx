@@ -20,12 +20,59 @@ export interface CallRecord {
   direction: CallDirection;
   durationSeconds: number;
   timestamp: string;
+  dateFormatted?: string;
+  timeFormatted?: string;
+  rawDate?: string;
   disposition: string;
   sentiment: "positive" | "neutral" | "negative";
   aiSummary: string;
   transcript: { speaker: string; text: string; time: string }[];
   audioUrl?: string;
   callbackPending?: boolean;
+}
+
+function formatCallDateTime(dateInput?: string | Date): { time: string; date: string; display: string } {
+  if (!dateInput) return { time: "—", date: "—", display: "—" };
+  const d = new Date(dateInput);
+  if (isNaN(d.getTime())) return { time: "—", date: "—", display: "—" };
+
+  const time = d.toLocaleTimeString("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+
+  const now = new Date();
+  const isToday =
+    d.getDate() === now.getDate() &&
+    d.getMonth() === now.getMonth() &&
+    d.getFullYear() === now.getFullYear();
+
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const isYesterday =
+    d.getDate() === yesterday.getDate() &&
+    d.getMonth() === yesterday.getMonth() &&
+    d.getFullYear() === yesterday.getFullYear();
+
+  let date = "";
+  if (isToday) {
+    date = "Today";
+  } else if (isYesterday) {
+    date = "Yesterday";
+  } else {
+    date = d.toLocaleDateString("en-IN", {
+      day: "numeric",
+      month: "short",
+      year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
+    });
+  }
+
+  return {
+    time,
+    date,
+    display: `${date} • ${time}`,
+  };
 }
 
 export interface SimDevice {
@@ -91,34 +138,37 @@ export function CallsView() {
 
       const cRes: any = await aicloserApi.calls.list(params).catch(() => null);
       if (cRes?.calls) {
-        const mapped: CallRecord[] = cRes.calls.map((c: any) => ({
-          id: c.id,
-          leadCode: c.assignment?.id ? `CLO-${c.assignment.id.slice(-4).toUpperCase()}` : "CLO-LIVE",
-          customerName: c.assignment?.customerName || c.phoneNumber || "Direct Caller",
-          company: c.assignment?.stage || "Direct Line",
-          phone: c.phoneNumber || c.assignment?.customerPhone || "",
-          closerName: c.agent?.user?.displayName || c.agent?.agentCode || "Closer Agent",
-          closerAgentId: c.agentId || c.agent?.id || "",
-          closerUserId: c.agent?.userId || c.agent?.user?.id || "",
-          simSlot: c.device?.deviceName || "SIM Relay",
-          direction:
-            c.direction === "INBOUND"
-              ? "inbound"
-              : c.durationSeconds === 0
-              ? "missed"
-              : "outbound",
-          durationSeconds: c.durationSeconds || 0,
-          timestamp: new Date(c.startedAt).toLocaleTimeString("en-IN", {
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
-          disposition: c.outcome || c.status || "Completed",
-          sentiment: "neutral",
-          aiSummary: c.note || (c.durationSeconds > 0 ? "Direct call recording logged." : "Unanswered missed call."),
-          transcript: [],
-          audioUrl: c.recordingUrl || (c.recordingStatus === "UPLOADED" ? `/api/v1/calls/${c.id}/recording` : undefined),
-          callbackPending: c.direction === "MISSED" || c.durationSeconds === 0,
-        }));
+        const mapped: CallRecord[] = cRes.calls.map((c: any) => {
+          const dt = formatCallDateTime(c.startedAt);
+          return {
+            id: c.id,
+            leadCode: c.assignment?.id ? `CLO-${c.assignment.id.slice(-4).toUpperCase()}` : "CLO-LIVE",
+            customerName: c.assignment?.customerName || c.phoneNumber || "Direct Caller",
+            company: c.assignment?.stage || "Direct Line",
+            phone: c.phoneNumber || c.assignment?.customerPhone || "",
+            closerName: c.agent?.user?.displayName || c.agent?.agentCode || "Closer Agent",
+            closerAgentId: c.agentId || c.agent?.id || "",
+            closerUserId: c.agent?.userId || c.agent?.user?.id || "",
+            simSlot: c.device?.deviceName || "SIM Relay",
+            direction:
+              c.direction === "INBOUND"
+                ? "inbound"
+                : c.durationSeconds === 0
+                ? "missed"
+                : "outbound",
+            durationSeconds: c.durationSeconds || 0,
+            timestamp: dt.time,
+            dateFormatted: dt.date,
+            timeFormatted: dt.time,
+            rawDate: c.startedAt,
+            disposition: c.outcome || c.status || "Completed",
+            sentiment: "neutral",
+            aiSummary: c.note || (c.durationSeconds > 0 ? "Direct call recording logged." : "Unanswered missed call."),
+            transcript: [],
+            audioUrl: c.recordingUrl || (c.recordingStatus === "UPLOADED" ? `/api/v1/calls/${c.id}/recording` : undefined),
+            callbackPending: c.direction === "MISSED" || c.durationSeconds === 0,
+          };
+        });
         setCalls(mapped);
       }
     } catch {
@@ -156,6 +206,9 @@ export function CallsView() {
               : "outbound",
           durationSeconds: c.durationSeconds || 0,
           timestamp: "Just now",
+          dateFormatted: "Today",
+          timeFormatted: "Just now",
+          rawDate: new Date().toISOString(),
           disposition: c.outcome || "Recorded Call",
           sentiment: "positive",
           aiSummary: c.note || "Live SIM Telemetry call logged.",
@@ -636,7 +689,7 @@ export function CallsView() {
                                 <tr key={c.id} style={{ background: "var(--bg-soft)" }}>
                                   <td style={{ paddingLeft: "42px" }}>
                                     <div style={{ fontSize: "var(--fs-caption)", color: "var(--text-secondary)" }}>
-                                      {c.timestamp}
+                                      <span style={{ fontWeight: 600, color: "var(--text)" }}>{c.dateFormatted || "Today"}</span> • {c.timeFormatted || c.timestamp}
                                     </div>
                                     <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>{c.simSlot}</div>
                                   </td>
@@ -756,7 +809,9 @@ export function CallsView() {
                         <span style={{ fontWeight: 550, fontFamily: "var(--mono)" }}>
                           {formatDuration(c.durationSeconds)}
                         </span>
-                        <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>{c.timestamp}</div>
+                        <div style={{ fontSize: "11px", color: "var(--text-secondary)", marginTop: "2px" }}>
+                          <span style={{ fontWeight: 600, color: "var(--text)" }}>{c.dateFormatted || "Today"}</span> • {c.timeFormatted || c.timestamp}
+                        </div>
                       </td>
                       <td>
                         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
@@ -878,7 +933,7 @@ export function CallsView() {
                     <td>{c.simSlot}</td>
                     <td>
                       <span className="chip" data-tone="danger" style={{ fontSize: "11px" }}>
-                        <Icon name="clock" size={11} /> {c.timestamp}
+                        <Icon name="clock" size={11} /> {c.dateFormatted ? `${c.dateFormatted} • ` : ""}{c.timeFormatted || c.timestamp}
                       </span>
                     </td>
                     <td>{c.closerName}</td>

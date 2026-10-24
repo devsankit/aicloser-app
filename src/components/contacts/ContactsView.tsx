@@ -125,7 +125,19 @@ function formatCallbackInfo(followUpIso?: string) {
 
 function extractLatestNote(rawNotes: any): { snippet: string; full: string } {
   if (!rawNotes) return { snippet: "", full: "" };
-  const full = typeof rawNotes === "string" ? rawNotes : JSON.stringify(rawNotes);
+  let full = "";
+  if (typeof rawNotes === "string") {
+    full = rawNotes;
+  } else if (Array.isArray(rawNotes)) {
+    full = rawNotes
+      .map((n) => (typeof n === "string" ? n : n?.body || n?.text || n?.content || JSON.stringify(n)))
+      .filter(Boolean)
+      .join("\n---\n");
+  } else if (typeof rawNotes === "object") {
+    full = rawNotes.summaryNotes || rawNotes.notes || rawNotes.body || rawNotes.text || JSON.stringify(rawNotes);
+  } else {
+    full = String(rawNotes);
+  }
   const trimmed = full.trim();
   if (!trimmed) return { snippet: "", full: "" };
 
@@ -215,6 +227,15 @@ export function ContactsView() {
       setLoadingRecycle(false);
     }
   };
+
+  useEffect(() => {
+    void loadRecycleBin();
+    const handleLeadDeleted = () => {
+      void loadRecycleBin();
+    };
+    window.addEventListener("aicloser:lead-deleted", handleLeadDeleted);
+    return () => window.removeEventListener("aicloser:lead-deleted", handleLeadDeleted);
+  }, []);
 
   useEffect(() => {
     if (activeTab === "recycle") {

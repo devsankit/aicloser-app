@@ -463,6 +463,15 @@ export function PipelineView() {
   };
 
   useEffect(() => {
+    void loadRecycleBin();
+    const handleLeadDeleted = () => {
+      void loadRecycleBin();
+    };
+    window.addEventListener("aicloser:lead-deleted", handleLeadDeleted);
+    return () => window.removeEventListener("aicloser:lead-deleted", handleLeadDeleted);
+  }, []);
+
+  useEffect(() => {
     if (viewMode === "recycle") {
       void loadRecycleBin();
     }
@@ -1740,6 +1749,16 @@ export function PipelineView() {
                             <Icon name="building" size={12} /> {lead.company}
                           </p>
                           <div className="lead-meta">
+                            {((lead.shares && lead.shares.length > 0) || lead.isSharedWithMe) && (
+                              <span
+                                className="chip"
+                                data-tone="accent"
+                                style={{ fontSize: "10px", padding: "1px 6px" }}
+                                title={lead.shares && lead.shares.length > 0 ? `Shared with ${lead.shares.map((s) => s.displayName || s.userId).join(", ")}` : "Shared lead"}
+                              >
+                                👥 Shared
+                              </span>
+                            )}
                             <span className="chip" data-tone={src.tone}>
                               <Icon name={src.icon} size={11} /> {src.label}
                             </span>

@@ -40,7 +40,6 @@ export function AddLeadDialog({
     company: "",
     phone: "",
     email: "",
-    value: "",
     source: "Website" as Source,
     segment: "SMB" as Segment,
     stage: defaultStage,
@@ -216,7 +215,7 @@ export function AddLeadDialog({
         company: cleanCompany,
         phone: cleanPhone,
         email: form.email.trim(),
-        value: Number(form.value.replace(/\D/g, "")) || 0,
+        value: 0,
         source: form.source,
         segment: form.segment,
         stage: form.stage,
@@ -297,18 +296,6 @@ export function AddLeadDialog({
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
                 placeholder="e.g. name@company.in"
-              />
-            </div>
-
-            <div className="field">
-              <label htmlFor="a-value">Deal Value (₹)</label>
-              <input
-                id="a-value"
-                className="input"
-                inputMode="numeric"
-                value={form.value}
-                onChange={(e) => setForm({ ...form, value: e.target.value })}
-                placeholder="e.g. 50,000"
               />
             </div>
 

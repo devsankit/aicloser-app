@@ -8,7 +8,8 @@ export type StageId =
   | "follow_up"
   | "negotiation"
   | "won"
-  | "lost";
+  | "lost"
+  | (string & {});
 
 export type Source =
   | "Website"
@@ -72,6 +73,9 @@ export interface Lead {
   notes: string;
   updatedAt: string; // ISO
   kanbanPosition?: number;
+  shares?: Array<{ userId: string; profileId?: string; displayName?: string; permission?: string; sharedAt?: string; sharedByUserId?: string; sharedByName?: string }>;
+  sharedUserIds?: string[];
+  isSharedWithMe?: boolean;
 }
 
 export interface LeadPoolItem {
@@ -99,6 +103,9 @@ export interface StageMeta {
   tone: "neutral" | "accent" | "info" | "warning" | "success" | "danger";
   status: StatusKind;
   icon: IconName;
+  customColor?: string;
+  isCustom?: boolean;
+  position?: number;
 }
 
 export const STAGES: StageMeta[] = [

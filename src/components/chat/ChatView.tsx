@@ -41,6 +41,8 @@ interface ConversationItem {
   customerName: string;
   company: string;
   phone: string;
+  stage?: StageId;
+  leadStage?: StageId;
   channel: "whatsapp" | "instagram" | "website";
   channelSource?: "OFFICIAL_API" | "QR_SCANNER" | "INSTAGRAM" | "WEBSITE";
   channelSourceLabel?: string;
@@ -168,11 +170,154 @@ function getFilenameFromUrl(url: string) {
   return decodeURIComponent(parts[parts.length - 1] || "Document");
 }
 
-const QUICK_EMOJIS = [
-  "👍", "❤️", "😂", "🙏", "👋", "🎉", "🔥", "🚀",
-  "😊", "💼", "📞", "📅", "💰", "⏱️", "✅", "🤝",
-  "🎯", "⭐", "💡", "✨", "📊", "🏆", "👏", "🙌",
-  "💯", "👌", "💪", "📝", "💬", "🟢", "🔴", "⏳",
+interface EmojiCategory {
+  id: string;
+  name: string;
+  icon: string;
+  emojis: Array<{ char: string; name: string }>;
+}
+
+const EMOJI_CATEGORIES: EmojiCategory[] = [
+  {
+    id: "smileys",
+    name: "Smileys",
+    icon: "😊",
+    emojis: [
+      { char: "😀", name: "grinning" },
+      { char: "😃", name: "smiley" },
+      { char: "😄", name: "smile" },
+      { char: "😁", name: "beam" },
+      { char: "😆", name: "laughing" },
+      { char: "😅", name: "sweat smile" },
+      { char: "😂", name: "joy" },
+      { char: "🤣", name: "rofl" },
+      { char: "😊", name: "blush" },
+      { char: "😇", name: "innocent" },
+      { char: "🙂", name: "slight smile" },
+      { char: "😉", name: "wink" },
+      { char: "😌", name: "relieved" },
+      { char: "😍", name: "heart eyes" },
+      { char: "🥰", name: "smiling hearts" },
+      { char: "😘", name: "kiss" },
+      { char: "😋", name: "yum" },
+      { char: "😜", name: "winking tongue" },
+      { char: "😎", name: "cool" },
+      { char: "🤩", name: "star struck" },
+      { char: "🥳", name: "party" },
+      { char: "🤔", name: "thinking" },
+      { char: "🤫", name: "shushing" },
+      { char: "😴", name: "sleeping" },
+      { char: "🥺", name: "pleading" },
+      { char: "✨", name: "sparkles" },
+      { char: "🔥", name: "fire" },
+      { char: "🎉", name: "tada celebration" },
+    ],
+  },
+  {
+    id: "gestures",
+    name: "Gestures",
+    icon: "👍",
+    emojis: [
+      { char: "👍", name: "thumbs up" },
+      { char: "👎", name: "thumbs down" },
+      { char: "👌", name: "ok hand" },
+      { char: "✌️", name: "victory peace" },
+      { char: "🤞", name: "crossed fingers" },
+      { char: "🤝", name: "handshake deal" },
+      { char: "👏", name: "clapping hands" },
+      { char: "🙌", name: "raising hands" },
+      { char: "🙏", name: "folded hands please thank you" },
+      { char: "💪", name: "flexed biceps strong" },
+      { char: "👋", name: "waving hand hello" },
+      { char: "🤙", name: "call me hand" },
+      { char: "✍️", name: "writing hand" },
+      { char: "👈", name: "point left" },
+      { char: "👉", name: "point right" },
+      { char: "👆", name: "point up" },
+      { char: "👇", name: "point down" },
+      { char: "👊", name: "fist bump" },
+      { char: "🖐️", name: "open hand" },
+      { char: "💯", name: "hundred points" },
+    ],
+  },
+  {
+    id: "business",
+    name: "Business",
+    icon: "💼",
+    emojis: [
+      { char: "💼", name: "briefcase work" },
+      { char: "💰", name: "money bag cash" },
+      { char: "💵", name: "dollar bill payment" },
+      { char: "💳", name: "credit card pay" },
+      { char: "🧾", name: "receipt invoice" },
+      { char: "📈", name: "chart increasing growth" },
+      { char: "📉", name: "chart decreasing" },
+      { char: "📊", name: "bar chart report" },
+      { char: "🎯", name: "direct hit target goal" },
+      { char: "🏆", name: "trophy winner won" },
+      { char: "🎖️", name: "medal award" },
+      { char: "🚀", name: "rocket launch fast" },
+      { char: "💡", name: "light bulb idea solution" },
+      { char: "🏢", name: "office building company" },
+      { char: "📞", name: "telephone call phone" },
+      { char: "📱", name: "mobile phone smartphone" },
+      { char: "💻", name: "laptop computer demo" },
+      { char: "📧", name: "email envelope contact" },
+      { char: "📅", name: "calendar date meeting schedule" },
+      { char: "⏱️", name: "stopwatch time quick" },
+      { char: "⏳", name: "hourglass pending waiting" },
+      { char: "📝", name: "memo note write contract" },
+      { char: "📋", name: "clipboard checklist audit" },
+      { char: "📌", name: "pushpin pin important" },
+    ],
+  },
+  {
+    id: "objects",
+    name: "Objects",
+    icon: "📦",
+    emojis: [
+      { char: "📦", name: "package shipment order" },
+      { char: "🎁", name: "gift present offer" },
+      { char: "🛒", name: "shopping cart store" },
+      { char: "🏷️", name: "label tag price" },
+      { char: "💎", name: "gem diamond premium VIP" },
+      { char: "🔒", name: "locked secure safe" },
+      { char: "🔓", name: "unlocked open access" },
+      { char: "🔑", name: "key credential password" },
+      { char: "🔔", name: "bell notification alert" },
+      { char: "🔕", name: "bell slash mute" },
+      { char: "📁", name: "folder documents" },
+      { char: "📂", name: "open folder" },
+      { char: "⚙️", name: "gear settings config" },
+      { char: "🔧", name: "wrench tool fix support" },
+      { char: "🔍", name: "magnifying glass search audit" },
+      { char: "🛡️", name: "shield security protect" },
+    ],
+  },
+  {
+    id: "symbols",
+    name: "Symbols",
+    icon: "✅",
+    emojis: [
+      { char: "✅", name: "check mark verified approved done" },
+      { char: "❌", name: "cross mark cancel rejected" },
+      { char: "⚠️", name: "warning alert urgent" },
+      { char: "⛔", name: "no entry stop" },
+      { char: "🚫", name: "prohibited ban" },
+      { char: "ℹ️", name: "information info notice" },
+      { char: "💬", name: "speech balloon chat message" },
+      { char: "💭", name: "thought balloon idea" },
+      { char: "📢", name: "loudspeaker announcement broadcast" },
+      { char: "⭐", name: "star rating high priority" },
+      { char: "🌟", name: "glowing star featured" },
+      { char: "🟢", name: "green circle online active" },
+      { char: "🔴", name: "red circle offline busy" },
+      { char: "🟡", name: "yellow circle away pending" },
+      { char: "🔵", name: "blue circle info" },
+      { char: "❓", name: "question mark inquiry" },
+      { char: "❗", name: "exclamation mark important" },
+    ],
+  },
 ];
 
 function renderMessageContent(
@@ -638,6 +783,9 @@ export function ChatView() {
   }, [state.scope]);
   const [inputText, setInputText] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [emojiSearch, setEmojiSearch] = useState("");
+  const [activeEmojiCategory, setActiveEmojiCategory] = useState<string>("all");
+  const [hoveredEmoji, setHoveredEmoji] = useState<{ char: string; name: string } | null>(null);
   const [stagedAttachment, setStagedAttachment] = useState<{
     file: File;
     name: string;
@@ -1634,8 +1782,8 @@ export function ChatView() {
           (!isExplicitlyAssignedToOther && (scannedBy === myName || scannedBy.includes(myName)));
 
         if (scopeFilter === "mine") {
-          // Strictly personal scanned QR WhatsApp companion chats
-          matchScope = (c.isPersonalQr || c.channelSource === "QR_SCANNER" || (!c.isOfficialApi && c.channelSource !== "OFFICIAL_API")) && belongsToMe;
+          // Strictly personal scanned QR WhatsApp companion chats OR conversations shared with me
+          matchScope = isSharedWithMe || ((c.isPersonalQr || c.channelSource === "QR_SCANNER" || (!c.isOfficialApi && c.channelSource !== "OFFICIAL_API")) && belongsToMe);
         } else if (scopeFilter === "api") {
           // Strictly official API chats assigned to or shared with this closer
           matchScope = (c.isOfficialApi || c.channelSource === "OFFICIAL_API") && (isAdmin || belongsToMe);
@@ -1904,6 +2052,8 @@ export function ChatView() {
                 customerName: c.customerName || "Customer",
                 company: c.lead?.company || "Direct Account",
                 phone: c.customerPhone || "",
+                stage: normalizeStageId(c.stage || c.leadStage || c.lead?.stage || c.payload?.leadStatusId || c.payload?.stage || "new"),
+                leadStage: normalizeStageId(c.leadStage || c.stage || c.lead?.stage || c.payload?.leadStatusId || c.payload?.stage || "new"),
                 channel: (c.channel === "instagram"
                   ? "instagram"
                   : c.channel === "website"
@@ -2006,11 +2156,15 @@ export function ChatView() {
           }
 
           setConversations((prev) => {
-            // Preserve any active message threads already in memory
             return combined.map((c) => {
               const existing = prev.find((p) => p.id === c.id);
-              if (existing && existing.messages?.length > 0) {
-                return { ...c, messages: existing.messages };
+              if (existing) {
+                return {
+                  ...c,
+                  stage: existing.stage || c.stage,
+                  leadStage: existing.leadStage || c.leadStage,
+                  messages: existing.messages?.length > 0 ? existing.messages : c.messages,
+                };
               }
               return c;
             });
@@ -2039,7 +2193,7 @@ export function ChatView() {
       active = false;
       clearInterval(refreshInterval);
     };
-  }, [state.leads, refreshCount, state.scope, scopeFilter]);
+  }, [refreshCount, state.scope, scopeFilter]);
 
   // Load Universal Bot Master Status
   useEffect(() => {
@@ -2104,25 +2258,30 @@ export function ChatView() {
             .filter((m: any) => Boolean((m.body && m.body.trim()) || (m.text && m.text.trim()) || m.attachments?.length))
             .map((m: any) => {
               const isSystem = m.senderRole === "system" || m.sender === "system";
+              const isInbound =
+                m.direction === "INBOUND" ||
+                m.senderRole === "customer" ||
+                m.role === "customer" ||
+                m.sender === "customer";
+
               const isOutbound =
                 !isSystem &&
-                (m.fromMe === true ||
-                  m.direction === "OUTBOUND" ||
-                  m.senderRole === "sales" ||
-                  m.senderRole === "admin" ||
-                  m.senderRole === "closer" ||
-                  m.senderRole === "agent" ||
-                  m.senderRole === "CLOSER" ||
-                  m.senderRole === "ADMIN" ||
-                  m.senderRole === "ai" ||
-                  m.sender === "closer" ||
-                  m.sender === "admin" ||
-                  (typeof m.senderLabel === "string" &&
-                    (m.senderLabel.toLowerCase() === "admin" ||
-                      m.senderLabel.toLowerCase() === "sales closer" ||
-                      m.senderLabel.toLowerCase().includes("closer") ||
-                      m.senderLabel.toLowerCase().includes("agent")))) &&
-                m.direction !== "INBOUND";
+                !isInbound &&
+                (m.direction === "OUTBOUND" ||
+                  m.fromMe === true ||
+                  ((m.senderRole === "sales" ||
+                    m.senderRole === "admin" ||
+                    m.senderRole === "closer" ||
+                    m.senderRole === "agent" ||
+                    m.senderRole === "CLOSER" ||
+                    m.senderRole === "ADMIN" ||
+                    m.senderRole === "ai" ||
+                    m.sender === "closer" ||
+                    m.sender === "admin" ||
+                    (typeof m.senderLabel === "string" &&
+                      (m.senderLabel.toLowerCase() === "admin" ||
+                        m.senderLabel.toLowerCase() === "sales closer"))) &&
+                    m.direction !== "INBOUND"));
 
               const atts = m.attachments || (m.mediaUrl ? [{ name: m.mediaFilename || 'Attachment', url: m.mediaUrl, mimeType: m.mediaType }] : undefined);
 
@@ -2152,9 +2311,31 @@ export function ChatView() {
             return timeA - timeB;
           });
 
-          setMessagesCache((prev) => ({ ...prev, [activeChat.id]: mappedMessages }));
+          setMessagesCache((prev) => {
+            const prevMsgs = prev[activeChat.id] || [];
+            const cachedSysMsgs = prevMsgs.filter((m) => m.sender === "system");
+            const merged = [...mappedMessages];
+            for (const sys of cachedSysMsgs) {
+              if (!merged.some((m) => m.id === sys.id || (m.sender === "system" && m.text === sys.text))) {
+                merged.push(sys);
+              }
+            }
+            merged.sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+            return { ...prev, [activeChat.id]: merged };
+          });
           setConversations((prev) =>
-            prev.map((c) => (c.id === activeChat.id ? { ...c, messages: mappedMessages } : c))
+            prev.map((c) => {
+              if (c.id !== activeChat.id) return c;
+              const cachedSysMsgs = (c.messages || []).filter((m) => m.sender === "system");
+              const merged = [...mappedMessages];
+              for (const sys of cachedSysMsgs) {
+                if (!merged.some((m) => m.id === sys.id || (m.sender === "system" && m.text === sys.text))) {
+                  merged.push(sys);
+                }
+              }
+              merged.sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+              return { ...c, messages: merged };
+            })
           );
           setTimeout(() => scrollToBottom("instant"), 30);
         } else if (!messagesCache[activeChat.id] || messagesCache[activeChat.id].length === 0) {
@@ -2202,23 +2383,31 @@ export function ChatView() {
         const incomingConvId = payload.conversationId;
         const incomingLeadId = payload.leadId;
 
-        const isOutbound =
-          rawMsg.fromMe === true ||
-          rawMsg.direction === "OUTBOUND" ||
-          rawMsg.senderRole === "sales" ||
-          rawMsg.senderRole === "admin" ||
-          rawMsg.senderRole === "closer" ||
-          rawMsg.senderRole === "agent" ||
-          rawMsg.senderRole === "CLOSER" ||
-          rawMsg.senderRole === "ADMIN" ||
-          rawMsg.senderRole === "ai" ||
-          rawMsg.sender === "closer" ||
-          rawMsg.sender === "admin" ||
-          (typeof rawMsg.senderLabel === "string" &&
-            (rawMsg.senderLabel.toLowerCase() === "admin" ||
-              rawMsg.senderLabel.toLowerCase() === "sales closer"));
-
         const isSystem = rawMsg.senderRole === "system" || rawMsg.sender === "system";
+        const isInbound =
+          rawMsg.direction === "INBOUND" ||
+          rawMsg.senderRole === "customer" ||
+          rawMsg.role === "customer" ||
+          rawMsg.sender === "customer";
+
+        const isOutbound =
+          !isSystem &&
+          !isInbound &&
+          (rawMsg.direction === "OUTBOUND" ||
+            rawMsg.fromMe === true ||
+            ((rawMsg.senderRole === "sales" ||
+              rawMsg.senderRole === "admin" ||
+              rawMsg.senderRole === "closer" ||
+              rawMsg.senderRole === "agent" ||
+              rawMsg.senderRole === "CLOSER" ||
+              rawMsg.senderRole === "ADMIN" ||
+              rawMsg.senderRole === "ai" ||
+              rawMsg.sender === "closer" ||
+              rawMsg.sender === "admin" ||
+              (typeof rawMsg.senderLabel === "string" &&
+                (rawMsg.senderLabel.toLowerCase() === "admin" ||
+                  rawMsg.senderLabel.toLowerCase() === "sales closer"))) &&
+              rawMsg.direction !== "INBOUND"));
         const textBody = rawMsg.body || rawMsg.text || "";
         if (!textBody && !rawMsg.attachments?.length) return;
 
@@ -2410,23 +2599,33 @@ export function ChatView() {
             const mappedMessages: ChatMessage[] = apiMessages
               .filter((m: any) => Boolean((m.body && m.body.trim()) || (m.text && m.text.trim()) || m.attachments?.length))
               .map((m: any) => {
-                const isOutbound =
-                  m.fromMe === true ||
-                  m.direction === "OUTBOUND" ||
-                  m.senderRole === "sales" ||
-                  m.senderRole === "admin" ||
-                  m.senderRole === "closer" ||
-                  m.senderRole === "agent" ||
-                  m.senderRole === "CLOSER" ||
-                  m.senderRole === "ADMIN" ||
-                  m.senderRole === "ai" ||
-                  m.sender === "closer" ||
-                  m.sender === "admin" ||
-                  (typeof m.senderLabel === "string" &&
-                    (m.senderLabel.toLowerCase() === "admin" ||
-                      m.senderLabel.toLowerCase() === "sales closer"));
-
                 const isSystem = m.senderRole === "system" || m.sender === "system";
+                const isInbound =
+                  m.direction === "INBOUND" ||
+                  m.senderRole === "customer" ||
+                  m.role === "customer" ||
+                  m.sender === "customer";
+
+                const isOutbound =
+                  !isSystem &&
+                  !isInbound &&
+                  (m.direction === "OUTBOUND" ||
+                    m.fromMe === true ||
+                    ((m.senderRole === "sales" ||
+                      m.senderRole === "admin" ||
+                      m.senderRole === "closer" ||
+                      m.senderRole === "agent" ||
+                      m.senderRole === "CLOSER" ||
+                      m.senderRole === "ADMIN" ||
+                      m.senderRole === "ai" ||
+                      m.sender === "closer" ||
+                      m.sender === "admin" ||
+                      (typeof m.senderLabel === "string" &&
+                        (m.senderLabel.toLowerCase() === "admin" ||
+                          m.senderLabel.toLowerCase() === "sales closer"))) &&
+                      m.direction !== "INBOUND"));
+
+                const atts = m.attachments || (m.mediaUrl ? [{ name: m.mediaFilename || 'Attachment', url: m.mediaUrl, mimeType: m.mediaType }] : undefined);
 
                 return {
                   id: m.id || `msg-${Math.random()}`,
@@ -2440,6 +2639,10 @@ export function ChatView() {
                   channel: activeChat.channel,
                   status: (m.status || m.deliveryStatus || "read") as "sent" | "delivered" | "read",
                   externalMessageId: m.externalMessageId || m.wamid || undefined,
+                  attachments: atts,
+                  fromMe: isOutbound,
+                  direction: isOutbound ? "OUTBOUND" : "INBOUND",
+                  senderRole: isOutbound ? "sales" : "customer",
                 };
               });
 
@@ -2447,12 +2650,32 @@ export function ChatView() {
 
             const initialCustomerMsg = activeChat.messages.find((m) => m.sender === "customer");
             const serverHasCustomerMsg = mappedMessages.some((m) => m.sender === "customer");
-            const finalMessages = (!serverHasCustomerMsg && initialCustomerMsg)
-              ? [initialCustomerMsg, ...mappedMessages].sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime())
-              : mappedMessages;
 
             setMessagesCache((prev) => {
               const prevMsgs = prev[activeChat.id] || [];
+              const cachedSysMsgs = [
+                ...prevMsgs.filter((m) => m.sender === "system"),
+                ...(activeChat.messages || []).filter((m) => m.sender === "system"),
+              ];
+              const combinedMsgs = [...mappedMessages];
+              for (const sys of cachedSysMsgs) {
+                const alreadyExists = combinedMsgs.some(
+                  (m) =>
+                    m.id === sys.id ||
+                    (m.sender === "system" &&
+                      m.text === sys.text &&
+                      Math.abs(new Date(m.createdAt || 0).getTime() - new Date(sys.createdAt || 0).getTime()) < 60000)
+                );
+                if (!alreadyExists) {
+                  combinedMsgs.push(sys);
+                }
+              }
+              if (!serverHasCustomerMsg && initialCustomerMsg && !combinedMsgs.some((m) => m.id === initialCustomerMsg.id)) {
+                combinedMsgs.push(initialCustomerMsg);
+              }
+              combinedMsgs.sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+              const finalMessages = combinedMsgs;
+
               if (
                 prevMsgs.length === finalMessages.length &&
                 prevMsgs[prevMsgs.length - 1]?.id === finalMessages[finalMessages.length - 1]?.id
@@ -2467,13 +2690,21 @@ export function ChatView() {
             setConversations((prev) =>
               prev.map((c) => {
                 if (c.id !== activeChat.id) return c;
+                const cachedSysMsgs = (c.messages || []).filter((m) => m.sender === "system");
+                const merged = [...mappedMessages];
+                for (const sys of cachedSysMsgs) {
+                  if (!merged.some((m) => m.id === sys.id || (m.sender === "system" && m.text === sys.text))) {
+                    merged.push(sys);
+                  }
+                }
+                merged.sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
                 if (
-                  c.messages.length === finalMessages.length &&
-                  c.messages[c.messages.length - 1]?.id === finalMessages[finalMessages.length - 1]?.id
+                  c.messages.length === merged.length &&
+                  c.messages[c.messages.length - 1]?.id === merged[merged.length - 1]?.id
                 ) {
                   return c;
                 }
-                return { ...c, messages: finalMessages };
+                return { ...c, messages: merged };
               })
             );
           } else {
@@ -2500,7 +2731,7 @@ export function ChatView() {
       window.removeEventListener("focus", resetDelay);
       window.removeEventListener("aicloser:realtime", resetDelay);
     };
-  }, [activeChat?.id, activeChat?.messages, activeChat?.assignedTo, activeChat?.channel, activeChat?.customerName]);
+  }, [activeChat?.id, activeChat?.assignedTo, activeChat?.channel, activeChat?.customerName]);
 
   // Scroll to bottom when conversation or message length changes
   useEffect(() => {
@@ -2815,15 +3046,16 @@ export function ChatView() {
     if (targetLeadId) {
       moveLead(targetLeadId, newStage);
       updateLead(targetLeadId, { stage: newStage });
-    } else if (activeChat) {
+      aicloserApi.leads.update(targetLeadId, { stage: backendStage }).catch(() => {});
+    }
+
+    if (activeChat) {
       const convId = (activeChat.id && activeChat.id.startsWith("conv-"))
         ? activeChat.id
-        : (activeChat as any).conversationId;
+        : (activeChat as any).conversationId || activeChat.id;
 
       if (convId) {
         await aicloserApi.conversations.updateStage(convId, backendStage).catch(() => {});
-      } else if (activeChat.id) {
-        await aicloserApi.conversations.updateStage(activeChat.id, backendStage).catch(() => {});
       }
     }
 
@@ -2835,6 +3067,10 @@ export function ChatView() {
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         createdAt: new Date().toISOString(),
       };
+      setMessagesCache((prev) => ({
+        ...prev,
+        [activeChat.id]: [...(prev[activeChat.id] || []), sysMsg],
+      }));
       setConversations((prev) =>
         prev.map((c) =>
           c.id === activeChat.id ? { ...c, stage: newStage, leadStage: newStage, messages: [...c.messages, sysMsg] } : c
@@ -4425,11 +4661,22 @@ export function ChatView() {
                   );
                 }
 
+                const isInbound =
+                  msg.direction === "INBOUND" ||
+                  msg.senderRole === "customer" ||
+                  msg.role === "customer" ||
+                  msg.sender === "customer";
+
                 const isCloser =
-                  msg.sender === "closer" ||
-                  msg.fromMe === true ||
-                  msg.direction === "OUTBOUND" ||
-                  msg.senderRole === "sales";
+                  !isInbound &&
+                  (msg.direction === "OUTBOUND" ||
+                    msg.fromMe === true ||
+                    msg.sender === "closer" ||
+                    ((msg.senderRole === "sales" ||
+                      msg.senderRole === "admin" ||
+                      msg.senderRole === "closer" ||
+                      msg.senderRole === "agent") &&
+                      msg.direction !== "INBOUND"));
                 return (
                   <div key={msg.id}>
                     {showDateHeader && (
@@ -4713,34 +4960,123 @@ export function ChatView() {
                     <Icon name="paperclip" size={16} />
                   </button>
 
-                  {/* Emoji Picker Button */}
-                  <div style={{ position: "relative" }} ref={emojiPickerRef}>
-                    <button
-                      type="button"
-                      className="icon-btn"
-                      title="Insert Emoji"
-                      onClick={() => setShowEmojiPicker((v) => !v)}
-                      style={{ height: "46px", width: "40px", flexShrink: 0 }}
-                    >
-                      <Icon name="smile" size={16} />
-                    </button>
-                    {showEmojiPicker && (
-                      <div className="chat-emoji-tray" role="dialog" aria-label="Emoji Picker">
-                        <div className="chat-emoji-grid">
-                          {QUICK_EMOJIS.map((emoji) => (
+                    {/* Emoji Picker Button */}
+                    <div style={{ position: "relative" }} ref={emojiPickerRef}>
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        title="Insert Emoji"
+                        onClick={() => {
+                          setShowEmojiPicker((v) => {
+                            if (!v) {
+                              setEmojiSearch("");
+                              setActiveEmojiCategory("all");
+                              setHoveredEmoji(null);
+                            }
+                            return !v;
+                          });
+                        }}
+                        style={{ height: "46px", width: "40px", flexShrink: 0 }}
+                      >
+                        <Icon name="smile" size={16} />
+                      </button>
+                      {showEmojiPicker && (
+                        <div className="chat-emoji-tray" role="dialog" aria-label="Emoji Picker">
+                          <div className="chat-emoji-search-box">
+                            <input
+                              type="text"
+                              className="input"
+                              placeholder="Search emojis..."
+                              value={emojiSearch}
+                              onChange={(e) => setEmojiSearch(e.target.value)}
+                              autoFocus
+                            />
+                          </div>
+                          <div className="chat-emoji-tabs" role="tablist">
                             <button
-                              key={emoji}
                               type="button"
-                              className="chat-emoji-btn"
-                              onClick={() => handleInsertEmoji(emoji)}
+                              className="chat-emoji-tab"
+                              data-active={activeEmojiCategory === "all"}
+                              onClick={() => setActiveEmojiCategory("all")}
                             >
-                              {emoji}
+                              All
                             </button>
-                          ))}
+                            {EMOJI_CATEGORIES.map((cat) => (
+                              <button
+                                key={cat.id}
+                                type="button"
+                                className="chat-emoji-tab"
+                                data-active={activeEmojiCategory === cat.id}
+                                onClick={() => setActiveEmojiCategory(cat.id)}
+                              >
+                                <span>{cat.icon}</span>
+                                <span>{cat.name}</span>
+                              </button>
+                            ))}
+                          </div>
+                          <div className="chat-emoji-scroll">
+                            {(() => {
+                              const query = emojiSearch.trim().toLowerCase();
+                              const categoriesToShow = activeEmojiCategory === "all"
+                                ? EMOJI_CATEGORIES
+                                : EMOJI_CATEGORIES.filter((c) => c.id === activeEmojiCategory);
+
+                              let hasMatches = false;
+
+                              const rendered = categoriesToShow.map((cat) => {
+                                const matchingEmojis = query
+                                  ? cat.emojis.filter((e) => e.name.toLowerCase().includes(query) || e.char.includes(query))
+                                  : cat.emojis;
+
+                                if (matchingEmojis.length === 0) return null;
+                                hasMatches = true;
+
+                                return (
+                                  <div key={cat.id}>
+                                    <div className="chat-emoji-section-title">{cat.name}</div>
+                                    <div className="chat-emoji-grid">
+                                      {matchingEmojis.map((emoji) => (
+                                        <button
+                                          key={emoji.char}
+                                          type="button"
+                                          className="chat-emoji-btn"
+                                          title={emoji.name}
+                                          onMouseEnter={() => setHoveredEmoji(emoji)}
+                                          onMouseLeave={() => setHoveredEmoji(null)}
+                                          onClick={() => handleInsertEmoji(emoji.char)}
+                                        >
+                                          {emoji.char}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+                                );
+                              });
+
+                              if (!hasMatches) {
+                                return (
+                                  <div style={{ padding: "16px", textAlign: "center", color: "var(--text-tertiary)", fontSize: "12px" }}>
+                                    No matching emojis found
+                                  </div>
+                                );
+                              }
+
+                              return rendered;
+                            })()}
+                          </div>
+                          <div className="chat-emoji-preview-bar">
+                            {hoveredEmoji ? (
+                              <>
+                                <span className="chat-emoji-preview-char">{hoveredEmoji.char}</span>
+                                <span className="chat-emoji-preview-name">{hoveredEmoji.name}</span>
+                              </>
+                            ) : (
+                              <span className="chat-emoji-preview-name">Hover an emoji to preview</span>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    )}
-                  </div>
+                      )}
+                    </div>
 
                   <textarea
                     ref={textareaRef}
@@ -4873,6 +5209,16 @@ export function ChatView() {
                     data-size="sm"
                   >
                     <Icon name="download" size={13} /> Download
+                  </a>
+                  <a
+                    href={zoomedMedia.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn"
+                    data-variant="outline"
+                    data-size="sm"
+                  >
+                    <Icon name="link" size={13} /> Open original
                   </a>
                   <button
                     type="button"

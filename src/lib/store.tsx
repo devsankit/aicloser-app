@@ -649,7 +649,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 return l;
               }),
             }));
-            void refreshLeads();
           } else if (event.type === "lead.deleted" && event.payload?.id) {
             setState((prev) => ({
               ...prev,
@@ -855,12 +854,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const deleteLead = useCallback(async (id: string) => {
     setState((prev) => ({ ...prev, leads: prev.leads.filter((l) => l.id !== id) }));
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("aicloser:lead-deleted", { detail: { id } }));
+    }
     try {
       await aicloserApi.leads.delete(id);
-      void refreshLeads();
+      await refreshLeads();
     } catch (err: any) {
       console.error("Failed to delete lead from API:", err);
-      void refreshLeads();
+      await refreshLeads();
       throw err;
     }
   }, [refreshLeads]);
@@ -1327,13 +1329,29 @@ export function useScopedLeads() {
   return useMemo(() => {
     const myName = (state.user?.displayName || CURRENT_USER).toLowerCase();
     const myId = (state.user as any)?.userId || (state.user as any)?.id;
+    const myProfileId = (state.user as any)?.agentProfileId || (state.user as any)?.profileId;
     const isCloser = (state.user?.role as string) === "CLOSER" || state.user?.role === "SALES_AGENT";
     if (isCloser || state.scope === "mine") {
-      return state.leads.filter(
-        (l) =>
+      return state.leads.filter((l) => {
+        const isMine =
           (l.owner && l.owner.toLowerCase() === myName) ||
-          (myId && (l as any).assignedAgentId === myId)
-      );
+          (myId && (l as any).assignedAgentId === myId) ||
+          (myProfileId && (l as any).assignedAgentId === myProfileId);
+        const isShared = Boolean(
+          l.isSharedWithMe ||
+          (Array.isArray(l.sharedUserIds) && (
+            (myId && l.sharedUserIds.includes(myId)) ||
+            (myProfileId && l.sharedUserIds.includes(myProfileId)) ||
+            (myName && l.sharedUserIds.some((s) => typeof s === "string" && s.toLowerCase() === myName))
+          )) ||
+          (Array.isArray(l.shares) && l.shares.some((s) =>
+            (myId && s.userId === myId) ||
+            (myProfileId && (s as any).profileId === myProfileId) ||
+            (myName && s.displayName?.toLowerCase() === myName)
+          ))
+        );
+        return isMine || isShared;
+      });
     }
     if (state.scope === "unassigned") return state.leads.filter((l) => !l.owner || l.owner === "Unassigned");
     if (state.scope.startsWith("agent:")) {

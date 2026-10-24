@@ -1026,16 +1026,19 @@ export const aicloserApi = {
     async getRecycleBin(): Promise<Lead[]> {
       try {
         const res = await request<{ leads?: Lead[]; data?: Lead[] } | Lead[]>('/leads/recycle-bin');
-        const data = Array.isArray(res.data) ? res.data : (res.data?.leads || (res.data as any)?.data || []);
-        if (data && data.length > 0) return data;
+        if (Array.isArray(res.data)) return res.data;
+        if (Array.isArray((res as any)?.leads)) return (res as any).leads;
+        if (Array.isArray((res.data as any)?.leads)) return (res.data as any).leads;
+        if (Array.isArray((res.data as any)?.data)) return (res.data as any).data;
+        return [];
       } catch {
         // Fallback to querying stage=RECYCLED
-      }
-      try {
-        const res = await aicloserApi.leads.list({ stage: 'RECYCLED', limit: 100 });
-        return res.leads || [];
-      } catch {
-        return [];
+        try {
+          const res = await aicloserApi.leads.list({ stage: 'RECYCLED', limit: 100 });
+          return res.leads || [];
+        } catch {
+          return [];
+        }
       }
     },
     async restore(leadId: string): Promise<Lead> {

@@ -4,13 +4,13 @@ import type { Lead as UiLead, Priority, Segment, Source, StageId } from "./types
 export function normalizeStageId(stage?: string | null): StageId {
   const s = (stage || "").toLowerCase().replace(/[\s-]+/g, "_");
   if (!s) return "new";
+  if (s === "in_progress" || s.includes("progress")) return "in_progress";
+  if (s === "demo_booked" || s === "demo_scheduled" || s.includes("demo") || s.includes("webinar") || s.includes("qualif")) return "demo";
   if (s.includes("new") || s === "assigned") return "new";
-  if (s.includes("demo") || s.includes("webinar") || s.includes("qualif")) return "demo";
   if (s.includes("follow")) return "follow_up";
   if (s.includes("negot") || s.includes("quote")) return "negotiation";
   if (s.includes("won") || s.includes("closed_won") || s === "paid") return "won";
   if (s.includes("lost") || s.includes("closed_lost") || s.includes("not_reach") || s.includes("recycled")) return "lost";
-  if (s.includes("progress")) return "in_progress";
   if (s.includes("contact") || s.includes("interest")) return "contacted";
   return s as StageId;
 }
@@ -22,9 +22,9 @@ export function stageIdToBackendStage(stage: StageId): string {
     case "contacted":
       return "CONTACTED";
     case "in_progress":
-      return "CONTACTED";
+      return "IN_PROGRESS";
     case "demo":
-      return "QUALIFIED";
+      return "DEMO_BOOKED";
     case "follow_up":
       return "FOLLOW_UP";
     case "negotiation":
@@ -110,6 +110,10 @@ export function backendLeadToUiLead(b: BackendLead): UiLead {
     (custom as any).paymentStatus ||
     undefined;
 
+  const shares = Array.isArray(custom.shares) ? custom.shares : (Array.isArray((b as any).shares) ? (b as any).shares : []);
+  const sharedUserIds = Array.isArray(custom.sharedUserIds) ? custom.sharedUserIds : (Array.isArray((b as any).sharedUserIds) ? (b as any).sharedUserIds : (shares.map((s: any) => s.userId).filter(Boolean)));
+  const isSharedWithMe = Boolean((b as any).isSharedWithMe || (custom as any).isSharedWithMe || sharedUserIds.length > 0);
+
   return {
     id: b.id,
     code,
@@ -135,6 +139,9 @@ export function backendLeadToUiLead(b: BackendLead): UiLead {
     notes: typeof b.notes === "string" ? b.notes : (typeof custom.notes === "string" ? custom.notes : (custom.notes ? JSON.stringify(custom.notes) : "")),
     updatedAt: b.updatedAt || b.createdAt || new Date().toISOString(),
     kanbanPosition: typeof (b as any).kanbanPosition === "number" ? (b as any).kanbanPosition : undefined,
+    shares,
+    sharedUserIds,
+    isSharedWithMe,
   };
 }
 
