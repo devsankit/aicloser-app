@@ -1025,8 +1025,8 @@ export const aicloserApi = {
     },
     async getRecycleBin(): Promise<Lead[]> {
       try {
-        const res = await requestConversation<{ leads?: Lead[] } | Lead[]>('/leads/recycle-bin');
-        const data = Array.isArray(res.data) ? res.data : (res.data?.leads ?? []);
+        const res = await request<{ leads?: Lead[]; data?: Lead[] } | Lead[]>('/leads/recycle-bin');
+        const data = Array.isArray(res.data) ? res.data : (res.data?.leads || (res.data as any)?.data || []);
         if (data && data.length > 0) return data;
       } catch {
         // Fallback to querying stage=RECYCLED
@@ -1039,14 +1039,10 @@ export const aicloserApi = {
       }
     },
     async restore(leadId: string): Promise<Lead> {
-      try {
-        const res = await request<Lead>(`/leads/${encodeURIComponent(leadId)}/restore`, {
-          method: 'POST',
-        });
-        return res.data;
-      } catch {
-        return aicloserApi.leads.update(leadId, { stage: 'NEW' });
-      }
+      const res = await request<{ success: boolean; data?: Lead; lead?: Lead }>(`/leads/${encodeURIComponent(leadId)}/restore`, {
+        method: 'POST',
+      });
+      return (res.data?.lead || res.data?.data || res.data) as Lead;
     },
     async delete(leadId: string): Promise<any> {
       const res = await request(`/leads/${encodeURIComponent(leadId)}`, {

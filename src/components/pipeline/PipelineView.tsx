@@ -430,7 +430,11 @@ export function PipelineView() {
     try {
       const res = await aicloserApi.leads.getRecycleBin();
       const mapped = (res || []).map((l: any) => {
-        if (l.code && l.name) return l as Lead;
+        const prev = l.customFields?.previousStage || l.previousStage || l.stage;
+        const normStage = normalizeStageId(prev || "new");
+        if (l.code && l.name) {
+          return { ...l, stage: normStage } as Lead;
+        }
         return {
           id: l.id,
           code: l.leadCode || l.code || `CLO-${l.id.slice(-4)}`,
@@ -438,7 +442,7 @@ export function PipelineView() {
           phone: l.customerPhone || l.phone || "",
           email: l.customerEmail || l.email || "",
           company: l.serviceInterest || l.company || "",
-          stage: "lost",
+          stage: normStage,
           value: Number(l.budgetAmount || l.value || 0),
           owner: l.assignedAgent?.user?.displayName || l.owner || "Unassigned",
           source: normalizeSource(l.source),
@@ -1307,6 +1311,7 @@ export function PipelineView() {
                   <tr>
                     <th>Lead Code</th>
                     <th>Customer Name</th>
+                    <th>Original Stage</th>
                     <th>Phone</th>
                     <th>Deleted / Updated</th>
                     <th>Owner</th>
@@ -1326,6 +1331,11 @@ export function PipelineView() {
                             <span className="cell-sub">{rLead.company || "Direct inquiry"}</span>
                           </div>
                         </div>
+                      </td>
+                      <td>
+                        <span className="chip" data-tone="accent">
+                          {STAGES.find((s) => s.id === rLead.stage)?.label || rLead.stage}
+                        </span>
                       </td>
                       <td>
                         <span>{rLead.phone || "—"}</span>
@@ -1722,6 +1732,20 @@ export function PipelineView() {
                             <span className="chip" data-tone={src.tone}>
                               <Icon name={src.icon} size={11} /> {src.label}
                             </span>
+                            {(() => {
+                              const val = Number(lead.realPaymentAmount || (lead as any).paymentAmount || lead.value || 0);
+                              const pStatus = ((lead as any).paymentStatus || "").toUpperCase();
+                              const isPaid = pStatus === "PAID" || pStatus === "SETTLED" || pStatus === "APPROVED" || lead.stage === "won";
+                              const isPending = pStatus === "PENDING" || pStatus === "PAYMENT_PENDING";
+                              const isProof = pStatus === "PROOF_UPLOADED" || pStatus === "PROOF_REVIEW";
+                              if (val > 0 || isPending || isPaid || isProof) {
+                                if (isPaid) return <span className="chip" data-tone="success">✓ {money(val)} Paid</span>;
+                                if (isProof) return <span className="chip" data-tone="warning">⏱️ {money(val)} Review</span>;
+                                if (isPending) return <span className="chip" data-tone="warning">⏱️ {money(val)} Link Sent</span>;
+                                if (val > 0) return <span className="chip" data-tone="neutral">{money(val)}</span>;
+                              }
+                              return null;
+                            })()}
                             {lead.phone && (
                               <div className="lead-quick-actions" onClick={(e) => e.stopPropagation()}>
                                 <a

@@ -561,9 +561,45 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
 
             <div className="field-row">
               <span className="field-label">
+                <Icon name="tag" size={14} /> Deal Value
+              </span>
+              <div className="chip-row">
+                <input
+                  className="input"
+                  type="number"
+                  min="0"
+                  step="100"
+                  placeholder="₹ 0"
+                  value={draft.value !== undefined && draft.value !== null && draft.value !== 0 ? draft.value : ""}
+                  onChange={(e) => {
+                    const num = e.target.value === "" ? 0 : Number(e.target.value);
+                    handleDebouncedTextChange("value", num);
+                  }}
+                  onBlur={() => handleFieldBlur("value")}
+                  aria-label="Deal Value in Rupees"
+                />
+                {(() => {
+                  const val = Number(draft.realPaymentAmount || (draft as any).paymentAmount || draft.value || 0);
+                  const pStatus = ((draft as any).paymentStatus || "").toUpperCase();
+                  if (pStatus === "PAID" || pStatus === "SETTLED" || pStatus === "APPROVED" || draft.stage === "won") {
+                    return <span className="chip" data-tone="success">✓ {val > 0 ? money(val) : ""} Paid</span>;
+                  }
+                  if (pStatus === "PROOF_UPLOADED" || pStatus === "PROOF_REVIEW") {
+                    return <span className="chip" data-tone="warning">⏱️ Proof Review</span>;
+                  }
+                  if (pStatus === "PENDING" || pStatus === "PAYMENT_PENDING") {
+                    return <span className="chip" data-tone="warning">⏱️ Link Sent</span>;
+                  }
+                  return null;
+                })()}
+              </div>
+            </div>
+
+            <div className="field-row">
+              <span className="field-label">
                 <Icon name="flame" size={14} /> Follow-up
               </span>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div className="chip-row">
                 <input
                   className="input"
                   type="datetime-local"

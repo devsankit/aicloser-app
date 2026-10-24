@@ -2775,6 +2775,18 @@ export function ChatView() {
       setIsCreatingPayment(false);
       setNewPaymentAmount("");
       showToast(`Payment link created for ₹${num.toLocaleString("en-IN")}`);
+
+      const targetLeadId = activeLeadProfile?.id || activeLead?.id || activeChat?.leadId;
+      if (targetLeadId) {
+        updateLead(targetLeadId, {
+          value: num,
+          paymentAmount: num,
+          realPaymentAmount: num,
+          paymentStatus: "PENDING",
+        });
+        aicloserApi.leads.update(targetLeadId, { budgetAmount: num }).catch(() => {});
+        void refreshLeads();
+      }
     } catch (err: any) {
       showToast(err?.message || "Failed to create payment link");
     } finally {

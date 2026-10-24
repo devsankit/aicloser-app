@@ -184,7 +184,11 @@ export function ContactsView() {
     try {
       const res = await aicloserApi.leads.getRecycleBin();
       const mapped = (res || []).map((l: any) => {
-        if (l.code && l.name) return l as Lead;
+        const prev = l.customFields?.previousStage || l.previousStage || l.stage;
+        const normStage = normalizeStageId(prev || "new");
+        if (l.code && l.name) {
+          return { ...l, stage: normStage } as Lead;
+        }
         return {
           id: l.id,
           code: l.leadCode || l.code || `CLO-${l.id.slice(-4)}`,
@@ -192,7 +196,7 @@ export function ContactsView() {
           phone: l.customerPhone || l.phone || "",
           email: l.customerEmail || l.email || "",
           company: l.serviceInterest || l.company || "",
-          stage: "lost",
+          stage: normStage,
           value: Number(l.budgetAmount || l.value || 0),
           owner: l.assignedAgent?.user?.displayName || l.owner || "Unassigned",
           source: normalizeSource(l.source),
@@ -468,6 +472,7 @@ export function ContactsView() {
     const amt = Number(l.realPaymentAmount ?? l.paymentAmount ?? 0);
     return s + (isPaid || l.realPaymentAmount ? amt : 0);
   }, 0);
+  const totalPipelineValue = rows.reduce((s, l) => s + (Number(l.value) || 0), 0);
   const active = leads.find((l) => l.id === selected) ?? null;
 
   const bulkMove = (to: StageId) => {
@@ -517,7 +522,7 @@ export function ContactsView() {
           <p className="page-sub">
             {activeTab === "recycle"
               ? `Recycle Bin · ${recycleLeads.length} soft-deleted leads · Leads can be restored to active contacts or permanently deleted.`
-              : `${rows.length} contacts · Total Paid: ${money(totalPaid)}`}
+              : `${rows.length} contacts · Pipeline Value: ${money(totalPipelineValue)} · Collected: ${money(totalPaid)}`}
           </p>
         </div>
         <div className="page-actions">
@@ -1105,29 +1110,36 @@ export function ContactsView() {
                         {(() => {
                           const realAmt = lead.realPaymentAmount ?? lead.paymentAmount;
                           const hasRealPayment = typeof realAmt === "number" && !isNaN(realAmt) && realAmt > 0;
+                          const dealVal = Number(lead.value || 0);
+                          const hasDealVal = !isNaN(dealVal) && dealVal > 0;
                           const status = (lead.paymentStatus || "").toUpperCase();
 
-                          if (!hasRealPayment && !status) {
+                          if (!hasRealPayment && !hasDealVal && !status) {
                             return <span className="cell-muted">—</span>;
                           }
 
+                          const displayAmt = hasRealPayment ? realAmt : dealVal;
                           const isPaid = status === "PAID" || status === "SETTLED" || status === "APPROVED" || lead.stage === "won";
                           const isProof = status === "PROOF_UPLOADED" || status === "PROOF_REVIEW" || status === "UNDER_REVIEW";
                           const isExpired = status === "EXPIRED";
+                          const isPending = status === "PENDING" || status === "PAYMENT_PENDING";
 
                           return (
                             <div className="chip-row">
-                              <span>{hasRealPayment ? money(realAmt) : "—"}</span>
+                              <span>{displayAmt > 0 ? money(displayAmt) : "—"}</span>
                               {isPaid && (
                                 <span className="chip" data-tone="success">Paid</span>
                               )}
                               {isProof && (
                                 <span className="chip" data-tone="warning">Proof Review</span>
                               )}
+                              {isPending && (
+                                <span className="chip" data-tone="warning">Link Sent</span>
+                              )}
                               {isExpired && (
                                 <span className="chip">Expired</span>
                               )}
-                              {!isPaid && !isProof && !isExpired && status && (
+                              {!isPaid && !isProof && !isPending && !isExpired && status && (
                                 <span className="chip">{status}</span>
                               )}
                             </div>
@@ -1262,6 +1274,7 @@ export function ContactsView() {
                   <tr>
                     <th>Lead Code</th>
                     <th>Customer Name</th>
+                    <th>Original Stage</th>
                     <th>Phone</th>
                     <th>Deleted / Updated</th>
                     <th>Owner</th>
@@ -1281,6 +1294,11 @@ export function ContactsView() {
                             <span className="cell-sub">{rLead.company || "Direct inquiry"}</span>
                           </div>
                         </div>
+                      </td>
+                      <td>
+                        <span className="chip" data-tone="accent">
+                          {STAGES.find((s) => s.id === rLead.stage)?.label || rLead.stage}
+                        </span>
                       </td>
                       <td>
                         <span>{rLead.phone || "—"}</span>
