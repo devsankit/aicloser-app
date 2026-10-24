@@ -887,9 +887,29 @@ export const aicloserApi = {
     },
 
     async transfer(id: string, targetAgentId: string, note?: string) {
-      const res = await requestConversation<{ success: boolean; lead: any }>(`/leads/${encodeURIComponent(id)}/transfer`, {
+      const res = await requestConversation<{ success: boolean; lead: any; message?: string }>(`/leads/${encodeURIComponent(id)}/transfer`, {
         method: 'POST',
         body: JSON.stringify({ targetAgentId, note }),
+      });
+      return res.data;
+    },
+
+    async share(id: string, targetUserId: string, permission: 'REPLY' | 'VIEW' = 'REPLY', note?: string) {
+      const res = await requestConversation<{ success: boolean; message: string; shares: any[] }>(`/leads/${encodeURIComponent(id)}/share`, {
+        method: 'POST',
+        body: JSON.stringify({ targetUserId, permission, note }),
+      });
+      return res.data;
+    },
+
+    async getShares(id: string) {
+      const res = await requestConversation<{ success: boolean; shares: any[] }>(`/leads/${encodeURIComponent(id)}/shares`);
+      return res.data?.shares || [];
+    },
+
+    async revokeShare(id: string, targetUserId: string) {
+      const res = await requestConversation<{ success: boolean; message: string; shares: any[] }>(`/leads/${encodeURIComponent(id)}/shares/${encodeURIComponent(targetUserId)}`, {
+        method: 'DELETE',
       });
       return res.data;
     },

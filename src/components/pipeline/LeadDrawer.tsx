@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { ResizeHandle } from "@/components/ui/ResizeHandle";
 import { LeadCommandHistory } from "./LeadCommandHistory";
@@ -21,8 +21,20 @@ import {
   type StageId,
 } from "@/lib/types";
 
+function toDateTimeLocalValue(isoStr?: string | null): string {
+  if (!isoStr) return "";
+  const d = new Date(isoStr);
+  if (isNaN(d.getTime())) return "";
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const hours = String(d.getHours()).padStart(2, "0");
+  const minutes = String(d.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
 export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void }) {
-  const { moveLead, updateLead, deleteLead, state, setLayout, claimLead, reassignLead } = useApp();
+  const { moveLead, updateLead, deleteLead, state, setLayout, claimLead } = useApp();
   const userRole = (
     state.user?.role ||
     state.workspaceAuth?.user?.role ||
@@ -35,35 +47,121 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
   const [phoneCopied, setPhoneCopied] = useState(false);
 
-  // Direct Dropdown Lead Transfer State
+  // Seamless Autosave Engine
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const autoSaveDebounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  const performAutoSave = useCallback((patch: Partial<Lead>) => {
+    setSaveStatus("saving");
+    setDraft((prev) => ({ ...prev, ...patch }));
+    try {
+      updateLead(lead.id, patch);
+      setTimeout(() => {
+        setSaveStatus("saved");
+        setTimeout(() => setSaveStatus("idle"), 2500);
+      }, 250);
+    } catch {
+      setSaveStatus("error");
+      setTimeout(() => setSaveStatus("idle"), 3000);
+    }
+  }, [lead.id, updateLead]);
+
+  const handleDebouncedTextChange = (field: keyof Lead, value: any) => {
+    setDraft((d) => ({ ...d, [field]: value }));
+    if (autoSaveDebounceRef.current) clearTimeout(autoSaveDebounceRef.current);
+    autoSaveDebounceRef.current = setTimeout(() => {
+      performAutoSave({ [field]: typeof value === "string" ? value.trim() : value });
+    }, 550);
+  };
+
+  const handleFieldBlur = (field: keyof Lead) => {
+    if (autoSaveDebounceRef.current) clearTimeout(autoSaveDebounceRef.current);
+    performAutoSave({ [field]: typeof draft[field] === "string" ? (draft[field] as string).trim() : draft[field] });
+  };
+
+  // Direct Lead Transfer State
   const [isTransferring, setIsTransferring] = useState(false);
   const [transferToast, setTransferToast] = useState<string | null>(null);
 
-  const handleDirectTransfer = async (targetAgentId: string) => {
-    if (!targetAgentId) return;
+  // Lead Share State
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareTargetUserId, setShareTargetUserId] = useState("");
+  const [sharePermission, setSharePermission] = useState<"REPLY" | "VIEW">("REPLY");
+  const [isSharing, setIsSharing] = useState(false);
+  const [shareToast, setShareToast] = useState<string | null>(null);
+  const [activeShares, setActiveShares] = useState<Array<{ userId: string; displayName: string; permission: string }>>([]);
+
+  const loadShares = useCallback(async () => {
+    if (!lead.id || lead.id.startsWith("ld-")) return;
+    try {
+      const res = await aicloserApi.leads.getShares(lead.id);
+      if (Array.isArray(res)) setActiveShares(res);
+    } catch {}
+  }, [lead.id]);
+
+  useEffect(() => {
+    loadShares();
+  }, [loadShares]);
+
+  const handleDirectTransfer = async (targetId: string) => {
+    if (!targetId || isTransferring) return;
     setIsTransferring(true);
     setTransferToast(null);
     try {
-      const selectedMember = state.teamMembers?.find((m) => m.id === targetAgentId);
-      const targetName = selectedMember?.name || selectedMember?.displayName || targetAgentId;
-      set("owner", targetName);
-      reassignLead(lead.id, targetName, "Lead transferred from drawer");
-      await aicloserApi.leads.transfer(lead.id, targetAgentId, "Lead transferred from drawer");
+      const member = state.teamMembers?.find(
+        (m) => m.id === targetId || m.userId === targetId || m.name === targetId || m.displayName === targetId
+      );
+      const targetName = member?.name || member?.displayName || targetId;
+      const finalId = member?.id || member?.userId || targetId;
+
+      await aicloserApi.leads.transfer(lead.id, finalId, "Transferred from Lead Drawer");
+      setDraft((d) => ({ ...d, owner: targetName, assignedAgentId: finalId }));
+      updateLead(lead.id, { owner: targetName, assignedAgentId: finalId });
       setTransferToast(`✓ Transferred to ${targetName}`);
-      setTimeout(() => {
-        setTransferToast(null);
-      }, 2500);
-    } catch (err: any) {
-      setTransferToast(err?.message || "Failed to transfer lead. Please try again.");
       setTimeout(() => setTransferToast(null), 3000);
+    } catch (err: any) {
+      setTransferToast(err?.message || "Failed to transfer lead");
+      setTimeout(() => setTransferToast(null), 3500);
     } finally {
       setIsTransferring(false);
     }
   };
+
+  const handleShareLead = async () => {
+    if (!shareTargetUserId || isSharing) return;
+    setIsSharing(true);
+    setShareToast(null);
+    try {
+      const member = state.teamMembers?.find(
+        (m) => m.id === shareTargetUserId || m.userId === shareTargetUserId
+      );
+      const targetName = member?.name || member?.displayName || shareTargetUserId;
+      const res = await aicloserApi.leads.share(lead.id, shareTargetUserId, sharePermission);
+      if (Array.isArray(res?.shares)) setActiveShares(res.shares);
+      else loadShares();
+      setShareToast(`✓ Shared with ${targetName}`);
+      setTimeout(() => {
+        setShareToast(null);
+        setShowShareModal(false);
+      }, 1600);
+    } catch (err: any) {
+      setShareToast(err?.message || "Failed to share lead");
+      setTimeout(() => setShareToast(null), 3500);
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
+  const handleRevokeShare = async (targetUserId: string) => {
+    try {
+      await aicloserApi.leads.revokeShare(lead.id, targetUserId);
+      setActiveShares((prev) => prev.filter((s) => s.userId !== targetUserId));
+    } catch {}
+  };
+
   const [workspaceLabels, setWorkspaceLabels] = useState<Array<{ id: string; name: string; color?: string }>>([]);
   const [showAddLabel, setShowAddLabel] = useState(false);
   const [newLabelInput, setNewLabelInput] = useState("");
@@ -88,6 +186,15 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
   useEffect(() => {
     loadWorkspaceLabels();
   }, [loadWorkspaceLabels]);
+
+  const activeAssignableMembers = useMemo(() => {
+    if (!state.teamMembers || state.teamMembers.length === 0) return [];
+    return state.teamMembers.filter((m) => {
+      const r = (m.role || "").trim().toUpperCase().replace(/\s+/g, "_");
+      if (r === "SUPER_ADMIN" || r.includes("SUPER") || r === "ADMIN" || r === "WORKSPACE_ADMIN" || r === "OWNER") return false;
+      return true;
+    });
+  }, [state.teamMembers]);
 
   const allOwners = useMemo(() => {
     const list: string[] = [];
@@ -119,10 +226,6 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
     return list;
   }, [state.teamMembers, state.user, state.leads, isAdmin, draft.owner]);
 
-  const availableOwners = useMemo(() => {
-    return allOwners.filter((o) => o !== "Unassigned" && o !== draft.owner);
-  }, [allOwners, draft.owner]);
-
   const availableWorkspaceLabels = useMemo(() => {
     const currentTags = new Set((draft.tags || []).filter(Boolean).map((t) => String(t).toLowerCase()));
     return workspaceLabels.filter((l) => l?.name && !currentTags.has(l.name.toLowerCase()));
@@ -137,7 +240,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
       const nextTags = [...safeTags, trimmed];
       setDraft((d) => ({ ...d, tags: nextTags }));
       setRawTagsInput(nextTags.join(", "));
-      updateLead(lead.id, { tags: nextTags });
+      performAutoSave({ tags: nextTags });
       if (!workspaceLabels.some((l) => (l?.name || "").toLowerCase() === trimmed.toLowerCase())) {
         aicloserApi.labels.create({ name: trimmed, color: finalColor }).then(() => {
           loadWorkspaceLabels();
@@ -152,33 +255,14 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
     const nextTags = (draft.tags || []).filter((t) => t !== tagToRemove);
     setDraft((d) => ({ ...d, tags: nextTags }));
     setRawTagsInput(nextTags.join(", "));
-    updateLead(lead.id, { tags: nextTags });
+    performAutoSave({ tags: nextTags });
   };
 
   useEffect(() => {
     setDraft(lead);
     setRawTagsInput((lead.tags || []).join(", "));
     setConfirmDelete(false);
-    setSaved(false);
   }, [lead]);
-
-  const save = () => {
-    updateLead(lead.id, {
-      name: draft.name?.trim() || lead.name,
-      company: (draft.company || "").trim(),
-      email: (draft.email || "").trim(),
-      value: Number.isFinite(draft.value) ? draft.value : lead.value,
-      owner: draft.owner,
-      notes: typeof draft.notes === "string" ? draft.notes : JSON.stringify(draft.notes || ""),
-      tags: draft.tags || [],
-      source: draft.source,
-      segment: draft.segment,
-      priority: draft.priority,
-      followUp: draft.followUp,
-    });
-    setSaved(true);
-    setTimeout(onClose, 180);
-  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -186,15 +270,10 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
         e.preventDefault();
         onClose();
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-        e.preventDefault();
-        save();
-      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onClose, draft, lead.id]);
+  }, [onClose]);
 
   const handleDelete = async () => {
     setIsDeleting(true);
@@ -210,27 +289,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
     }
   };
 
-  const set = <K extends keyof Lead>(key: K, value: Lead[K]) =>
-    setDraft((d) => ({ ...d, [key]: value }));
-
-  const dirty =
-    draft.name !== lead.name ||
-    draft.company !== lead.company ||
-    draft.phone !== lead.phone ||
-    draft.email !== lead.email ||
-    draft.value !== lead.value ||
-    draft.owner !== lead.owner ||
-    draft.notes !== lead.notes ||
-    draft.priority !== lead.priority ||
-    draft.followUp !== lead.followUp ||
-    (draft.tags || []).join(",") !== (lead.tags || []).join(",");
-
   const meta = stageMeta(draft.stage);
-  const dateValue = (() => {
-    if (!draft.followUp) return "";
-    const d = new Date(draft.followUp);
-    return isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
-  })();
 
   return (
     <div className="overlay" data-kind="drawer" onClick={onClose} role="presentation">
@@ -244,6 +303,16 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
         <header className="drawer-head">
           <span className="list-id">{lead.code}</span>
           <div className="drawer-head-tools">
+            {saveStatus === "saving" && (
+              <span className="chip" data-tone="accent" style={{ fontSize: "11px", gap: "4px", padding: "2px 8px" }}>
+                <Icon name="clock" size={11} /> Saving...
+              </span>
+            )}
+            {saveStatus === "saved" && (
+              <span className="chip" data-tone="success" style={{ fontSize: "11px", gap: "4px", padding: "2px 8px" }}>
+                <Icon name="check" size={11} /> Saved ✓
+              </span>
+            )}
             <button
               className="icon-btn"
               title="Copy link"
@@ -314,13 +383,15 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
             <input
               className="drawer-title-input"
               value={draft.name || ""}
-              onChange={(e) => set("name", e.target.value)}
+              onChange={(e) => handleDebouncedTextChange("name", e.target.value)}
+              onBlur={() => handleFieldBlur("name")}
               aria-label="Lead name"
             />
             <input
               className="drawer-sub-input"
               value={draft.company || ""}
-              onChange={(e) => set("company", e.target.value)}
+              onChange={(e) => handleDebouncedTextChange("company", e.target.value)}
+              onBlur={() => handleFieldBlur("company")}
               aria-label="Company"
               placeholder="Company"
             />
@@ -335,7 +406,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                 onClick={() => {
                   const closerName = state.user?.displayName || "Admin";
                   claimLead(lead.id, closerName);
-                  set("owner", closerName);
+                  setDraft((d) => ({ ...d, owner: closerName }));
                 }}
               >
                 <Icon name="hand" size={13} /> Claim Lead (Grab Pool)
@@ -391,6 +462,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
               <Icon name="card" size={13} /> Collect Payment
             </a>
 
+            {/* Direct Lead Transfer Picker */}
             <div className="drawer-transfer-picker">
               <select
                 className="select drawer-transfer-select"
@@ -398,21 +470,16 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                 onChange={(e) => handleDirectTransfer(e.target.value)}
                 disabled={isTransferring}
                 aria-label="Transfer lead to teammate"
-                title="Transfer lead ownership to a teammate"
+                title="Transfer complete lead ownership to a teammate"
               >
                 <option value="" disabled>
                   {isTransferring ? "Transferring..." : "⇄ Transfer Lead..."}
                 </option>
-                {state.teamMembers && state.teamMembers.length > 0 ? (
-                  state.teamMembers
-                    .filter((m) => {
-                      const r = (m.role || "").trim().toUpperCase().replace(/\s+/g, "_");
-                      if (r === "SUPER_ADMIN" || r.includes("SUPER") || r === "ADMIN" || r === "WORKSPACE_ADMIN" || r === "OWNER") return false;
-                      return true;
-                    })
+                {activeAssignableMembers.length > 0 ? (
+                  activeAssignableMembers
                     .filter((m) => m.name !== draft.owner && m.displayName !== draft.owner)
                     .map((m) => (
-                      <option key={m.id} value={m.id}>
+                      <option key={m.id || m.userId} value={m.id || m.userId}>
                         {m.name || m.displayName} {m.role ? `(${m.role})` : ""}
                       </option>
                     ))
@@ -421,6 +488,18 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                 )}
               </select>
             </div>
+
+            {/* Share Lead & Chat Button */}
+            <button
+              type="button"
+              className="btn"
+              data-size="sm"
+              data-variant="outline"
+              onClick={() => setShowShareModal(true)}
+              title="Share this lead and chat with a teammate without transferring ownership"
+            >
+              <Icon name="users" size={13} /> Share {activeShares.length > 0 ? `(${activeShares.length})` : ""}
+            </button>
 
             {transferToast && (
               <span
@@ -442,7 +521,7 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                 value={draft.stage}
                 onChange={(e) => {
                   const stage = e.target.value as StageId;
-                  set("stage", stage);
+                  performAutoSave({ stage });
                   moveLead(lead.id, stage);
                 }}
                 aria-label="Lead stage"
@@ -462,7 +541,10 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
               <select
                 className="select"
                 value={(draft.priority || "medium").toLowerCase()}
-                onChange={(e) => set("priority", e.target.value as Priority)}
+                onChange={(e) => {
+                  const priority = e.target.value as Priority;
+                  performAutoSave({ priority });
+                }}
                 aria-label="Priority"
               >
                 {(Object.keys(PRIORITY_LABEL) as Priority[]).map((p) => (
@@ -480,20 +562,20 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <input
                   className="input"
-                  type="date"
-                  value={dateValue}
+                  type="datetime-local"
+                  value={toDateTimeLocalValue(draft.followUp)}
                   onChange={(e) => {
                     const val = e.target.value;
                     if (!val) {
-                      set("followUp", "");
+                      performAutoSave({ followUp: "" });
                     } else {
-                      const parsed = new Date(`${val}T11:00:00`);
+                      const parsed = new Date(val);
                       if (!isNaN(parsed.getTime())) {
-                        set("followUp", parsed.toISOString());
+                        performAutoSave({ followUp: parsed.toISOString() });
                       }
                     }
                   }}
-                  aria-label="Next follow-up"
+                  aria-label="Next follow-up date and time"
                 />
                 <span className="pill">{slaLabel(draft.followUp)}</span>
               </div>
@@ -509,17 +591,26 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                 onChange={async (e) => {
                   const targetVal = e.target.value;
                   if (!targetVal || targetVal === draft.owner) return;
+                  if (targetVal === "Unassigned") {
+                    setDraft((d) => ({ ...d, owner: "Unassigned" }));
+                    updateLead(lead.id, { owner: "Unassigned" });
+                    return;
+                  }
                   const member = state.teamMembers?.find(
-                    (m) => m.name === targetVal || m.displayName === targetVal || m.id === targetVal
+                    (m) => m.name === targetVal || m.displayName === targetVal || m.id === targetVal || m.userId === targetVal
                   );
-                  const targetId = member?.id || targetVal;
+                  const targetId = member?.id || member?.userId || targetVal;
                   const targetName = member?.name || member?.displayName || targetVal;
-                  set("owner", targetName);
-                  reassignLead(lead.id, targetName, "Reassigned via Assignee dropdown");
+                  setDraft((d) => ({ ...d, owner: targetName, assignedAgentId: targetId }));
+                  updateLead(lead.id, { owner: targetName, assignedAgentId: targetId });
                   try {
                     await aicloserApi.leads.transfer(lead.id, targetId, "Reassigned via Assignee dropdown");
+                    setTransferToast(`✓ Assigned to ${targetName}`);
+                    setTimeout(() => setTransferToast(null), 2500);
                   } catch (err: any) {
                     console.warn("Transfer failed:", err);
+                    setTransferToast(err?.message || "Failed to reassign");
+                    setTimeout(() => setTransferToast(null), 3000);
                   }
                 }}
                 aria-label="Assignee"
@@ -527,24 +618,15 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                 <option value={draft.owner || "Unassigned"} disabled={!draft.owner}>
                   {draft.owner || "Unassigned"}
                 </option>
-                {state.teamMembers && state.teamMembers.length > 0 ? (
-                  state.teamMembers
-                    .filter((m) => {
-                      const r = (m.role || "").trim().toUpperCase().replace(/\s+/g, "_");
-                      if (r === "SUPER_ADMIN" || r.includes("SUPER") || r === "ADMIN" || r === "WORKSPACE_ADMIN" || r === "OWNER") return false;
-                      return true;
-                    })
-                    .filter((m) => m.name !== draft.owner && m.displayName !== draft.owner)
-                    .map((m) => (
-                      <option key={m.id} value={m.name || m.displayName}>
-                        {m.name || m.displayName} {m.role ? `(${m.role})` : ""}
-                      </option>
-                    ))
-                ) : null}
+                {activeAssignableMembers
+                  .filter((m) => m.name !== draft.owner && m.displayName !== draft.owner)
+                  .map((m) => (
+                    <option key={m.id || m.userId} value={m.name || m.displayName}>
+                      {m.name || m.displayName} {m.role ? `(${m.role})` : ""}
+                    </option>
+                  ))}
               </select>
             </div>
-
-
 
             <div className="field-row">
               <span className="field-label">
@@ -680,7 +762,8 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                 className="input"
                 type="email"
                 value={draft.email || ""}
-                onChange={(e) => set("email", e.target.value)}
+                onChange={(e) => handleDebouncedTextChange("email", e.target.value)}
+                onBlur={() => handleFieldBlur("email")}
                 aria-label="Email"
               />
             </div>
@@ -738,8 +821,11 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
               currentFollowUpAt={draft.followUp}
               initialNotes={typeof draft.notes === "string" ? draft.notes : (draft.notes ? JSON.stringify(draft.notes) : "")}
               onFollowUpSaved={(iso) => {
-                set("followUp", iso);
-                updateLead(lead.id, { followUp: iso });
+                performAutoSave({ followUp: iso });
+              }}
+              onNoteSaved={(newNote) => {
+                // Update local draft without losing other details
+                setDraft((d) => ({ ...d, notes: newNote }));
               }}
             />
           </ErrorBoundary>
@@ -797,22 +883,160 @@ export function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void 
                   <Icon name="trash" size={14} /> Delete
                 </button>
               )}
-              <div className="drawer-foot-end">
-                <button className="btn" onClick={onClose}>
-                  Close
-                </button>
-                <button
-                  className="btn"
-                  data-variant="primary"
-                  onClick={save}
-                  disabled={!dirty && !saved}
-                >
-                  {saved ? "Saved" : "Save"}
+              <div className="drawer-foot-end" style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <span className="hint" style={{ fontSize: "11px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                  <Icon name="check" size={12} /> Autosaved
+                </span>
+                <button className="btn" data-variant="primary" onClick={onClose}>
+                  Done
                 </button>
               </div>
             </>
           )}
         </footer>
+
+        {/* Share Lead & Chat Dialog Modal */}
+        {showShareModal && (
+          <div className="overlay" style={{ zIndex: 1050 }} onClick={() => setShowShareModal(false)}>
+            <div
+              className="dialog"
+              style={{ width: "420px", maxWidth: "90vw" }}
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+            >
+              <div className="dialog-head">
+                <div>
+                  <h3 className="dialog-title" style={{ fontSize: "14px", fontWeight: 700, margin: 0 }}>
+                    Share Lead & Conversation
+                  </h3>
+                  <p className="dialog-sub" style={{ fontSize: "11.5px", color: "var(--text-tertiary)", margin: "2px 0 0" }}>
+                    Grant a teammate access to view or reply to this lead without transferring ownership.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => setShowShareModal(false)}
+                  aria-label="Close share dialog"
+                >
+                  <Icon name="close" size={14} />
+                </button>
+              </div>
+
+              <div className="dialog-body" style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "16px" }}>
+                <div className="field">
+                  <label className="field-label" style={{ fontSize: "11px", fontWeight: 600 }}>
+                    Select Teammate
+                  </label>
+                  <select
+                    className="select"
+                    value={shareTargetUserId}
+                    onChange={(e) => setShareTargetUserId(e.target.value)}
+                    style={{ width: "100%" }}
+                  >
+                    <option value="">Choose teammate...</option>
+                    {activeAssignableMembers
+                      .filter((m) => m.name !== draft.owner && m.displayName !== draft.owner)
+                      .map((m) => (
+                        <option key={m.id || m.userId} value={m.userId || m.id}>
+                          {m.name || m.displayName} {m.role ? `(${m.role})` : ""}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div className="field">
+                  <label className="field-label" style={{ fontSize: "11px", fontWeight: 600 }}>
+                    Permission
+                  </label>
+                  <select
+                    className="select"
+                    value={sharePermission}
+                    onChange={(e) => setSharePermission(e.target.value as "REPLY" | "VIEW")}
+                    style={{ width: "100%" }}
+                  >
+                    <option value="REPLY">Collaborate & Reply (Can send messages & add notes)</option>
+                    <option value="VIEW">View Only (Read-only observation)</option>
+                  </select>
+                </div>
+
+                {shareToast && (
+                  <div
+                    className="chip"
+                    data-tone={shareToast.startsWith("✓") ? "success" : "danger"}
+                    style={{ fontSize: "11.5px", padding: "4px 8px" }}
+                  >
+                    {shareToast}
+                  </div>
+                )}
+
+                {/* Currently Shared Teammates List */}
+                {activeShares.length > 0 && (
+                  <div style={{ marginTop: "4px", borderTop: "1px solid var(--border)", paddingTop: "8px" }}>
+                    <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "6px" }}>
+                      Shared With ({activeShares.length}):
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                      {activeShares.map((s) => (
+                        <div
+                          key={s.userId}
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            padding: "6px 8px",
+                            borderRadius: "var(--r-sm)",
+                            background: "var(--bg-soft)",
+                            border: "1px solid var(--border)",
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            <Icon name="users" size={12} />
+                            <span style={{ fontSize: "11.5px", fontWeight: 600 }}>{s.displayName || s.userId}</span>
+                            <span className="chip" data-tone={s.permission === "VIEW" ? "default" : "accent"} style={{ fontSize: "9.5px", height: "16px" }}>
+                              {s.permission === "VIEW" ? "View" : "Reply"}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            className="icon-btn"
+                            title="Revoke shared access"
+                            onClick={() => handleRevokeShare(s.userId)}
+                            style={{ width: "20px", height: "20px" }}
+                          >
+                            <Icon name="close" size={10} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="dialog-foot" style={{ display: "flex", justifyContent: "flex-end", gap: "8px", padding: "12px 16px" }}>
+                <button
+                  type="button"
+                  className="btn"
+                  data-size="sm"
+                  onClick={() => setShowShareModal(false)}
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  data-size="sm"
+                  data-variant="primary"
+                  disabled={!shareTargetUserId || isSharing}
+                  onClick={handleShareLead}
+                >
+                  {isSharing ? "Sharing..." : "Share Access"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <ResizeHandle
           label="Resize panel"

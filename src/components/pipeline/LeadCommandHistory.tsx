@@ -37,8 +37,12 @@ function toDateTimeLocal(value?: string | null) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 16);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
 
 function formatDateTime(dateStr?: string | null) {
@@ -46,15 +50,24 @@ function formatDateTime(dateStr?: string | null) {
   try {
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return String(dateStr);
-    return d.toLocaleDateString("en-IN", {
+    return d.toLocaleString("en-IN", {
       day: "2-digit",
       month: "short",
+      year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
+      hour12: true,
     });
   } catch {
     return String(dateStr);
   }
+}
+
+function formatBodyWithLocalDates(text?: string | null): string {
+  if (!text) return "";
+  return text.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?/g, (iso) => {
+    return formatDateTime(iso);
+  });
 }
 
 function formatDuration(seconds?: number | string) {
@@ -351,6 +364,53 @@ export function LeadCommandHistory({
     });
   }, [rawHistory, rawNotes, rawCalls, rawPayments, initialNotes]);
 
+  // Dedicated Notes-Only Stream (Deduplicated, Chronological)
+  const notesList = useMemo(() => {
+    const list: Array<{ id: string; body: string; createdAt: string; authorName: string }> = [];
+    const seen = new Set<string>();
+
+    (rawNotes || []).forEach((n) => {
+      if (!n || !n.body) return;
+      const b = typeof n.body === "string" ? n.body.trim() : JSON.stringify(n.body);
+      if (!b) return;
+      const key = `${b}:${n.createdAt || ""}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      const author = typeof n.author === "string" ? n.author : (n.author?.name || (n as any).authorName || "Closer");
+      list.push({
+        id: String(n.id || Math.random()),
+        body: b,
+        createdAt: n.createdAt || new Date().toISOString(),
+        authorName: author,
+      });
+    });
+
+    unifiedEvents.filter((e) => e.kind === "NOTE" && e.body).forEach((e) => {
+      const b = typeof e.body === "string" ? e.body.trim() : JSON.stringify(e.body);
+      if (!b) return;
+      const key = `${b}:${e.createdAt || ""}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      list.push({
+        id: e.id,
+        body: b,
+        createdAt: e.createdAt,
+        authorName: e.actorName || "Closer",
+      });
+    });
+
+    if (list.length === 0 && initialNotes) {
+      list.push({
+        id: "init-note-item",
+        body: typeof initialNotes === "string" ? initialNotes : JSON.stringify(initialNotes),
+        createdAt: new Date().toISOString(),
+        authorName: CURRENT_USER,
+      });
+    }
+
+    return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [rawNotes, unifiedEvents, initialNotes]);
+
   // Handler: Add Note
   const handleAddNote = async () => {
     if (!noteBody.trim() || saving) return;
@@ -525,7 +585,7 @@ export function LeadCommandHistory({
           onClick={() => setTab("note")}
           style={{ fontSize: "11px", padding: "4px 2px", textAlign: "center" }}
         >
-          + Note
+          Notes ({notesList.length})
         </button>
         <button
           type="button"
@@ -585,7 +645,7 @@ export function LeadCommandHistory({
                     </div>
                     {evt.body && (
                       <div className="activity-sub" style={{ fontSize: "11px", color: "var(--text)", whiteSpace: "pre-wrap", marginTop: "2px" }}>
-                        {typeof evt.body === "string" ? evt.body : JSON.stringify(evt.body)}
+                        {formatBodyWithLocalDates(typeof evt.body === "string" ? evt.body : JSON.stringify(evt.body))}
                       </div>
                     )}
                     {evt.dueAt && (
@@ -617,11 +677,11 @@ export function LeadCommandHistory({
         </div>
       )}
 
-      {/* Tab 2: Add Note */}
+      {/* Tab 2: Notes & Dedicated Notes-Only History */}
       {tab === "note" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
           <label htmlFor="command-note" style={{ fontSize: "11px", color: "var(--text-tertiary)", fontWeight: 600 }}>
-            New Note for {customerName || "Lead"}
+            Add Note for {customerName || "Lead"}
           </label>
           <textarea
             id="command-note"
@@ -637,7 +697,10 @@ export function LeadCommandHistory({
               type="button"
               className="btn"
               data-size="sm"
-              onClick={() => setTab("history")}
+              onClick={() => {
+                setNoteBody("");
+                setTab("history");
+              }}
             >
               Cancel
             </button>
@@ -651,6 +714,51 @@ export function LeadCommandHistory({
             >
               {saving ? "Saving..." : "Save Note"}
             </button>
+          </div>
+
+          {/* Dedicated Notes-Only History Section */}
+          <div style={{ marginTop: "10px", borderTop: "1px solid var(--border)", paddingTop: "10px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+              <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                Notes History ({notesList.length})
+              </span>
+              <span className="hint" style={{ fontSize: "10px" }}>Chronological by author</span>
+            </div>
+            {notesList.length === 0 ? (
+              <div style={{ padding: "16px 0", textAlign: "center", color: "var(--text-tertiary)", fontSize: "11px" }}>
+                No notes logged for this lead yet.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px", maxHeight: "240px", overflowY: "auto", paddingRight: "2px" }}>
+                {notesList.map((item) => (
+                  <div
+                    key={item.id}
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: "var(--r-sm)",
+                      background: "var(--bg-soft)",
+                      border: "1px solid var(--border)",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "4px",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <Icon name="pencil" size={11} />
+                        <strong style={{ fontSize: "11px", color: "var(--text)" }}>{item.authorName}</strong>
+                      </div>
+                      <span style={{ fontSize: "10px", color: "var(--text-tertiary)" }}>
+                        {formatDateTime(item.createdAt)}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: "11.5px", color: "var(--text)", whiteSpace: "pre-wrap", lineHeight: 1.45 }}>
+                      {item.body}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
