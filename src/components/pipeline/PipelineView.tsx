@@ -552,10 +552,7 @@ export function PipelineView() {
     }
   };
 
-  const boardLeads = useMemo(
-    () => scoped.filter((l) => !isScannedWhatsAppLead(l)),
-    [scoped]
-  );
+  const boardLeads = scoped;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -1324,11 +1321,11 @@ export function PipelineView() {
             )}
             {state.scope.startsWith("agent:") ? (
               <span className="chip" data-tone="accent">
-                <Icon name="target" size={13} /> {state.scope.slice(6)}&apos;s Leads ({boardLeads.length}) • Scanned WhatsApp in Chat tab
+                <Icon name="target" size={13} /> {state.scope.slice(6)}&apos;s Leads ({boardLeads.length})
               </span>
             ) : (
               <span className="chip" data-tone="neutral">
-                <Icon name="shield" size={12} /> Sales Pipeline Leads ({boardLeads.length}) • Scanned WhatsApp chats in Chat view
+                <Icon name="shield" size={12} /> Pipeline Leads ({boardLeads.length})
               </span>
             )}
           </div>
